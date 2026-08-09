@@ -271,7 +271,9 @@ document.getElementById("labelPicker").addEventListener("change", e => {
 });
 
 try {
-  const res = await fetch("/data/dashboard.json", { cache: "no-store" });
+  // Relative, not absolute: on GitHub Pages this lives under /NH-Dashboard/,
+  // so a leading slash would resolve to the wrong origin root.
+  const res = await fetch("data/dashboard.json", { cache: "no-store" });
   if (!res.ok) throw new Error("no data yet");
   state.data = await res.json();
 
