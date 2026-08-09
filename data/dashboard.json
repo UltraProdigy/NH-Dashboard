@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T23:01:53.703Z",
+  "generatedAt": "2026-08-09T23:38:23.645Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -276,7 +276,7 @@
           "createdAt": "2026-03-28T17:28:12Z",
           "updatedAt": "2026-07-04T23:10:42Z",
           "ageDays": 134,
-          "staleDays": 35
+          "staleDays": 36
         },
         {
           "repo": "GTNewHorizons/ModularUI2",
@@ -336,7 +336,7 @@
           ],
           "createdAt": "2026-07-16T23:06:25Z",
           "updatedAt": "2026-07-24T18:26:05Z",
-          "ageDays": 23,
+          "ageDays": 24,
           "staleDays": 16
         },
         {
@@ -534,7 +534,7 @@
             }
           ],
           "createdAt": "2026-08-09T20:12:03Z",
-          "updatedAt": "2026-08-09T22:32:53Z",
+          "updatedAt": "2026-08-09T23:10:29Z",
           "ageDays": 0,
           "staleDays": 0
         },
@@ -549,7 +549,7 @@
           "labels": [],
           "createdAt": "2026-08-08T23:09:39Z",
           "updatedAt": "2026-08-09T04:13:37Z",
-          "ageDays": 0,
+          "ageDays": 1,
           "staleDays": 0
         },
         {
@@ -653,7 +653,7 @@
             ],
             "createdAt": "2026-07-27T23:12:01Z",
             "updatedAt": "2026-08-07T20:50:37Z",
-            "ageDays": 12,
+            "ageDays": 13,
             "staleDays": 2
           }
         ],
@@ -713,7 +713,7 @@
             ],
             "createdAt": "2026-07-27T23:12:01Z",
             "updatedAt": "2026-08-07T20:50:37Z",
-            "ageDays": 12,
+            "ageDays": 13,
             "staleDays": 2
           }
         ],
@@ -842,7 +842,7 @@
             "createdAt": "2025-10-12T17:44:29Z",
             "updatedAt": "2026-04-21T23:23:12Z",
             "ageDays": 301,
-            "staleDays": 109
+            "staleDays": 110
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1204,7 +1204,7 @@
             ],
             "createdAt": "2026-07-16T23:06:25Z",
             "updatedAt": "2026-07-24T18:26:05Z",
-            "ageDays": 23,
+            "ageDays": 24,
             "staleDays": 16
           },
           {
@@ -1500,7 +1500,7 @@
             "createdAt": "2026-04-21T06:43:51Z",
             "updatedAt": "2026-07-04T23:12:51Z",
             "ageDays": 110,
-            "staleDays": 35
+            "staleDays": 36
           },
           {
             "repo": "GTNewHorizons/WitcheryExtras",
@@ -2119,7 +2119,7 @@
             ],
             "createdAt": "2026-08-05T23:21:12Z",
             "updatedAt": "2026-08-08T22:46:20Z",
-            "ageDays": 3,
+            "ageDays": 4,
             "staleDays": 1
           },
           {
@@ -2738,7 +2738,7 @@
             "createdAt": "2026-06-05T17:31:10Z",
             "updatedAt": "2026-07-04T23:18:53Z",
             "ageDays": 65,
-            "staleDays": 35
+            "staleDays": 36
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3077,7 +3077,7 @@
             "createdAt": "2026-03-28T17:28:12Z",
             "updatedAt": "2026-07-04T23:10:42Z",
             "ageDays": 134,
-            "staleDays": 35
+            "staleDays": 36
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3917,7 +3917,7 @@
             "createdAt": "2026-07-24T15:56:19Z",
             "updatedAt": "2026-08-05T23:25:22Z",
             "ageDays": 16,
-            "staleDays": 3
+            "staleDays": 4
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3937,6 +3937,37 @@
             "updatedAt": "2026-07-30T14:49:04Z",
             "ageDays": 16,
             "staleDays": 10
+          },
+          {
+            "repo": "GTNewHorizons/CropsNH",
+            "number": 228,
+            "title": "Boot protection system (For 2.9, Missing feature parity)",
+            "url": "https://github.com/GTNewHorizons/CropsNH/pull/228",
+            "author": "C0bra5",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/17766417?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Safe for Stable",
+                "color": "D4C5F9"
+              },
+              {
+                "name": ":heavy_check_mark: Tested in full GTNH instance",
+                "color": "0e8a16"
+              },
+              {
+                "name": ":heavy_check_mark: Tested on Server",
+                "color": "0e8a16"
+              }
+            ],
+            "createdAt": "2026-07-27T23:12:01Z",
+            "updatedAt": "2026-08-07T20:50:37Z",
+            "ageDays": 13,
+            "staleDays": 2
           },
           {
             "repo": "GTNewHorizons/BloodMagic",
@@ -3979,37 +4010,6 @@
             "updatedAt": "2026-08-09T00:03:48Z",
             "ageDays": 12,
             "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/CropsNH",
-            "number": 228,
-            "title": "Boot protection system (For 2.9, Missing feature parity)",
-            "url": "https://github.com/GTNewHorizons/CropsNH/pull/228",
-            "author": "C0bra5",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/17766417?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Safe for Stable",
-                "color": "D4C5F9"
-              },
-              {
-                "name": ":heavy_check_mark: Tested in full GTNH instance",
-                "color": "0e8a16"
-              },
-              {
-                "name": ":heavy_check_mark: Tested on Server",
-                "color": "0e8a16"
-              }
-            ],
-            "createdAt": "2026-07-27T23:12:01Z",
-            "updatedAt": "2026-08-07T20:50:37Z",
-            "ageDays": 12,
-            "staleDays": 2
           },
           {
             "repo": "GTNewHorizons/Controlling",
@@ -4340,7 +4340,7 @@
               }
             ],
             "createdAt": "2026-08-09T20:12:03Z",
-            "updatedAt": "2026-08-09T22:32:53Z",
+            "updatedAt": "2026-08-09T23:10:29Z",
             "ageDays": 0,
             "staleDays": 0
           }
@@ -4457,7 +4457,7 @@
             "createdAt": "2025-10-12T17:44:29Z",
             "updatedAt": "2026-04-21T23:23:12Z",
             "ageDays": 301,
-            "staleDays": 109
+            "staleDays": 110
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -4957,7 +4957,7 @@
               }
             ],
             "createdAt": "2026-08-09T20:12:03Z",
-            "updatedAt": "2026-08-09T22:32:53Z",
+            "updatedAt": "2026-08-09T23:10:29Z",
             "ageDays": 0,
             "staleDays": 0
           }
@@ -5817,7 +5817,7 @@
               }
             ],
             "createdAt": "2026-08-09T20:12:03Z",
-            "updatedAt": "2026-08-09T22:32:53Z",
+            "updatedAt": "2026-08-09T23:10:29Z",
             "ageDays": 0,
             "staleDays": 0
           }
@@ -6681,7 +6681,7 @@
             ],
             "createdAt": "2026-07-27T23:12:01Z",
             "updatedAt": "2026-08-07T20:50:37Z",
-            "ageDays": 12,
+            "ageDays": 13,
             "staleDays": 2
           },
           {
@@ -7191,7 +7191,7 @@
           "releasedAt": "2026-06-09T23:32:01Z",
           "isPrerelease": false,
           "commitsAhead": 2,
-          "daysSinceRelease": 60
+          "daysSinceRelease": 61
         },
         {
           "repo": "HelpFixer",
@@ -7557,7 +7557,7 @@
             "m6": {
               "prs": 377,
               "merged": 375,
-              "approvals": 829
+              "approvals": 828
             },
             "y1": {
               "prs": 678,
@@ -7742,7 +7742,7 @@
             "y1": {
               "prs": 208,
               "merged": 162,
-              "approvals": 191
+              "approvals": 190
             },
             "all": {
               "prs": 615,
@@ -7800,9 +7800,9 @@
               "approvals": 133
             },
             "y1": {
-              "prs": 376,
+              "prs": 375,
               "merged": 375,
-              "approvals": 153
+              "approvals": 152
             },
             "all": {
               "prs": 891,
@@ -8010,7 +8010,7 @@
               "approvals": 107
             },
             "y1": {
-              "prs": 137,
+              "prs": 135,
               "merged": 119,
               "approvals": 254
             },
@@ -8037,7 +8037,7 @@
             "m6": {
               "prs": 51,
               "merged": 52,
-              "approvals": 79
+              "approvals": 78
             },
             "y1": {
               "prs": 214,
@@ -8096,7 +8096,7 @@
             },
             "m6": {
               "prs": 112,
-              "merged": 112,
+              "merged": 111,
               "approvals": 106
             },
             "y1": {
@@ -8130,8 +8130,8 @@
               "approvals": 162
             },
             "y1": {
-              "prs": 150,
-              "merged": 148,
+              "prs": 149,
+              "merged": 147,
               "approvals": 197
             },
             "all": {
@@ -9321,7 +9321,7 @@
             },
             "m3": {
               "prs": 49,
-              "merged": 61,
+              "merged": 60,
               "approvals": 19
             },
             "m6": {
