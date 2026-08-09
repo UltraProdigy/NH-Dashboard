@@ -21,18 +21,25 @@ const DATA_DIR = path.join(
   "data"
 );
 
-/** Each panel runs isolated — one failure shouldn't sink the whole build. */
-async function run(name, fn, { empty = [] } = {}) {
+/**
+ * Each panel runs isolated — one failure shouldn't sink the whole build.
+ *
+ * `optional: true` means a failure is reported but doesn't fail the process.
+ * Used for panels that depend on locally-ingested data, which legitimately
+ * isn't present in CI. Without this, a missing ingest store would turn the
+ * whole workflow red and block the Pages deploy.
+ */
+async function run(name, fn, { empty = [], optional = false } = {}) {
   const started = Date.now();
   process.stdout.write(`▸ ${name}\n`);
   try {
     const data = await fn();
     const count = Array.isArray(data) ? data.length : Object.keys(data).length;
     console.log(`  ✓ ${count} results in ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
-    return { ok: true, data };
+    return { ok: true, data, optional };
   } catch (err) {
-    console.error(`  ✗ failed: ${err.message}\n`);
-    return { ok: false, error: err.message, data: empty };
+    console.error(`  ${optional ? "-" : "✗"} ${optional ? "skipped" : "failed"}: ${err.message}\n`);
+    return { ok: false, error: err.message, data: empty, optional };
   }
 }
 
@@ -49,6 +56,7 @@ async function main() {
     // explanatory message if `npm run ingest` hasn't been run yet.
     contributors: await run("Contributor activity", contributors, {
       empty: { windows: [], rows: [] },
+      optional: true,
     }),
   };
 
@@ -85,7 +93,7 @@ async function main() {
     console.log(`  ${remaining}/${limit} core quota remaining\n`);
   }
 
-  const failed = Object.entries(panels).filter(([, v]) => !v.ok);
+  const failed = Object.entries(panels).filter(([, v]) => !v.ok && !v.optional);
   if (failed.length) {
     console.error(`${failed.length} panel(s) failed — see above.`);
     process.exitCode = 1;
