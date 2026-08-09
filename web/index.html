@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NH Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; }
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  nav button {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    padding: 12px 14px;
+    font: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  nav button:hover { color: var(--text); }
+  nav button[aria-selected="true"] {
+    color: var(--text);
+    border-bottom-color: #f78166;
+  }
+  .count {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 6px;
+    margin-left: 6px;
+    font-size: 11px;
+  }
+  main { padding: 24px; max-width: 1400px; }
+  .toolbar { margin-bottom: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type="search"], select {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font: inherit;
+    min-width: 220px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+  }
+  th:hover { color: var(--text); }
+  tbody tr:hover { background: var(--panel); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .repo { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+  .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .label {
+    display: inline-block;
+    border-radius: 10px;
+    padding: 0 7px;
+    font-size: 11px;
+    margin: 1px 3px 1px 0;
+    border: 1px solid var(--border);
+  }
+  .empty, .error { color: var(--muted); padding: 40px 0; text-align: center; }
+  .error { color: var(--bad); }
+  .age-old { color: var(--warn); }
+  .age-ancient { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NH Dashboard</h1>
+  <span class="meta" id="meta">loading…</span>
+</header>
+
+<nav id="tabs"></nav>
+
+<main>
+  <div class="toolbar">
+    <input type="search" id="filter" placeholder="Filter by repo, title, or author…">
+    <select id="labelPicker" hidden></select>
+  </div>
+  <div id="view"></div>
+</main>
+
+<script type="module">
+const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, sort: null, dir: -1 };
+
+const TABS = [
+  { id: "approvedUnmerged", label: "Approved, not merged" },
+  { id: "changesRequested", label: "Changes requested" },
+  { id: "needsRelease",     label: "Needs release" },
+  { id: "byLabel",          label: "By label" },
+];
+
+const COLUMNS = {
+  pr: [
+    { key: "repo",     label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
+    { key: "title",    label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
+    { key: "author",   label: "Author", render: r => esc(r.author) },
+    { key: "labels",   label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
+    { key: "ageDays",  label: "Opened", render: r => age(r.ageDays) },
+    { key: "staleDays",label: "Updated",render: r => age(r.staleDays) },
+  ],
+  release: [
+    { key: "repo",           label: "Repo",     render: r => `<a href="${r.repoUrl}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
+    { key: "tagName",        label: "Last release", render: r => `<a href="${r.releaseUrl}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
+    { key: "commitsAhead",   label: "Commits ahead", render: r => `<span class="num">${r.commitsAhead ?? "?"}</span>` },
+    { key: "daysSinceRelease", label: "Released", render: r => age(r.daysSinceRelease) },
+    { key: "defaultBranch",  label: "Branch",   render: r => `<span class="repo">${esc(r.defaultBranch)}</span>` },
+  ],
+};
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function age(days) {
+  if (days == null) return "—";
+  const cls = days > 180 ? "age-ancient" : days > 60 ? "age-old" : "";
+  const text = days === 0 ? "today" : days === 1 ? "1 day ago" : days < 60 ? `${days} days ago`
+    : days < 730 ? `${Math.floor(days / 30)} mo ago` : `${Math.floor(days / 365)} yr ago`;
+  return `<span class="${cls} num">${text}</span>`;
+}
+
+function rowsFor(tab) {
+  const panel = state.data.panels[tab];
+  if (!panel?.ok) return null;
+  if (tab !== "byLabel") return panel.data;
+  const groups = panel.data;
+  const key = state.label ?? Object.keys(groups)[0];
+  return groups[key] ?? [];
+}
+
+function countFor(tab) {
+  const panel = state.data?.panels?.[tab];
+  if (!panel?.ok) return "!";
+  return tab === "byLabel"
+    ? Object.values(panel.data).reduce((n, g) => n + g.length, 0)
+    : panel.data.length;
+}
+
+function render() {
+  const { data, tab } = state;
+
+  document.getElementById("tabs").innerHTML = TABS.map(t =>
+    `<button data-tab="${t.id}" aria-selected="${t.id === tab}">${t.label}<span class="count">${countFor(t.id)}</span></button>`
+  ).join("");
+
+  const picker = document.getElementById("labelPicker");
+  picker.hidden = tab !== "byLabel";
+  if (tab === "byLabel") {
+    const groups = data.panels.byLabel.data;
+    picker.innerHTML = Object.entries(groups)
+      .map(([k, v]) => `<option value="${esc(k)}"${k === state.label ? " selected" : ""}>${esc(k)} (${v.length})</option>`)
+      .join("");
+  }
+
+  const view = document.getElementById("view");
+  const panel = data.panels[tab];
+
+  if (!panel.ok) {
+    view.innerHTML = `<div class="error">This panel failed to build:<br>${esc(panel.error)}</div>`;
+    return;
+  }
+
+  const cols = tab === "needsRelease" ? COLUMNS.release : COLUMNS.pr;
+  let rows = rowsFor(tab) ?? [];
+
+  if (state.filter) {
+    const q = state.filter.toLowerCase();
+    rows = rows.filter(r =>
+      [r.repo, r.title, r.author, r.tagName].some(v => String(v ?? "").toLowerCase().includes(q))
+    );
+  }
+
+  if (state.sort) {
+    rows = [...rows].sort((a, b) => {
+      const x = a[state.sort], y = b[state.sort];
+      const cmp = typeof x === "number" && typeof y === "number"
+        ? x - y
+        : String(x ?? "").localeCompare(String(y ?? ""));
+      return cmp * state.dir;
+    });
+  }
+
+  if (!rows.length) {
+    view.innerHTML = `<div class="empty">Nothing here${state.filter ? " matching your filter" : ""}. ${state.filter ? "" : "That's good news."}</div>`;
+    return;
+  }
+
+  view.innerHTML = `
+    <table>
+      <thead><tr>${cols.map(c =>
+        `<th ${c.sortable === false ? "" : `data-sort="${c.key}"`}>${c.label}${state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`
+      ).join("")}</tr></thead>
+      <tbody>${rows.map(r =>
+        `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`
+      ).join("")}</tbody>
+    </table>`;
+}
+
+document.getElementById("tabs").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-tab]");
+  if (!btn) return;
+  state.tab = btn.dataset.tab;
+  state.sort = null;
+  render();
+});
+
+document.getElementById("view").addEventListener("click", e => {
+  const th = e.target.closest("th[data-sort]");
+  if (!th) return;
+  const key = th.dataset.sort;
+  state.dir = state.sort === key ? -state.dir : -1;
+  state.sort = key;
+  render();
+});
+
+document.getElementById("filter").addEventListener("input", e => {
+  state.filter = e.target.value.trim();
+  render();
+});
+
+document.getElementById("labelPicker").addEventListener("change", e => {
+  state.label = e.target.value;
+  render();
+});
+
+try {
+  const res = await fetch("/data/dashboard.json", { cache: "no-store" });
+  if (!res.ok) throw new Error("no data yet");
+  state.data = await res.json();
+
+  const built = new Date(state.data.generatedAt);
+  const mins = Math.round((Date.now() - built) / 60000);
+  document.getElementById("meta").textContent =
+    `${state.data.org} · built ${mins < 1 ? "just now" : `${mins} min ago`}`;
+
+  state.label = Object.keys(state.data.panels.byLabel?.data ?? {})[0] ?? null;
+  render();
+} catch {
+  document.getElementById("meta").textContent = "no data";
+  document.getElementById("view").innerHTML =
+    `<div class="error">No data found. Run <code>npm run build</code> first.</div>`;
+}
+</script>
+</body>
+</html>

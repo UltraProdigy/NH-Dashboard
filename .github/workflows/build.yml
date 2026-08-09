@@ -1,0 +1,52 @@
+name: Build dashboard data
+
+on:
+  schedule:
+    # Every 30 minutes. Adjust freely — the whole build is well under the
+    # hourly rate limit, so cost isn't the constraint here.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths-ignore:
+      - "data/**"
+      - "README.md"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-data
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build
+        env:
+          # NOT the built-in secrets.GITHUB_TOKEN — that one is scoped to this
+          # repo only and cannot read GTNewHorizons. Add a PAT with
+          # "public_repo" scope as a repo secret named GH_DASHBOARD_TOKEN:
+          # Settings → Secrets and variables → Actions → New repository secret
+          GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
+          GITHUB_ORG: GTNewHorizons
+        run: node src/build.js --no-cache
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --staged --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Update dashboard data [skip ci]"
+            git push
+          fi
