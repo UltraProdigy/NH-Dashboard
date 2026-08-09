@@ -105,6 +105,23 @@
     margin: 1px 3px 1px 0;
     border: 1px solid var(--border);
   }
+  .minlabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .minlabel input {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit;
+    width: 70px;
+  }
+  .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
   .empty, .error { color: var(--muted); padding: 40px 0; text-align: center; }
   .error { color: var(--bad); }
   .age-old { color: var(--warn); }
@@ -125,12 +142,19 @@
     <input type="search" id="filter" placeholder="Filter by repo, title, or author…">
     <select id="labelPicker" hidden></select>
     <select id="windowPicker" hidden></select>
+    <label id="minWrap" hidden class="minlabel">
+      min activity
+      <input type="number" id="minActivity" min="0" step="1" value="3">
+    </label>
   </div>
   <div id="view"></div>
 </main>
 
 <script type="module">
-const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, window: "all", sort: null, dir: -1 };
+const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, window: "all", minActivity: 3, sort: null, dir: -1 };
+
+/** Total PRs + approvals for a contributor in the selected window. */
+const activityIn = (r, w) => r[w].prs + r[w].approvals;
 
 const TABS = [
   { id: "approvedUnmerged", label: "Approved, not merged" },
@@ -171,7 +195,13 @@ function age(days) {
 function rowsFor(tab) {
   const panel = state.data.panels[tab];
   if (!panel?.ok) return null;
-  if (tab === "contributors") return panel.data.rows ?? [];
+  if (tab === "contributors") {
+    // Filtered against the *selected window*, not all-time — otherwise
+    // "active in the last month" would still be padded with people who were
+    // busy in 2016 and haven't been seen since.
+    const min = state.minActivity;
+    return (panel.data.rows ?? []).filter(r => activityIn(r, state.window) >= min);
+  }
   if (tab !== "byLabel") return panel.data;
   const groups = panel.data;
   const key = state.label ?? Object.keys(groups)[0];
@@ -181,7 +211,7 @@ function rowsFor(tab) {
 function countFor(tab) {
   const panel = state.data?.panels?.[tab];
   if (!panel?.ok) return "!";
-  if (tab === "contributors") return panel.data.rows?.length ?? 0;
+  if (tab === "contributors") return rowsFor("contributors")?.length ?? 0;
   return tab === "byLabel"
     ? Object.values(panel.data).reduce((n, g) => n + g.length, 0)
     : panel.data.length;
@@ -223,6 +253,7 @@ function render() {
 
   const wp = document.getElementById("windowPicker");
   wp.hidden = tab !== "contributors";
+  document.getElementById("minWrap").hidden = tab !== "contributors";
   if (tab === "contributors" && data.panels.contributors.ok) {
     wp.innerHTML = (data.panels.contributors.data.windows ?? [])
       .map(w => `<option value="${w.id}"${w.id === state.window ? " selected" : ""}>${esc(w.label)}</option>`)
@@ -266,7 +297,19 @@ function render() {
     return;
   }
 
-  view.innerHTML = `
+  // Show how many people the threshold is hiding, so a surprisingly short
+  // list is obviously a filter and not missing data.
+  const hint = tab === "contributors"
+    ? (() => {
+        const total = panel.data.rows?.length ?? 0;
+        const hidden = total - (rowsFor(tab) ?? []).length;
+        return hidden > 0
+          ? `<div class="hint">${hidden} of ${total} hidden by min activity ${state.minActivity} in this window — set it to 0 to show everyone.</div>`
+          : `<div class="hint">Showing all ${total} contributors.</div>`;
+      })()
+    : "";
+
+  view.innerHTML = hint + `
     <table>
       <thead><tr>${cols.map(c =>
         `<th ${c.sortable === false ? "" : `data-sort="${c.key}"`}>${c.label}${state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`
@@ -306,6 +349,12 @@ document.getElementById("labelPicker").addEventListener("change", e => {
 
 document.getElementById("windowPicker").addEventListener("change", e => {
   state.window = e.target.value;
+  render();
+});
+
+document.getElementById("minActivity").addEventListener("input", e => {
+  const v = Number(e.target.value);
+  state.minActivity = Number.isFinite(v) && v >= 0 ? v : 0;
   render();
 });
 
