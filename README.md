@@ -54,8 +54,28 @@ development needs one of the three options above rather than reusing the secret.
 |---|---|---|
 | Approved, not merged | 1 search | `review:approved` is *current* state, so anything since un-approved drops out automatically |
 | Changes requested | 1 search | Same — already excludes anything since approved |
-| PRs by label | 1 search per label | Labels are per-repo, so we track a curated list rather than enumerating 1400 repos' worth |
+| PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
 | Needs release | ~30 GraphQL + 1 REST per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ |
+| Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
+
+## Contributor activity
+
+Review approvals are nested under each PR, so there's no query that answers
+"how many reviews has X approved". The only way is to walk every PR in the org.
+That's too slow to do live, so it's a separate ingestion step:
+
+```bash
+npm run ingest      # first run walks all-time history; Ctrl-C is safe, it resumes
+npm run build       # aggregates the store into the dashboard
+```
+
+The ingest is resumable (state saved per repo) and incremental after the first
+pass — later runs only fetch PRs updated since the last run, and skip repos with
+no pushes since. Records are append-only and keyed `repo#number`, so a late
+review on an old PR correctly supersedes the earlier record.
+
+The raw store lives in `.cache/ingest/` and is gitignored. Only the aggregate
+lands in `data/`.
 
 ## Layout
 

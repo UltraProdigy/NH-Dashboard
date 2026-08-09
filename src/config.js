@@ -8,20 +8,33 @@ import { execFileSync } from "node:child_process";
 export const ORG = process.env.GITHUB_ORG || "GTNewHorizons";
 
 /**
- * Labels surfaced in the "PRs by label" panel.
+ * Where the org's managed label set lives.
  *
- * Labels are per-repo on GitHub, so enumerating every label across 1400+ repos
- * would cost one API call per repo. Instead we list the ones actually worth
- * triaging by. Add and remove freely — each entry is one search query.
+ * Label-Sync-GTNH is the source of truth — it syncs this list out to every
+ * repo in the org — so the dashboard reads it on each build rather than
+ * keeping its own copy that would drift.
  */
-export const TRACKED_LABELS = [
+export const LABEL_SOURCE = {
+  owner: "GTNewHorizons",
+  repo: "Label-Sync-GTNH",
+  path: "config/labels.jsonc",
+};
+
+/**
+ * Used only if Label-Sync-GTNH can't be read. Each label costs one search
+ * request per build, so if the managed set grows large, cap it here.
+ */
+export const TRACKED_LABELS_FALLBACK = [
   "bug",
   "enhancement",
   "help wanted",
-  "good first issue",
-  "ready to merge",
-  "do not merge",
 ];
+
+/**
+ * Cap on how many labels get their own search query, to bound build cost.
+ * Set to null for no limit.
+ */
+export const MAX_TRACKED_LABELS = 40;
 
 /**
  * "Needs a release" tuning.
@@ -41,6 +54,19 @@ export const STALE_REPO_CUTOFF_DAYS = 365;
 
 /** Cache TTL for API responses during local dev, in minutes. */
 export const CACHE_TTL_MINUTES = 15;
+
+/**
+ * Logins matching this are excluded from contributor stats.
+ * GitHub Apps show up with a "[bot]" suffix; the rest are named explicitly.
+ */
+export const BOT_PATTERN =
+  /(\[bot\]$|^dependabot|^github-actions|^renovate|^codecov|^mergify|^stale)/i;
+
+/**
+ * Hide contributors with fewer than this many total PRs + approvals all-time.
+ * Set to 0 to show everyone, including one-time drive-by contributors.
+ */
+export const CONTRIBUTOR_MIN_ACTIVITY = 3;
 
 let cachedToken = null;
 

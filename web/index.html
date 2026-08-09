@@ -124,18 +124,20 @@
   <div class="toolbar">
     <input type="search" id="filter" placeholder="Filter by repo, title, or author…">
     <select id="labelPicker" hidden></select>
+    <select id="windowPicker" hidden></select>
   </div>
   <div id="view"></div>
 </main>
 
 <script type="module">
-const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, sort: null, dir: -1 };
+const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, window: "all", sort: null, dir: -1 };
 
 const TABS = [
   { id: "approvedUnmerged", label: "Approved, not merged" },
   { id: "changesRequested", label: "Changes requested" },
   { id: "needsRelease",     label: "Needs release" },
   { id: "byLabel",          label: "By label" },
+  { id: "contributors",     label: "Contributors" },
 ];
 
 const COLUMNS = {
@@ -169,6 +171,7 @@ function age(days) {
 function rowsFor(tab) {
   const panel = state.data.panels[tab];
   if (!panel?.ok) return null;
+  if (tab === "contributors") return panel.data.rows ?? [];
   if (tab !== "byLabel") return panel.data;
   const groups = panel.data;
   const key = state.label ?? Object.keys(groups)[0];
@@ -178,9 +181,28 @@ function rowsFor(tab) {
 function countFor(tab) {
   const panel = state.data?.panels?.[tab];
   if (!panel?.ok) return "!";
+  if (tab === "contributors") return panel.data.rows?.length ?? 0;
   return tab === "byLabel"
     ? Object.values(panel.data).reduce((n, g) => n + g.length, 0)
     : panel.data.length;
+}
+
+/** Contributor columns depend on the selected time window. */
+function contributorColumns() {
+  const w = state.window;
+  return [
+    { key: "login", label: "Contributor",
+      render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+    { key: `${w}.prs`, label: "PRs opened", get: r => r[w].prs,
+      render: r => `<span class="num">${r[w].prs}</span>` },
+    { key: `${w}.merged`, label: "Merged", get: r => r[w].merged,
+      render: r => `<span class="num">${r[w].merged}</span>` },
+    { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals,
+      render: r => `<span class="num">${r[w].approvals}</span>` },
+    { key: "lastSeen", label: "Last active",
+      get: r => r.lastSeen ?? "",
+      render: r => age(r.lastSeen ? Math.floor((Date.now() - new Date(r.lastSeen)) / 86400000) : null) },
+  ];
 }
 
 function render() {
@@ -199,6 +221,14 @@ function render() {
       .join("");
   }
 
+  const wp = document.getElementById("windowPicker");
+  wp.hidden = tab !== "contributors";
+  if (tab === "contributors" && data.panels.contributors.ok) {
+    wp.innerHTML = (data.panels.contributors.data.windows ?? [])
+      .map(w => `<option value="${w.id}"${w.id === state.window ? " selected" : ""}>${esc(w.label)}</option>`)
+      .join("");
+  }
+
   const view = document.getElementById("view");
   const panel = data.panels[tab];
 
@@ -207,19 +237,23 @@ function render() {
     return;
   }
 
-  const cols = tab === "needsRelease" ? COLUMNS.release : COLUMNS.pr;
+  const cols = tab === "contributors" ? contributorColumns()
+             : tab === "needsRelease" ? COLUMNS.release
+             : COLUMNS.pr;
   let rows = rowsFor(tab) ?? [];
 
   if (state.filter) {
     const q = state.filter.toLowerCase();
     rows = rows.filter(r =>
-      [r.repo, r.title, r.author, r.tagName].some(v => String(v ?? "").toLowerCase().includes(q))
+      [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q))
     );
   }
 
   if (state.sort) {
+    const col = cols.find(c => c.key === state.sort);
+    const val = col?.get ?? (r => r[state.sort]);
     rows = [...rows].sort((a, b) => {
-      const x = a[state.sort], y = b[state.sort];
+      const x = val(a), y = val(b);
       const cmp = typeof x === "number" && typeof y === "number"
         ? x - y
         : String(x ?? "").localeCompare(String(y ?? ""));
@@ -267,6 +301,11 @@ document.getElementById("filter").addEventListener("input", e => {
 
 document.getElementById("labelPicker").addEventListener("change", e => {
   state.label = e.target.value;
+  render();
+});
+
+document.getElementById("windowPicker").addEventListener("change", e => {
+  state.window = e.target.value;
   render();
 });
 

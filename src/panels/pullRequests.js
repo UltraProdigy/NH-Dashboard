@@ -6,7 +6,8 @@
  */
 
 import { searchIssues } from "../github/client.js";
-import { ORG, TRACKED_LABELS } from "../config.js";
+import { fetchManagedLabels } from "../github/labelSync.js";
+import { MAX_TRACKED_LABELS, ORG } from "../config.js";
 
 const DAY = 86_400_000;
 
@@ -62,13 +63,25 @@ export async function changesRequested() {
 }
 
 /**
- * Open PRs grouped by tracked label. One search per label — see
- * TRACKED_LABELS in config.js for why we don't enumerate all of them.
+ * Open PRs grouped by label.
+ *
+ * The label list comes from Label-Sync-GTNH on every build, so adding a label
+ * there makes it appear here on the next run with no code change. One search
+ * request per label, hence MAX_TRACKED_LABELS as a cost ceiling.
  */
 export async function byLabel() {
+  let labels = await fetchManagedLabels();
+
+  if (MAX_TRACKED_LABELS && labels.length > MAX_TRACKED_LABELS) {
+    console.warn(
+      `  ${labels.length} managed labels, querying first ${MAX_TRACKED_LABELS} (raise MAX_TRACKED_LABELS to widen)`
+    );
+    labels = labels.slice(0, MAX_TRACKED_LABELS);
+  }
+
   const groups = {};
 
-  for (const label of TRACKED_LABELS) {
+  for (const label of labels) {
     const items = await searchIssues(
       `org:${ORG} is:pr is:open label:"${label}"`
     );
