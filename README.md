@@ -74,8 +74,22 @@ pass — later runs only fetch PRs updated since the last run, and skip repos wi
 no pushes since. Records are append-only and keyed `repo#number`, so a late
 review on an old PR correctly supersedes the earlier record.
 
-The raw store lives in `.cache/ingest/` and is gitignored. Only the aggregate
-lands in `data/`.
+The store lives in `data/ingest/prs.ndjson` and **is committed** — that's what
+lets the hosted Pages build show contributor stats, and it doubles as a raw
+dataset you can query directly.
+
+Writes during a run are append-only so an interrupted run can't corrupt the
+file. At the end of each run the store is compacted: deduplicated (newest
+record per `repo#number` wins) and sorted by repo then PR number. That keeps it
+from growing without bound as PRs get updated, and makes the output
+deterministic so git diffs show only genuinely changed lines instead of a
+reshuffled 9 MB file.
+
+CI runs the ingest too, so the hosted dashboard stays current without you
+running anything locally.
+
+Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
+can't clobber real data.
 
 ## Layout
 

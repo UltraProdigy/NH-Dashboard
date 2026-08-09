@@ -19,7 +19,7 @@
  *     wins.
  */
 
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -36,7 +36,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
  * which is exactly what happened once.
  */
 export const STORE_DIR =
-  process.env.NH_STORE_DIR || path.join(ROOT, ".cache", "ingest");
+  process.env.NH_STORE_DIR || path.join(ROOT, "data", "ingest");
 export const STORE_FILE = path.join(STORE_DIR, "prs.ndjson");
 const STATE_FILE = path.join(STORE_DIR, "state.json");
 
@@ -213,8 +213,49 @@ export async function ingest({ limit = Infinity } = {}) {
   }
 
   await saveState(state);
-  console.log(`  done: ${processed} repos, ${written} new/updated PR records`);
+
+  const { before, after } = await compactStore();
+  console.log(
+    `  done: ${processed} repos, ${written} new/updated PR records` +
+      (before !== after ? `, compacted ${before} → ${after} lines` : "")
+  );
+
   return { processed, written };
+}
+
+/**
+ * Rewrite the store deduplicated and sorted.
+ *
+ * Writes during a run are append-only so an interrupted run can't corrupt the
+ * file. But the store is committed to git, and append-only means every updated
+ * PR leaves a dead record behind — the file would grow without bound and each
+ * commit would look like a huge diff.
+ *
+ * Sorting by repo then number makes the output deterministic, so git sees only
+ * the lines that actually changed between runs rather than a reshuffled file.
+ */
+export async function compactStore() {
+  const records = await readStore(); // already dedupes, keeping newest per key
+
+  let before = 0;
+  try {
+    const raw = await readFile(STORE_FILE, "utf8");
+    before = raw.trim() ? raw.trim().split("\n").length : 0;
+  } catch {
+    return { before: 0, after: 0 };
+  }
+
+  records.sort((a, b) =>
+    a.repo === b.repo ? a.number - b.number : a.repo.localeCompare(b.repo)
+  );
+
+  // Write to a temp file then rename, so an interrupted compaction can't
+  // leave a half-written store behind.
+  const tmp = `${STORE_FILE}.tmp`;
+  await writeFile(tmp, records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  await rename(tmp, STORE_FILE);
+
+  return { before, after: records.length };
 }
 
 /**

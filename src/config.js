@@ -63,10 +63,14 @@ export const BOT_PATTERN =
   /(\[bot\]$|^dependabot|^github-actions|^renovate|^codecov|^mergify|^stale)/i;
 
 /**
- * Hide contributors with fewer than this many total PRs + approvals all-time.
- * Set to 0 to show everyone, including one-time drive-by contributors.
+ * Hard floor on contributors written to the dashboard data.
+ *
+ * Keep this at 0. The useful filtering happens in the browser, where it's a
+ * slider you can move — filtering here instead would discard data before it
+ * ever reaches the frontend, and you'd need a rebuild to change your mind.
+ * Only raise it if the output file gets uncomfortably large.
  */
-export const CONTRIBUTOR_MIN_ACTIVITY = 3;
+export const CONTRIBUTOR_MIN_ACTIVITY = 0;
 
 let cachedToken = null;
 

@@ -31,6 +31,15 @@ jobs:
         with:
           node-version: "22"
 
+      # Incremental — repos with no pushes since the last run are skipped
+      # entirely, so this is fast despite covering all-time history. The store
+      # is committed to the repo, so the checkout above already has it.
+      - name: Ingest PRs and reviews
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
+          GITHUB_ORG: GTNewHorizons
+        run: node src/ingest.js
+
       - name: Build data
         env:
           # NOT the built-in secrets.GITHUB_TOKEN — that one is scoped to this

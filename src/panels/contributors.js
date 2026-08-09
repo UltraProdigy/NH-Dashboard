@@ -82,7 +82,7 @@ export async function contributors() {
 
   if (truncated) {
     console.warn(
-      `  note: ${truncated} PRs had more than 20 reviews; approval counts for those are undercounted`
+      `  note: ${truncated} PRs exceeded the per-PR review fetch limit; approval counts for those are slightly undercounted`
     );
   }
 
