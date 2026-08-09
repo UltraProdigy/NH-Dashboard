@@ -29,7 +29,14 @@ import { graphql } from "../github/client.js";
 import { ORG } from "../config.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const STORE_DIR = path.join(ROOT, ".cache", "ingest");
+
+/**
+ * Overridable so tests can point at a scratch directory. Without this, a test
+ * that writes fixtures to the store path destroys a real all-time ingest —
+ * which is exactly what happened once.
+ */
+export const STORE_DIR =
+  process.env.NH_STORE_DIR || path.join(ROOT, ".cache", "ingest");
 export const STORE_FILE = path.join(STORE_DIR, "prs.ndjson");
 const STATE_FILE = path.join(STORE_DIR, "state.json");
 
@@ -62,8 +69,10 @@ const PRS = `
           mergedAt
           state
           author { login }
-          # 50 PRs x 20 reviews = 1000 nodes/query, comfortably inside limits.
-          reviews(first: 20) {
+          # 50 PRs x 50 reviews = 2500 nodes/query, still well inside limits.
+          # At 20 this truncated ~90 heavily-reviewed PRs; 50 covers all but a
+          # handful, and reviewsTruncated flags whatever still overflows.
+          reviews(first: 50) {
             totalCount
             nodes {
               state
@@ -182,7 +191,13 @@ export async function ingest({ limit = Infinity } = {}) {
         written += records.length;
       }
 
-      state.repos[repo.name] = { seenThrough: newest, at: new Date().toISOString() };
+      // A repo with no PRs at all yields no watermark, which would make every
+      // future run re-walk it. Fall back to its pushedAt so the cheap
+      // "nothing pushed since" skip above can catch it next time.
+      state.repos[repo.name] = {
+        seenThrough: newest ?? repo.pushedAt,
+        at: new Date().toISOString(),
+      };
     } catch (err) {
       console.warn(`  ${repo.name}: ${err.message.split("\n")[0]}`);
       // Leave state untouched so the next run retries this repo.
