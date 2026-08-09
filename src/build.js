@@ -9,10 +9,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { ORG, TRACKED_LABELS } from "./config.js";
+import { ORG } from "./config.js";
 import { rateLimit, stats } from "./github/client.js";
 import { approvedUnmerged, byLabel, changesRequested } from "./panels/pullRequests.js";
 import { needsRelease } from "./panels/needsRelease.js";
+import { contributors } from "./panels/contributors.js";
 
 const DATA_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -44,12 +45,19 @@ async function main() {
     changesRequested: await run("Changes requested", changesRequested),
     byLabel: await run("PRs by label", byLabel, { empty: {} }),
     needsRelease: await run("Needs a release", needsRelease),
+    // Reads the local ingest store, not the API. Fails gracefully with an
+    // explanatory message if `npm run ingest` hasn't been run yet.
+    contributors: await run("Contributor activity", contributors, {
+      empty: { windows: [], rows: [] },
+    }),
   };
 
   const output = {
     generatedAt: new Date().toISOString(),
     org: ORG,
-    trackedLabels: TRACKED_LABELS,
+    // Derived from what byLabel actually queried, so it reflects the live
+    // Label-Sync set rather than a local copy.
+    trackedLabels: Object.keys(panels.byLabel.data ?? {}),
     panels: Object.fromEntries(
       Object.entries(panels).map(([k, v]) => [
         k,
