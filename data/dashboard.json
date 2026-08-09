@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T22:07:05.493Z",
+  "generatedAt": "2026-08-09T22:27:58.197Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -65,25 +65,6 @@
           "labels": [],
           "createdAt": "2026-08-09T21:24:05Z",
           "updatedAt": "2026-08-09T21:36:40Z",
-          "ageDays": 0,
-          "staleDays": 0
-        },
-        {
-          "repo": "GTNewHorizons/Variable-Horizons",
-          "number": 2,
-          "title": "Attempt at optimisations",
-          "url": "https://github.com/GTNewHorizons/Variable-Horizons/pull/2",
-          "author": "GDCloudstrike",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/93287602?v=4",
-          "draft": false,
-          "labels": [
-            {
-              "name": "Performance",
-              "color": "d049f8"
-            }
-          ],
-          "createdAt": "2026-08-09T12:04:05Z",
-          "updatedAt": "2026-08-09T16:15:29Z",
           "ageDays": 0,
           "staleDays": 0
         },
@@ -310,20 +291,6 @@
           "updatedAt": "2026-07-09T13:33:08Z",
           "ageDays": 31,
           "staleDays": 31
-        },
-        {
-          "repo": "GTNewHorizons/BetterQuesting",
-          "number": 232,
-          "title": "Add Option to Link Other Quests in Quest Descriptions",
-          "url": "https://github.com/GTNewHorizons/BetterQuesting/pull/232",
-          "author": "NotKaizul",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/263823598?v=4",
-          "draft": false,
-          "labels": [],
-          "createdAt": "2026-06-07T18:54:59Z",
-          "updatedAt": "2026-07-12T05:15:13Z",
-          "ageDays": 63,
-          "staleDays": 28
         },
         {
           "repo": "GTNewHorizons/Draconic-Evolution",
@@ -1958,7 +1925,7 @@
             "createdAt": "2026-07-29T04:13:37Z",
             "updatedAt": "2026-07-29T22:09:38Z",
             "ageDays": 11,
-            "staleDays": 10
+            "staleDays": 11
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -2275,7 +2242,7 @@
             "createdAt": "2026-08-08T15:33:40Z",
             "updatedAt": "2026-08-08T22:10:19Z",
             "ageDays": 1,
-            "staleDays": 0
+            "staleDays": 1
           },
           {
             "repo": "GTNewHorizons/ModularUI2",
@@ -3278,6 +3245,25 @@
             "staleDays": 35
           },
           {
+            "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 6618,
+            "title": "WIP: Russian inflection rules for material-based item names",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/6618",
+            "author": "Eldrinn-Elantey",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/46845681?v=4",
+            "draft": true,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              }
+            ],
+            "createdAt": "2026-05-06T22:13:18Z",
+            "updatedAt": "2026-06-22T09:24:49Z",
+            "ageDays": 95,
+            "staleDays": 48
+          },
+          {
             "repo": "GTNewHorizons/ThaumicBoots",
             "number": 50,
             "title": "MUI2 based GUI control of traveller boots",
@@ -3295,25 +3281,6 @@
             "updatedAt": "2026-05-26T02:13:49Z",
             "ageDays": 95,
             "staleDays": 75
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 6618,
-            "title": "WIP: Russian inflection rules for material-based item names",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/6618",
-            "author": "Eldrinn-Elantey",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/46845681?v=4",
-            "draft": true,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              }
-            ],
-            "createdAt": "2026-05-06T22:13:18Z",
-            "updatedAt": "2026-06-22T09:24:49Z",
-            "ageDays": 94,
-            "staleDays": 48
           },
           {
             "repo": "GTNewHorizons/supernova",
@@ -4955,9 +4922,9 @@
               }
             ],
             "createdAt": "2026-08-08T18:24:17Z",
-            "updatedAt": "2026-08-08T18:51:13Z",
+            "updatedAt": "2026-08-09T22:26:11Z",
             "ageDays": 1,
-            "staleDays": 1
+            "staleDays": 0
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -6081,25 +6048,6 @@
             "updatedAt": "2026-08-06T16:50:22Z",
             "ageDays": 3,
             "staleDays": 3
-          },
-          {
-            "repo": "GTNewHorizons/Variable-Horizons",
-            "number": 2,
-            "title": "Attempt at optimisations",
-            "url": "https://github.com/GTNewHorizons/Variable-Horizons/pull/2",
-            "author": "GDCloudstrike",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/93287602?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Performance",
-                "color": "d049f8"
-              }
-            ],
-            "createdAt": "2026-08-09T12:04:05Z",
-            "updatedAt": "2026-08-09T16:15:29Z",
-            "ageDays": 0,
-            "staleDays": 0
           }
         ],
         "Refactor": [
@@ -7172,7 +7120,7 @@
           "releasedAt": "2026-07-23T22:25:18Z",
           "isPrerelease": false,
           "commitsAhead": 16,
-          "daysSinceRelease": 16
+          "daysSinceRelease": 17
         },
         {
           "repo": "UtilitiesInExcess",
@@ -7293,6 +7241,36 @@
           "isPrerelease": false,
           "commitsAhead": 2,
           "daysSinceRelease": 1286
+        },
+        {
+          "repo": "Variable-Horizons",
+          "repoUrl": "https://github.com/GTNewHorizons/Variable-Horizons",
+          "isFork": false,
+          "defaultBranch": "master",
+          "headSha": "bee3f0047f750cb2b4c8d5ca3250e9a59888ccb8",
+          "lastCommitAt": "2026-08-09T22:26:37Z",
+          "tagName": "0.0.01",
+          "tagSha": "9e6e4d7576ab6b896e454a3a7e7bc96c17756ba9",
+          "releaseUrl": "https://github.com/GTNewHorizons/Variable-Horizons/releases/tag/0.0.01",
+          "releasedAt": "2026-08-08T18:06:57Z",
+          "isPrerelease": false,
+          "commitsAhead": 1,
+          "daysSinceRelease": 1
+        },
+        {
+          "repo": "BetterQuesting",
+          "repoUrl": "https://github.com/GTNewHorizons/BetterQuesting",
+          "isFork": true,
+          "defaultBranch": "master",
+          "headSha": "fcf556cf1f8f7443fa2504dc3a54522e43d04c5b",
+          "lastCommitAt": "2026-08-09T22:24:57Z",
+          "tagName": "3.8.75-GTNH",
+          "tagSha": "272ccaedcddd551fd839da4358617772d4b207e0",
+          "releaseUrl": "https://github.com/GTNewHorizons/BetterQuesting/releases/tag/3.8.75-GTNH",
+          "releasedAt": "2026-07-30T19:51:06Z",
+          "isPrerelease": false,
+          "commitsAhead": 1,
+          "daysSinceRelease": 10
         },
         {
           "repo": "Angelica",
