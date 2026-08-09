@@ -1,0 +1,15 @@
+{
+  "name": "nh-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dashboard monitoring the GTNewHorizons GitHub organization",
+  "scripts": {
+    "build": "node --env-file-if-exists=.env src/build.js",
+    "build:fresh": "node --env-file-if-exists=.env src/build.js --no-cache",
+    "serve": "node --env-file-if-exists=.env src/serve.js"
+  },
+  "engines": {
+    "node": ">=20.6"
+  }
+}
