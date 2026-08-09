@@ -4,12 +4,21 @@ A dashboard for monitoring the [GTNewHorizons](https://github.com/GTNewHorizons)
 
 Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install step.
 
-## Setup
+## Viewing it
+
+**Hosted (no setup):** the scheduled build deploys to GitHub Pages, so the
+dashboard is just a URL — nothing to install or run. Data refreshes every 30
+minutes. This is the way to read it from any machine.
+
+**Locally (fresh data on demand):** double-click `Dashboard.command` in Finder.
+It builds, starts the server, and opens your browser. Closing the Terminal
+window stops it.
+
+Or from a shell:
 
 ```bash
-gh auth login     # recommended — no token stored on disk
-npm run build     # fetch data → data/dashboard.json
-npm run serve     # http://localhost:4000
+gh auth login     # once — no token stored on disk
+npm start         # build + serve
 ```
 
 Without a token you get 60 requests/hour instead of 5,000, which isn't enough
@@ -24,9 +33,12 @@ Tried in order:
 2. The `gh` CLI's stored credential — nothing on disk, nothing to rotate
 3. `.env` (gitignored) — see `.env.example`
 
-### Scheduled builds
+### Scheduled builds and Pages
 
-`.github/workflows/build.yml` runs every 30 minutes and commits `data/`.
+`.github/workflows/build.yml` runs every 30 minutes: it builds the data,
+commits `data/`, and deploys `web/` + `data/` to GitHub Pages.
+
+One-time setup: Settings → Pages → Source → **GitHub Actions**.
 
 It needs a repo secret named **`GH_DASHBOARD_TOKEN`** (Settings → Secrets and
 variables → Actions), holding a PAT with `public_repo` scope. Actions' built-in

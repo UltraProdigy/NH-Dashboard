@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Dashboard monitoring the GTNewHorizons GitHub organization",
   "scripts": {
+    "start": "npm run build && npm run serve",
     "build": "node --env-file-if-exists=.env src/build.js",
     "build:fresh": "node --env-file-if-exists=.env src/build.js --no-cache",
     "serve": "node --env-file-if-exists=.env src/serve.js"
