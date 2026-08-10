@@ -94,6 +94,24 @@ control is a fixed-height scrolling box that can't show which of eighty repos
 are ticked without scrolling, and ctrl-clicking to deselect one entry is a
 well-known way to lose the other nine.
 
+Each column has its own search box and its own scroll, so the headers stay put
+while the list moves. **Anything currently hidden is pinned to the top of its
+column**, above an "Everything else" divider, and stays there while you search
+— with nineteen labels and eighty repos, "what am I hiding right now" is the
+first question the list has to answer, and it shouldn't require scrolling an
+alphabetical list to audit.
+
+Rows are an explicit two-column grid — a checkbox track and a name track —
+rather than a flex row. The name needs a column that the checkbox can't
+collapse, and `minmax(0, 1fr)` is what stops a long label either overflowing
+the popup or squeezing itself to nothing. The full name is also on the row's
+`title`, since the visible one ellipsises.
+
+The search inputs carry a `.excl-pop`-qualified width rule: the global
+`input[type="search"]` sets a 260px floor, which is right for the toolbar and
+twice too wide for half of this popup. Qualified rather than relying on source
+order, so it wins on specificity.
+
 ### The label picker
 
 It lives in the **By label** card's header, in the slot where every other card
@@ -126,6 +144,11 @@ doesn't reset either.
 Granularity is a separate control, because it isn't a time range — it's what
 one bar *means*. It's labelled **x-axis** for exactly that reason, and offers
 **by day / by week / by month**.
+
+Both controls carry their label — **period** and **x-axis**. "3m" and "by
+month" are both short strings of time sitting next to each other, and which one
+is the range and which one is the bucket size isn't guessable from the buttons
+alone.
 
 Daily buckets only reach back `DAY_SERIES_DAYS` (two years). The org's history
 starts in 2014, so an all-time daily series would be ~4,300 buckets — about
@@ -317,6 +340,13 @@ splits the same pair by person instead of by repo.
 Stacked on the overview, side by side in the expanded tab. The overview slot is
 four columns wide and two ranked lists beside each other there ellipsis the
 repo names down to nothing.
+
+Inside a paired box the label/bar split is inverted from the wide cards: the
+name takes whatever's left and the track is capped at a third, rather than the
+name being capped at 34%. In a half-width box that cap ellipsised repo names
+after about twelve characters while the bar sat in acres of empty panel — and
+in these lists the name is the thing you're reading, with the bar only there
+for a sense of scale.
 
 The reviewed list is built the same way as the authored one, from the same
 `_counts` map — the key just carries a `reviewed` segment instead of `opened`.

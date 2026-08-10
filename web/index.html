@@ -287,6 +287,12 @@
   .hbar .track { background: var(--panel-2); border-radius: 3px; height: 9px; overflow: hidden; }
   .hbar .fill { height: 100%; border-radius: 3px; }
   .hbar .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Inside a paired box the name is the thing you're reading and the bar is
+     just a sense of scale, so the split is inverted from the wide cards: the
+     label takes whatever's left and the track is capped at a third. At 34% a
+     repo name in a half-width box ellipsised after twelve characters while a
+     bar sat in acres of empty panel beside it. */
+  .duo-box .hbar { grid-template-columns: minmax(0, 1fr) minmax(44px, 32%) auto; }
   .hbar .val { color: var(--muted); font-variant-numeric: tabular-nums; }
 
   .heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); }
@@ -415,36 +421,77 @@
   }
   select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 
-  /* ---------- dream panel: exclusion popup ---------- */
+  /* ---------- dream panel: exclusion popup ----------
+     Two searchable checklists. The row is an explicit two-column grid — a
+     checkbox track and a name track — rather than a flex row: the name has to
+     be given its own column that can't be collapsed by the checkbox, and
+     `minmax(0, 1fr)` is what stops a long label from either overflowing the
+     popup or squeezing itself to nothing. */
   .excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
-  .excl-pop { min-width: 480px; max-height: 420px; padding: 0; }
-  @media (max-width: 720px) { .excl-pop { min-width: 260px; } }
+  .excl-pop {
+    /* Overrides combo-pop's min-width/max-height/overflow: the columns scroll
+       here, not the popup, so the search boxes stay put while you scroll. */
+    width: min(620px, calc(100vw - 60px));
+    min-width: 0;
+    max-height: min(460px, 70vh);
+    padding: 0; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
   .excl-head {
+    flex: none;
     display: flex; align-items: center; gap: 10px;
     padding: 10px 12px; border-bottom: 1px solid var(--border);
     color: var(--muted); font-size: 12px;
-    position: sticky; top: 0; background: var(--panel); z-index: 1;
   }
-  .excl-head .ghost { margin-left: auto; }
+  .excl-head .ghost { margin-left: auto; flex: none; }
   .excl-head .ghost[disabled] { opacity: .45; cursor: default; }
-  .excl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+
+  .excl-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
   @media (max-width: 720px) { .excl-cols { grid-template-columns: 1fr; } }
-  .excl-group { padding: 8px 0 12px; min-width: 0; }
+  .excl-group {
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0;
+    padding-top: 10px;
+  }
   .excl-group + .excl-group { border-left: 1px solid var(--border); }
   .excl-group h4 {
-    margin: 0; padding: 4px 12px 8px;
+    flex: none; margin: 0; padding: 0 12px 7px;
     font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
     color: var(--muted);
     display: flex; align-items: baseline; gap: 8px;
   }
   .excl-group h4 .n { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  /* The global `input[type="search"]` rule sets a 260px floor, which is right
+     for the toolbar and twice too wide for half of this popup. Qualified with
+     .excl-pop so it wins on specificity rather than on source order. */
+  .excl-pop input[type="search"] {
+    width: 100%; min-width: 0;
+    padding: 4px 8px; font-size: 12px;
+  }
+  .excl-search { flex: none; padding: 0 12px 8px; }
+  .excl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; }
+
   .excl-opt {
-    display: flex; align-items: center; gap: 8px;
-    padding: 4px 12px; cursor: pointer; font-size: 12px;
+    display: grid; grid-template-columns: 15px minmax(0, 1fr);
+    align-items: center; gap: 9px;
+    padding: 5px 12px; cursor: pointer;
+    font-size: 12px; color: var(--text);
   }
   .excl-opt:hover { background: var(--panel-2); }
-  .excl-opt input { accent-color: var(--accent); flex: none; margin: 0; }
-  .excl-opt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .excl-opt input[type="checkbox"] {
+    width: 15px; height: 15px; margin: 0; accent-color: var(--accent);
+  }
+  .excl-opt .nm {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text);
+  }
+  /* What's currently hidden should be findable without reading every row. */
+  .excl-opt.on .nm { color: var(--accent); }
+  .excl-sep {
+    padding: 8px 12px 4px; margin-top: 2px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+  }
 
   .picker { padding: 40px 0; text-align: center; }
   .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
@@ -522,6 +569,7 @@ const state = {
   // list. Held as arrays rather than Sets so they serialize to localStorage.
   dreamExcl: { repos: [], labels: [] },
   exclOpen: false,
+  exclQ: { repos: "", labels: "" },   // search text, per group
 
   // ---- drilldown ----
   // Its own window, independent of the analytics/people one. Looking at a
@@ -1964,16 +2012,44 @@ function exclCount() {
   return state.dreamExcl.repos.length + state.dreamExcl.labels.length;
 }
 
+/** One checkbox row. */
+const exclOpt = (kind, name, on) => `
+  <label class="excl-opt${on ? " on" : ""}">
+    <input type="checkbox" data-excl="${kind}" value="${esc(name)}"${on ? " checked" : ""}>
+    <span class="nm" title="${esc(name)}">${esc(name)}</span>
+  </label>`;
+
+/**
+ * The rows for one group: everything currently hidden first, then the rest.
+ *
+ * Nineteen labels and eighty repos don't fit in a popup, so what you've already
+ * excluded would otherwise be somewhere down an alphabetical list you have to
+ * scroll to audit. Pinned to the top, "what am I hiding" is the first thing the
+ * list answers. The search box filters the unpinned remainder.
+ */
+function exclListHtml(kind, options) {
+  const chosen = state.dreamExcl[kind];
+  const q = state.exclQ[kind].trim().toLowerCase();
+  const rest = options.filter(o => !chosen.includes(o) && (!q || o.toLowerCase().includes(q)));
+  const pinned = [...chosen].sort((a, b) => a.localeCompare(b));
+
+  if (!pinned.length && !rest.length)
+    return `<div class="combo-none">${q ? `Nothing matching “${esc(q)}”.` : "Nothing to list."}</div>`;
+
+  return pinned.map(o => exclOpt(kind, o, true)).join("") +
+    (pinned.length && rest.length ? `<div class="excl-sep">Everything else</div>` : "") +
+    rest.map(o => exclOpt(kind, o, false)).join("");
+}
+
 function exclPopHtml() {
   const group = (kind, title, options) => `
     <div class="excl-group">
       <h4>${esc(title)}<span class="n">${state.dreamExcl[kind].length} hidden</span></h4>
-      ${options.length ? options.map(o => `
-        <label class="excl-opt">
-          <input type="checkbox" data-excl="${kind}" value="${esc(o)}"${
-            state.dreamExcl[kind].includes(o) ? " checked" : ""}>
-          <span>${esc(o)}</span>
-        </label>`).join("") : `<div class="combo-none">Nothing to list.</div>`}
+      <div class="excl-search">
+        <input type="search" data-exclq="${kind}" autocomplete="off"
+               placeholder="Search ${esc(title.toLowerCase())}…" value="${esc(state.exclQ[kind])}">
+      </div>
+      <div class="excl-list" id="exclList-${kind}">${exclListHtml(kind, options)}</div>
     </div>`;
   return `<div class="excl-head">
       <span>Hide from every card on this page</span>
@@ -1983,6 +2059,12 @@ function exclPopHtml() {
       ${group("labels", "Labels", dreamLabelOptions())}
       ${group("repos", "Repos", dreamRepoOptions())}
     </div>`;
+}
+
+/** Repaint one list in place — a full render() would drop the search caret. */
+function updateExclList(kind) {
+  const el = document.getElementById(`exclList-${kind}`);
+  if (el) el.innerHTML = exclListHtml(kind, kind === "labels" ? dreamLabelOptions() : dreamRepoOptions());
 }
 
 /** Persisted, so the same handful doesn't have to be re-hidden every morning. */
@@ -2209,9 +2291,13 @@ function renderToolbar() {
     // beside it driving the charts — two time controls on one toolbar,
     // answering subtly different questions about the same page. One control,
     // one shape, scoping the numbers and the charts together.
-    bits.push(`<span class="seg" id="windowSeg">${ws.map(w =>
-      `<button data-window="${w.id}" aria-pressed="${w.id === cur}" title="${esc(w.label)}">${
-        esc(w.short ?? w.label)}</button>`).join("")}</span>`);
+    // Labelled for the same reason the x-axis control is: "3m" and "by month"
+    // are both short strings of time next to each other, and which one is the
+    // range and which one is the bucket size isn't guessable from the buttons.
+    bits.push(`<span class="minlabel">period
+      <span class="seg" id="windowSeg">${ws.map(w =>
+        `<button data-window="${w.id}" aria-pressed="${w.id === cur}" title="${esc(w.label)}">${
+          esc(w.short ?? w.label)}</button>`).join("")}</span></span>`);
   }
 
   // Granularity is not a time range — it's what one bar means — so it keeps
@@ -2501,6 +2587,12 @@ document.getElementById("toolbar").addEventListener("input", e => {
     state.combo.active = 0;
     return updateComboPop();
   }
+  // Typing in an exclusion search repaints only that list, for the same reason
+  // the combobox does: render() would rebuild the toolbar and drop the caret.
+  if (t.dataset?.exclq) {
+    state.exclQ[t.dataset.exclq] = t.value;
+    return updateExclList(t.dataset.exclq);
+  }
   if (t.id === "filter") state.filter = t.value.trim();
   else if (t.id === "minActivity") {
     const v = Number(t.value);
@@ -2573,13 +2665,15 @@ document.getElementById("toolbar").addEventListener("change", e => {
   if (box.checked) { if (i === -1) list.push(box.value); }
   else if (i !== -1) list.splice(i, 1);
   saveExclusions();
-  const pop = document.getElementById("exclPop");
-  const top = pop?.scrollTop ?? 0;
+  // render() rebuilds the popup from scratch; put both lists' scroll positions
+  // back so ticking the fortieth repo doesn't fling you to the top.
+  const tops = ["repos", "labels"].map(k =>
+    [k, document.getElementById(`exclList-${k}`)?.scrollTop ?? 0]);
   render();
-  // render() rebuilt the popup from scratch; put the scroll position back so
-  // ticking the fortieth repo doesn't fling you to the top of the list.
-  const fresh = document.getElementById("exclPop");
-  if (fresh) fresh.scrollTop = top;
+  for (const [k, top] of tops) {
+    const fresh = document.getElementById(`exclList-${k}`);
+    if (fresh) fresh.scrollTop = top;
+  }
 });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
