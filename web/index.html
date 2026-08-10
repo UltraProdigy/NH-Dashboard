@@ -295,6 +295,60 @@
   .heat .cl { text-align: center; }
 
   code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  /* ---------- drilldown: search-and-select ---------- */
+  /* Hand-rolled rather than a <datalist>: 1,200 options make the native popup
+     sluggish, it can't show the activity counts that make the right person
+     obvious, and its styling is untouchable. */
+  .combo { position: relative; }
+  .combo input { min-width: 280px; }
+  .combo-pop {
+    position: absolute; z-index: 20; top: calc(100% + 4px); left: 0;
+    min-width: 320px; max-height: 320px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28);
+    scrollbar-width: thin;
+  }
+  :root[data-theme="light"] .combo-pop { box-shadow: 0 8px 24px rgba(31,35,40,.12); }
+  .combo-pop[hidden] { display: none; }
+  .combo-opt {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 7px 11px; cursor: pointer; white-space: nowrap;
+  }
+  .combo-opt .n { overflow: hidden; text-overflow: ellipsis; }
+  .combo-opt .c { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .combo-opt[aria-selected="true"] { background: var(--panel-2); }
+  .combo-opt mark { background: none; color: var(--accent); font-weight: 600; }
+  .combo-none { padding: 12px; color: var(--muted); font-size: 12px; }
+
+  /* ---------- drilldown: jump button ---------- */
+  /* Sits beside a name without replacing its GitHub link. Muted until the row
+     is hovered so dense tables don't turn into a wall of icons. */
+  .drill {
+    display: inline-grid; place-items: center;
+    width: 20px; height: 18px; vertical-align: -4px;
+    margin-left: 2px; padding: 0;
+    background: none; border: 1px solid transparent; border-radius: 5px;
+    color: var(--muted); opacity: .45; cursor: pointer;
+  }
+  .drill svg { width: 12px; height: 12px; display: block; }
+  tr:hover .drill, .drill:focus-visible { opacity: 1; }
+  .drill:hover { color: var(--accent); border-color: var(--border); background: var(--panel-2); opacity: 1; }
+
+  /* ---------- drilldown: subject header ---------- */
+  .subject { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .subject h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .subject .dates { color: var(--muted); font-size: 12px; }
+  .picker { padding: 40px 0; text-align: center; }
+  .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .picker p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .picker .chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; max-width: 720px; margin: 0 auto; }
+  .picker .chips button {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px;
+    color: var(--text); padding: 5px 13px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .picker .chips button:hover { border-color: var(--accent); color: var(--accent); }
+  .loading { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -349,7 +403,23 @@ const state = {
   minActivity: 3,
   sort: null,
   dir: -1,
+
+  // ---- drilldown ----
+  subject: null,      // selected login or repo name; null = nothing picked yet
+  drill: null,        // contents of drilldown.json, fetched on first visit
+  drillState: "idle", // idle | loading | ready | error
+  drillError: null,
+  combo: { q: "", open: false, active: 0 },
 };
+
+/**
+ * Drilldown page id -> the key its subjects live under in drilldown.json.
+ * Membership in this map is also what marks a page as a drilldown page, which
+ * is what the router keys off to expect a subject segment in the hash.
+ */
+const DRILL = { contributor: "contributors", repo: "repos" };
+const isDrill = (page) => Object.hasOwn(DRILL, page);
+const otherMode = (page) => (page === "contributor" ? "repo" : "contributor");
 
 const RANGES = [
   { id: "m3", label: "3m", days: 90 },
@@ -611,6 +681,106 @@ function delta(key, { invert = false, pp = false, fallback = "" } = {}) {
   const size = pp ? `${n} pt${n === 1 ? "" : "s"}` : `${n}%`;
 
   return `<span class="${cls}">${arrow} ${size}</span> vs. ${esc(w.prevLabel ?? "previous period")}`;
+}
+
+/* ==========================================================================
+   Drilldown data
+   --------------------------------------------------------------------------
+   drilldown.json is ~2.5 MB and only these two pages need it, so it's fetched
+   the first time you land on one and kept for the rest of the session. The
+   other three pages never pay for it.
+   ========================================================================== */
+
+async function ensureDrilldown() {
+  if (state.drillState !== "idle") return;
+  state.drillState = "loading";
+  render();
+  try {
+    // The build names the file in dashboard.json rather than the page
+    // hardcoding it, so renaming it later can't leave the two out of sync.
+    const file = state.data?.panels?.drilldown?.file ?? "drilldown.json";
+    const res = await fetch(`data/${file}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.drill = await res.json();
+    state.drillState = "ready";
+  } catch (err) {
+    state.drillState = "error";
+    // A build-time failure explains the problem far better than "HTTP 404"
+    // does, so prefer it when the panel recorded one.
+    state.drillError = state.data?.panels?.drilldown?.error ?? err.message;
+  }
+  render();
+}
+
+const drillKey = () => DRILL[state.page];
+const subjectList = () => state.drill?.index?.[drillKey()] ?? [];
+const subject = () => state.drill?.[drillKey()]?.[state.subject] ?? null;
+
+/** Absent windows mean "nothing happened", which is what a zeroed one says. */
+const EMPTY_WINDOW = {
+  opened: 0, merged: 0, closed: 0, approvals: 0,
+  mergeRate: null, approvedShare: null, unapprovedMerges: 0,
+  medianMergeHours: null, p90MergeHours: null, medianFirstReviewHours: null,
+  people: 0, reviewers: 0,
+};
+const SW = () => subject()?.windows?.[state.window] ?? EMPTY_WINDOW;
+
+/**
+ * Expand the column-oriented series the build emits back into the named
+ * objects the chart helpers expect. Memoized onto the record — a subject's
+ * series is re-read on every render, and re-expanding 24 rows each time for a
+ * page that also draws three charts adds up.
+ */
+function subjectSeries() {
+  const s = subject();
+  if (!s?.series?.from) return [];
+  if (s._series) return s._series;
+
+  const fields = state.drill.seriesFields;
+  const [y, m] = s.series.from.split("-").map(Number);
+  s._series = s.series.v.map((row, i) => {
+    const d = new Date(Date.UTC(y, m - 1 + i, 1));
+    const out = { b: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}` };
+    // null rows are months the subject existed through but did nothing in.
+    fields.forEach((f, j) => { out[f] = row ? row[j] : 0; });
+    return out;
+  });
+  return s._series;
+}
+
+/** Series trimmed to the selected lookback. Monthly only — 24 months of it. */
+function subjectSlice() {
+  const all = subjectSeries();
+  const days = RANGES.find(r => r.id === state.range)?.days;
+  return days == null ? all : all.slice(-Math.ceil(days / 30.4));
+}
+
+/**
+ * The contributor records only carry repo breakdowns for 1-year and all-time,
+ * because 1,189 subjects x 5 windows x 10 repos was most of a megabyte for
+ * lists nobody reads at that granularity. Pick the closer of the two and let
+ * the caller say which it got, rather than mislabelling it.
+ */
+function topReposFor(windowId) {
+  const s = subject();
+  if (!s?.topRepos) return { rows: [], label: "" };
+  return windowId === "all"
+    ? { rows: s.topRepos.all ?? [], label: "all time" }
+    : { rows: s.topRepos.y1 ?? [], label: "last 12 months" };
+}
+
+/** URL for whatever the current page's subjects are on GitHub. */
+const subjectUrl = (id) =>
+  state.page === "contributor"
+    ? `https://github.com/${encodeURIComponent(id)}`
+    : `https://github.com/${state.data.org}/${encodeURIComponent(id)}`;
+
+/** The little button that jumps from a name elsewhere into its drilldown. */
+const DRILL_GLYPH = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/></svg>`;
+
+function drillButton(page, id, what = "drilldown") {
+  return `<button class="drill" data-drill="${page}" data-subject="${esc(id)}"
+    title="Open ${esc(id)} in the ${esc(what)}" aria-label="Open ${esc(id)} in the ${esc(what)}">${DRILL_GLYPH}</button>`;
 }
 
 /* ==========================================================================
@@ -922,7 +1092,12 @@ const MODULES = {
         .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
         .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
       const cols = [
-        { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+        // Name still goes to GitHub; the button beside it opens the drilldown.
+        // Someone landing on a new contributor usually wants the profile — the
+        // drilldown is the follow-up question, not a replacement for it.
+        { key: "login", label: "Contributor", render: r =>
+          `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` +
+          drillButton("contributor", r.login, "contributor drilldown") },
         { key: "firstSeen", label: "First PR", get: r => r.firstSeen ?? "", render: r => age(daysSince(r.firstSeen)) },
         { key: "prs", label: "PRs", get: r => r.all.prs, render: r => `<span class="num">${r.all.prs}</span>` },
         { key: "merged", label: "Merged", get: r => r.all.merged, render: r => `<span class="num">${r.all.merged}</span>` },
@@ -947,7 +1122,294 @@ const MODULES = {
       return renderTable(sortRows(applyFilter(rows), cols), cols, { sortable: expanded, limit: expanded ? null : 7 });
     },
   },
+
+  /* ---------------- Contributor Drilldown ----------------
+     Every module here assumes a subject is selected — render() shows the
+     picker instead of the grid when one isn't, so the guard lives in one
+     place rather than at the top of all ten. */
+
+  cProfile: {
+    page: "contributor", label: "Profile", span: 12, flush: true, twin: "rProfile",
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const s = subject(), w = SW();
+      if (!expanded) {
+        return `<div class="kpis">
+          ${kpi("PRs opened", fmt(w.opened), `${fmt(s.totalPRs)} all time`)}
+          ${kpi("Merged", fmt(w.merged), `${pctFmt(w.mergeRate)} of those resolved`)}
+          ${kpi("Approvals given", fmt(w.approvals), `for ${fmt(w.reviewers)} different authors`)}
+          ${kpi("Repos touched", fmt(w.people), `in ${windowLabel().toLowerCase()}`)}
+          ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
+          ${kpi("Median first review", dur(w.medianFirstReviewHours), "on their PRs")}
+          ${kpi("Open PRs", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
+                s.backlog.unreviewed ? "down" : "")}
+          ${kpi("Active since", s.first ? new Date(s.first).getFullYear() : "—",
+                s.last ? `last seen ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
+        </div>`;
+      }
+      return windowTable([
+        ["PRs opened",            w => fmt(w.opened)],
+        ["Merged",                w => fmt(w.merged)],
+        ["Closed unmerged",       w => fmt(w.closed)],
+        ["Merge rate",            w => pctFmt(w.mergeRate)],
+        ["Median time to merge",  w => dur(w.medianMergeHours)],
+        ["p90 time to merge",     w => dur(w.p90MergeHours)],
+        ["Median first review",   w => dur(w.medianFirstReviewHours)],
+        ["Approvals given",       w => fmt(w.approvals)],
+        ["Authors reviewed for",  w => fmt(w.reviewers)],
+        ["Repos touched",         w => fmt(w.people)],
+        ["Merged without approval", w => fmt(w.unapprovedMerges)],
+      ]);
+    },
+  },
+
+  cActivity: {
+    page: "contributor", label: "Activity", span: 8, twin: "rActivity",
+    controls: ["range"], sub: () => "by month",
+    render(expanded) {
+      const s = subjectSlice();
+      const prs = [
+        { key: "opened", label: "Opened", color: "var(--accent)" },
+        { key: "merged", label: "Merged", color: "var(--good)" },
+        { key: "closed", label: "Closed unmerged", color: "var(--bad)" },
+      ];
+      const reviews = [{ key: "approvals", label: "Approvals given", color: "var(--purple)" }];
+      const authoring = legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200 });
+      // Two charts rather than one: a prolific reviewer's approval count dwarfs
+      // their PR count, and on a shared axis the PR bars vanish entirely.
+      const reviewing = `<h3 style="font-size:13px;margin:22px 0 8px">Reviewing</h3>` +
+        legend(reviews) + barChart(s, reviews, { height: expanded ? 240 : 140 });
+      return authoring + reviewing +
+        (expanded ? `<h3 style="font-size:13px;margin:26px 0 8px">Breakdown</h3>` +
+          renderTable([...s].reverse(), [
+            { key: "b", label: "Month", render: b => esc(bucketLabel(b.b)) },
+            { key: "opened", label: "Opened", render: b => `<span class="num">${fmt(b.opened)}</span>` },
+            { key: "merged", label: "Merged", render: b => `<span class="num">${fmt(b.merged)}</span>` },
+            { key: "closed", label: "Closed", render: b => `<span class="num">${fmt(b.closed)}</span>` },
+            { key: "approvals", label: "Approvals", render: b => `<span class="num">${fmt(b.approvals)}</span>` },
+            { key: "people", label: "Repos", render: b => `<span class="num">${fmt(b.people)}</span>` },
+          ]) : "");
+    },
+  },
+
+  cRepos: {
+    page: "contributor", label: "Repos", span: 4, twin: "rPeople",
+    sub: () => `PRs opened, ${topReposFor(state.window).label}`,
+    render(expanded) {
+      const { rows, label } = topReposFor(state.window);
+      return hbars(expanded ? rows : rows.slice(0, 7), {
+        label: r => r.repo, value: r => r.count, color: "var(--accent)",
+      }) + (state.window === "all" ? "" :
+        `<div class="hint" style="margin-top:12px">Repo breakdowns are stored for ${esc(label)} and all time only — the full per-window split would multiply the data file several times over for a list this short.</div>`);
+    },
+  },
+
+  cCollab: {
+    page: "contributor", label: "Collaboration", span: 6, twin: "rHealth",
+    sub: () => "all time",
+    render(expanded) {
+      const s = subject();
+      const n = expanded ? 10 : 5;
+      const half = (title, rows, color) =>
+        `<h3 style="font-size:13px;margin:0 0 8px">${title}</h3>` +
+        hbars(rows.slice(0, n), {
+          label: r => r.login, value: r => r.count, color,
+          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+        });
+      return half("Who approves their PRs", s.reviewedBy, "var(--good)") +
+        `<div style="height:22px"></div>` +
+        half("Whose PRs they approve", s.reviewsFor, "var(--purple)") +
+        `<div class="hint" style="margin-top:14px">Counted over all time. A review relationship builds up slowly, and slicing it by window mostly produces noise.</div>`;
+    },
+  },
+
+  cOpenPRs: {
+    page: "contributor", label: "Open PRs", span: 6, flush: true, twin: "rBacklog",
+    sub: () => "still waiting",
+    render(expanded) {
+      const s = subject();
+      const cols = [
+        { key: "repo",   label: "Repo", render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "number", label: "PR",   render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
+        { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
+        { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
+      ];
+      return renderTable(sortRows(applyFilter(s.backlog.oldest), cols), cols,
+        { sortable: expanded, limit: expanded ? null : 7, total: s.backlog.total });
+    },
+  },
+
+  /* ---------------- Repo Drilldown ---------------- */
+
+  rProfile: {
+    page: "repo", label: "Profile", span: 12, flush: true, twin: "cProfile",
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const s = subject(), w = SW();
+      if (!expanded) {
+        return `<div class="kpis">
+          ${kpi("PRs opened", fmt(w.opened), `${fmt(s.totalPRs)} all time`)}
+          ${kpi("Merged", fmt(w.merged), `${pctFmt(w.mergeRate)} of those resolved`)}
+          ${kpi("Contributors", fmt(w.people), `${fmt(w.reviewers)} of them reviewed`)}
+          ${kpi("Approvals", fmt(w.approvals), `${pctFmt(w.approvedShare)} of merges approved`)}
+          ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
+          ${kpi("Median first review", dur(w.medianFirstReviewHours), "after opening")}
+          ${kpi("Open backlog", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
+                s.backlog.unreviewed > s.backlog.total / 2 ? "down" : "")}
+          ${kpi("First PR", s.first ? new Date(s.first).getFullYear() : "—",
+                s.last ? `last ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
+        </div>`;
+      }
+      return windowTable([
+        ["PRs opened",            w => fmt(w.opened)],
+        ["Merged",                w => fmt(w.merged)],
+        ["Closed unmerged",       w => fmt(w.closed)],
+        ["Merge rate",            w => pctFmt(w.mergeRate)],
+        ["Median time to merge",  w => dur(w.medianMergeHours)],
+        ["p90 time to merge",     w => dur(w.p90MergeHours)],
+        ["Median first review",   w => dur(w.medianFirstReviewHours)],
+        ["Approvals given",       w => fmt(w.approvals)],
+        ["Approved before merge", w => pctFmt(w.approvedShare)],
+        ["Merged without approval", w => fmt(w.unapprovedMerges)],
+        ["Contributors",          w => fmt(w.people)],
+        ["Reviewers",             w => fmt(w.reviewers)],
+      ]);
+    },
+  },
+
+  rActivity: {
+    page: "repo", label: "Activity", span: 8, twin: "cActivity",
+    controls: ["range"], sub: () => "by month",
+    render(expanded) {
+      const s = subjectSlice();
+      const prs = [
+        { key: "opened", label: "Opened", color: "var(--accent)" },
+        { key: "merged", label: "Merged", color: "var(--good)" },
+        { key: "closed", label: "Closed unmerged", color: "var(--bad)" },
+      ];
+      const people = [{ key: "people", label: "Distinct authors", color: "var(--pink)" }];
+      return legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200 }) +
+        `<h3 style="font-size:13px;margin:22px 0 8px">People</h3>` +
+        legend(people) + lineChart(s, people, { height: expanded ? 240 : 140 }) +
+        (expanded ? `<h3 style="font-size:13px;margin:26px 0 8px">Breakdown</h3>` +
+          renderTable([...s].reverse(), [
+            { key: "b", label: "Month", render: b => esc(bucketLabel(b.b)) },
+            { key: "opened", label: "Opened", render: b => `<span class="num">${fmt(b.opened)}</span>` },
+            { key: "merged", label: "Merged", render: b => `<span class="num">${fmt(b.merged)}</span>` },
+            { key: "closed", label: "Closed", render: b => `<span class="num">${fmt(b.closed)}</span>` },
+            { key: "people", label: "Authors", render: b => `<span class="num">${fmt(b.people)}</span>` },
+          ]) : "");
+    },
+  },
+
+  rPeople: {
+    page: "repo", label: "People", span: 6, twin: "cRepos",
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const s = subject();
+      const n = expanded ? 10 : 5;
+      const half = (title, rows, color) =>
+        `<h3 style="font-size:13px;margin:0 0 8px">${title}</h3>` +
+        hbars(rows.slice(0, n), {
+          label: r => r.login, value: r => r.count, color,
+          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+        });
+      return half("Most PRs opened", s.topAuthors[state.window] ?? [], "var(--accent)") +
+        `<div style="height:22px"></div>` +
+        half("Most approvals given", s.topReviewers[state.window] ?? [], "var(--purple)");
+    },
+  },
+
+  rBacklog: {
+    page: "repo", label: "Backlog", span: 4, flush: false, twin: "cOpenPRs",
+    sub: () => "open PRs, by age",
+    render(expanded) {
+      const s = subject(), b = s.backlog;
+      const colors = ["var(--good)", "var(--accent)", "var(--warn)", "#e8823a", "var(--bad)"];
+      const max = Math.max(1, ...b.buckets.map(x => x.count));
+      const bars = `<div class="hbars">${b.buckets.map((x, i) => `
+        <div class="hbar">
+          <span class="lab">${esc(x.label)}</span>
+          <span class="track"><span class="fill" style="width:${(x.count / max) * 100}%;background:${colors[i]}"></span></span>
+          <span class="val">${fmt(x.count)}</span>
+        </div>`).join("")}</div>`;
+
+      const summary = `<div style="display:flex;gap:18px;margin-bottom:12px">
+        <div><div style="color:var(--muted);font-size:11px">OPEN</div><div style="font-size:22px;font-weight:600">${fmt(b.total)}</div></div>
+        <div><div style="color:var(--muted);font-size:11px">NEVER REVIEWED</div><div style="font-size:22px;font-weight:600" class="${b.unreviewed > b.total / 2 ? "down" : ""}">${fmt(b.unreviewed)}</div></div>
+      </div>`;
+
+      if (!expanded) return summary + bars;
+
+      const cols = [
+        { key: "number", label: "PR",     render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(s.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "author", label: "Author", render: r => esc(r.author ?? "—") },
+        { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
+        { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
+        { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
+      ];
+      return summary + bars +
+        `<h3 style="font-size:13px;margin:22px 0 8px">Oldest open PRs</h3>` +
+        renderTable(sortRows(applyFilter(b.oldest), cols), cols, { sortable: true });
+    },
+  },
+
+  rHealth: {
+    page: "repo", label: "Health", span: 6, twin: "cCollab",
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render() {
+      const s = subject(), w = SW();
+      const rel = releaseFor(s.repo);
+
+      const review = w.approvedShare == null ? null : w.approvedShare;
+      const bars = [
+        { label: "Merged with an approval", v: review, color: review == null ? "var(--muted)" : review > 0.8 ? "var(--good)" : review > 0.5 ? "var(--warn)" : "var(--bad)" },
+        { label: "Merge rate", v: w.mergeRate, color: "var(--accent)" },
+      ].filter(x => x.v != null);
+
+      const gauges = `<div class="hbars">${bars.map(x => `
+        <div class="hbar">
+          <span class="lab">${esc(x.label)}</span>
+          <span class="track"><span class="fill" style="width:${x.v * 100}%;background:${x.color}"></span></span>
+          <span class="val">${pctFmt(x.v)}</span>
+        </div>`).join("")}</div>`;
+
+      const release = rel
+        ? `<div class="kpis" style="margin:18px -14px -14px">
+             ${kpi("Last release", `<a href="${rel.releaseUrl}" target="_blank" rel="noopener" style="font-size:18px">${esc(rel.tagName)}</a>`,
+                   `${fmt(rel.commitsAhead ?? "?")} commits behind ${esc(rel.defaultBranch)}`)}
+             ${kpi("Released", age(rel.daysSinceRelease), rel.isPrerelease ? "prerelease" : "")}
+           </div>`
+        : `<div class="hint" style="margin-top:18px">Not flagged as needing a release — either it's current with its last tag, it has no releases, or it's excluded in <code>RELEASE_EXCLUDED_REPOS</code>.</div>`;
+
+      return `<div class="kpis" style="margin:-14px -14px 16px">
+          ${kpi("Merged unapproved", fmt(w.unapprovedMerges), `of ${fmt(w.merged)} merges`, w.unapprovedMerges > w.merged / 2 ? "down" : "")}
+          ${kpi("Median first review", dur(w.medianFirstReviewHours), "after opening")}
+          ${kpi("Reviewers active", fmt(w.reviewers), `${fmt(w.approvals)} approvals`)}
+        </div>` + gauges + release;
+    },
+  },
 };
+
+/** Cross-reference into the needsRelease panel, which already has this data. */
+function releaseFor(repo) {
+  const p = panel("needsRelease");
+  return p?.ok ? p.data.find(r => r.repo === repo) ?? null : null;
+}
+
+/** Every window side by side — the expanded form of both Profile modules. */
+function windowTable(rows) {
+  const ws = state.drill?.windows ?? [];
+  const s = subject();
+  const at = id => s.windows[id] ?? EMPTY_WINDOW;
+  return `<table>
+    <thead><tr><th style="cursor:default">Metric</th>${ws.map(x =>
+      `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(([lab, f]) =>
+      `<tr><td>${lab}</td>${ws.map(x => `<td class="num">${f(at(x.id))}</td>`).join("")}</tr>`).join("")}</tbody>
+  </table>`;
+}
 
 const PAGES = [
   {
@@ -964,6 +1426,16 @@ const PAGES = [
     id: "people", label: "Contributor Activity",
     icon: `<path d="M5.5 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM.5 14c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5H.5Zm11 0c0-1.6-.6-3-1.6-4 .5-.3 1-.4 1.6-.4 2.2 0 4 1.6 4 4.4h-4Z"/>`,
     modules: ["topAuthors", "topReviewers", "leaderboard", "newcomers", "lapsed"],
+  },
+  {
+    id: "contributor", label: "Contributor Drilldown",
+    icon: `<path d="M10.56 8.07a6 6 0 0 1 3.43 5.15.75.75 0 1 1-1.5.07 4.5 4.5 0 0 0-8.98 0 .75.75 0 0 1-1.5-.07 6 6 0 0 1 3.43-5.15 4 4 0 1 1 5.12 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/>`,
+    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs"],
+  },
+  {
+    id: "repo", label: "Repo Drilldown",
+    icon: `<path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.7.75.75 0 1 1-1.08 1.05A2.5 2.5 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.71A2.49 2.49 0 0 1 4.5 9h8Z"/>`,
+    modules: ["rProfile", "rActivity", "rPeople", "rBacklog", "rHealth"],
   },
 ];
 
@@ -1040,6 +1512,8 @@ function moduleCount(id) {
   }
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
+  // Null until a subject is picked, which is also when the tabs mean anything.
+  if (id === "cOpenPRs" || id === "rBacklog") return subject()?.backlog?.total ?? null;
   return null;
 }
 
@@ -1069,6 +1543,67 @@ function renderTabs() {
     }).join("");
 }
 
+/* ---- the search-and-select popup ---------------------------------------- */
+
+/**
+ * Filtered subjects for the popup. The index is pre-sorted by activity, and
+ * `sort` is stable, so promoting prefix matches keeps the busiest first within
+ * each group — typing "gt" puts GT5-Unofficial above a fork with "gt" buried
+ * in the middle of its name.
+ */
+function comboOptions() {
+  const q = state.combo.q.trim().toLowerCase();
+  const list = subjectList();
+  if (!q) return list.slice(0, 60);
+
+  const hits = [];
+  for (const r of list) {
+    const i = r.id.toLowerCase().indexOf(q);
+    if (i !== -1) hits.push({ ...r, i });
+  }
+  return hits.sort((a, b) => (a.i === 0 ? 0 : 1) - (b.i === 0 ? 0 : 1)).slice(0, 60);
+}
+
+function comboPopHtml() {
+  const opts = comboOptions();
+  const what = state.page === "contributor" ? "contributor" : "repo";
+  if (!opts.length)
+    return `<div class="combo-none">No ${what} matching “${esc(state.combo.q)}”.</div>`;
+
+  const q = state.combo.q.trim().toLowerCase();
+  return opts.map((o, i) => {
+    const at = q ? o.id.toLowerCase().indexOf(q) : -1;
+    const name = at === -1 ? esc(o.id)
+      : esc(o.id.slice(0, at)) + `<mark>${esc(o.id.slice(at, at + q.length))}</mark>` +
+        esc(o.id.slice(at + q.length));
+    const meta = state.page === "contributor"
+      ? `${fmt(o.n)} PRs · ${fmt(o.a)} approvals`
+      : `${fmt(o.n)} PRs · ${fmt(o.open)} open`;
+    return `<div class="combo-opt" role="option" data-pick="${esc(o.id)}"
+      aria-selected="${i === state.combo.active}"><span class="n">${name}</span><span class="c">${meta}</span></div>`;
+  }).join("");
+}
+
+/**
+ * Repaint just the popup. Typing must not go through render() — that would
+ * redraw every chart on the page on each keystroke.
+ */
+function updateComboPop() {
+  const pop = document.getElementById("comboPop");
+  if (!pop) return;
+  pop.hidden = !state.combo.open;
+  pop.innerHTML = state.combo.open ? comboPopHtml() : "";
+  document.getElementById("comboInput")?.setAttribute("aria-expanded", String(state.combo.open));
+  if (state.combo.open)
+    pop.querySelector('.combo-opt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+}
+
+function closeCombo() {
+  state.combo.open = false;
+  state.combo.q = "";
+  state.combo.active = 0;
+}
+
 /**
  * Toolbar is per-view: the overview shows whatever its page needs globally,
  * a module tab shows only the controls that module declares.
@@ -1079,12 +1614,33 @@ function renderToolbar() {
   const wanted = new Set(
     mod ? (mod.controls ?? []) : page.modules.flatMap(id => MODULES[id].controls ?? [])
   );
-  // Window applies to nearly everything on the analytics and people pages.
+  // Window applies to nearly everything except the Dream Panel.
   if (page.id !== "dream") wanted.add("window");
-  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog"].includes(state.module) ||
+  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
+  // The subject picker is the whole point of a drilldown page, so it's always
+  // there — including before anything is selected, which is when it's needed.
+  if (isDrill(page.id)) wanted.add("subject");
 
   const bits = [];
+
+  if (wanted.has("subject")) {
+    const what = state.page === "contributor" ? "contributors" : "repos";
+    bits.push(`<span class="combo" id="combo">
+      <input type="search" id="comboInput" role="combobox" aria-expanded="${state.combo.open}"
+             aria-autocomplete="list" aria-controls="comboPop" autocomplete="off"
+             placeholder="Search ${what}…"
+             value="${esc(state.combo.open ? state.combo.q : (state.subject ?? ""))}">
+      <div class="combo-pop" id="comboPop" role="listbox"${state.combo.open ? "" : " hidden"}>${
+        state.combo.open ? comboPopHtml() : ""}</div>
+    </span>`);
+    // Routes through the same go() the sidebar uses, so the toggle and the
+    // sidebar highlight cannot disagree about which mode you're in.
+    bits.push(`<span class="seg" id="modeSeg">${
+      ["contributor", "repo"].map(m =>
+        `<button data-mode="${m}" aria-pressed="${state.page === m}">${m === "contributor" ? "Contributor" : "Repo"}</button>`
+      ).join("")}</span>`);
+  }
 
   if (wanted.has("filter"))
     bits.push(`<input type="search" id="filter" placeholder="Filter by repo, title, or author…" value="${esc(state.filter)}">`);
@@ -1116,6 +1672,13 @@ function renderToolbar() {
   const tb = document.getElementById("toolbar");
   tb.innerHTML = bits.join("");
   tb.style.display = bits.length ? "" : "none";
+
+  // A render triggered while the popup is open (changing the window picker,
+  // say) rebuilds the input and drops the caret. Put it back.
+  if (state.combo.open) {
+    const c = document.getElementById("comboInput");
+    if (c) { c.focus(); c.setSelectionRange(c.value.length, c.value.length); }
+  }
 }
 
 function card(id) {
@@ -1133,6 +1696,64 @@ function card(id) {
   </section>`;
 }
 
+/** Overview grid, or the one selected module full-width. */
+function pageBody() {
+  if (state.module === null)
+    return `<div class="grid">${currentPage().modules.map(card).join("")}</div>`;
+
+  const m = MODULES[state.module];
+  let body;
+  try { body = m.render(true); }
+  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+  return `<section class="card" style="--span:12">
+    <header><h2>${esc(m.label)}</h2><span class="sub">${esc(m.sub ? m.sub() : "")}</span></header>
+    <div class="body${m.flush ? " flush" : ""}">${body}</div>
+  </section>`;
+}
+
+/** Nothing selected yet — offer the busiest subjects as a starting point. */
+function pickerHtml() {
+  const what = state.page === "contributor" ? "contributor" : "repo";
+  const missing = state.subject && !subject();
+  return `<div class="picker">
+    ${missing ? `<div class="error" style="padding:0 0 22px">Nothing named “${esc(state.subject)}” in the ingested data. It may be a bot, or a repo with no pull requests.</div>` : ""}
+    <h3>Pick a ${what}</h3>
+    <p>Search above, or jump straight to one of the busiest.</p>
+    <div class="chips">${subjectList().slice(0, 24).map(o =>
+      `<button data-pick="${esc(o.id)}">${esc(o.id)}</button>`).join("")}</div>
+  </div>`;
+}
+
+function renderDrill(view) {
+  // Kicked off lazily on first visit; ensureDrilldown re-renders as it goes.
+  if (state.drillState === "idle") return void ensureDrilldown();
+
+  if (state.drillState === "loading") {
+    view.innerHTML = `<div class="loading">Loading drilldown data…</div>`;
+    return;
+  }
+  if (state.drillState === "error") {
+    view.innerHTML = `<div class="error">Drilldown data unavailable — ${esc(state.drillError)}.<br><br>
+      It's built from the local PR store: run <code>npm run ingest</code> then <code>npm run build</code> to generate <code>data/drilldown.json</code>.</div>`;
+    return;
+  }
+  if (!state.subject || !subject()) {
+    view.innerHTML = pickerHtml();
+    return;
+  }
+
+  const s = subject();
+  const head = `<div class="subject">
+    <h2>${esc(state.subject)}</h2>
+    <a class="ghost" href="${subjectUrl(state.subject)}" target="_blank" rel="noopener">View on GitHub ↗</a>
+    <span class="dates">${fmt(s.totalPRs)} PRs${
+      state.page === "contributor" ? " authored" : ""} · first ${
+      s.first ? esc(s.first.slice(0, 10)) : "—"} · last active ${age(daysSince(s.last))}</span>
+  </div>`;
+
+  view.innerHTML = head + pageBody();
+}
+
 function render() {
   renderSidebar();
   renderTabs();
@@ -1141,38 +1762,76 @@ function render() {
   const view = document.getElementById("view");
   if (!state.data) return;
 
-  if (state.module === null) {
-    view.innerHTML = `<div class="grid">${currentPage().modules.map(card).join("")}</div>`;
-    return;
-  }
-
-  const m = MODULES[state.module];
-  let body;
-  try { body = m.render(true); }
-  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
-  view.innerHTML = `<section class="card" style="--span:12">
-    <header><h2>${esc(m.label)}</h2><span class="sub">${esc(m.sub ? m.sub() : "")}</span></header>
-    <div class="body${m.flush ? " flush" : ""}">${body}</div>
-  </section>`;
+  if (isDrill(state.page)) return renderDrill(view);
+  view.innerHTML = pageBody();
 }
 
 /* ==========================================================================
    Routing — hash keeps deep links shareable and survives a reload
    ========================================================================== */
 
+/**
+ * Two shapes, because drilldown pages carry a subject:
+ *
+ *   #people/newcomers
+ *   #contributor/Dream-Master/cActivity
+ *
+ * Logins and repo names can't contain a slash, so splitting on it is safe;
+ * they're still percent-encoded, since they can contain plenty else.
+ */
+/**
+ * `_` is the placeholder for "a tab is selected but no subject is". It only
+ * shows up when you flip modes with a tab open, and it exists so the subject
+ * always sits in the same slot — without it, `#repo/rActivity` would be
+ * indistinguishable from a repo that happens to be named rActivity.
+ */
+const NO_SUBJECT = "_";
+
 function readHash() {
-  const [page, mod] = location.hash.replace(/^#/, "").split("/");
+  const parts = location.hash.replace(/^#/, "").split("/");
+  const page = parts[0];
   if (PAGES.some(p => p.id === page)) state.page = page;
+
+  const drill = isDrill(state.page);
+  state.subject =
+    drill && parts[1] && parts[1] !== NO_SUBJECT ? decodeURIComponent(parts[1]) : null;
+
+  const mod = parts[drill ? 2 : 1];
   state.module = mod && MODULES[mod]?.page === state.page ? mod : null;
 }
 
-function go(page, mod = null) {
+/**
+ * `subject` left off means "decide for me": keep it when staying on the same
+ * drilldown page (switching tabs), drop it otherwise — a login is not a repo
+ * name, so carrying one across a mode switch would only ever 404.
+ */
+function go(page, mod = null, subject) {
+  const drill = isDrill(page);
+  if (subject === undefined)
+    subject = drill && page === state.page ? state.subject : null;
+
   state.page = page;
   state.module = mod;
+  state.subject = drill ? subject : null;
   state.sort = null;
   state.filter = "";
-  location.hash = mod ? `${page}/${mod}` : page;
+  closeCombo();
+
+  if (drill) {
+    const seg = [page];
+    if (subject) seg.push(encodeURIComponent(subject));
+    else if (mod) seg.push(NO_SUBJECT);
+    if (mod) seg.push(mod);
+    location.hash = seg.join("/");
+  } else {
+    location.hash = mod ? `${page}/${mod}` : page;
+  }
   render();
+}
+
+/** Jump into a drilldown from anywhere, including the other drilldown page. */
+function drillTo(page, id) {
+  go(page, null, id);
 }
 
 /* ==========================================================================
@@ -1190,6 +1849,14 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 
 document.getElementById("view").addEventListener("click", e => {
+  // Jump buttons and picker chips. Buttons win over the sort/expand handlers
+  // below because they're checked first and every branch returns.
+  const drill = e.target.closest("button[data-drill]");
+  if (drill) return drillTo(drill.dataset.drill, drill.dataset.subject);
+
+  const pick = e.target.closest("[data-pick]");
+  if (pick) return drillTo(state.page, pick.dataset.pick);
+
   const open = e.target.closest("button[data-open]");
   if (open) return go(state.page, open.dataset.open);
 
@@ -1203,6 +1870,14 @@ document.getElementById("view").addEventListener("click", e => {
 
 document.getElementById("toolbar").addEventListener("input", e => {
   const t = e.target;
+  // Typing in the combobox repaints only the popup. Routing it through
+  // render() would redraw every chart on the page on every keystroke.
+  if (t.id === "comboInput") {
+    state.combo.q = t.value;
+    state.combo.open = true;
+    state.combo.active = 0;
+    return updateComboPop();
+  }
   if (t.id === "filter") state.filter = t.value.trim();
   else if (t.id === "windowPicker") state.window = t.value;
   else if (t.id === "labelPicker") state.label = t.value;
@@ -1220,10 +1895,76 @@ document.getElementById("toolbar").addEventListener("input", e => {
 });
 
 document.getElementById("toolbar").addEventListener("click", e => {
+  const opt = e.target.closest(".combo-opt[data-pick]");
+  if (opt) return drillTo(state.page, opt.dataset.pick);
+
+  const mode = e.target.closest("button[data-mode]");
+  if (mode && mode.dataset.mode !== state.page) {
+    // Land on the equivalent tab in the other mode where there is one, so
+    // flipping between a repo and a person doesn't bounce you to Overview.
+    const twin = state.module ? MODULES[state.module].twin ?? null : null;
+    return go(mode.dataset.mode, twin, null);
+  }
+
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }
   const r = e.target.closest("button[data-range]");
   if (r) { state.range = r.dataset.range; return render(); }
+});
+
+/* Combobox keyboard handling. Kept on the toolbar rather than the input
+   because render() replaces the input element wholesale. */
+document.getElementById("toolbar").addEventListener("keydown", e => {
+  if (e.target.id !== "comboInput") return;
+
+  if (e.key === "Escape") {
+    closeCombo();
+    updateComboPop();
+    e.target.value = state.subject ?? "";
+    return;
+  }
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!state.combo.open) {
+      state.combo.open = true;
+      state.combo.active = 0;
+      return updateComboPop();
+    }
+    const n = comboOptions().length;
+    if (!n) return;
+    state.combo.active =
+      (state.combo.active + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+    return updateComboPop();
+  }
+
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const pick = state.combo.open ? comboOptions()[state.combo.active] : null;
+    if (pick) drillTo(state.page, pick.id);
+  }
+});
+
+document.getElementById("toolbar").addEventListener("focusin", e => {
+  if (e.target.id !== "comboInput") return;
+  state.combo.open = true;
+  state.combo.q = "";
+  // Emptied rather than selected: select-all only survives until the first
+  // click lands, and typing after that would append to the current subject's
+  // name instead of starting a fresh query. The name is still in the header.
+  e.target.value = "";
+  updateComboPop();
+});
+
+/* Close on an outside click rather than on blur: blur fires before click, so a
+   blur handler would tear the popup down before the option got selected. */
+document.addEventListener("click", e => {
+  if (!state.combo.open || e.target.closest("#combo")) return;
+  closeCombo();
+  updateComboPop();
+  // Put the current subject back — the box was cleared on focus.
+  const c = document.getElementById("comboInput");
+  if (c) c.value = state.subject ?? "";
 });
 
 const collapseBtn = document.getElementById("collapse");

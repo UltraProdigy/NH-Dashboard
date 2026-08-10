@@ -18,8 +18,12 @@ import { WINDOWS } from "./contributors.js";
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
-/** How stale an open PR has to be before it lands in each backlog bucket. */
-const BACKLOG_BUCKETS = [
+/**
+ * How stale an open PR has to be before it lands in each backlog bucket.
+ * Exported so the per-repo drilldown buckets identically — two copies of this
+ * list would drift, and then the org total wouldn't equal the sum of the repos.
+ */
+export const BACKLOG_BUCKETS = [
   { label: "< 1 week", max: 7 },
   { label: "1–4 weeks", max: 30 },
   { label: "1–3 months", max: 90 },

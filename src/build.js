@@ -5,7 +5,7 @@
  *   node --env-file-if-exists=.env src/build.js --no-cache (forces fresh)
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -15,6 +15,7 @@ import { approvedUnmerged, byLabel, changesRequested } from "./panels/pullReques
 import { needsRelease } from "./panels/needsRelease.js";
 import { contributors } from "./panels/contributors.js";
 import { analytics } from "./panels/analytics.js";
+import { drilldown, serializeDrilldown } from "./panels/drilldown.js";
 
 const DATA_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -66,18 +67,45 @@ async function main() {
     }),
   };
 
+  // Drilldown is built like the others but shipped separately — it's several
+  // megabytes and only the two drilldown pages need it, so folding it into
+  // dashboard.json would tax every page load for data most visits never touch.
+  // dashboard.json keeps a status stub so the frontend knows whether the second
+  // fetch is worth making.
+  const drill = await run("Per-entity drilldown", drilldown, {
+    empty: null,
+    optional: true,
+  });
+
   const output = {
     generatedAt: new Date().toISOString(),
     org: ORG,
     // Derived from what byLabel actually queried, so it reflects the live
     // Label-Sync set rather than a local copy.
     trackedLabels: Object.keys(panels.byLabel.data ?? {}),
-    panels: Object.fromEntries(
-      Object.entries(panels).map(([k, v]) => [
-        k,
-        { ok: v.ok, error: v.error ?? null, data: v.data },
-      ])
-    ),
+    panels: {
+      ...Object.fromEntries(
+        Object.entries(panels).map(([k, v]) => [
+          k,
+          { ok: v.ok, error: v.error ?? null, data: v.data },
+        ])
+      ),
+      // Status only. `file` is what the frontend fetches on first visit to a
+      // drilldown page; naming it here rather than hardcoding it in the page
+      // keeps the two ends from drifting.
+      drilldown: {
+        ok: drill.ok,
+        error: drill.error ?? null,
+        data: null,
+        file: "drilldown.json",
+        subjects: drill.ok
+          ? {
+              contributors: Object.keys(drill.data.contributors).length,
+              repos: Object.keys(drill.data.repos).length,
+            }
+          : null,
+      },
+    },
   };
 
   await mkdir(DATA_DIR, { recursive: true });
@@ -85,6 +113,13 @@ async function main() {
     path.join(DATA_DIR, "dashboard.json"),
     JSON.stringify(output, null, 2)
   );
+
+  if (drill.ok) {
+    const file = path.join(DATA_DIR, "drilldown.json");
+    await writeFile(file, serializeDrilldown(drill.data));
+    const { size } = await stat(file);
+    console.log(`Wrote data/drilldown.json (${(size / 1e6).toFixed(1)} MB)`);
+  }
 
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   console.log(`Wrote data/dashboard.json in ${elapsed}s`);

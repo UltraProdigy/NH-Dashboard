@@ -1,10 +1,16 @@
 name: Build and deploy dashboard
 
 on:
-  schedule:
-    # Every 30 minutes. The whole build is ~50 API requests, so cost isn't
-    # the constraint — adjust freely.
-    - cron: "*/30 * * * *"
+  # Manual only for now, plus a rebuild whenever code lands on main.
+  #
+  # The scheduled run is parked rather than deleted — uncomment to bring it
+  # back. Cost was never the reason to stop: Actions is free on public repos
+  # and the build is ~50 API requests. The reason is that every run commits
+  # `data/`, so 48 runs a day grow the repo whether or not anyone is reading
+  # the dashboard.
+  #
+  # schedule:
+  #   - cron: "*/30 * * * *"
   workflow_dispatch: {}
   push:
     branches: [main]
