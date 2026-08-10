@@ -127,24 +127,50 @@ export async function analytics() {
   const totals = { prs: 0, merged: 0, open: 0, closed: 0, approvals: 0 };
   const openPRs = [];
 
-  // Per-window accumulators, keyed by window id.
-  const win = Object.fromEntries(
-    WINDOWS.map((w) => [
-      w.id,
-      {
-        opened: 0,
-        merged: 0,
-        closed: 0,
-        mergedWithApproval: 0,
-        authors: new Map(),
-        reviewers: new Map(),
-        repos: new Map(),
-        mergeHours: [],
-        reviewHours: [],
-        newContributors: 0,
-      },
-    ])
-  );
+  /**
+   * Every window gets a second, equal-length accumulator covering the period
+   * immediately before it — that's what the "vs. previous" deltas compare
+   * against. A 3-month view compares to the 3 months before it, not to last
+   * month, which is what you'd actually expect from the label.
+   *
+   * "All time" has nothing to compare to, so it gets no prev period.
+   */
+  const periods = [];
+  for (const w of WINDOWS) {
+    periods.push({
+      key: w.id,
+      from: w.days == null ? -Infinity : now - w.days * DAY,
+      to: Infinity,
+    });
+    if (w.days != null) {
+      periods.push({
+        key: `prev:${w.id}`,
+        from: now - 2 * w.days * DAY,
+        to: now - w.days * DAY,
+      });
+    }
+  }
+
+  const blankPeriod = () => ({
+    opened: 0,
+    merged: 0,
+    closed: 0,
+    mergedWithApproval: 0,
+    authors: new Map(),
+    reviewers: new Map(),
+    repos: new Map(),
+    mergeHours: [],
+    reviewHours: [],
+    newContributors: 0,
+  });
+
+  const win = Object.fromEntries(periods.map((p) => [p.key, blankPeriod()]));
+
+  const inPeriod = (p, ts) => {
+    if (!ts) return false;
+    const t = new Date(ts).getTime();
+    return t >= p.from && t < p.to;
+  };
 
   // Weekday × hour of PR creation over the last year, UTC. Cheap to compute and
   // it makes the "when is this org awake" question answerable at a glance.
@@ -172,10 +198,13 @@ export async function analytics() {
     const fr = firstReviewAt(pr);
     const reviewHours = fr ? (new Date(fr) - created) / HOUR : null;
 
-    const approvers = new Set();
+    // One approval per reviewer per PR, dated to their first — re-approving
+    // after a round of changes shouldn't count twice.
+    const approvers = new Map();
     for (const r of pr.reviews ?? []) {
-      if (r.state !== "APPROVED" || isBot(r.author)) continue;
-      approvers.add(r.author);
+      if (r.state !== "APPROVED" || isBot(r.author) || !r.submittedAt) continue;
+      const prev = approvers.get(r.author);
+      if (!prev || r.submittedAt < prev) approvers.set(r.author, r.submittedAt);
     }
     totals.approvals += approvers.size;
 
@@ -230,13 +259,14 @@ export async function analytics() {
       heat[(created.getUTCDay() + 6) % 7][created.getUTCHours()]++;
     }
 
-    // ---- per-window rollups ----
-    const ageDays = (now - created) / DAY;
-    for (const w of WINDOWS) {
-      const inWindow = w.days === null || ageDays <= w.days;
-      const acc = win[w.id];
+    // ---- per-period rollups ----
+    // Each event is counted against the period *its own timestamp* falls in,
+    // so "merged in the last 3 months" doesn't quietly drop a PR that was
+    // opened before the window started.
+    for (const p of periods) {
+      const acc = win[p.key];
 
-      if (inWindow) {
+      if (inPeriod(p, pr.createdAt)) {
         acc.opened++;
         if (!bot) {
           acc.authors.set(pr.author, (acc.authors.get(pr.author) ?? 0) + 1);
@@ -249,29 +279,18 @@ export async function analytics() {
         if (reviewHours != null) acc.reviewHours.push(reviewHours);
       }
 
-      // Merges and reviews are counted on *their own* date, so "merged this
-      // month" doesn't silently exclude a PR opened before the window.
-      const mergedIn =
-        pr.mergedAt &&
-        (w.days === null || (now - new Date(pr.mergedAt)) / DAY <= w.days);
-      if (mergedIn) {
+      if (inPeriod(p, pr.mergedAt)) {
         acc.merged++;
         if (approvers.size) acc.mergedWithApproval++;
         if (mergeHours != null) acc.mergeHours.push(mergeHours);
       }
-      if (
-        !pr.mergedAt &&
-        pr.state === "CLOSED" &&
-        pr.updatedAt &&
-        (w.days === null || (now - new Date(pr.updatedAt)) / DAY <= w.days)
-      ) {
+
+      if (!pr.mergedAt && pr.state === "CLOSED" && inPeriod(p, pr.updatedAt)) {
         acc.closed++;
       }
 
-      for (const r of pr.reviews ?? []) {
-        if (r.state !== "APPROVED" || isBot(r.author) || !r.submittedAt) continue;
-        if (w.days !== null && (now - new Date(r.submittedAt)) / DAY > w.days) continue;
-        acc.reviewers.set(r.author, (acc.reviewers.get(r.author) ?? 0) + 1);
+      for (const [login, at] of approvers) {
+        if (inPeriod(p, at)) acc.reviewers.set(login, (acc.reviewers.get(login) ?? 0) + 1);
       }
     }
   }
@@ -282,42 +301,52 @@ export async function analytics() {
       .sort((a, b) => (b.count ?? b.opened) - (a.count ?? a.opened))
       .slice(0, n);
 
+  /** Scalar metrics only — the shape both a window and its prev period share. */
+  function summarize(a) {
+    const merge = a.mergeHours.sort((x, y) => x - y);
+    const review = a.reviewHours.sort((x, y) => x - y);
+    const reviewerTotal = [...a.reviewers.values()].reduce((n, v) => n + v, 0);
+    const top5 = [...a.reviewers.values()]
+      .sort((x, y) => y - x)
+      .slice(0, 5)
+      .reduce((n, v) => n + v, 0);
+
+    return {
+      opened: a.opened,
+      merged: a.merged,
+      closed: a.closed,
+      activeAuthors: a.authors.size,
+      activeReviewers: a.reviewers.size,
+      activeRepos: a.repos.size,
+      newContributors: a.newContributors,
+      approvals: reviewerTotal,
+      // Of everything that reached a terminal state in this period, what
+      // fraction landed? Ignores still-open PRs, which have no outcome yet.
+      mergeRate: a.merged + a.closed ? a.merged / (a.merged + a.closed) : null,
+      // Merged without a single human approval — the number an admin
+      // probably wants to see trending down.
+      approvedShare: a.merged ? a.mergedWithApproval / a.merged : null,
+      unapprovedMerges: a.merged - a.mergedWithApproval,
+      reviewConcentration: reviewerTotal ? top5 / reviewerTotal : null,
+      medianMergeHours: round1(pct(merge, 50)),
+      p90MergeHours: round1(pct(merge, 90)),
+      medianFirstReviewHours: round1(pct(review, 50)),
+    };
+  }
+
   const byWindow = Object.fromEntries(
     WINDOWS.map((w) => {
       const a = win[w.id];
-      const merge = a.mergeHours.sort((x, y) => x - y);
-      const review = a.reviewHours.sort((x, y) => x - y);
-      const reviewerTotal = [...a.reviewers.values()].reduce((n, v) => n + v, 0);
-      const top5 = [...a.reviewers.values()]
-        .sort((x, y) => y - x)
-        .slice(0, 5)
-        .reduce((n, v) => n + v, 0);
-
       return [
         w.id,
         {
-          opened: a.opened,
-          merged: a.merged,
-          closed: a.closed,
-          activeAuthors: a.authors.size,
-          activeReviewers: a.reviewers.size,
-          activeRepos: a.repos.size,
-          newContributors: a.newContributors,
-          approvals: reviewerTotal,
-          // Of everything that reached a terminal state in this window, what
-          // fraction landed? Ignores still-open PRs, which have no outcome yet.
-          mergeRate: a.merged + a.closed ? a.merged / (a.merged + a.closed) : null,
-          // Merged without a single human approval — the number an admin
-          // probably wants to see trending down.
-          approvedShare: a.merged ? a.mergedWithApproval / a.merged : null,
-          unapprovedMerges: a.merged - a.mergedWithApproval,
-          reviewConcentration: reviewerTotal ? top5 / reviewerTotal : null,
-          medianMergeHours: round1(pct(merge, 50)),
-          p90MergeHours: round1(pct(merge, 90)),
-          medianFirstReviewHours: round1(pct(review, 50)),
+          ...summarize(a),
           topRepos: topN(a.repos, "repo"),
           topAuthors: topN(a.authors, "login"),
           topReviewers: topN(a.reviewers, "login"),
+          // Equal-length period immediately before this one. Null for all-time.
+          prev: w.days == null ? null : summarize(win[`prev:${w.id}`]),
+          prevLabel: w.days == null ? null : `previous ${w.label.toLowerCase()}`,
         },
       ];
     })

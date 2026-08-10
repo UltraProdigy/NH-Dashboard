@@ -21,6 +21,23 @@
     --sidebar-w: 232px;
     --rail-w: 56px;
   }
+  /* Explicit rather than a prefers-color-scheme media query: the toggle has to
+     be able to override the OS, and a media query would fight it. The initial
+     value is picked from the OS in script, then remembered. */
+  :root[data-theme="light"] {
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --panel-2: #eaeef2;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --muted: #59636e;
+    --accent: #0969da;
+    --good: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+    --purple: #8250df;
+    --pink: #bf3989;
+  }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
@@ -40,11 +57,16 @@
     background: var(--panel);
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    /* `align-self: start` matters: a grid item defaults to stretching to the
+       full row height, which leaves sticky nothing to slide against. Pinning
+       it to the top and capping it at the viewport is what makes the nav
+       follow you down a long page. */
+    align-self: start;
     position: sticky;
     top: 0;
     height: 100vh;
-    overflow: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
   .brand {
     display: flex;
@@ -62,7 +84,24 @@
     font-size: 12px; font-weight: 700; color: #0d1117;
   }
   .brand .name { font-weight: 600; white-space: nowrap; }
-  body.collapsed .brand .name { display: none; }
+  body.collapsed .brand .name,
+  body.collapsed .brand .mark { display: none; }
+  body.collapsed .brand { justify-content: center; }
+
+  .icon-btn {
+    margin-left: auto;
+    display: grid; place-items: center;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--muted);
+    padding: 5px;
+    cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--panel-2); color: var(--text); border-color: var(--border); }
+  .icon-btn svg { width: 16px; height: 16px; display: block; }
+  body.collapsed .icon-btn { margin-left: 0; }
+  body.collapsed .icon-btn svg { transform: rotate(180deg); }
 
   .pages { padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
   .pages button {
@@ -236,7 +275,7 @@
   svg.chart { display: block; width: 100%; overflow: visible; }
   svg.chart .grid-line { stroke: var(--border); stroke-width: 1; }
   svg.chart .axis { fill: var(--muted); font-size: 10px; }
-  svg.chart .hoverzone:hover { fill: rgba(255,255,255,.05); }
+  svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparent); }
 
   .hbars { display: flex; flex-direction: column; gap: 7px; }
   .hbar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
@@ -259,6 +298,9 @@
   <div class="brand">
     <span class="mark">NH</span>
     <span class="name">NH Dashboard</span>
+    <button class="icon-btn" id="collapse" title="Collapse sidebar" aria-label="Collapse sidebar">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"/><path d="M12.25 2.5a.75.75 0 0 1 .75.75v9.5a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75Z"/></svg>
+    </button>
   </div>
   <div class="pages" id="pages"></div>
   <div class="side-foot">
@@ -266,9 +308,9 @@
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.75.75 0 0 1 1.36-.63A6.5 6.5 0 1 1 8 1.5v1.5Z"/><path d="M8 .5 11 3 8 5.5V.5Z"/></svg>
       <span>Refresh data</span>
     </a>
-    <button id="collapse" title="Collapse sidebar">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75H2.75a.75.75 0 0 1-.75-.75V2.75Zm1.5.75v9h3v-9h-3Zm4.5 0v9h4.5v-9H8Z"/></svg>
-      <span>Collapse</span>
+    <button id="theme" title="Switch theme">
+      <svg id="themeIcon" viewBox="0 0 16 16" fill="currentColor"></svg>
+      <span id="themeLabel">Light mode</span>
     </button>
   </div>
 </aside>
@@ -541,17 +583,30 @@ function seriesSlice() {
   return all.slice(-Math.ceil(days / per));
 }
 
-/** Same window a period earlier, for the delta arrows on the pulse strip. */
-function deltaFor(key) {
-  const s = A()?.series?.month ?? [];
-  if (s.length < 4) return null;
-  const [prev, cur] = [s.at(-2), s.at(-1)];
-  if (!prev || !cur || !prev[key]) return null;
-  return (cur[key] - prev[key]) / prev[key];
-}
+/**
+ * Delta against the equal-length period immediately before the selected
+ * window — a 3-month view compares to the 3 months before it, not to last
+ * month. The comparison period is precomputed in the analytics panel.
+ *
+ *   invert: lower is better (latency, unapproved merges)
+ *   pp:     the metric is already a share, so report points, not % of a %
+ */
+function delta(key, { invert = false, pp = false, fallback = "" } = {}) {
+  const w = W();
+  const prev = w?.prev?.[key];
+  const cur = w?.[key];
+  if (cur == null || prev == null || (!pp && !prev)) return fallback;
 
-const deltaHtml = d => d == null ? ""
-  : `<span class="${d > 0.02 ? "up" : d < -0.02 ? "down" : "flat"}">${d > 0 ? "▲" : d < 0 ? "▼" : "•"} ${Math.abs(Math.round(d * 100))}%</span> vs. last month`;
+  const diff = pp ? cur - prev : (cur - prev) / prev;
+  const flat = Math.abs(diff) < (pp ? 0.005 : 0.02);
+  const good = invert ? diff < 0 : diff > 0;
+  const cls = flat ? "flat" : good ? "up" : "down";
+  const arrow = flat ? "•" : diff > 0 ? "▲" : "▼";
+  const n = Math.abs(Math.round(diff * 100));
+  const size = pp ? `${n} pt${n === 1 ? "" : "s"}` : `${n}%`;
+
+  return `<span class="${cls}">${arrow} ${size}</span> vs. ${esc(w.prevLabel ?? "previous period")}`;
+}
 
 /* ==========================================================================
    Modules
@@ -567,18 +622,23 @@ const MODULES = {
 
   pulse: {
     page: "analytics", label: "Pulse", span: 12, flush: true,
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => W()?.prevLabel
+      ? `last ${windowLabel().toLowerCase()} vs. ${W().prevLabel}`
+      : windowLabel().toLowerCase(),
     render(expanded) {
       const a = A(), w = W();
       if (!w) return missingIngest();
       if (!expanded) {
+        // Every fallback is what the tile says when there's no comparison
+        // period — i.e. on the all-time window.
         return `<div class="kpis">
-          ${kpi("PRs opened", fmt(w.opened), deltaHtml(deltaFor("opened")))}
-          ${kpi("Merged", fmt(w.merged), deltaHtml(deltaFor("merged")))}
-          ${kpi("Merge rate", pctFmt(w.mergeRate), `${fmt(w.closed)} closed unmerged`)}
-          ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
-          ${kpi("Median first review", dur(w.medianFirstReviewHours), `${fmt(w.approvals)} approvals`)}
-          ${kpi("Active contributors", fmt(w.activeAuthors), `${fmt(w.newContributors)} first-timers`)}
+          ${kpi("PRs opened", fmt(w.opened), delta("opened", { fallback: `across ${fmt(w.activeRepos)} repos` }))}
+          ${kpi("Merged", fmt(w.merged), delta("merged", { fallback: `${pctFmt(w.opened ? w.merged / w.opened : null)} of everything opened` }))}
+          ${kpi("Merge rate", pctFmt(w.mergeRate), delta("mergeRate", { pp: true, fallback: `${fmt(w.closed)} closed unmerged` }))}
+          ${kpi("Median time to merge", dur(w.medianMergeHours), delta("medianMergeHours", { invert: true, fallback: `p90 ${dur(w.p90MergeHours)}` }))}
+          ${kpi("Median first review", dur(w.medianFirstReviewHours), delta("medianFirstReviewHours", { invert: true, fallback: `${fmt(w.approvals)} approvals` }))}
+          ${kpi("Active contributors", fmt(w.activeAuthors), delta("activeAuthors", { fallback: `${fmt(w.activeReviewers)} of them reviewed` }))}
+          ${kpi("First-time authors", fmt(w.newContributors), delta("newContributors", { fallback: `since ${new Date(a.totals.firstPR).getFullYear()}` }))}
           ${kpi("Open backlog", fmt(a.backlog.total), `${fmt(a.backlog.unreviewed)} never reviewed`, a.backlog.unreviewed > a.backlog.total / 2 ? "down" : "")}
         </div>`;
       }
@@ -862,7 +922,7 @@ const MODULES = {
         { key: "prs", label: "PRs", get: r => r.all.prs, render: r => `<span class="num">${r.all.prs}</span>` },
         { key: "merged", label: "Merged", get: r => r.all.merged, render: r => `<span class="num">${r.all.merged}</span>` },
       ];
-      return renderTable(applyFilter(rows), cols, { sortable: expanded, limit: expanded ? null : 7 });
+      return renderTable(sortRows(applyFilter(rows), cols), cols, { sortable: expanded, limit: expanded ? null : 7 });
     },
   },
 
@@ -879,7 +939,7 @@ const MODULES = {
         { key: "prs", label: "PRs (all time)", get: r => r.all.prs, render: r => `<span class="num">${fmt(r.all.prs)}</span>` },
         { key: "approvals", label: "Approvals", get: r => r.all.approvals, render: r => `<span class="num">${fmt(r.all.approvals)}</span>` },
       ];
-      return renderTable(applyFilter(rows), cols, { sortable: expanded, limit: expanded ? null : 7 });
+      return renderTable(sortRows(applyFilter(rows), cols), cols, { sortable: expanded, limit: expanded ? null : 7 });
     },
   },
 };
@@ -1161,9 +1221,30 @@ document.getElementById("toolbar").addEventListener("click", e => {
   if (r) { state.range = r.dataset.range; return render(); }
 });
 
-document.getElementById("collapse").addEventListener("click", () => {
+const collapseBtn = document.getElementById("collapse");
+collapseBtn.addEventListener("click", () => {
   const c = document.body.classList.toggle("collapsed");
   localStorage.setItem("nh:collapsed", c ? "1" : "0");
+  collapseBtn.title = c ? "Expand sidebar" : "Collapse sidebar";
+});
+
+/* ---- theme ---------------------------------------------------------------
+   Nothing to do with GitHub — this is the dashboard's own setting, defaulting
+   to whatever the OS asks for and remembered once you override it. */
+const SUN = `<circle cx="8" cy="8" r="3.2"/><path d="M8 0a.7.7 0 0 1 .7.7v1.4a.7.7 0 0 1-1.4 0V.7A.7.7 0 0 1 8 0Zm0 13.2a.7.7 0 0 1 .7.7v1.4a.7.7 0 0 1-1.4 0v-1.4a.7.7 0 0 1 .7-.7ZM16 8a.7.7 0 0 1-.7.7h-1.4a.7.7 0 0 1 0-1.4h1.4A.7.7 0 0 1 16 8ZM2.8 8a.7.7 0 0 1-.7.7H.7a.7.7 0 0 1 0-1.4h1.4a.7.7 0 0 1 .7.7Zm10.85-5.65a.7.7 0 0 1 0 1L12.66 4.3a.7.7 0 1 1-1-1l1-1a.7.7 0 0 1 1 0ZM4.34 11.66a.7.7 0 0 1 0 1l-1 1a.7.7 0 1 1-1-1l1-1a.7.7 0 0 1 1 0Zm9.31 2a.7.7 0 0 1-1 0l-1-1a.7.7 0 1 1 1-1l1 1a.7.7 0 0 1 0 1ZM4.34 4.34a.7.7 0 0 1-1 0l-1-1a.7.7 0 0 1 1-1l1 1a.7.7 0 0 1 0 1Z"/>`;
+const MOON = `<path d="M9.9 1.3a6.7 6.7 0 1 0 4.9 8.2 5.5 5.5 0 0 1-4.9-8.2Z"/>`;
+
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById("themeIcon").innerHTML = t === "dark" ? SUN : MOON;
+  document.getElementById("themeLabel").textContent = t === "dark" ? "Light mode" : "Dark mode";
+  document.getElementById("theme").title = t === "dark" ? "Switch to light mode" : "Switch to dark mode";
+}
+
+document.getElementById("theme").addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  localStorage.setItem("nh:theme", next);
+  applyTheme(next);
 });
 
 window.addEventListener("hashchange", () => { readHash(); render(); });
@@ -1172,7 +1253,15 @@ window.addEventListener("hashchange", () => { readHash(); render(); });
    Boot
    ========================================================================== */
 
-if (localStorage.getItem("nh:collapsed") === "1") document.body.classList.add("collapsed");
+if (localStorage.getItem("nh:collapsed") === "1") {
+  document.body.classList.add("collapsed");
+  collapseBtn.title = "Expand sidebar";
+}
+
+const prefersLight =
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-color-scheme: light)").matches;
+applyTheme(localStorage.getItem("nh:theme") ?? (prefersLight ? "light" : "dark"));
 
 try {
   // Relative, not absolute: on GitHub Pages this lives under /NH-Dashboard/,
