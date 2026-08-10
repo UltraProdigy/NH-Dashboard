@@ -166,11 +166,11 @@ rather than in `dashboard.json`. The frontend fetches it the first time you open
 a drilldown page and keeps it for the session, so the other three pages don't
 pay for data they never use.
 
-Both pages default to the **all time** window and keep their own setting,
-separate from the Analytics and Contributor Activity pages. Looking at one
-subject you generally want their whole history first and then narrow; looking
-at the org you want the recent picture. One shared setting was wrong half the
-time.
+Both pages default to **all time** — both the window and the chart range — and
+keep their own settings, separate from the Analytics and Contributor Activity
+pages. Looking at one subject you generally want their whole history first and
+then narrow; looking at the org you want the recent picture. One shared setting
+was wrong half the time.
 
 Ranked lists — top repos, top authors, review partners — are **uncapped**. That
 was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
@@ -182,16 +182,50 @@ scroll inside their box rather than stretching the page.
 Review relationships ("who approves their PRs") are counted over all time. A
 review relationship accumulates slowly, and windowing it mostly produces noise.
 
-Activity charts label **every** month. The labels are HTML beneath the plot
-rather than SVG `<text>`, because the charts use `preserveAspectRatio="none"` —
-anything drawn inside gets squashed horizontally as the card narrows, which is
-survivable for six labels and unreadable for twenty-four. The org-wide charts
-on Analytics still thin their labels; at weekly granularity over two years
-there are 104 buckets and no amount of rotation fits them.
+Activity charts label **every** month, upright, with the month stacked over its
+year on two lines — at 24 buckets a single line of "Aug '26" doesn't fit the
+slot, and rotating it makes the axis hard to read.
 
-New Faces on the Contributor Activity page has a jump button beside each name
-that opens that person's drilldown. The name itself still links to GitHub —
-the drilldown is the follow-up question, not a replacement for the profile.
+Those labels are HTML beneath the plot rather than SVG `<text>`, because the
+charts use `preserveAspectRatio="none"` — anything drawn inside gets squashed
+horizontally as the card narrows, which is survivable for six labels and
+unreadable for twenty-four. The org-wide charts on Analytics still thin theirs;
+at weekly granularity over two years there are 104 buckets and nothing fits.
+
+On the overview grid, list cards (Repos, Collaboration, People) grow to the
+height of their row instead of stopping at a fixed height and leaving a strip
+of empty panel below. In the expanded tab view they take their own max-height
+instead — the card stands alone there, so an uncapped list would just make the
+page metres long.
+
+### Getting there
+
+**Every contributor name in the dashboard links to their drilldown**, not to
+github.com — leaderboards, New Faces, Gone quiet, top authors and reviewers,
+the repo People lists, all of it. The drilldown answers more of what you were
+asking when you clicked a name here, and it carries a "View on GitHub" button
+of its own, so the profile is one more click rather than gone.
+
+The one exception is that button itself, on the drilldown header.
+
+They're real anchors to `#contributor/<login>`, so middle-click and
+open-in-new-tab behave normally. Plain clicks are intercepted only so they
+route through `go()` and clear the sort and filter, which a bare hash change
+wouldn't.
+
+Repo names still link to github.com. Making them open the Repo Drilldown would
+be the same one-line change if that turns out to be the more useful default.
+
+### Remembering where you were
+
+Each page remembers its last tab, and the drilldowns also remember their last
+subject, so moving between pages resumes rather than resetting. The mode toggle
+does the same: flipping to Repo puts you back on the repo you were looking at,
+falling back to the equivalent tab only if you've never been there.
+
+This is in-memory for the session. The hash stays the source of truth, so a
+reload or a shared link lands exactly where the URL says — the memory only
+fills in what a navigation didn't specify.
 
 ## Layout
 
