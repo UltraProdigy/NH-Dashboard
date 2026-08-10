@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T05:04:30.953Z",
+  "generatedAt": "2026-08-10T05:26:19.189Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -51,7 +51,21 @@
           ],
           "createdAt": "2026-08-01T05:17:54Z",
           "updatedAt": "2026-08-09T15:14:27Z",
-          "ageDays": 8,
+          "ageDays": 9,
+          "staleDays": 0
+        },
+        {
+          "repo": "GTNewHorizons/NotEnoughItems",
+          "number": 997,
+          "title": "Modernize Java code",
+          "url": "https://github.com/GTNewHorizons/NotEnoughItems/pull/997",
+          "author": "Nikolay-Sitnikov",
+          "authorAvatar": "https://avatars.githubusercontent.com/u/18091206?v=4",
+          "draft": false,
+          "labels": [],
+          "createdAt": "2026-08-09T05:13:17Z",
+          "updatedAt": "2026-08-10T04:49:07Z",
+          "ageDays": 1,
           "staleDays": 0
         },
         {
@@ -74,20 +88,6 @@
           ],
           "createdAt": "2026-08-09T08:18:44Z",
           "updatedAt": "2026-08-09T09:09:35Z",
-          "ageDays": 0,
-          "staleDays": 0
-        },
-        {
-          "repo": "GTNewHorizons/NotEnoughItems",
-          "number": 997,
-          "title": "Modernize Java code",
-          "url": "https://github.com/GTNewHorizons/NotEnoughItems/pull/997",
-          "author": "Nikolay-Sitnikov",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/18091206?v=4",
-          "draft": false,
-          "labels": [],
-          "createdAt": "2026-08-09T05:13:17Z",
-          "updatedAt": "2026-08-10T04:49:07Z",
           "ageDays": 0,
           "staleDays": 0
         }
@@ -393,7 +393,7 @@
           "createdAt": "2026-06-30T16:43:23Z",
           "updatedAt": "2026-08-05T05:15:41Z",
           "ageDays": 40,
-          "staleDays": 4
+          "staleDays": 5
         },
         {
           "repo": "GTNewHorizons/GT5-Unofficial",
@@ -412,6 +412,20 @@
           "createdAt": "2026-08-01T13:13:56Z",
           "updatedAt": "2026-08-06T11:31:40Z",
           "ageDays": 8,
+          "staleDays": 3
+        },
+        {
+          "repo": "GTNewHorizons/Thaumic_Exploration",
+          "number": 62,
+          "title": "Clean up talisman of nourishment hunger code",
+          "url": "https://github.com/GTNewHorizons/Thaumic_Exploration/pull/62",
+          "author": "serenibyss",
+          "authorAvatar": "https://avatars.githubusercontent.com/u/10861407?v=4",
+          "draft": false,
+          "labels": [],
+          "createdAt": "2026-07-23T14:34:15Z",
+          "updatedAt": "2026-08-07T05:04:16Z",
+          "ageDays": 17,
           "staleDays": 3
         },
         {
@@ -440,20 +454,6 @@
           "updatedAt": "2026-08-06T11:30:15Z",
           "ageDays": 69,
           "staleDays": 3
-        },
-        {
-          "repo": "GTNewHorizons/Thaumic_Exploration",
-          "number": 62,
-          "title": "Clean up talisman of nourishment hunger code",
-          "url": "https://github.com/GTNewHorizons/Thaumic_Exploration/pull/62",
-          "author": "serenibyss",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/10861407?v=4",
-          "draft": false,
-          "labels": [],
-          "createdAt": "2026-07-23T14:34:15Z",
-          "updatedAt": "2026-08-07T05:04:16Z",
-          "ageDays": 17,
-          "staleDays": 2
         },
         {
           "repo": "GTNewHorizons/GTNHLib",
@@ -600,7 +600,7 @@
           ],
           "createdAt": "2026-08-01T05:17:56Z",
           "updatedAt": "2026-08-09T21:51:20Z",
-          "ageDays": 8,
+          "ageDays": 9,
           "staleDays": 0
         }
       ]
@@ -728,7 +728,7 @@
             ],
             "createdAt": "2026-08-01T05:17:54Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -1443,7 +1443,7 @@
             ],
             "createdAt": "2026-03-29T05:13:25Z",
             "updatedAt": "2026-06-26T17:03:50Z",
-            "ageDays": 133,
+            "ageDays": 134,
             "staleDays": 44
           },
           {
@@ -1543,7 +1543,7 @@
             "createdAt": "2026-06-30T16:43:23Z",
             "updatedAt": "2026-08-05T05:15:41Z",
             "ageDays": 40,
-            "staleDays": 4
+            "staleDays": 5
           },
           {
             "repo": "GTNewHorizons/OpenComputers",
@@ -2878,7 +2878,7 @@
             ],
             "createdAt": "2025-04-19T05:21:48Z",
             "updatedAt": "2026-06-02T14:03:59Z",
-            "ageDays": 477,
+            "ageDays": 478,
             "staleDays": 68
           },
           {
@@ -3998,6 +3998,171 @@
             "staleDays": 1
           },
           {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 31,
+            "title": "[chords 8/8] docs: document the chord and context api",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/31",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:18:06Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 30,
+            "title": "[chords 7/8] feat(gui): rebuild the visual keyboard for chords",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/30",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:18:05Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 29,
+            "title": "[chords 6/8] feat(gui): rebuild the controls list for chords",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/29",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:18:02Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 28,
+            "title": "[chords 5/8] feat(config): add color palette option",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/28",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:18:00Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 27,
+            "title": "[chords 4/8] feat(api): add chord restriction policy",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/27",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:17:58Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 26,
+            "title": "[chords 3/8] feat(keybinding): replace modifiers with n-key chords",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/26",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:17:56Z",
+            "updatedAt": "2026-08-09T21:51:20Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
+            "repo": "GTNewHorizons/Controlling",
+            "number": 25,
+            "title": "[chords 2/8] feat(api): add key contexts and gui key dispatch",
+            "url": "https://github.com/GTNewHorizons/Controlling/pull/25",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              },
+              {
+                "name": "⚠️ AUTHOR MERGE ONLY",
+                "color": "7a0e20"
+              },
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              }
+            ],
+            "createdAt": "2026-08-01T05:17:54Z",
+            "updatedAt": "2026-08-09T15:14:27Z",
+            "ageDays": 9,
+            "staleDays": 0
+          },
+          {
             "repo": "GTNewHorizons/Freecam",
             "number": 25,
             "title": "feat: Add ServerUtils Ranks compat",
@@ -4034,171 +4199,6 @@
             "updatedAt": "2026-08-03T03:27:48Z",
             "ageDays": 8,
             "staleDays": 7
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 31,
-            "title": "[chords 8/8] docs: document the chord and context api",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/31",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:18:06Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 30,
-            "title": "[chords 7/8] feat(gui): rebuild the visual keyboard for chords",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/30",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:18:05Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 29,
-            "title": "[chords 6/8] feat(gui): rebuild the controls list for chords",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/29",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:18:02Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 28,
-            "title": "[chords 5/8] feat(config): add color palette option",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/28",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:18:00Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 27,
-            "title": "[chords 4/8] feat(api): add chord restriction policy",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/27",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:17:58Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 26,
-            "title": "[chords 3/8] feat(keybinding): replace modifiers with n-key chords",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/26",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:17:56Z",
-            "updatedAt": "2026-08-09T21:51:20Z",
-            "ageDays": 8,
-            "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Controlling",
-            "number": 25,
-            "title": "[chords 2/8] feat(api): add key contexts and gui key dispatch",
-            "url": "https://github.com/GTNewHorizons/Controlling/pull/25",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              },
-              {
-                "name": "⚠️ AUTHOR MERGE ONLY",
-                "color": "7a0e20"
-              },
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              }
-            ],
-            "createdAt": "2026-08-01T05:17:54Z",
-            "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
-            "staleDays": 0
           },
           {
             "repo": "GTNewHorizons/Hodgepodge",
@@ -4396,7 +4396,7 @@
             ],
             "createdAt": "2025-04-19T05:21:48Z",
             "updatedAt": "2026-06-02T14:03:59Z",
-            "ageDays": 477,
+            "ageDays": 478,
             "staleDays": 68
           },
           {
@@ -5118,6 +5118,29 @@
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 6226,
+            "title": "Fix getInventoryName",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/6226",
+            "author": "Discreater",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/41231596?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Ongoing Freeze - Do NOT Merge",
+                "color": "e99695"
+              },
+              {
+                "name": "Bug Fix",
+                "color": "7ff74f"
+              }
+            ],
+            "createdAt": "2026-03-29T05:13:25Z",
+            "updatedAt": "2026-06-26T17:03:50Z",
+            "ageDays": 134,
+            "staleDays": 44
+          },
+          {
+            "repo": "GTNewHorizons/GT5-Unofficial",
             "number": 6225,
             "title": "Chat message localization 20260329",
             "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/6225",
@@ -5137,29 +5160,6 @@
             "createdAt": "2026-03-29T03:17:49Z",
             "updatedAt": "2026-06-26T17:04:21Z",
             "ageDays": 134,
-            "staleDays": 44
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 6226,
-            "title": "Fix getInventoryName",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/6226",
-            "author": "Discreater",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/41231596?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Ongoing Freeze - Do NOT Merge",
-                "color": "e99695"
-              },
-              {
-                "name": "Bug Fix",
-                "color": "7ff74f"
-              }
-            ],
-            "createdAt": "2026-03-29T05:13:25Z",
-            "updatedAt": "2026-06-26T17:03:50Z",
-            "ageDays": 133,
             "staleDays": 44
           },
           {
@@ -5848,7 +5848,7 @@
             ],
             "createdAt": "2025-07-02T05:11:21Z",
             "updatedAt": "2026-01-14T15:16:56Z",
-            "ageDays": 403,
+            "ageDays": 404,
             "staleDays": 207
           },
           {
@@ -6080,7 +6080,7 @@
             ],
             "createdAt": "2025-07-02T05:11:21Z",
             "updatedAt": "2026-01-14T15:16:56Z",
-            "ageDays": 403,
+            "ageDays": 404,
             "staleDays": 207
           },
           {
@@ -6348,7 +6348,7 @@
             ],
             "createdAt": "2026-08-01T05:18:06Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6371,7 +6371,7 @@
             ],
             "createdAt": "2026-08-01T05:18:05Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6394,7 +6394,7 @@
             ],
             "createdAt": "2026-08-01T05:18:02Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6417,7 +6417,7 @@
             ],
             "createdAt": "2026-08-01T05:18:00Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6440,7 +6440,7 @@
             ],
             "createdAt": "2026-08-01T05:17:58Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6463,7 +6463,7 @@
             ],
             "createdAt": "2026-08-01T05:17:56Z",
             "updatedAt": "2026-08-09T21:51:20Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -6490,7 +6490,7 @@
             ],
             "createdAt": "2026-08-01T05:17:54Z",
             "updatedAt": "2026-08-09T15:14:27Z",
-            "ageDays": 8,
+            "ageDays": 9,
             "staleDays": 0
           },
           {
@@ -7019,6 +7019,21 @@
       "error": null,
       "data": [
         {
+          "repo": "DreamAssemblerXXL",
+          "repoUrl": "https://github.com/GTNewHorizons/DreamAssemblerXXL",
+          "isFork": false,
+          "defaultBranch": "master",
+          "headSha": "dd4d6c0c2d3db33ec4059cd7ede62b0cdf739f04",
+          "lastCommitAt": "2026-08-10T05:20:18Z",
+          "tagName": "daily-screenshots",
+          "tagSha": "b20bce345462c8fc5f6fbb5e87311498f30b7509",
+          "releaseUrl": "https://github.com/GTNewHorizons/DreamAssemblerXXL/releases/tag/daily-screenshots",
+          "releasedAt": "2026-06-24T07:12:55Z",
+          "isPrerelease": true,
+          "commitsAhead": 102,
+          "daysSinceRelease": 46
+        },
+        {
           "repo": "TC4Tweaks",
           "repoUrl": "https://github.com/GTNewHorizons/TC4Tweaks",
           "isFork": true,
@@ -7032,21 +7047,6 @@
           "isPrerelease": false,
           "commitsAhead": 102,
           "daysSinceRelease": 1248
-        },
-        {
-          "repo": "DreamAssemblerXXL",
-          "repoUrl": "https://github.com/GTNewHorizons/DreamAssemblerXXL",
-          "isFork": false,
-          "defaultBranch": "master",
-          "headSha": "b4c5a008582d61508647b56ce39364f73ccfbda3",
-          "lastCommitAt": "2026-08-09T07:16:56Z",
-          "tagName": "daily-screenshots",
-          "tagSha": "b20bce345462c8fc5f6fbb5e87311498f30b7509",
-          "releaseUrl": "https://github.com/GTNewHorizons/DreamAssemblerXXL/releases/tag/daily-screenshots",
-          "releasedAt": "2026-06-24T07:12:55Z",
-          "isPrerelease": true,
-          "commitsAhead": 101,
-          "daysSinceRelease": 46
         },
         {
           "repo": "BugTorch",
@@ -7505,32 +7505,32 @@
           {
             "login": "boubou19",
             "m1": {
-              "prs": 42,
+              "prs": 44,
               "merged": 38,
               "approvals": 32
             },
             "m3": {
-              "prs": 56,
+              "prs": 58,
               "merged": 54,
               "approvals": 118
             },
             "m6": {
-              "prs": 69,
+              "prs": 71,
               "merged": 66,
               "approvals": 291
             },
             "y1": {
-              "prs": 128,
+              "prs": 130,
               "merged": 120,
               "approvals": 462
             },
             "all": {
-              "prs": 427,
+              "prs": 429,
               "merged": 407,
               "approvals": 1334
             },
             "firstSeen": "2020-05-18T23:01:01Z",
-            "lastSeen": "2026-08-10T04:33:20Z"
+            "lastSeen": "2026-08-10T05:20:08Z"
           },
           {
             "login": "serenibyss",
@@ -43083,7 +43083,7 @@
             "lastSeen": "2025-10-23T21:03:32Z"
           }
         ],
-        "totalPRs": 28484,
+        "totalPRs": 28487,
         "truncated": 12
       }
     },
@@ -43119,9 +43119,9 @@
           }
         ],
         "totals": {
-          "prs": 28484,
+          "prs": 28487,
           "merged": 26045,
-          "open": 429,
+          "open": 432,
           "closed": 2010,
           "approvals": 22819,
           "contributors": 1168,
@@ -50595,7 +50595,7 @@
             {
               "b": "2026-W33",
               "t": "2026-08-10T01:22:57Z",
-              "opened": 5,
+              "opened": 8,
               "merged": 4,
               "closed": 0,
               "authors": 2,
@@ -52459,7 +52459,7 @@
             {
               "b": "2026-08",
               "t": "2026-08-01T00:01:40Z",
-              "opened": 334,
+              "opened": 337,
               "merged": 267,
               "closed": 29,
               "authors": 73,
@@ -52474,7 +52474,7 @@
         },
         "byWindow": {
           "m1": {
-            "opened": 1132,
+            "opened": 1135,
             "merged": 950,
             "closed": 88,
             "activeAuthors": 144,
@@ -52545,12 +52545,12 @@
                 "count": 50
               },
               {
-                "login": "Caedis",
+                "login": "boubou19",
                 "count": 44
               },
               {
-                "login": "boubou19",
-                "count": 42
+                "login": "Caedis",
+                "count": 44
               },
               {
                 "login": "Worive",
@@ -52600,7 +52600,7 @@
               }
             ],
             "prev": {
-              "opened": 1137,
+              "opened": 1136,
               "merged": 1060,
               "closed": 76,
               "activeAuthors": 150,
@@ -52619,7 +52619,7 @@
             "prevLabel": "previous 1 month"
           },
           "m3": {
-            "opened": 3661,
+            "opened": 3664,
             "merged": 3311,
             "closed": 279,
             "activeAuthors": 289,
@@ -52764,7 +52764,7 @@
             "prevLabel": "previous 3 months"
           },
           "m6": {
-            "opened": 6841,
+            "opened": 6844,
             "merged": 6170,
             "closed": 494,
             "activeAuthors": 426,
@@ -52909,7 +52909,7 @@
             "prevLabel": "previous 6 months"
           },
           "y1": {
-            "opened": 10798,
+            "opened": 10801,
             "merged": 9786,
             "closed": 825,
             "activeAuthors": 577,
@@ -53054,7 +53054,7 @@
             "prevLabel": "previous 1 year"
           },
           "all": {
-            "opened": 28484,
+            "opened": 28487,
             "merged": 26045,
             "closed": 2010,
             "activeAuthors": 1168,
@@ -53184,12 +53184,12 @@
           }
         },
         "backlog": {
-          "total": 429,
-          "unreviewed": 324,
+          "total": 432,
+          "unreviewed": 327,
           "buckets": [
             {
               "label": "< 1 week",
-              "count": 81
+              "count": 84
             },
             {
               "label": "1–4 weeks",
@@ -53241,7 +53241,7 @@
               "number": 26,
               "author": "Cleptomania",
               "url": "https://github.com/GTNewHorizons/GTNHGradle/pull/26",
-              "ageDays": 635,
+              "ageDays": 636,
               "staleDays": 588,
               "reviewed": true
             },
@@ -53322,7 +53322,7 @@
               "number": 4209,
               "author": "Quarri6343",
               "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/4209",
-              "ageDays": 477,
+              "ageDays": 478,
               "staleDays": 68,
               "reviewed": true
             },
@@ -53385,7 +53385,7 @@
               "number": 4536,
               "author": "Alexdoru",
               "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/4536",
-              "ageDays": 403,
+              "ageDays": 404,
               "staleDays": 207,
               "reviewed": false
             },
@@ -53431,7 +53431,7 @@
               "author": "wlhlm",
               "url": "https://github.com/GTNewHorizons/Hodgepodge/pull/613",
               "ageDays": 345,
-              "staleDays": 176,
+              "staleDays": 177,
               "reviewed": true
             }
           ]
@@ -53443,7 +53443,7 @@
             45,
             34,
             51,
-            37,
+            39,
             35,
             31,
             49,
