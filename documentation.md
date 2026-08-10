@@ -66,6 +66,77 @@ development needs one of the three options above rather than reusing the secret.
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 
+## Dream Panel
+
+Four cards, ordered by how close each one is to "somebody press the button":
+Approved-not-merged, Needs a release, Changes requested, By label.
+
+### Exclusions
+
+A multi-select at the top hides repos and labels from **every** card on the
+page. It defaults to the **⚠️ AUTHOR MERGE ONLY** label and the **Angelica**
+repo, and the choice is remembered in `localStorage` — the same handful
+shouldn't have to be dismissed every morning.
+
+The page's whole job is a short list of things somebody should act on. A label
+that means "this is not yours to merge" is noise on it permanently, not just on
+its own tab, so the filter applies to the rows themselves rather than to the
+By-label selection: a PR carrying an excluded label disappears from
+Approved-not-merged too. Tab counts follow the exclusions, because a badge that
+disagrees with the list under it is worse than no badge.
+
+Repo names arrive in two spellings — the search-backed panels carry
+`GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica` — so
+everything is compared bare.
+
+It's a popup of checkboxes rather than a native `<select multiple>`. The native
+control is a fixed-height scrolling box that can't show which of eighty repos
+are ticked without scrolling, and ctrl-clicking to deselect one entry is a
+well-known way to lose the other nine.
+
+### The label picker
+
+It lives in the **By label** card's header, in the slot where every other card
+puts its caption, rather than in the page toolbar. That card is the only thing
+on the page it changes, and a control sitting above a grid of four cards reads
+as a page-wide filter — which the exclusions now genuinely are.
+
+Excluded labels drop out of the picker, and the selection falls back to the
+first visible one rather than showing an empty table for a label that's been
+hidden.
+
+## One period control per page
+
+Every page carries exactly one time control, in the same shape: a segmented
+**All / 1m / 3m / 6m / 1y / 2y / 5y**. It scopes the KPI tiles and the charts
+together.
+
+The org pages used to carry two — a `window` dropdown driving the aggregates
+and a separate `range` picker driving the chart x-axis — sitting side by side
+on one toolbar, answering subtly different questions about the same page. A
+3-month window next to a 1-year range is not a state anyone chose on purpose.
+They're now one control, and the charts read the window like everything else.
+
+Analytics and Contributor Activity default to **3 months**; the drilldowns keep
+their own setting and still default to all time. Looking at the org you want
+the recent picture, looking at one subject you want their whole history first
+and then to narrow. The two settings are independent, so moving between them
+doesn't reset either.
+
+Granularity is a separate control, because it isn't a time range — it's what
+one bar *means*. It's labelled **x-axis** for exactly that reason, and offers
+**by day / by week / by month**.
+
+Daily buckets only reach back `DAY_SERIES_DAYS` (two years). The org's history
+starts in 2014, so an all-time daily series would be ~4,300 buckets — about
+800 KB in a file that's committed on every build, drawn as a chart nobody can
+read at that width. Two years is 731 buckets and 139 KB. When the selected
+period reaches further back than the daily data goes, the chart says so rather
+than quietly plotting a shorter span than the control promised.
+
+Review latency at daily granularity is mostly gaps by design: a point only
+appears once a bucket has more than three merges, and most days don't.
+
 ## Contributor activity
 
 Review approvals are nested under each PR, so there's no query that answers
@@ -143,6 +214,29 @@ here without turning the build red or blocking the Pages deploy.
 one request per repo regardless, so raising it is free until 100, where the API
 starts paginating.
 
+### Actions minutes
+
+The Health tab reports **Actions time**: the summed wall-clock duration of the
+runs already sampled, with the run count beside it. It costs nothing — the
+durations were being computed for the median anyway.
+
+It is deliberately **not** GitHub's billable minutes, and the panel says so.
+Billing is per *job*: a run with eight matrix jobs in parallel bills roughly
+eight times what it took on the clock, and macOS bills 10x, Windows 2x. A
+duration can't know any of that.
+
+The real figure comes from `/actions/runs/{id}/timing`, which is one request
+per run — ~20 per active repo, or roughly 4,000 per build on top of what this
+panel already costs. That would dominate the rate-limit budget for a number
+nobody is going to reconcile against an invoice. Summed over a known run count,
+wall-clock still answers the question being asked: which repos are the
+expensive ones.
+
+The org's actual billed total is one request to
+`/orgs/{org}/settings/billing/actions`, but it needs `admin:org` and has no
+per-repo breakdown, so it would be an Analytics tile rather than anything the
+repo drilldown could use. Not built.
+
 ## Drilldowns
 
 Two pages answer "how is *this* one doing" rather than "how is the org doing":
@@ -170,19 +264,25 @@ pay for data they never use.
 
 The drilldowns have exactly one: a segmented **All / 1m / 3m / 6m / 1y / 2y /
 5y**, defaulting to all time. It scopes the numbers and the charts together.
+Every other page now works the same way — see "One period control per page"
+above; the drilldowns just got there first.
 
-They used to carry two — a window dropdown for the aggregates and a separate
-range control for the chart's x-axis — which put two time pickers on one
-toolbar answering subtly different questions. Worse, the window was rendered on
-every non-Dream page whether or not anything on screen read it, so three tabs
-offered a control that did nothing when you touched it. Each drilldown module
-now declares which controls it actually uses, so Collaboration (all-time by
-nature) and Open PRs show no time control at all.
+Each drilldown module declares which controls it actually uses, so Collaboration
+(all-time by nature) and Open PRs show no time control at all rather than one
+that does nothing when you touch it.
 
 The setting is per-page: changing it here doesn't touch Analytics or
-Contributor Activity, which keep their own window and range. Looking at one
-subject you generally want their whole history first and then narrow; looking
-at the org you want the recent picture.
+Contributor Activity, which keep their own. Looking at one subject you
+generally want their whole history first and then narrow; looking at the org
+you want the recent picture.
+
+### The profile tiles
+
+The first tile is **PRs opened** for the period, with **PRs closed** for the
+same period underneath — closed meaning everything that reached a terminal
+state, merged or dropped. It used to read "N all time", which put a windowed
+number directly above a lifetime one. Two numbers on the same clock compare;
+two on different clocks just sit there.
 
 Because the charts follow the window, the series has to reach back far enough
 to answer "5 years" and "all time" — so `SERIES_MONTHS` is a ceiling of 240
@@ -204,6 +304,25 @@ scroll inside their box rather than stretching the page.
 
 Review relationships ("who approves their PRs") are counted over all time. A
 review relationship accumulates slowly, and windowing it mostly produces noise.
+
+### Authored vs. reviewed, by repo
+
+The contributor's **Repos** card carries two ranked lists — PRs opened per repo
+and PRs reviewed per repo — both following the period control. Authoring and
+reviewing are different jobs that land in different places: plenty of people
+open PRs against one mod and review across a dozen, and one list only ever told
+half that story. It's the mirror of the repo drilldown's **People** card, which
+splits the same pair by person instead of by repo.
+
+Stacked on the overview, side by side in the expanded tab. The overview slot is
+four columns wide and two ranked lists beside each other there ellipsis the
+repo names down to nothing.
+
+The reviewed list is built the same way as the authored one, from the same
+`_counts` map — the key just carries a `reviewed` segment instead of `opened`.
+It sums exactly to that window's approval count, which is the cheap check that
+the two haven't drifted. It costs about 0.6 MB on `drilldown.json`, which is
+gitignored and regenerated on every build.
 
 Activity charts label **every** month, upright, with the month stacked over its
 year on two lines — at 24 buckets a single line of "Aug '26" doesn't fit the

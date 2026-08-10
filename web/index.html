@@ -330,6 +330,13 @@
      a sequence when they're stacked. These are comparisons. */
   .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   @media (max-width: 900px) { .duo { grid-template-columns: 1fr; } }
+  /* Same two boxes, one above the other. A 4-column overview card is too
+     narrow to put two ranked lists beside each other — the repo names ellipsis
+     down to nothing — so it stacks there and pairs up in the expanded view,
+     where there's a full 12 columns to spend. Explicit rows rather than `auto`:
+     inside a `fill` body the pair has to split the height it's given, not ask
+     for the height its content wants. */
+  .duo.stacked { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   .duo-box {
     border: 1px solid var(--border); border-radius: 8px;
     background: var(--panel-2);
@@ -399,6 +406,46 @@
   .pill.fail { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
   .pill.neutral { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
 
+  /* ---------- a select living in a card header ---------- */
+  /* Sized to read as a caption rather than as a form field — it sits where the
+     descriptive text sits on every other card. */
+  select.inline-sel {
+    padding: 2px 6px; font-size: 12px; color: var(--muted);
+    max-width: 260px;
+  }
+  select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
+
+  /* ---------- dream panel: exclusion popup ---------- */
+  .excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
+  .excl-pop { min-width: 480px; max-height: 420px; padding: 0; }
+  @media (max-width: 720px) { .excl-pop { min-width: 260px; } }
+  .excl-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid var(--border);
+    color: var(--muted); font-size: 12px;
+    position: sticky; top: 0; background: var(--panel); z-index: 1;
+  }
+  .excl-head .ghost { margin-left: auto; }
+  .excl-head .ghost[disabled] { opacity: .45; cursor: default; }
+  .excl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  @media (max-width: 720px) { .excl-cols { grid-template-columns: 1fr; } }
+  .excl-group { padding: 8px 0 12px; min-width: 0; }
+  .excl-group + .excl-group { border-left: 1px solid var(--border); }
+  .excl-group h4 {
+    margin: 0; padding: 4px 12px 8px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted);
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .excl-group h4 .n { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .excl-opt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 12px; cursor: pointer; font-size: 12px;
+  }
+  .excl-opt:hover { background: var(--panel-2); }
+  .excl-opt input { accent-color: var(--accent); flex: none; margin: 0; }
+  .excl-opt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   .picker { padding: 40px 0; text-align: center; }
   .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
   .picker p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
@@ -455,14 +502,26 @@ const state = {
   data: null,
   page: "analytics",
   module: null,       // null = the page's overview grid
-  window: "m3",       // shared window for window-scoped modules
-  gran: "month",      // time-series granularity
-  range: "y1",        // time-series lookback
+  // One period control per page, in the same shape the drilldowns use: it
+  // scopes the KPI tiles and the charts together. There used to be two — a
+  // window dropdown for the aggregates and a separate range picker for the
+  // chart's x-axis — which put two time controls on one toolbar answering
+  // subtly different questions about the same page.
+  window: "m3",
+  gran: "month",      // x-axis granularity: day | week | month
   filter: "",
   label: null,
   minActivity: 3,
   sort: null,
   dir: -1,
+
+  // ---- Dream Panel ----
+  // Repos and labels to hide from every card on that page. Some labels mean
+  // "this is not yours to merge" and some repos are somebody else's problem;
+  // either way they're noise on a page whose whole job is a short actionable
+  // list. Held as arrays rather than Sets so they serialize to localStorage.
+  dreamExcl: { repos: [], labels: [] },
+  exclOpen: false,
 
   // ---- drilldown ----
   // Its own window, independent of the analytics/people one. Looking at a
@@ -490,13 +549,21 @@ const otherMode = (page) => (page === "contributor" ? "repo" : "contributor");
 /** Closed PRs toggle. Key order is the order the buttons appear in. */
 const CLOSED_LABEL = { all: "All", merged: "Merged", dropped: "Closed" };
 
-const RANGES = [
-  { id: "m3", label: "3m", days: 90 },
-  { id: "m6", label: "6m", days: 180 },
-  { id: "y1", label: "1y", days: 365 },
-  { id: "y2", label: "2y", days: 730 },
-  { id: "all", label: "All", days: null },
+/**
+ * x-axis granularity. `bucketDays` is what turns a period in days into a bucket
+ * count when slicing a series.
+ */
+const GRANS = [
+  { id: "day",   label: "by day",   bucketDays: 1 },
+  { id: "week",  label: "by week",  bucketDays: 7 },
+  { id: "month", label: "by month", bucketDays: 30.4 },
 ];
+
+/** Defaults for the Dream Panel exclusions, applied on a first visit. */
+const DREAM_EXCL_DEFAULT = {
+  repos: ["Angelica"],
+  labels: ["⚠️ AUTHOR MERGE ONLY"],
+};
 
 /* ==========================================================================
    Formatting helpers
@@ -549,17 +616,20 @@ const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 864000
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /**
- * Bucket keys are 2026-08 / 2026-W32; neither reads well on an axis as-is.
- * Split into the period and its year so an axis can stack them on two lines
- * and a tooltip can join them back into one.
+ * Bucket keys are 2026-08 / 2026-W32 / 2026-08-10; none reads well on an axis
+ * as-is. Split into the period and its year so an axis can stack them on two
+ * lines and a tooltip can join them back into one.
  */
 function bucketParts(b) {
   if (b.includes("W")) {
     const [y, w] = b.split("-W");
     return { period: `w${Number(w)}`, year: y };
   }
-  const [y, m] = b.split("-");
-  return { period: MONTHS[Number(m) - 1], year: y };
+  const [y, m, d] = b.split("-");
+  return {
+    period: d ? `${MONTHS[Number(m) - 1]} ${Number(d)}` : MONTHS[Number(m) - 1],
+    year: y,
+  };
 }
 
 function bucketLabel(b) {
@@ -796,15 +866,42 @@ const windowPhrase = () => {
   return l === "all time" ? "all time" : `last ${l}`;
 };
 
-/** Time series trimmed to the selected granularity + lookback. */
+/** How many days the selected period covers; null for all time. */
+const windowDays = () =>
+  windowList().find(w => w.id === activeWindow())?.days ?? null;
+
+/**
+ * Time series for the selected granularity, trimmed to the selected period.
+ *
+ * One control drives both now, so this reads the same window the KPI tiles do
+ * rather than a second lookback of its own.
+ */
 function seriesSlice() {
   const a = A();
   if (!a) return [];
   const all = a.series[state.gran] ?? [];
-  const days = RANGES.find(r => r.id === state.range)?.days;
+  const days = windowDays();
   if (days == null) return all;
-  const per = state.gran === "week" ? 7 : 30.4;
+  const per = GRANS.find(g => g.id === state.gran)?.bucketDays ?? 30.4;
   return all.slice(-Math.ceil(days / per));
+}
+
+/**
+ * Set when the period reaches further back than the daily buckets go.
+ *
+ * The build only emits two years of days (see DAY_SERIES_DAYS) — an all-time
+ * daily series is 4,300 buckets of unreadable chart in a file that's committed
+ * on every build. Saying so is better than silently drawing a two-year chart
+ * under a control that says "5 years".
+ */
+function dayLimitNote() {
+  if (state.gran !== "day") return "";
+  const from = A()?.series?.dayFrom;
+  if (!from) return "";
+  const days = windowDays();
+  if (days != null && Date.now() - days * 86400000 >= new Date(from).getTime())
+    return "";
+  return `<div class="hint" style="margin-top:10px">Daily buckets only go back to ${esc(from)} — the chart is showing everything there is, which is less than the selected period. Switch to weekly for the full span.</div>`;
 }
 
 /**
@@ -945,17 +1042,17 @@ function subjectSlice() {
  * 400-entry list and a 3-entry one sit next to each other without either
  * dictating the height of the card.
  */
-function duo(left, right, { height = "tall" } = {}) {
-  const box = ({ title, rows, color, href, label, value }) => `
+function duo(left, right, { height = "tall", stacked = false } = {}) {
+  const box = ({ title, rows, color, href, internal, label, value }) => `
     <section class="duo-box">
       <h3>${esc(title)}<span class="n">${fmt(rows.length)}</span></h3>
       <div class="scroll ${height}">${
         rows.length
-          ? hbars(rows, { label, value, color, href })
+          ? hbars(rows, { label, value, color, href, internal })
           : `<div class="empty" style="padding:18px 0">Nothing here.</div>`
       }</div>
     </section>`;
-  return `<div class="duo">${box(left)}${box(right)}</div>`;
+  return `<div class="duo${stacked ? " stacked" : ""}">${box(left)}${box(right)}</div>`;
 }
 
 const byLogin = { label: r => r.login, value: r => r.count,
@@ -1031,8 +1128,8 @@ const MODULES = {
 
   volume: {
     page: "analytics", label: "PR volume", span: 8,
-    sub: () => `by ${state.gran}`,
-    controls: ["gran", "range"],
+    sub: () => `by ${state.gran}, ${windowPhrase()}`,
+    controls: ["gran"],
     render(expanded) {
       if (!A()) return missingIngest();
       const s = seriesSlice();
@@ -1048,7 +1145,7 @@ const MODULES = {
         ${kpi(`Peak ${state.gran}`, fmt(Math.max(0, ...s.map(b => b.opened))), s.length ? bucketLabel(s.reduce((m, b) => b.opened > m.opened ? b : m, s[0]).b) : "")}
       </div>`;
       return head + legend(series) + barChart(s, series, { height: expanded ? 380 : 210 }) +
-        (expanded ? volumeTable(s) : "");
+        dayLimitNote() + (expanded ? volumeTable(s) : "");
     },
   },
 
@@ -1091,8 +1188,7 @@ const MODULES = {
 
   latency: {
     page: "analytics", label: "Review latency", span: 6,
-    sub: () => "median hours, by month",
-    controls: ["range"],
+    sub: () => `median hours, by ${state.gran}`,
     render(expanded) {
       if (!A()) return missingIngest();
       const s = seriesSlice().filter(b => b.mergeN > 3);
@@ -1102,14 +1198,14 @@ const MODULES = {
         { key: "mergeP90H",     label: "To merge (p90)",           color: "var(--warn)" },
       ];
       return legend(series) + lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur }) +
-        `<div class="hint" style="margin-top:10px">Bars only appear once a ${state.gran} has more than three merges — small samples swing the median wildly.</div>`;
+        `<div class="hint" style="margin-top:10px">Points only appear once a ${state.gran} has more than three merges — small samples swing the median wildly, which is why a daily view of this is mostly gaps.</div>` +
+        dayLimitNote();
     },
   },
 
   growth: {
     page: "analytics", label: "Contributor growth", span: 6,
     sub: () => "active vs. first-time",
-    controls: ["range"],
     render(expanded) {
       if (!A()) return missingIngest();
       const s = seriesSlice();
@@ -1122,7 +1218,8 @@ const MODULES = {
           ${kpi("All-time contributors", fmt(a.totals.contributors), `since ${new Date(a.totals.firstPR).getFullYear()}`)}
           ${kpi("New this window", fmt(W()?.newContributors), `in ${windowLabel().toLowerCase()}`)}
           ${kpi("Repos with PRs", fmt(a.totals.repos), "all time")}
-        </div>` + legend(series) + lineChart(s, series, { height: expanded ? 380 : 200 });
+        </div>` + legend(series) + lineChart(s, series, { height: expanded ? 380 : 200 }) +
+        dayLimitNote();
     },
   },
 
@@ -1217,8 +1314,11 @@ const MODULES = {
   },
   byLabel: {
     page: "dream", label: "By label", span: 6, flush: true,
-    panelId: "byLabel", cols: () => COLUMNS.pr, controls: ["label"],
-    sub: () => state.label ?? "pick a label",
+    panelId: "byLabel", cols: () => COLUMNS.pr,
+    // The picker lives in this card's header rather than the page toolbar:
+    // it's the only thing on the page it changes, and a control that far from
+    // what it affects reads as a page-wide filter, which it isn't.
+    subHtml: () => labelPickerHtml(),
   },
 
   /* ---------------- Contributor Activity ---------------- */
@@ -1316,7 +1416,12 @@ const MODULES = {
       const s = subject(), w = SW();
       if (!expanded) {
         return `<div class="kpis">
-          ${kpi("PRs opened", fmt(w.opened), `${fmt(s.totalPRs)} all time`)}
+          ${/* Closed in the same period rather than the all-time total: two
+                numbers on the same clock compare, a windowed one against a
+                lifetime one doesn't. "Closed" here is everything that reached
+                a terminal state — merged or dropped — which is the natural
+                counterpart to "opened". */""}
+          ${kpi("PRs opened", fmt(w.opened), `${fmt(w.merged + w.closed)} PRs closed`)}
           ${kpi("Merged", fmt(w.merged), `${pctFmt(w.mergeRate)} of those resolved`)}
           ${kpi("Approvals given", fmt(w.approvals), `for ${fmt(w.reviewers)} different authors`)}
           ${kpi("Repos touched", fmt(w.people), `in ${windowLabel().toLowerCase()}`)}
@@ -1373,17 +1478,33 @@ const MODULES = {
     },
   },
 
+  /**
+   * Where this person's effort goes, split by the two things they do.
+   *
+   * Authoring and reviewing are different jobs and they land in different
+   * repos — plenty of people open PRs against one mod and review across a
+   * dozen. One list only ever told half that story. The mirror of rPeople on
+   * the repo side, which splits the same card by person instead of by repo.
+   */
   cRepos: {
     page: "contributor", label: "Repos", span: 4, twin: "rPeople", fill: true,
     controls: ["window"],
-    sub: () => `PRs opened, ${windowPhrase()}`,
+    sub: () => `PRs opened and reviewed, ${windowPhrase()}`,
     render(expanded) {
-      const rows = subject()?.topRepos?.[activeWindow()] ?? [];
-      if (!rows.length) return `<div class="empty">No PRs opened in this window.</div>`;
-      return `<div class="scroll ${expanded ? "tall" : "short"}">${
-        hbars(rows, { label: r => r.repo, value: r => r.count, color: "var(--accent)",
-          href: r => `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}` })
-      }</div>`;
+      const s = subject();
+      const w = activeWindow();
+      const byRepo = {
+        label: r => r.repo,
+        value: r => r.count,
+        href: r => `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}`,
+      };
+      // Side by side once the card is full width, stacked in the 4-column
+      // overview slot where two ranked lists would be too narrow to read.
+      return duo(
+        { title: "PRs opened", rows: s?.topRepos?.[w] ?? [], color: "var(--accent)", ...byRepo },
+        { title: "PRs reviewed", rows: s?.reviewRepos?.[w] ?? [], color: "var(--purple)", ...byRepo },
+        { height: expanded ? "tall" : "short", stacked: !expanded }
+      );
     },
   },
 
@@ -1455,7 +1576,12 @@ const MODULES = {
       const s = subject(), w = SW();
       if (!expanded) {
         return `<div class="kpis">
-          ${kpi("PRs opened", fmt(w.opened), `${fmt(s.totalPRs)} all time`)}
+          ${/* Closed in the same period rather than the all-time total: two
+                numbers on the same clock compare, a windowed one against a
+                lifetime one doesn't. "Closed" here is everything that reached
+                a terminal state — merged or dropped — which is the natural
+                counterpart to "opened". */""}
+          ${kpi("PRs opened", fmt(w.opened), `${fmt(w.merged + w.closed)} PRs closed`)}
           ${kpi("Merged", fmt(w.merged), `${pctFmt(w.mergeRate)} of those resolved`)}
           ${kpi("Contributors", fmt(w.people), `${fmt(w.reviewers)} of them reviewed`)}
           ${kpi("Approvals", fmt(w.approvals), `${pctFmt(w.approvedShare)} of merges approved`)}
@@ -1671,8 +1797,11 @@ function ciSection(repo) {
       ${kpi("Latest run", badge, ci.latest?.workflow ? esc(ci.latest.workflow) : "")}
       ${kpi("Pass rate", pctFmt(rate), `${fmt(ci.decisive)} decisive of ${fmt(ci.runs)} runs`, rateCls)}
       ${kpi("Median duration", ciDur(ci.medianMinutes), `${fmt(ci.failures)} failed`)}
+      ${kpi("Actions time", ciDur(ci.totalMinutes),
+            ci.timedRuns ? `across ${fmt(ci.timedRuns)} runs` : "no timing data")}
     </div>
-    <div class="hint" style="margin-top:12px">Cancelled and skipped runs are excluded from the pass rate — they say something about the humans, not the code.</div>`;
+    <div class="hint" style="margin-top:12px">Cancelled and skipped runs are excluded from the pass rate — they say something about the humans, not the code.</div>
+    <div class="hint" style="margin-top:6px"><strong>Actions time is wall-clock, not GitHub's billable minutes.</strong> A run with eight matrix jobs in parallel bills roughly eight times what it took on the clock, and macOS bills 10x. Use it to compare repos against each other, not against an invoice — the real figure needs one API request per run, which would cost more than the rest of this dashboard combined.</div>`;
 }
 
 /** Cross-reference into the needsRelease panel, which already has this data. */
@@ -1703,7 +1832,7 @@ const PAGES = [
   {
     id: "dream", label: "Dream Panel",
     icon: `<path d="M8 1.5 2 4.2v4.1c0 3.4 2.4 6 6 6.2 3.6-.2 6-2.8 6-6.2V4.2L8 1.5Zm2.8 4.9-3.3 4a.7.7 0 0 1-1 .05L4.9 8.9a.7.7 0 1 1 .95-1l1 .95 2.8-3.4a.7.7 0 1 1 1.1.9Z"/>`,
-    modules: ["approvedUnmerged", "changesRequested", "needsRelease", "byLabel"],
+    modules: ["approvedUnmerged", "needsRelease", "changesRequested", "byLabel"],
   },
   {
     id: "people", label: "Contributor Activity",
@@ -1744,12 +1873,131 @@ for (const m of Object.values(MODULES)) {
   };
 }
 
+/* ==========================================================================
+   Dream Panel filtering
+   --------------------------------------------------------------------------
+   The page's job is a short list of things somebody should act on. Anything
+   that's permanently somebody else's problem — a label that says "the author
+   merges this", a repo you don't own — is noise, so it can be switched off
+   once rather than skipped over every morning.
+   ========================================================================== */
+
+/**
+ * Repo names arrive in two shapes: the search-backed panels carry the full
+ * `GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica`. One
+ * exclusion list has to match both, so everything is compared bare.
+ */
+const bareRepo = (r) => String(r ?? "").split("/").pop();
+
+const DREAM_PANELS = ["approvedUnmerged", "changesRequested", "needsRelease", "byLabel"];
+
+/** Every repo that appears anywhere on the Dream Panel, deduped and sorted. */
+function dreamRepoOptions() {
+  const out = new Set();
+  for (const id of DREAM_PANELS) {
+    const p = panel(id);
+    if (!p?.ok) continue;
+    const lists = id === "byLabel" ? Object.values(p.data) : [p.data];
+    for (const list of lists) for (const r of list) out.add(bareRepo(r.repo));
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Every label that appears on a Dream Panel PR — not just the tracked ones the
+ * By-label tab queries. A PR can be excluded by any label it carries, and the
+ * "author merge only" case is exactly that: you want it gone from Approved and
+ * Changes-requested too, not only from its own tab.
+ */
+function dreamLabelOptions() {
+  const out = new Set(Object.keys(panel("byLabel")?.ok ? panel("byLabel").data : {}));
+  for (const id of ["approvedUnmerged", "changesRequested"]) {
+    const p = panel(id);
+    if (!p?.ok) continue;
+    for (const r of p.data) for (const l of r.labels ?? []) out.add(l.name);
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+const isExcludedRepo = (repo) => state.dreamExcl.repos.includes(bareRepo(repo));
+const isExcludedRow = (r) =>
+  isExcludedRepo(r.repo) ||
+  (r.labels ?? []).some(l => state.dreamExcl.labels.includes(l.name));
+
+/** Tracked labels the By-label picker should offer — excluded ones drop out. */
+const visibleLabels = () => {
+  const p = panel("byLabel");
+  if (!p?.ok) return [];
+  return Object.keys(p.data).filter(k => !state.dreamExcl.labels.includes(k));
+};
+
+/** The label actually being shown, falling back when the selection is hidden. */
+const activeLabel = () => {
+  const vis = visibleLabels();
+  return vis.includes(state.label) ? state.label : vis[0] ?? null;
+};
+
+function labelPickerHtml() {
+  const vis = visibleLabels();
+  if (!vis.length) return `<span class="sub">every label is excluded</span>`;
+  const cur = activeLabel();
+  const p = panel("byLabel");
+  return `<select id="labelPicker" class="inline-sel">${vis.map(k =>
+    `<option value="${esc(k)}"${k === cur ? " selected" : ""}>${esc(k)} (${
+      (p.data[k] ?? []).filter(r => !isExcludedRow(r)).length})</option>`).join("")}</select>`;
+}
+
 function panelRows(id) {
   const p = panel(id);
   if (!p?.ok) return [];
-  if (id !== "byLabel") return p.data;
-  const key = state.label ?? Object.keys(p.data)[0];
-  return p.data[key] ?? [];
+  const rows = id === "byLabel" ? (p.data[activeLabel()] ?? []) : p.data;
+  return rows.filter(r => !isExcludedRow(r));
+}
+
+/* ---- the exclusion popup ------------------------------------------------
+   Two checkbox groups in one popup rather than two native <select multiple>
+   boxes: the native control is a fixed-height scrolling list that can't show
+   which of 80 repos are ticked without scrolling, and ctrl-clicking to
+   deselect one item is a well-known way to lose the other nine. */
+
+function exclCount() {
+  return state.dreamExcl.repos.length + state.dreamExcl.labels.length;
+}
+
+function exclPopHtml() {
+  const group = (kind, title, options) => `
+    <div class="excl-group">
+      <h4>${esc(title)}<span class="n">${state.dreamExcl[kind].length} hidden</span></h4>
+      ${options.length ? options.map(o => `
+        <label class="excl-opt">
+          <input type="checkbox" data-excl="${kind}" value="${esc(o)}"${
+            state.dreamExcl[kind].includes(o) ? " checked" : ""}>
+          <span>${esc(o)}</span>
+        </label>`).join("") : `<div class="combo-none">Nothing to list.</div>`}
+    </div>`;
+  return `<div class="excl-head">
+      <span>Hide from every card on this page</span>
+      <button class="ghost" id="exclClear"${exclCount() ? "" : " disabled"}>Clear all</button>
+    </div>
+    <div class="excl-cols">
+      ${group("labels", "Labels", dreamLabelOptions())}
+      ${group("repos", "Repos", dreamRepoOptions())}
+    </div>`;
+}
+
+/** Persisted, so the same handful doesn't have to be re-hidden every morning. */
+function saveExclusions() {
+  try { localStorage.setItem("nh:dreamExcl", JSON.stringify(state.dreamExcl)); }
+  catch { /* private mode, or storage full — the filter still works this session */ }
+}
+
+function loadExclusions() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("nh:dreamExcl")); } catch { /* corrupt */ }
+  state.dreamExcl = {
+    repos: Array.isArray(saved?.repos) ? saved.repos : [...DREAM_EXCL_DEFAULT.repos],
+    labels: Array.isArray(saved?.labels) ? saved.labels : [...DREAM_EXCL_DEFAULT.labels],
+  };
 }
 
 const contributorAll = () => panel("contributors")?.ok ? (panel("contributors").data.rows ?? []) : [];
@@ -1773,7 +2021,8 @@ function contributorColumns() {
 
 function volumeTable(s) {
   const cols = [
-    { key: "b", label: state.gran === "week" ? "Week" : "Month", render: b => esc(bucketLabel(b.b)) },
+    { key: "b", label: { day: "Day", week: "Week", month: "Month" }[state.gran] ?? "Bucket",
+      render: b => esc(bucketLabel(b.b)) },
     { key: "opened", label: "Opened", render: b => `<span class="num">${fmt(b.opened)}</span>` },
     { key: "merged", label: "Merged", render: b => `<span class="num">${fmt(b.merged)}</span>` },
     { key: "closed", label: "Closed", render: b => `<span class="num">${fmt(b.closed)}</span>` },
@@ -1794,9 +2043,12 @@ function moduleCount(id) {
   if (m.panelId) {
     const p = panel(m.panelId);
     if (!p?.ok) return "!";
+    // Counts follow the exclusions — a tab badge that disagrees with the list
+    // underneath it is worse than no badge.
     return m.panelId === "byLabel"
-      ? Object.values(p.data).reduce((n, g) => n + g.length, 0)
-      : p.data.length;
+      ? visibleLabels().reduce(
+          (n, k) => n + (p.data[k] ?? []).filter(r => !isExcludedRow(r)).length, 0)
+      : panelRows(m.panelId).length;
   }
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
@@ -1919,6 +2171,9 @@ function renderToolbar() {
   if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
   if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
+  // Page-wide on Dream: it hides rows from every card, so it belongs up here
+  // rather than on any one of them.
+  if (page.id === "dream") wanted.add("excl");
   // The subject picker is the whole point of a drilldown page, so it's always
   // there — including before anything is selected, which is when it's needed.
   if (isDrill(page.id)) wanted.add("subject");
@@ -1949,30 +2204,33 @@ function renderToolbar() {
   if (wanted.has("window")) {
     const ws = windowList();
     const cur = activeWindow();
-    // On the drilldowns this is the only time control there is — it scopes the
-    // numbers and the charts together — so it gets the segmented treatment
-    // rather than being buried in a dropdown.
-    bits.push(isDrill(page.id)
-      ? `<span class="seg" id="windowSeg">${ws.map(w =>
-          `<button data-window="${w.id}" aria-pressed="${w.id === cur}">${esc(w.short ?? w.label)}</button>`).join("")}</span>`
-      : `<label class="minlabel">window
-          <select id="windowPicker">${ws.map(w =>
-            `<option value="${w.id}"${w.id === cur ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
+    // The same segmented control on every page. It used to be a dropdown here
+    // and a segmented control on the drilldowns, with a *second* range picker
+    // beside it driving the charts — two time controls on one toolbar,
+    // answering subtly different questions about the same page. One control,
+    // one shape, scoping the numbers and the charts together.
+    bits.push(`<span class="seg" id="windowSeg">${ws.map(w =>
+      `<button data-window="${w.id}" aria-pressed="${w.id === cur}" title="${esc(w.label)}">${
+        esc(w.short ?? w.label)}</button>`).join("")}</span>`);
   }
 
+  // Granularity is not a time range — it's what one bar means — so it keeps
+  // its own control, labelled the way the window control used to be so it's
+  // obvious the two aren't the same kind of thing.
   if (wanted.has("gran"))
-    bits.push(`<span class="seg" id="granSeg">${["week", "month"].map(g =>
-      `<button data-gran="${g}" aria-pressed="${state.gran === g}">by ${g}</button>`).join("")}</span>`);
+    bits.push(`<span class="minlabel">x-axis
+      <span class="seg" id="granSeg">${GRANS.map(g =>
+        `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
-  // Org pages only — the drilldowns fold this into their window control.
-  if (wanted.has("range"))
-    bits.push(`<span class="seg" id="rangeSeg">${RANGES.map(r =>
-      `<button data-range="${r.id}" aria-pressed="${state.range === r.id}">${r.label}</button>`).join("")}</span>`);
-
-  if (wanted.has("label")) {
-    const p = panel("byLabel");
-    if (p?.ok) bits.push(`<select id="labelPicker">${Object.entries(p.data).map(([k, v]) =>
-      `<option value="${esc(k)}"${k === state.label ? " selected" : ""}>${esc(k)} (${v.length})</option>`).join("")}</select>`);
+  if (wanted.has("excl")) {
+    const n = exclCount();
+    bits.push(`<span class="combo" id="excl">
+      <button class="ghost excl-btn" id="exclBtn" aria-expanded="${state.exclOpen}">
+        Exclusions${n ? ` <span class="count">${n}</span>` : ""} ▾
+      </button>
+      <div class="combo-pop excl-pop" id="exclPop"${state.exclOpen ? "" : " hidden"}>${
+        state.exclOpen ? exclPopHtml() : ""}</div>
+    </span>`);
   }
 
   if (wanted.has("closedState"))
@@ -1996,6 +2254,14 @@ function renderToolbar() {
   }
 }
 
+/**
+ * The line beside a card's title. Usually descriptive text; a module can hand
+ * back markup instead when the thing that describes the card *is* a control —
+ * By label, whose picker is the only sensible caption for it.
+ */
+const cardSub = (m) =>
+  m.subHtml ? m.subHtml() : `<span class="sub">${esc(m.sub ? m.sub() : "")}</span>`;
+
 function card(id) {
   const m = MODULES[id];
   let body;
@@ -2008,7 +2274,7 @@ function card(id) {
   return `<section class="card" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
-      <span class="sub">${esc(m.sub ? m.sub() : "")}</span>
+      ${cardSub(m)}
       <button class="expand" data-open="${id}">Expand ↗</button>
     </header>
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}">${body}</div>
@@ -2025,7 +2291,7 @@ function pageBody() {
   try { body = m.render(true); }
   catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
   return `<section class="card" style="--span:12">
-    <header><h2>${esc(m.label)}</h2><span class="sub">${esc(m.sub ? m.sub() : "")}</span></header>
+    <header><h2>${esc(m.label)}</h2>${cardSub(m)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
 }
@@ -2216,6 +2482,15 @@ document.getElementById("view").addEventListener("click", e => {
   }
 });
 
+/* The By-label picker lives in that card's header rather than the toolbar, so
+   its events arrive here. */
+document.getElementById("view").addEventListener("change", e => {
+  if (e.target.id !== "labelPicker") return;
+  state.label = e.target.value;
+  state.sort = null;
+  render();
+});
+
 document.getElementById("toolbar").addEventListener("input", e => {
   const t = e.target;
   // Typing in the combobox repaints only the popup. Routing it through
@@ -2227,11 +2502,6 @@ document.getElementById("toolbar").addEventListener("input", e => {
     return updateComboPop();
   }
   if (t.id === "filter") state.filter = t.value.trim();
-  else if (t.id === "windowPicker") {
-    if (isDrill(state.page)) state.drillWindow = t.value;
-    else state.window = t.value;
-  }
-  else if (t.id === "labelPicker") state.label = t.value;
   else if (t.id === "minActivity") {
     const v = Number(t.value);
     state.minActivity = Number.isFinite(v) && v >= 0 ? v : 0;
@@ -2258,16 +2528,58 @@ document.getElementById("toolbar").addEventListener("click", e => {
     return goPage(mode.dataset.mode, twin);
   }
 
+  // One control, two homes for its value: the drilldowns keep their own period
+  // so looking at a person doesn't reset what Analytics was showing.
   const w = e.target.closest("button[data-window]");
-  if (w) { state.drillWindow = w.dataset.window; return render(); }
+  if (w) {
+    if (isDrill(state.page)) state.drillWindow = w.dataset.window;
+    else state.window = w.dataset.window;
+    return render();
+  }
 
   const cs = e.target.closest("button[data-closed]");
   if (cs) { state.closedState = cs.dataset.closed; return render(); }
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }
-  const r = e.target.closest("button[data-range]");
-  if (r) { state.range = r.dataset.range; return render(); }
+
+  /* ---- exclusions ---- */
+  if (e.target.closest("#exclBtn")) {
+    // Stopped here rather than left to bubble: the document-level
+    // close-on-outside-click handler would otherwise see this same click
+    // *after* render() has torn the button out of the DOM, and decide it
+    // landed outside the popup it just opened.
+    e.stopPropagation();
+    state.exclOpen = !state.exclOpen;
+    return render();
+  }
+  if (e.target.closest("#exclClear")) {
+    state.dreamExcl = { repos: [], labels: [] };
+    saveExclusions();
+    return render();
+  }
+});
+
+/**
+ * Ticking a box repaints the whole page — every card on Dream reads the
+ * exclusions — but the popup has to stay open, since the point of a
+ * multi-select is picking several without reopening it each time.
+ */
+document.getElementById("toolbar").addEventListener("change", e => {
+  const box = e.target.closest("input[data-excl]");
+  if (!box) return;
+  const list = state.dreamExcl[box.dataset.excl];
+  const i = list.indexOf(box.value);
+  if (box.checked) { if (i === -1) list.push(box.value); }
+  else if (i !== -1) list.splice(i, 1);
+  saveExclusions();
+  const pop = document.getElementById("exclPop");
+  const top = pop?.scrollTop ?? 0;
+  render();
+  // render() rebuilt the popup from scratch; put the scroll position back so
+  // ticking the fortieth repo doesn't fling you to the top of the list.
+  const fresh = document.getElementById("exclPop");
+  if (fresh) fresh.scrollTop = top;
 });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
@@ -2317,6 +2629,10 @@ document.getElementById("toolbar").addEventListener("focusin", e => {
 /* Close on an outside click rather than on blur: blur fires before click, so a
    blur handler would tear the popup down before the option got selected. */
 document.addEventListener("click", e => {
+  if (state.exclOpen && !e.target.closest("#excl")) {
+    state.exclOpen = false;
+    render();
+  }
   if (!state.combo.open || e.target.closest("#combo")) return;
   closeCombo();
   updateComboPop();
@@ -2392,6 +2708,7 @@ try {
     : "https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml";
 
   state.label = Object.keys(state.data.panels.byLabel?.data ?? {})[0] ?? null;
+  loadExclusions();
   readHash();
   render();
 } catch (err) {
