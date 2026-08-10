@@ -470,9 +470,6 @@ const state = {
   // narrow; looking at the org you want the recent picture. Sharing one
   // setting made each page wrong half the time.
   drillWindow: "all",
-  // Same reasoning for the chart lookback: on one subject you want the whole
-  // history the file holds, which is 24 months.
-  drillRange: "all",
   closedState: "all", // Closed PRs tab: all | merged | dropped
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
@@ -491,7 +488,7 @@ const isDrill = (page) => Object.hasOwn(DRILL, page);
 const otherMode = (page) => (page === "contributor" ? "repo" : "contributor");
 
 /** Closed PRs toggle. Key order is the order the buttons appear in. */
-const CLOSED_LABEL = { all: "Both", merged: "Merged", dropped: "Closed" };
+const CLOSED_LABEL = { all: "All", merged: "Merged", dropped: "Closed" };
 
 const RANGES = [
   { id: "m3", label: "3m", days: 90 },
@@ -770,14 +767,27 @@ const panel = id => state.data?.panels?.[id];
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
-/** Whichever pickers are on screen: drilldowns keep their own. */
+/** Drilldowns keep their own window, independent of the org pages. */
 const activeWindow = () => (isDrill(state.page) ? state.drillWindow : state.window);
-const activeRange = () => (isDrill(state.page) ? state.drillRange : state.range);
+
+/**
+ * The window list for whichever page is showing.
+ *
+ * Order matters: a drilldown must read its own file's list, because
+ * dashboard.json and drilldown.json are built separately and can disagree
+ * about which windows exist. When they do — say a rebuild adds 2y and 5y —
+ * offering the analytics list on a drilldown would hide options the drilldown
+ * data actually has, and offering the drilldown list on Analytics would offer
+ * ones it doesn't.
+ */
+const windowList = () =>
+  (isDrill(state.page) ? state.drill?.windows : null)
+  ?? A()?.windows ?? state.drill?.windows
+  ?? panel("contributors")?.data?.windows ?? [];
 
 const windowLabel = () => {
   const id = activeWindow();
-  const ws = A()?.windows ?? state.drill?.windows ?? [];
-  return ws.find(w => w.id === id)?.label ?? id;
+  return windowList().find(w => w.id === id)?.label ?? id;
 };
 
 /** "last 3 months" or "all time" — "last all time" reads like a typo. */
@@ -916,11 +926,18 @@ function resolvedRows() {
   });
 }
 
-/** Series trimmed to the selected lookback. Monthly only — 24 months of it. */
+/**
+ * Series trimmed to the selected window.
+ *
+ * The drilldowns used to carry a second control for this, which meant two time
+ * pickers on one toolbar answering slightly different questions. Now the
+ * window scopes the charts and the numbers together.
+ */
 function subjectSlice() {
   const all = subjectSeries();
-  const days = RANGES.find(r => r.id === activeRange())?.days;
-  return days == null ? all : all.slice(-Math.ceil(days / 30.4));
+  const days = (state.drill?.windows ?? []).find(w => w.id === activeWindow())?.days;
+  // Monthly buckets, so a 1-month window is a single bar. Honest, if sparse.
+  return days == null ? all : all.slice(-Math.max(1, Math.ceil(days / 30.4)));
 }
 
 /**
@@ -1293,6 +1310,7 @@ const MODULES = {
 
   cProfile: {
     page: "contributor", label: "Profile", span: 12, flush: true, twin: "rProfile",
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = SW();
@@ -1328,7 +1346,7 @@ const MODULES = {
 
   cActivity: {
     page: "contributor", label: "Activity", span: 8, twin: "rActivity",
-    controls: ["range"], sub: () => "by month",
+    controls: ["window"], sub: () => `by month, ${windowPhrase()}`,
     render(expanded) {
       const s = subjectSlice();
       const prs = [
@@ -1357,6 +1375,7 @@ const MODULES = {
 
   cRepos: {
     page: "contributor", label: "Repos", span: 4, twin: "rPeople", fill: true,
+    controls: ["window"],
     sub: () => `PRs opened, ${windowPhrase()}`,
     render(expanded) {
       const rows = subject()?.topRepos?.[activeWindow()] ?? [];
@@ -1402,7 +1421,11 @@ const MODULES = {
 
   cClosed: {
     page: "contributor", label: "Closed PRs", span: 12, flush: true,
-    controls: ["closedState"],
+    controls: ["window"],
+    // tabControls, not controls: the overview gathers every module's controls
+    // into one toolbar, and a three-way filter for one card down the page is
+    // noise up there. It appears when this tab is the thing you're looking at.
+    tabControls: ["closedState"],
     sub: () => `${CLOSED_LABEL[state.closedState]}, ${windowPhrase()}`,
     render(expanded) {
       const rows = resolvedRows();
@@ -1426,6 +1449,7 @@ const MODULES = {
 
   rProfile: {
     page: "repo", label: "Profile", span: 12, flush: true, twin: "cProfile",
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = SW();
@@ -1462,7 +1486,7 @@ const MODULES = {
 
   rActivity: {
     page: "repo", label: "Activity", span: 8, twin: "cActivity",
-    controls: ["range"], sub: () => "by month",
+    controls: ["window"], sub: () => `by month, ${windowPhrase()}`,
     render(expanded) {
       const s = subjectSlice();
       const prs = [
@@ -1487,6 +1511,7 @@ const MODULES = {
 
   rPeople: {
     page: "repo", label: "People", span: 6, twin: "cRepos", fill: true,
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = activeWindow();
@@ -1545,6 +1570,7 @@ const MODULES = {
 
   rHealth: {
     page: "repo", label: "Health", span: 6, twin: "cCollab",
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render() {
       const s = subject(), w = SW();
@@ -1878,11 +1904,19 @@ function closeCombo() {
 function renderToolbar() {
   const page = currentPage();
   const mod = state.module ? MODULES[state.module] : null;
+  // On a module's own tab it gets everything it asks for. On the overview only
+  // `controls` are gathered — `tabControls` are ones that would be clutter
+  // floating above a grid of cards they only affect one of.
   const wanted = new Set(
-    mod ? (mod.controls ?? []) : page.modules.flatMap(id => MODULES[id].controls ?? [])
+    mod
+      ? [...(mod.controls ?? []), ...(mod.tabControls ?? [])]
+      : page.modules.flatMap(id => MODULES[id].controls ?? [])
   );
-  // Window applies to nearly everything except the Dream Panel.
-  if (page.id !== "dream") wanted.add("window");
+  // Window applies to nearly everything on the org pages. The drilldowns
+  // instead let each module declare it, so a tab that ignores the window —
+  // all-time Collaboration, the open-PR list — doesn't display a control that
+  // changes nothing when you touch it.
+  if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
   if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
   // The subject picker is the whole point of a drilldown page, so it's always
@@ -1913,22 +1947,27 @@ function renderToolbar() {
     bits.push(`<input type="search" id="filter" placeholder="Filter by repo, title, or author…" value="${esc(state.filter)}">`);
 
   if (wanted.has("window")) {
-    const ws = A()?.windows ?? state.drill?.windows ?? panel("contributors")?.data?.windows ?? [];
+    const ws = windowList();
     const cur = activeWindow();
-    bits.push(`<label class="minlabel">window
-      <select id="windowPicker">${ws.map(w =>
-        `<option value="${w.id}"${w.id === cur ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
+    // On the drilldowns this is the only time control there is — it scopes the
+    // numbers and the charts together — so it gets the segmented treatment
+    // rather than being buried in a dropdown.
+    bits.push(isDrill(page.id)
+      ? `<span class="seg" id="windowSeg">${ws.map(w =>
+          `<button data-window="${w.id}" aria-pressed="${w.id === cur}">${esc(w.short ?? w.label)}</button>`).join("")}</span>`
+      : `<label class="minlabel">window
+          <select id="windowPicker">${ws.map(w =>
+            `<option value="${w.id}"${w.id === cur ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
   }
 
   if (wanted.has("gran"))
     bits.push(`<span class="seg" id="granSeg">${["week", "month"].map(g =>
       `<button data-gran="${g}" aria-pressed="${state.gran === g}">by ${g}</button>`).join("")}</span>`);
 
-  if (wanted.has("range")) {
-    const cur = activeRange();
+  // Org pages only — the drilldowns fold this into their window control.
+  if (wanted.has("range"))
     bits.push(`<span class="seg" id="rangeSeg">${RANGES.map(r =>
-      `<button data-range="${r.id}" aria-pressed="${cur === r.id}">${r.label}</button>`).join("")}</span>`);
-  }
+      `<button data-range="${r.id}" aria-pressed="${state.range === r.id}">${r.label}</button>`).join("")}</span>`);
 
   if (wanted.has("label")) {
     const p = panel("byLabel");
@@ -2219,17 +2258,16 @@ document.getElementById("toolbar").addEventListener("click", e => {
     return goPage(mode.dataset.mode, twin);
   }
 
+  const w = e.target.closest("button[data-window]");
+  if (w) { state.drillWindow = w.dataset.window; return render(); }
+
   const cs = e.target.closest("button[data-closed]");
   if (cs) { state.closedState = cs.dataset.closed; return render(); }
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }
   const r = e.target.closest("button[data-range]");
-  if (r) {
-    if (isDrill(state.page)) state.drillRange = r.dataset.range;
-    else state.range = r.dataset.range;
-    return render();
-  }
+  if (r) { state.range = r.dataset.range; return render(); }
 });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input

@@ -166,11 +166,34 @@ rather than in `dashboard.json`. The frontend fetches it the first time you open
 a drilldown page and keeps it for the session, so the other three pages don't
 pay for data they never use.
 
-Both pages default to **all time** — both the window and the chart range — and
-keep their own settings, separate from the Analytics and Contributor Activity
-pages. Looking at one subject you generally want their whole history first and
-then narrow; looking at the org you want the recent picture. One shared setting
-was wrong half the time.
+### One time control
+
+The drilldowns have exactly one: a segmented **All / 1m / 3m / 6m / 1y / 2y /
+5y**, defaulting to all time. It scopes the numbers and the charts together.
+
+They used to carry two — a window dropdown for the aggregates and a separate
+range control for the chart's x-axis — which put two time pickers on one
+toolbar answering subtly different questions. Worse, the window was rendered on
+every non-Dream page whether or not anything on screen read it, so three tabs
+offered a control that did nothing when you touched it. Each drilldown module
+now declares which controls it actually uses, so Collaboration (all-time by
+nature) and Open PRs show no time control at all.
+
+The setting is per-page: changing it here doesn't touch Analytics or
+Contributor Activity, which keep their own window and range. Looking at one
+subject you generally want their whole history first and then narrow; looking
+at the org you want the recent picture.
+
+Because the charts follow the window, the series has to reach back far enough
+to answer "5 years" and "all time" — so `SERIES_MONTHS` is a ceiling of 240
+rather than a flat 24, and each subject is trimmed to its own first month. A
+1-month window plots a single bar, which is sparse but honest.
+
+The window list is read from whichever file the page is backed by.
+`dashboard.json` and `drilldown.json` are built separately and can disagree
+about which windows exist — after a change like adding 2y and 5y, one is
+rebuilt before the other — so a drilldown reads its own list rather than
+borrowing the analytics one and hiding options its data actually has.
 
 Ranked lists — top repos, top authors, review partners — are **uncapped**. That
 was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
@@ -201,10 +224,15 @@ page metres long.
 ### Closed PRs
 
 The contributor drilldown carries every PR of theirs that reached a terminal
-state — merged or closed unmerged — newest first, with a toggle for Both /
-Merged / Closed. It respects the window picker like everything else, so
-all-time by default. Full width on the overview, since a half-width table of
-four columns looked stranded.
+state — merged or closed unmerged — newest first, with a toggle for All /
+Merged / Closed. It respects the time control like everything else, so all-time
+by default. Full width on the overview, since a half-width table of four
+columns looked stranded.
+
+The toggle only appears on the tab, not on the overview: the overview gathers
+every module's controls into one toolbar, and a three-way filter for one card
+down the page is clutter up there. That's what a module's `tabControls` are, as
+against `controls`.
 
 There are 25,660 of these org-wide, and the obvious
 `{repo, number, at, merged}` shape cost ~1.9 MB in repeated key names and

@@ -32,8 +32,16 @@ import { BACKLOG_BUCKETS } from "./analytics.js";
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
-/** How much history the per-subject charts carry. */
-const SERIES_MONTHS = 24;
+/**
+ * Upper bound on how much history the per-subject charts carry.
+ *
+ * The one time control now drives the charts as well as the numbers, so a
+ * 5-year or all-time selection has to have buckets behind it. This is only a
+ * ceiling: finishSeries trims each subject to its own first month, so someone
+ * who started last year still gets a dozen buckets rather than a decade of
+ * leading zeroes.
+ */
+const SERIES_MONTHS = 240;
 
 /**
  * Ranked lists are uncapped — see the header for the measurements. Kept as a
