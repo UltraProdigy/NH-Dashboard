@@ -53,6 +53,28 @@ const REPOS = `
   }
 `;
 
+/** Shared by both PR queries so the two can't drift into different shapes. */
+const PR_FIELDS = `
+  number
+  createdAt
+  updatedAt
+  mergedAt
+  state
+  isDraft
+  author { login }
+  # 50 PRs x 50 reviews = 2500 nodes/query, still well inside limits.
+  # At 20 this truncated ~90 heavily-reviewed PRs; 50 covers all but a
+  # handful, and reviewsTruncated flags whatever still overflows.
+  reviews(first: 50) {
+    totalCount
+    nodes {
+      state
+      submittedAt
+      author { login }
+    }
+  }
+`;
+
 const PRS = `
   query($owner: String!, $name: String!, $cursor: String) {
     repository(owner: $owner, name: $name) {
@@ -62,29 +84,47 @@ const PRS = `
         orderBy: { field: UPDATED_AT, direction: DESC }
       ) {
         pageInfo { hasNextPage endCursor }
-        nodes {
-          number
-          createdAt
-          updatedAt
-          mergedAt
-          state
-          author { login }
-          # 50 PRs x 50 reviews = 2500 nodes/query, still well inside limits.
-          # At 20 this truncated ~90 heavily-reviewed PRs; 50 covers all but a
-          # handful, and reviewsTruncated flags whatever still overflows.
-          reviews(first: 50) {
-            totalCount
-            nodes {
-              state
-              submittedAt
-              author { login }
-            }
-          }
-        }
+        nodes { ${PR_FIELDS} }
       }
     }
   }
 `;
+
+/** Open PRs only — used by the draft backfill, which has no watermark to walk. */
+const OPEN_PRS = `
+  query($owner: String!, $name: String!, $cursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(
+        first: 50
+        after: $cursor
+        states: OPEN
+        orderBy: { field: UPDATED_AT, direction: DESC }
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${PR_FIELDS} }
+      }
+    }
+  }
+`;
+
+const toRecord = (repo, pr) => ({
+  repo,
+  number: pr.number,
+  author: pr.author?.login ?? null,
+  createdAt: pr.createdAt,
+  updatedAt: pr.updatedAt,
+  mergedAt: pr.mergedAt,
+  state: pr.state,
+  isDraft: pr.isDraft,
+  // Truncation is recorded so aggregation can flag undercounts rather than
+  // silently reporting wrong numbers.
+  reviewsTruncated: pr.reviews.totalCount > pr.reviews.nodes.length,
+  reviews: pr.reviews.nodes.map((r) => ({
+    author: r.author?.login ?? null,
+    state: r.state,
+    submittedAt: r.submittedAt,
+  })),
+});
 
 async function loadState() {
   try {
@@ -133,23 +173,7 @@ async function ingestRepo(repo, seenThrough) {
 
       if (!newest || pr.updatedAt > newest) newest = pr.updatedAt;
 
-      records.push({
-        repo,
-        number: pr.number,
-        author: pr.author?.login ?? null,
-        createdAt: pr.createdAt,
-        updatedAt: pr.updatedAt,
-        mergedAt: pr.mergedAt,
-        state: pr.state,
-        // Truncation is recorded so aggregation can flag undercounts rather
-        // than silently reporting wrong numbers.
-        reviewsTruncated: pr.reviews.totalCount > pr.reviews.nodes.length,
-        reviews: pr.reviews.nodes.map((r) => ({
-          author: r.author?.login ?? null,
-          state: r.state,
-          submittedAt: r.submittedAt,
-        })),
-      });
+      records.push(toRecord(repo, pr));
     }
 
     if (!page.pageInfo.hasNextPage) break;
@@ -157,6 +181,67 @@ async function ingestRepo(repo, seenThrough) {
   }
 
   return { records, newest };
+}
+
+/**
+ * Re-fetch open PRs that predate a field being added to the query.
+ *
+ * The incremental walk is watermark-driven: a PR that hasn't been updated
+ * since the last run is never re-fetched, so adding a field to the query only
+ * populates it for PRs that happen to change afterwards. Everything already in
+ * the store keeps whatever shape it had.
+ *
+ * This closes that gap for `isDraft` without a full 28k-PR re-walk. It's
+ * scoped to open PRs because draft status is meaningless on a merged or closed
+ * one, and scoped to repos that actually hold such a PR, which is ~100 of the
+ * org's repos rather than all 1,400.
+ *
+ * Self-limiting: the set it works on is "open records missing the field", so
+ * once they're filled in this costs one local store read and zero requests.
+ */
+async function backfillOpenDrafts() {
+  clearStoreCache(); // the main pass just appended; don't read a stale memo
+  const stale = (await readStore()).filter(
+    (p) => p.state === "OPEN" && p.isDraft === undefined
+  );
+  if (!stale.length) return 0;
+
+  const repos = [...new Set(stale.map((p) => p.repo))];
+  console.log(
+    `  backfilling draft status: ${stale.length} open PRs across ${repos.length} repos`
+  );
+
+  let written = 0;
+  for (const repo of repos) {
+    const records = [];
+    let cursor = null;
+    try {
+      while (true) {
+        const data = await graphql(OPEN_PRS, { owner: ORG, name: repo, cursor });
+        const page = data.repository?.pullRequests;
+        if (!page) break;
+        for (const pr of page.nodes) records.push(toRecord(repo, pr));
+        if (!page.pageInfo.hasNextPage) break;
+        cursor = page.pageInfo.endCursor;
+      }
+    } catch (err) {
+      // Leave the records alone so the next run retries this repo.
+      console.warn(`  ${repo}: ${err.message.split("\n")[0]}`);
+      continue;
+    }
+
+    if (records.length) {
+      await appendFile(
+        STORE_FILE,
+        records.map((r) => JSON.stringify(r)).join("\n") + "\n"
+      );
+      written += records.length;
+    }
+  }
+
+  // These appends aren't in the memo either, and compaction reads it next.
+  clearStoreCache();
+  return written;
 }
 
 export async function ingest({ limit = Infinity } = {}) {
@@ -214,13 +299,17 @@ export async function ingest({ limit = Infinity } = {}) {
 
   await saveState(state);
 
+  // After the main pass, so anything it already refreshed is skipped.
+  const backfilled = await backfillOpenDrafts();
+
   const { before, after } = await compactStore();
   console.log(
     `  done: ${processed} repos, ${written} new/updated PR records` +
+      (backfilled ? `, ${backfilled} backfilled` : "") +
       (before !== after ? `, compacted ${before} → ${after} lines` : "")
   );
 
-  return { processed, written };
+  return { processed, written, backfilled };
 }
 
 /**

@@ -104,6 +104,17 @@ export const STALE_REPO_CUTOFF_DAYS = 365;
 export const CACHE_TTL_MINUTES = 15;
 
 /**
+ * How many recent completed default-branch runs the CI health panel samples
+ * per repo.
+ *
+ * One REST request per active repo regardless of this number, so raising it is
+ * free in requests — it only widens the window the pass rate and median
+ * duration are computed over. Above 100 the API starts paginating, which would
+ * make it cost real requests.
+ */
+export const CI_RUN_SAMPLE = 20;
+
+/**
  * Logins matching this are excluded from contributor stats.
  * GitHub Apps show up with a "[bot]" suffix; the rest are named explicitly.
  */

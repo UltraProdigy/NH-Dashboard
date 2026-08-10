@@ -16,6 +16,7 @@ import { needsRelease } from "./panels/needsRelease.js";
 import { contributors } from "./panels/contributors.js";
 import { analytics } from "./panels/analytics.js";
 import { drilldown, serializeDrilldown } from "./panels/drilldown.js";
+import { ciHealth } from "./panels/ciHealth.js";
 
 const DATA_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -54,6 +55,10 @@ async function main() {
     changesRequested: await run("Changes requested", changesRequested),
     byLabel: await run("PRs by label", byLabel, { empty: {} }),
     needsRelease: await run("Needs a release", needsRelease),
+    // Optional: reading Actions runs needs a token scope the other panels
+    // don't, so a token that works everywhere else can still fail here. That
+    // shouldn't turn the build red or block the Pages deploy.
+    ciHealth: await run("CI health", ciHealth, { empty: {}, optional: true }),
     // Reads the local ingest store, not the API. Fails gracefully with an
     // explanatory message if `npm run ingest` hasn't been run yet.
     contributors: await run("Contributor activity", contributors, {

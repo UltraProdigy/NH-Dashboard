@@ -64,6 +64,7 @@ development needs one of the three options above rather than reusing the secret.
 | Needs release | ~30 GraphQL + 1 REST per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
+| CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 
 ## Contributor activity
 
@@ -98,6 +99,50 @@ running anything locally.
 Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
 can't clobber real data.
 
+### Backfilling a newly-added field
+
+The incremental walk is watermark-driven, so adding a field to the GraphQL
+query only populates it for PRs that happen to change afterwards. Everything
+already in the store keeps its old shape indefinitely.
+
+`isDraft` was added this way, so the ingest carries a targeted backfill: after
+the main pass it looks for open records missing the field and re-fetches only
+the repos holding one. That's ~118 requests against the 570 a full re-walk
+would cost, and it's scoped to open PRs because draft status is meaningless on
+a merged one.
+
+It's self-limiting — once the field is populated the pass costs one local store
+read and zero requests — so it can stay in place permanently and serves as the
+pattern for the next field that gets added.
+
+Until you've run `npm run ingest` once, the drilldowns show draft state as
+`unknown` rather than guessing. That's deliberate: rendering "ready" for a PR
+we've never asked about would be a quiet lie.
+
+## CI health
+
+The one panel that can't come from the ingest store. Workflow runs aren't
+attached to pull requests in any way the ingest walks, so "is this repo's CI
+green, and how flaky is it" has to be asked directly.
+
+Two stages, same shape as Needs release: a GraphQL sweep for names and default
+branches that stops at `STALE_REPO_CUTOFF_DAYS`, then one REST call per
+surviving repo for its most recent completed runs on that branch. Repos with no
+workflows return an empty list and drop out for free.
+
+Cancelled, skipped and `action_required` runs are excluded from the pass rate —
+they describe the humans, not the code, and counting them as failures makes
+every repo where someone cancels a slow run look broken. A repo whose only runs
+were cancelled reports no verdict rather than 0%.
+
+The panel is optional in the build: reading Actions runs needs a token scope
+the other panels don't, so a token that works everywhere else can still fail
+here without turning the build red or blocking the Pages deploy.
+
+`CI_RUN_SAMPLE` in `src/config.js` sets how many recent runs are sampled. It's
+one request per repo regardless, so raising it is free until 100, where the API
+starts paginating.
+
 ## Drilldowns
 
 Two pages answer "how is *this* one doing" rather than "how is the org doing":
@@ -116,19 +161,33 @@ Deep links carry the subject, so they're shareable:
 #repo/GT5-Unofficial/rBacklog
 ```
 
-The data lives in its own `data/drilldown.json` (~2.5 MB) rather than in
-`dashboard.json`. The frontend fetches it the first time you open a drilldown
-page and keeps it for the session, so the other three pages don't pay for data
-they never use.
+The data lives in its own `data/drilldown.json` (~3.4 MB, 0.4 MB gzipped)
+rather than in `dashboard.json`. The frontend fetches it the first time you open
+a drilldown page and keeps it for the session, so the other three pages don't
+pay for data they never use.
 
-Size drove two visible choices:
+Both pages default to the **all time** window and keep their own setting,
+separate from the Analytics and Contributor Activity pages. Looking at one
+subject you generally want their whole history first and then narrow; looking
+at the org you want the recent picture. One shared setting was wrong half the
+time.
 
-- **Contributor repo breakdowns** are stored for 1-year and all-time only.
-  1,189 contributors x 5 windows x 10 repos was most of a megabyte for a list
-  nobody reads at that granularity. The page uses the closer of the two and
-  says which one it's showing. Repos, at 295 subjects, get all five windows.
-- **Review relationships** ("who approves their PRs") are all-time. A review
-  relationship accumulates slowly, and windowing it mostly produces noise.
+Ranked lists — top repos, top authors, review partners — are **uncapped**. That
+was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
+3.11 MB, and uncapped 3.18 MB. The distributions are steep (the median repo has
+10 distinct authors, p90 has 45), so the cap was only ever truncating the
+handful of subjects where the long tail is the interesting part. Long lists
+scroll inside their box rather than stretching the page.
+
+Review relationships ("who approves their PRs") are counted over all time. A
+review relationship accumulates slowly, and windowing it mostly produces noise.
+
+Activity charts label **every** month. The labels are HTML beneath the plot
+rather than SVG `<text>`, because the charts use `preserveAspectRatio="none"` —
+anything drawn inside gets squashed horizontally as the card narrows, which is
+survivable for six labels and unreadable for twenty-four. The org-wide charts
+on Analytics still thin their labels; at weekly granularity over two years
+there are 104 buckets and no amount of rotation fits them.
 
 New Faces on the Contributor Activity page has a jump button beside each name
 that opens that person's drilldown. The name itself still links to GitHub —
@@ -200,10 +259,12 @@ somewhere other than Pages to live.
 
 ## Not built yet
 
-- **Per-repo detail beyond pull requests** — stars, watchers, open issues, CI
-  status, topics. None of it is in the ingest store, so the Repo Drilldown
-  covers PR and review activity only. Adding it means a per-repo API sweep on
-  every build (~295 extra GraphQL requests), which is affordable against the
-  5,000/hr budget but slows the build and adds a failure mode.
+- **Per-repo detail beyond PRs and CI** — stars, watchers, open issues, topics.
+  None of it is in the ingest store. CI health opened the door to per-repo API
+  enrichment, so adding these is now a matter of extending that sweep rather
+  than building a new one.
+- **Per-workflow CI breakdown.** The Health tab aggregates all default-branch
+  runs together, so it tells you a repo is flaky but not which job is at fault.
+  That needs an extra request per repo to list workflows.
 - **Issue data.** The ingest walks pull requests only, so nothing anywhere
   reflects issue volume or triage latency.
