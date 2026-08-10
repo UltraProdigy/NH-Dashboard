@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T05:54:06.289Z",
+  "generatedAt": "2026-08-10T06:32:17.548Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -146,7 +146,7 @@
           "createdAt": "2025-10-28T16:37:55Z",
           "updatedAt": "2026-04-26T06:26:58Z",
           "ageDays": 285,
-          "staleDays": 105
+          "staleDays": 106
         },
         {
           "repo": "GTNewHorizons/Galacticraft",
@@ -456,6 +456,20 @@
           "staleDays": 3
         },
         {
+          "repo": "GTNewHorizons/Hodgepodge",
+          "number": 840,
+          "title": "Fix newline characters not rendering as line breaks",
+          "url": "https://github.com/GTNewHorizons/Hodgepodge/pull/840",
+          "author": "alppp",
+          "authorAvatar": "https://avatars.githubusercontent.com/u/104518973?v=4",
+          "draft": false,
+          "labels": [],
+          "createdAt": "2026-04-17T18:13:13Z",
+          "updatedAt": "2026-08-08T05:53:32Z",
+          "ageDays": 114,
+          "staleDays": 2
+        },
+        {
           "repo": "GTNewHorizons/GTNHLib",
           "number": 445,
           "title": "Compat w/ Alfheim - stop preinit mixins from messing with asjcore",
@@ -490,20 +504,6 @@
           "createdAt": "2026-08-06T22:33:38Z",
           "updatedAt": "2026-08-09T05:30:52Z",
           "ageDays": 3,
-          "staleDays": 1
-        },
-        {
-          "repo": "GTNewHorizons/Hodgepodge",
-          "number": 840,
-          "title": "Fix newline characters not rendering as line breaks",
-          "url": "https://github.com/GTNewHorizons/Hodgepodge/pull/840",
-          "author": "alppp",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/104518973?v=4",
-          "draft": false,
-          "labels": [],
-          "createdAt": "2026-04-17T18:13:13Z",
-          "updatedAt": "2026-08-08T05:53:32Z",
-          "ageDays": 114,
           "staleDays": 1
         },
         {
@@ -805,7 +805,7 @@
             "createdAt": "2025-04-08T18:35:38Z",
             "updatedAt": "2026-07-01T06:14:13Z",
             "ageDays": 488,
-            "staleDays": 39
+            "staleDays": 40
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1335,6 +1335,29 @@
         "Asset Change": [
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 7700,
+            "title": "Horizontally Flip Soldering Iron",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7700",
+            "author": "DylanTaylor1",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/89085119?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Requires Admin",
+                "color": "FFFF00"
+              },
+              {
+                "name": "Asset Change",
+                "color": "ff48c2"
+              }
+            ],
+            "createdAt": "2026-08-06T06:02:54Z",
+            "updatedAt": "2026-08-06T20:29:27Z",
+            "ageDays": 4,
+            "staleDays": 3
+          },
+          {
+            "repo": "GTNewHorizons/GT5-Unofficial",
             "number": 7707,
             "title": "New Hammer Textures",
             "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7707",
@@ -1376,29 +1399,6 @@
             ],
             "createdAt": "2026-08-06T15:56:04Z",
             "updatedAt": "2026-08-07T03:32:22Z",
-            "ageDays": 3,
-            "staleDays": 3
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 7700,
-            "title": "Horizontally Flip Soldering Iron",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7700",
-            "author": "DylanTaylor1",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/89085119?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Requires Admin",
-                "color": "FFFF00"
-              },
-              {
-                "name": "Asset Change",
-                "color": "ff48c2"
-              }
-            ],
-            "createdAt": "2026-08-06T06:02:54Z",
-            "updatedAt": "2026-08-06T20:29:27Z",
             "ageDays": 3,
             "staleDays": 3
           }
@@ -2856,7 +2856,7 @@
             "createdAt": "2025-04-08T18:35:38Z",
             "updatedAt": "2026-07-01T06:14:13Z",
             "ageDays": 488,
-            "staleDays": 39
+            "staleDays": 40
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -2971,7 +2971,7 @@
             "createdAt": "2025-10-28T16:37:55Z",
             "updatedAt": "2026-04-26T06:26:58Z",
             "ageDays": 285,
-            "staleDays": 105
+            "staleDays": 106
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3388,7 +3388,7 @@
             "createdAt": "2026-07-06T10:00:56Z",
             "updatedAt": "2026-07-20T05:54:18Z",
             "ageDays": 34,
-            "staleDays": 20
+            "staleDays": 21
           },
           {
             "repo": "GTNewHorizons/ModularUI2",
@@ -3567,6 +3567,25 @@
             "staleDays": 13
           },
           {
+            "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 7446,
+            "title": "Armor: Soulbound augment",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7446",
+            "author": "Spaghetti-OberNub",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/74196682?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              }
+            ],
+            "createdAt": "2026-07-15T05:50:45Z",
+            "updatedAt": "2026-08-06T11:31:14Z",
+            "ageDays": 26,
+            "staleDays": 3
+          },
+          {
             "repo": "GTNewHorizons/CosmeticArmorReworked",
             "number": 7,
             "title": "Cosmetic armor port to ModularUI2",
@@ -3668,25 +3687,6 @@
             "updatedAt": "2026-08-10T04:37:22Z",
             "ageDays": 25,
             "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 7446,
-            "title": "Armor: Soulbound augment",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7446",
-            "author": "Spaghetti-OberNub",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/74196682?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              }
-            ],
-            "createdAt": "2026-07-15T05:50:45Z",
-            "updatedAt": "2026-08-06T11:31:14Z",
-            "ageDays": 25,
-            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -5045,7 +5045,7 @@
             "createdAt": "2025-04-08T18:35:38Z",
             "updatedAt": "2026-07-01T06:14:13Z",
             "ageDays": 488,
-            "staleDays": 39
+            "staleDays": 40
           },
           {
             "repo": "GTNewHorizons/StructureLib",
@@ -5068,7 +5068,7 @@
             "createdAt": "2025-10-28T16:37:55Z",
             "updatedAt": "2026-04-26T06:26:58Z",
             "ageDays": 285,
-            "staleDays": 105
+            "staleDays": 106
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -6589,6 +6589,29 @@
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 7700,
+            "title": "Horizontally Flip Soldering Iron",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7700",
+            "author": "DylanTaylor1",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/89085119?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Requires Admin",
+                "color": "FFFF00"
+              },
+              {
+                "name": "Asset Change",
+                "color": "ff48c2"
+              }
+            ],
+            "createdAt": "2026-08-06T06:02:54Z",
+            "updatedAt": "2026-08-06T20:29:27Z",
+            "ageDays": 4,
+            "staleDays": 3
+          },
+          {
+            "repo": "GTNewHorizons/GT5-Unofficial",
             "number": 7707,
             "title": "New Hammer Textures",
             "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7707",
@@ -6630,29 +6653,6 @@
             ],
             "createdAt": "2026-08-06T15:56:04Z",
             "updatedAt": "2026-08-07T03:32:22Z",
-            "ageDays": 3,
-            "staleDays": 3
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 7700,
-            "title": "Horizontally Flip Soldering Iron",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7700",
-            "author": "DylanTaylor1",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/89085119?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Requires Admin",
-                "color": "FFFF00"
-              },
-              {
-                "name": "Asset Change",
-                "color": "ff48c2"
-              }
-            ],
-            "createdAt": "2026-08-06T06:02:54Z",
-            "updatedAt": "2026-08-06T20:29:27Z",
             "ageDays": 3,
             "staleDays": 3
           }
@@ -7384,6 +7384,36 @@
       "ok": true,
       "error": null,
       "data": {
+        "GT5-Unofficial": {
+          "repo": "GT5-Unofficial",
+          "defaultBranch": "master",
+          "latest": {
+            "conclusion": "success",
+            "at": "2026-08-09T22:37:02Z",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/actions/runs/31339837692",
+            "workflow": "Forbidden isModLoaded"
+          },
+          "runs": 20,
+          "decisive": 20,
+          "failures": 0,
+          "passRate": 1,
+          "medianMinutes": 0.2
+        },
+        "EnderIO": {
+          "repo": "EnderIO",
+          "defaultBranch": "master",
+          "latest": {
+            "conclusion": "success",
+            "at": "2026-08-04T04:46:01Z",
+            "url": "https://github.com/GTNewHorizons/EnderIO/actions/runs/30878451845",
+            "workflow": "Build and test"
+          },
+          "runs": 20,
+          "decisive": 20,
+          "failures": 0,
+          "passRate": 1,
+          "medianMinutes": 3.6
+        },
         "Hardcore-Ender-Expansion": {
           "repo": "Hardcore-Ender-Expansion",
           "defaultBranch": "master",
@@ -7503,36 +7533,6 @@
           "failures": 5,
           "passRate": 0.75,
           "medianMinutes": 20.7
-        },
-        "EnderIO": {
-          "repo": "EnderIO",
-          "defaultBranch": "master",
-          "latest": {
-            "conclusion": "success",
-            "at": "2026-08-04T04:46:01Z",
-            "url": "https://github.com/GTNewHorizons/EnderIO/actions/runs/30878451845",
-            "workflow": "Build and test"
-          },
-          "runs": 20,
-          "decisive": 20,
-          "failures": 0,
-          "passRate": 1,
-          "medianMinutes": 3.6
-        },
-        "GT5-Unofficial": {
-          "repo": "GT5-Unofficial",
-          "defaultBranch": "master",
-          "latest": {
-            "conclusion": "success",
-            "at": "2026-08-09T22:37:02Z",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/actions/runs/31339837692",
-            "workflow": "Forbidden isModLoaded"
-          },
-          "runs": 20,
-          "decisive": 20,
-          "failures": 0,
-          "passRate": 1,
-          "medianMinutes": 0.2
         },
         "NewHorizonsCoreMod": {
           "repo": "NewHorizonsCoreMod",
@@ -11178,7 +11178,7 @@
             "m3": {
               "prs": 105,
               "merged": 103,
-              "approvals": 387
+              "approvals": 386
             },
             "m6": {
               "prs": 377,
@@ -12827,7 +12827,7 @@
             },
             "m3": {
               "prs": 5,
-              "merged": 14,
+              "merged": 13,
               "approvals": 12
             },
             "m6": {
@@ -46809,7 +46809,7 @@
             "lastSeen": "2025-10-23T21:03:32Z"
           }
         ],
-        "totalPRs": 28494,
+        "totalPRs": 28496,
         "truncated": 12
       }
     },
@@ -46845,8 +46845,8 @@
           }
         ],
         "totals": {
-          "prs": 28494,
-          "merged": 26049,
+          "prs": 28496,
+          "merged": 26051,
           "open": 435,
           "closed": 2010,
           "approvals": 22820,
@@ -54321,15 +54321,15 @@
             {
               "b": "2026-W33",
               "t": "2026-08-10T01:22:57Z",
-              "opened": 15,
-              "merged": 8,
+              "opened": 17,
+              "merged": 10,
               "closed": 0,
               "authors": 3,
               "newAuthors": 0,
-              "mergeMedianH": 0.3,
+              "mergeMedianH": 0.2,
               "mergeP90H": 0.8,
               "reviewMedianH": 0.2,
-              "mergeN": 6,
+              "mergeN": 8,
               "reviewN": 2
             }
           ],
@@ -56185,32 +56185,32 @@
             {
               "b": "2026-08",
               "t": "2026-08-01T00:01:40Z",
-              "opened": 344,
-              "merged": 271,
+              "opened": 346,
+              "merged": 273,
               "closed": 29,
               "authors": 74,
               "newAuthors": 16,
-              "mergeMedianH": 1.5,
+              "mergeMedianH": 1.4,
               "mergeP90H": 40,
               "reviewMedianH": 2,
-              "mergeN": 222,
+              "mergeN": 224,
               "reviewN": 187
             }
           ]
         },
         "byWindow": {
           "m1": {
-            "opened": 1142,
-            "merged": 951,
+            "opened": 1144,
+            "merged": 953,
             "closed": 88,
             "activeAuthors": 145,
             "activeReviewers": 78,
             "activeRepos": 136,
             "newContributors": 44,
             "approvals": 815,
-            "mergeRate": 0.9153031761308951,
-            "approvedShare": 0.8170347003154574,
-            "unapprovedMerges": 174,
+            "mergeRate": 0.9154658981748319,
+            "approvedShare": 0.8153200419727177,
+            "unapprovedMerges": 176,
             "reviewConcentration": 0.33865030674846625,
             "medianMergeHours": 3.6,
             "p90MergeHours": 155.1,
@@ -56326,7 +56326,7 @@
               }
             ],
             "prev": {
-              "opened": 1136,
+              "opened": 1135,
               "merged": 1062,
               "closed": 76,
               "activeAuthors": 150,
@@ -56345,18 +56345,18 @@
             "prevLabel": "previous 1 month"
           },
           "m3": {
-            "opened": 3671,
+            "opened": 3672,
             "merged": 3313,
             "closed": 279,
             "activeAuthors": 289,
             "activeReviewers": 115,
             "activeRepos": 197,
             "newContributors": 122,
-            "approvals": 2791,
+            "approvals": 2790,
             "mergeRate": 0.9223273942093542,
-            "approvedShare": 0.8053124056746152,
-            "unapprovedMerges": 645,
-            "reviewConcentration": 0.3138659978502329,
+            "approvedShare": 0.8050105644431029,
+            "unapprovedMerges": 646,
+            "reviewConcentration": 0.31362007168458783,
             "medianMergeHours": 3.1,
             "p90MergeHours": 231.6,
             "medianFirstReviewHours": 2.9,
@@ -56439,7 +56439,7 @@
             "topReviewers": [
               {
                 "login": "UltraProdigy",
-                "count": 387
+                "count": 386
               },
               {
                 "login": "Dream-Master",
@@ -56471,18 +56471,18 @@
               }
             ],
             "prev": {
-              "opened": 3180,
-              "merged": 2861,
+              "opened": 3181,
+              "merged": 2863,
               "closed": 215,
               "activeAuthors": 258,
               "activeReviewers": 90,
               "activeRepos": 212,
               "newContributors": 108,
-              "approvals": 2407,
-              "mergeRate": 0.9301040312093628,
-              "approvedShare": 0.8189444250262146,
-              "unapprovedMerges": 518,
-              "reviewConcentration": 0.4810968009970918,
+              "approvals": 2408,
+              "mergeRate": 0.9301494476933073,
+              "approvedShare": 0.8187216206776109,
+              "unapprovedMerges": 519,
+              "reviewConcentration": 0.48131229235880396,
               "medianMergeHours": 2.1,
               "p90MergeHours": 295.4,
               "medianFirstReviewHours": 2.9
@@ -56490,17 +56490,17 @@
             "prevLabel": "previous 3 months"
           },
           "m6": {
-            "opened": 6851,
-            "merged": 6174,
+            "opened": 6853,
+            "merged": 6176,
             "closed": 494,
             "activeAuthors": 426,
             "activeReviewers": 130,
             "activeRepos": 242,
             "newContributors": 230,
             "approvals": 5198,
-            "mergeRate": 0.9259148170365927,
-            "approvedShare": 0.81162941367023,
-            "unapprovedMerges": 1163,
+            "mergeRate": 0.9259370314842579,
+            "approvedShare": 0.8113665803108808,
+            "unapprovedMerges": 1165,
             "reviewConcentration": 0.3813005001923817,
             "medianMergeHours": 2.7,
             "p90MergeHours": 255.7,
@@ -56635,20 +56635,20 @@
             "prevLabel": "previous 6 months"
           },
           "y1": {
-            "opened": 10808,
-            "merged": 9790,
+            "opened": 10810,
+            "merged": 9792,
             "closed": 825,
             "activeAuthors": 577,
             "activeReviewers": 154,
             "activeRepos": 256,
             "newContributors": 371,
             "approvals": 8572,
-            "mergeRate": 0.9222797927461139,
-            "approvedShare": 0.8424923391215526,
-            "unapprovedMerges": 1542,
+            "mergeRate": 0.9222944334557784,
+            "approvedShare": 0.8423202614379085,
+            "unapprovedMerges": 1544,
             "reviewConcentration": 0.38987400839944003,
             "medianMergeHours": 2.9,
-            "p90MergeHours": 286.9,
+            "p90MergeHours": 286,
             "medianFirstReviewHours": 2.4,
             "topRepos": [
               {
@@ -56780,17 +56780,17 @@
             "prevLabel": "previous 1 year"
           },
           "all": {
-            "opened": 28494,
-            "merged": 26049,
+            "opened": 28496,
+            "merged": 26051,
             "closed": 2010,
             "activeAuthors": 1168,
             "activeReviewers": 229,
             "activeRepos": 295,
             "newContributors": 1168,
             "approvals": 22820,
-            "mergeRate": 0.928365230407356,
-            "approvedShare": 0.8429114361395831,
-            "unapprovedMerges": 4092,
+            "mergeRate": 0.9283703360535975,
+            "approvedShare": 0.8428467237342137,
+            "unapprovedMerges": 4094,
             "reviewConcentration": 0.42221735319894826,
             "medianMergeHours": 3.7,
             "p90MergeHours": 171.8,
@@ -56940,8 +56940,8 @@
               "number": 1,
               "author": "mitchej123",
               "url": "https://github.com/GTNewHorizons/lwjglxdebug/pull/1",
-              "ageDays": 1021,
-              "staleDays": 1021,
+              "ageDays": 1022,
+              "staleDays": 1022,
               "reviewed": false
             },
             {
@@ -57022,7 +57022,7 @@
               "author": "Vlamonster",
               "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/4151",
               "ageDays": 488,
-              "staleDays": 39,
+              "staleDays": 40,
               "reviewed": true
             },
             {
