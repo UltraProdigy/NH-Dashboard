@@ -8,6 +8,7 @@
   :root {
     --bg: #0d1117;
     --panel: #161b22;
+    --panel-2: #1c2129;
     --border: #30363d;
     --text: #e6edf3;
     --muted: #8b949e;
@@ -15,174 +16,318 @@
     --good: #3fb950;
     --warn: #d29922;
     --bad: #f85149;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+    --sidebar-w: 232px;
+    --rail-w: 56px;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: grid;
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    transition: grid-template-columns .16s ease;
   }
-  header {
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border);
+  body.collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
+
+  /* ---------- sidebar ---------- */
+  aside {
+    border-right: 1px solid var(--border);
+    background: var(--panel);
     display: flex;
-    align-items: baseline;
-    gap: 16px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    min-height: 100vh;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
   }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  .meta { color: var(--muted); font-size: 12px; }
-  nav {
+  .brand {
     display: flex;
-    gap: 4px;
-    padding: 0 24px;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 14px;
     border-bottom: 1px solid var(--border);
-    overflow-x: auto;
+    min-height: 57px;
   }
-  nav button {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
+  .brand .mark {
+    width: 26px; height: 26px; flex: none;
+    border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; color: #0d1117;
+  }
+  .brand .name { font-weight: 600; white-space: nowrap; }
+  body.collapsed .brand .name { display: none; }
+
+  .pages { padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .pages button {
+    display: flex; align-items: center; gap: 11px;
+    width: 100%;
+    background: none; border: none; border-radius: 7px;
     color: var(--muted);
-    padding: 12px 14px;
-    font: inherit;
+    padding: 9px 10px;
+    font: inherit; text-align: left;
     cursor: pointer;
     white-space: nowrap;
   }
-  nav button:hover { color: var(--text); }
-  nav button[aria-selected="true"] {
+  .pages button:hover { background: var(--panel-2); color: var(--text); }
+  .pages button[aria-current="true"] {
+    background: var(--panel-2);
+    color: var(--text);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .pages svg { flex: none; width: 17px; height: 17px; opacity: .85; }
+  body.collapsed .pages button { justify-content: center; padding: 9px 0; }
+  body.collapsed .pages .plabel { display: none; }
+
+  .side-foot { margin-top: auto; padding: 10px 8px; border-top: 1px solid var(--border); }
+  .side-foot button, .side-foot a {
+    display: flex; align-items: center; gap: 11px;
+    width: 100%;
+    background: none; border: none; border-radius: 7px;
+    color: var(--muted); padding: 9px 10px;
+    font: inherit; cursor: pointer; text-decoration: none;
+    white-space: nowrap;
+  }
+  .side-foot button:hover, .side-foot a:hover { background: var(--panel-2); color: var(--text); }
+  .side-foot svg { flex: none; width: 17px; height: 17px; }
+  body.collapsed .side-foot button, body.collapsed .side-foot a { justify-content: center; padding: 9px 0; }
+  body.collapsed .side-foot span { display: none; }
+
+  /* ---------- main column ---------- */
+  main { min-width: 0; display: flex; flex-direction: column; }
+  .topbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 24px;
+    min-height: 57px;
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .meta.stale { color: var(--warn); }
+  .spacer { margin-left: auto; }
+
+  nav.tabs {
+    display: flex; gap: 2px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  nav.tabs button {
+    background: none; border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    padding: 11px 12px;
+    font: inherit; cursor: pointer; white-space: nowrap;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button[aria-selected="true"] {
     color: var(--text);
     border-bottom-color: #f78166;
   }
   .count {
-    background: var(--panel);
+    background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 0 6px;
-    margin-left: 6px;
-    font-size: 11px;
+    padding: 0 6px; margin-left: 6px;
+    font-size: 11px; font-variant-numeric: tabular-nums;
   }
-  main { padding: 24px; max-width: 1400px; }
-  .toolbar { margin-bottom: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
-  input[type="search"], select {
+
+  .content { padding: 20px 24px 60px; }
+
+  /* ---------- controls ---------- */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  input[type="search"], select, input[type="number"] {
     background: var(--panel);
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 6px;
     padding: 6px 10px;
     font: inherit;
-    min-width: 220px;
   }
-  table { width: 100%; border-collapse: collapse; }
-  th, td {
-    text-align: left;
-    padding: 9px 12px;
+  input[type="search"] { min-width: 260px; }
+  input[type="number"] { width: 72px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    background: var(--panel); border: none; color: var(--muted);
+    padding: 6px 11px; font: inherit; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+  .seg button:hover { color: var(--text); }
+  .ghost {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 11px; font-size: 12px; color: var(--text);
+    cursor: pointer; text-decoration: none; white-space: nowrap;
+  }
+  .ghost:hover { border-color: var(--accent); text-decoration: none; }
+  .minlabel { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+
+  /* ---------- module grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+  .card {
+    grid-column: span var(--span, 6);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex; flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .card > header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border);
-    vertical-align: top;
   }
+  .card h2 { font-size: 13px; margin: 0; font-weight: 600; }
+  .card .sub { color: var(--muted); font-size: 12px; }
+  .card .body { padding: 14px; min-width: 0; flex: 1; }
+  .card .body.flush { padding: 0; }
+  .expand {
+    margin-left: auto;
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    color: var(--muted); cursor: pointer;
+    padding: 3px 7px; font: inherit; font-size: 11px;
+  }
+  .card:hover .expand { border-color: var(--border); }
+  .expand:hover { color: var(--text); background: var(--panel-2); }
+  @media (max-width: 1080px) { .card { grid-column: span 12 !important; } }
+
+  /* ---------- kpis ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--border); }
+  .kpi { background: var(--panel); padding: 14px; min-width: 0; }
+  .kpi .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .kpi .d { font-size: 12px; color: var(--muted); }
+  .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--muted); }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th {
-    color: var(--muted);
-    font-weight: 500;
-    font-size: 12px;
-    cursor: pointer;
-    user-select: none;
-    position: sticky;
-    top: 0;
-    background: var(--bg);
+    color: var(--muted); font-weight: 500; font-size: 12px;
+    cursor: pointer; user-select: none;
+    position: sticky; top: 0; background: var(--panel); z-index: 1;
   }
   th:hover { color: var(--text); }
-  tbody tr:hover { background: var(--panel); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-2); }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .repo { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
   .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .label {
-    display: inline-block;
-    border-radius: 10px;
-    padding: 0 7px;
-    font-size: 11px;
-    margin: 1px 3px 1px 0;
-    border: 1px solid var(--border);
-  }
-  .minlabel {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--muted);
-    font-size: 12px;
-  }
-  .minlabel input {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px 8px;
-    font: inherit;
-    width: 70px;
-  }
-  .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
-  .empty, .error { color: var(--muted); padding: 40px 0; text-align: center; }
-  .error { color: var(--bad); }
+  .label { display: inline-block; border-radius: 10px; padding: 0 7px; font-size: 11px; margin: 1px 3px 1px 0; border: 1px solid var(--border); }
   .age-old { color: var(--warn); }
   .age-ancient { color: var(--bad); }
+  .more { padding: 9px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+  .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .empty, .error { color: var(--muted); padding: 32px 0; text-align: center; font-size: 13px; }
+  .error { color: var(--bad); }
+
+  /* ---------- charts ---------- */
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
+  svg.chart { display: block; width: 100%; overflow: visible; }
+  svg.chart .grid-line { stroke: var(--border); stroke-width: 1; }
+  svg.chart .axis { fill: var(--muted); font-size: 10px; }
+  svg.chart .hoverzone:hover { fill: rgba(255,255,255,.05); }
+
+  .hbars { display: flex; flex-direction: column; gap: 7px; }
+  .hbar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+  .hbar .track { background: var(--panel-2); border-radius: 3px; height: 9px; overflow: hidden; }
+  .hbar .fill { height: 100%; border-radius: 3px; }
+  .hbar .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); }
+  .heat .cell { aspect-ratio: 1; border-radius: 2px; background: var(--panel-2); }
+  .heat .rl { display: flex; align-items: center; }
+  .heat .cl { text-align: center; }
+
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>NH Dashboard</h1>
-  <span class="meta" id="meta">loading…</span>
-</header>
-
-<nav id="tabs"></nav>
+<aside>
+  <div class="brand">
+    <span class="mark">NH</span>
+    <span class="name">NH Dashboard</span>
+  </div>
+  <div class="pages" id="pages"></div>
+  <div class="side-foot">
+    <a id="refresh" target="_blank" rel="noopener" title="Opens the build workflow — 'Run workflow' there rebuilds the data">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.75.75 0 0 1 1.36-.63A6.5 6.5 0 1 1 8 1.5v1.5Z"/><path d="M8 .5 11 3 8 5.5V.5Z"/></svg>
+      <span>Refresh data</span>
+    </a>
+    <button id="collapse" title="Collapse sidebar">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.75A.75.75 0 0 1 2.75 2h10.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75H2.75a.75.75 0 0 1-.75-.75V2.75Zm1.5.75v9h3v-9h-3Zm4.5 0v9h4.5v-9H8Z"/></svg>
+      <span>Collapse</span>
+    </button>
+  </div>
+</aside>
 
 <main>
-  <div class="toolbar">
-    <input type="search" id="filter" placeholder="Filter by repo, title, or author…">
-    <select id="labelPicker" hidden></select>
-    <select id="windowPicker" hidden></select>
-    <label id="minWrap" hidden class="minlabel">
-      min activity
-      <input type="number" id="minActivity" min="0" step="1" value="3">
-    </label>
+  <div class="topbar">
+    <h1 id="pageTitle">…</h1>
+    <span class="meta" id="meta">loading…</span>
   </div>
-  <div id="view"></div>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="content">
+    <div class="toolbar" id="toolbar"></div>
+    <div id="view"></div>
+  </div>
 </main>
 
 <script type="module">
-const state = { data: null, tab: "approvedUnmerged", filter: "", label: null, window: "all", minActivity: 3, sort: null, dir: -1 };
+/* ==========================================================================
+   State
+   ========================================================================== */
 
-/** Total PRs + approvals for a contributor in the selected window. */
-const activityIn = (r, w) => r[w].prs + r[w].approvals;
-
-const TABS = [
-  { id: "approvedUnmerged", label: "Approved, not merged" },
-  { id: "changesRequested", label: "Changes requested" },
-  { id: "needsRelease",     label: "Needs release" },
-  { id: "byLabel",          label: "By label" },
-  { id: "contributors",     label: "Contributors" },
-];
-
-const COLUMNS = {
-  pr: [
-    { key: "repo",     label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
-    { key: "title",    label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
-    { key: "author",   label: "Author", render: r => esc(r.author) },
-    { key: "labels",   label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
-    { key: "ageDays",  label: "Opened", render: r => age(r.ageDays) },
-    { key: "staleDays",label: "Updated",render: r => age(r.staleDays) },
-  ],
-  release: [
-    { key: "repo",           label: "Repo",     render: r => `<a href="${r.repoUrl}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
-    { key: "tagName",        label: "Last release", render: r => `<a href="${r.releaseUrl}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
-    { key: "commitsAhead",   label: "Commits ahead", render: r => `<span class="num">${r.commitsAhead ?? "?"}</span>` },
-    { key: "daysSinceRelease", label: "Released", render: r => age(r.daysSinceRelease) },
-    { key: "defaultBranch",  label: "Branch",   render: r => `<span class="repo">${esc(r.defaultBranch)}</span>` },
-  ],
+const state = {
+  data: null,
+  page: "analytics",
+  module: null,       // null = the page's overview grid
+  window: "m3",       // shared window for window-scoped modules
+  gran: "month",      // time-series granularity
+  range: "y1",        // time-series lookback
+  filter: "",
+  label: null,
+  minActivity: 3,
+  sort: null,
+  dir: -1,
 };
 
+const RANGES = [
+  { id: "m3", label: "3m", days: 90 },
+  { id: "m6", label: "6m", days: 180 },
+  { id: "y1", label: "1y", days: 365 },
+  { id: "y2", label: "2y", days: 730 },
+  { id: "all", label: "All", days: null },
+];
+
+/* ==========================================================================
+   Formatting helpers
+   ========================================================================== */
+
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const fmt = n => (n == null ? "—" : Number(n).toLocaleString());
+const pctFmt = x => (x == null ? "—" : `${Math.round(x * 100)}%`);
+
+/** Hours read badly past a day or two, so switch units rather than print 412h. */
+function dur(hours) {
+  if (hours == null) return "—";
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  if (hours < 48) return `${hours < 10 ? hours.toFixed(1) : Math.round(hours)}h`;
+  const d = hours / 24;
+  return d < 60 ? `${d < 10 ? d.toFixed(1) : Math.round(d)}d` : `${Math.round(d / 30)}mo`;
+}
 
 function age(days) {
   if (days == null) return "—";
@@ -192,171 +337,842 @@ function age(days) {
   return `<span class="${cls} num">${text}</span>`;
 }
 
-function rowsFor(tab) {
-  const panel = state.data.panels[tab];
-  if (!panel?.ok) return null;
-  if (tab === "contributors") {
-    // Filtered against the *selected window*, not all-time — otherwise
-    // "active in the last month" would still be padded with people who were
-    // busy in 2016 and haven't been seen since.
-    const min = state.minActivity;
-    return (panel.data.rows ?? []).filter(r => activityIn(r, state.window) >= min);
+const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
+
+/** Bucket keys are 2026-08 / 2026-W32; neither reads well on an axis as-is. */
+function bucketLabel(b) {
+  if (b.includes("W")) {
+    const [y, w] = b.split("-W");
+    return `w${Number(w)} '${y.slice(2)}`;
   }
-  if (tab !== "byLabel") return panel.data;
-  const groups = panel.data;
-  const key = state.label ?? Object.keys(groups)[0];
-  return groups[key] ?? [];
+  const [y, m] = b.split("-");
+  return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m) - 1]} '${y.slice(2)}`;
 }
 
-function countFor(tab) {
-  const panel = state.data?.panels?.[tab];
-  if (!panel?.ok) return "!";
-  if (tab === "contributors") return rowsFor("contributors")?.length ?? 0;
-  return tab === "byLabel"
-    ? Object.values(panel.data).reduce((n, g) => n + g.length, 0)
-    : panel.data.length;
+/* ==========================================================================
+   Chart primitives — hand-rolled SVG, so the page stays dependency-free
+   ========================================================================== */
+
+const NICE = [1, 2, 2.5, 5, 10];
+function niceMax(v) {
+  if (!v) return 1;
+  const mag = 10 ** Math.floor(Math.log10(v));
+  return (NICE.find(n => v <= n * mag) ?? 10) * mag;
 }
 
-/** Contributor columns depend on the selected time window. */
+/**
+ * Shared scaffold: y grid lines + labels, x labels thinned to ~6 ticks.
+ * Returns the plot geometry so each chart type only has to draw its marks.
+ */
+function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6 }) {
+  const W = 1000, H = height;
+  const innerW = W - padL - 6, innerH = H - padB - padT;
+  const top = niceMax(max);
+  const y = v => padT + innerH - (v / top) * innerH;
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => top * f);
+  const gridSvg = ticks.map(t => `
+    <line class="grid-line" x1="${padL}" x2="${W - 6}" y1="${y(t)}" y2="${y(t)}" opacity="${t === 0 ? 1 : .45}"/>
+    <text class="axis" x="${padL - 7}" y="${y(t) + 3}" text-anchor="end">${t >= 1000 ? `${Math.round(t / 1000)}k` : Math.round(t * 10) / 10}</text>`).join("");
+
+  // Label roughly six evenly-spaced buckets, anchored on the newest one so the
+  // right-hand edge is always dated.
+  const every = Math.max(1, Math.ceil(buckets.length / 6));
+  const xLabels = buckets.map((b, i) =>
+    (buckets.length - 1 - i) % every === 0
+      ? `<text class="axis" x="${padL + (innerW / buckets.length) * (i + 0.5)}" y="${H - 6}" text-anchor="middle">${esc(bucketLabel(b.b))}</text>`
+      : ""
+  ).join("");
+
+  return { W, H, padL, padT, innerW, innerH, top, y, gridSvg, xLabels };
+}
+
+/** Grouped vertical bars. `series` = [{ key, label, color }]. */
+function barChart(buckets, series, { height = 190 } = {}) {
+  if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
+  const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
+  const f = plotFrame(buckets, max, { height });
+  const slot = f.innerW / buckets.length;
+  const bw = Math.max(1, (slot * 0.74) / series.length);
+
+  const bars = buckets.map((b, i) => {
+    const x0 = f.padL + slot * i + slot * 0.13;
+    return series.map((s, j) => {
+      const v = b[s.key] ?? 0;
+      const h = Math.max(v > 0 ? 1 : 0, f.padT + f.innerH - f.y(v));
+      return `<rect x="${x0 + bw * j}" y="${f.y(v)}" width="${bw}" height="${h}" fill="${s.color}" rx="1"/>`;
+    }).join("");
+  }).join("");
+
+  const hover = buckets.map((b, i) => `
+    <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
+      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${s.label}: ${fmt(b[s.key] ?? 0)}`).join("\n")}</title>
+    </rect>`).join("");
+
+  return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
+    ${f.gridSvg}${bars}${hover}${f.xLabels}</svg>`;
+}
+
+/** Multi-series line chart. Nulls break the line rather than dropping to zero. */
+function lineChart(buckets, series, { height = 190, fmtV = fmt } = {}) {
+  if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
+  const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
+  const f = plotFrame(buckets, max, { height });
+  const slot = f.innerW / buckets.length;
+  const px = i => f.padL + slot * (i + 0.5);
+
+  const paths = series.map(s => {
+    let d = "", pen = false;
+    buckets.forEach((b, i) => {
+      const v = b[s.key];
+      if (v == null) { pen = false; return; }
+      d += `${pen ? "L" : "M"}${px(i).toFixed(1)},${f.y(v).toFixed(1)}`;
+      pen = true;
+    });
+    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }).join("");
+
+  const hover = buckets.map((b, i) => `
+    <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
+      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${s.label}: ${b[s.key] == null ? "—" : fmtV(b[s.key])}`).join("\n")}</title>
+    </rect>`).join("");
+
+  return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
+    ${f.gridSvg}${paths}${hover}${f.xLabels}</svg>`;
+}
+
+function legend(series) {
+  return `<div class="legend">${series.map(s =>
+    `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("")}</div>`;
+}
+
+/** Horizontal ranked bars — better than a pie for "top N of many". */
+function hbars(rows, { label, value, color = "var(--accent)", href = null, fmtV = fmt } = {}) {
+  if (!rows.length) return `<div class="empty">Nothing to show.</div>`;
+  const max = Math.max(...rows.map(value));
+  return `<div class="hbars">${rows.map(r => {
+    const text = esc(label(r));
+    return `<div class="hbar">
+      <span class="lab" title="${text}">${href ? `<a href="${href(r)}" target="_blank" rel="noopener">${text}</a>` : text}</span>
+      <span class="track"><span class="fill" style="width:${(value(r) / max) * 100}%;background:${color}"></span></span>
+      <span class="val">${fmtV(value(r))}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function kpi(k, v, d = "", cls = "") {
+  return `<div class="kpi"><div class="k">${esc(k)}</div><div class="v ${cls}">${v}</div><div class="d">${d}</div></div>`;
+}
+
+/* ==========================================================================
+   Shared table rendering
+   ========================================================================== */
+
+const COLUMNS = {
+  pr: [
+    { key: "repo",      label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
+    { key: "title",     label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
+    { key: "author",    label: "Author", render: r => esc(r.author) },
+    { key: "labels",    label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
+    { key: "ageDays",   label: "Opened", render: r => age(r.ageDays) },
+    { key: "staleDays", label: "Updated",render: r => age(r.staleDays) },
+  ],
+  release: [
+    { key: "repo",             label: "Repo",          render: r => `<a href="${r.repoUrl}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
+    { key: "tagName",          label: "Last release",  render: r => `<a href="${r.releaseUrl}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
+    { key: "commitsAhead",     label: "Commits ahead", render: r => `<span class="num">${r.commitsAhead ?? "?"}</span>` },
+    { key: "daysSinceRelease", label: "Released",      render: r => age(r.daysSinceRelease) },
+    { key: "defaultBranch",    label: "Branch",        render: r => `<span class="repo">${esc(r.defaultBranch)}</span>` },
+  ],
+};
+
+/** Compact column subset for overview previews — six columns don't fit a card. */
+const preview = cols => cols.filter(c => ["repo", "title", "tagName", "commitsAhead", "ageDays", "login"].includes(c.key));
+
+function renderTable(rows, cols, { sortable = false, limit = null, total = null } = {}) {
+  if (!rows.length) return `<div class="empty">Nothing here. That's usually good news.</div>`;
+  const shown = limit ? rows.slice(0, limit) : rows;
+  const head = cols.map(c =>
+    `<th ${sortable && c.sortable !== false ? `data-sort="${c.key}"` : ""}>${c.label}${
+      sortable && state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+  const body = shown.map(r => `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`).join("");
+  const rest = (total ?? rows.length) - shown.length;
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
+    (rest > 0 ? `<div class="more">+ ${fmt(rest)} more — open the tab for the full list.</div>` : "");
+}
+
+function sortRows(rows, cols) {
+  if (!state.sort) return rows;
+  const col = cols.find(c => c.key === state.sort);
+  const val = col?.get ?? (r => r[state.sort]);
+  return [...rows].sort((a, b) => {
+    const x = val(a), y = val(b);
+    const cmp = typeof x === "number" && typeof y === "number"
+      ? x - y : String(x ?? "").localeCompare(String(y ?? ""));
+    return cmp * state.dir;
+  });
+}
+
+function applyFilter(rows) {
+  if (!state.filter) return rows;
+  const q = state.filter.toLowerCase();
+  return rows.filter(r =>
+    [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q)));
+}
+
+/* ==========================================================================
+   Data accessors
+   ========================================================================== */
+
+const panel = id => state.data?.panels?.[id];
+const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
+const W = () => A()?.byWindow?.[state.window] ?? null;
+const windowLabel = () =>
+  (A()?.windows ?? []).find(w => w.id === state.window)?.label ?? state.window;
+
+/** Time series trimmed to the selected granularity + lookback. */
+function seriesSlice() {
+  const a = A();
+  if (!a) return [];
+  const all = a.series[state.gran] ?? [];
+  const days = RANGES.find(r => r.id === state.range)?.days;
+  if (days == null) return all;
+  const per = state.gran === "week" ? 7 : 30.4;
+  return all.slice(-Math.ceil(days / per));
+}
+
+/** Same window a period earlier, for the delta arrows on the pulse strip. */
+function deltaFor(key) {
+  const s = A()?.series?.month ?? [];
+  if (s.length < 4) return null;
+  const [prev, cur] = [s.at(-2), s.at(-1)];
+  if (!prev || !cur || !prev[key]) return null;
+  return (cur[key] - prev[key]) / prev[key];
+}
+
+const deltaHtml = d => d == null ? ""
+  : `<span class="${d > 0.02 ? "up" : d < -0.02 ? "down" : "flat"}">${d > 0 ? "▲" : d < 0 ? "▼" : "•"} ${Math.abs(Math.round(d * 100))}%</span> vs. last month`;
+
+/* ==========================================================================
+   Modules
+   --------------------------------------------------------------------------
+   Every module renders into a card on its page's overview grid, and into the
+   full-width area when its own tab is selected. `render(expanded)` gets to
+   decide how much detail that means.
+   ========================================================================== */
+
+const MODULES = {
+
+  /* ---------------- General Analytics ---------------- */
+
+  pulse: {
+    page: "analytics", label: "Pulse", span: 12, flush: true,
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const a = A(), w = W();
+      if (!w) return missingIngest();
+      if (!expanded) {
+        return `<div class="kpis">
+          ${kpi("PRs opened", fmt(w.opened), deltaHtml(deltaFor("opened")))}
+          ${kpi("Merged", fmt(w.merged), deltaHtml(deltaFor("merged")))}
+          ${kpi("Merge rate", pctFmt(w.mergeRate), `${fmt(w.closed)} closed unmerged`)}
+          ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
+          ${kpi("Median first review", dur(w.medianFirstReviewHours), `${fmt(w.approvals)} approvals`)}
+          ${kpi("Active contributors", fmt(w.activeAuthors), `${fmt(w.newContributors)} first-timers`)}
+          ${kpi("Open backlog", fmt(a.backlog.total), `${fmt(a.backlog.unreviewed)} never reviewed`, a.backlog.unreviewed > a.backlog.total / 2 ? "down" : "")}
+        </div>`;
+      }
+      // Expanded: every window side by side, so trends are readable without
+      // clicking through the picker one option at a time.
+      const rows = [
+        ["PRs opened",           w => fmt(w.opened)],
+        ["Merged",               w => fmt(w.merged)],
+        ["Closed unmerged",      w => fmt(w.closed)],
+        ["Merge rate",           w => pctFmt(w.mergeRate)],
+        ["Median time to merge", w => dur(w.medianMergeHours)],
+        ["p90 time to merge",    w => dur(w.p90MergeHours)],
+        ["Median first review",  w => dur(w.medianFirstReviewHours)],
+        ["Approvals given",      w => fmt(w.approvals)],
+        ["Merged without approval", w => fmt(w.unapprovedMerges)],
+        ["Approved before merge",w => pctFmt(w.approvedShare)],
+        ["Top-5 reviewer share", w => pctFmt(w.reviewConcentration)],
+        ["Active authors",       w => fmt(w.activeAuthors)],
+        ["Active reviewers",     w => fmt(w.activeReviewers)],
+        ["First-time contributors", w => fmt(w.newContributors)],
+        ["Repos touched",        w => fmt(w.activeRepos)],
+      ];
+      return `<table>
+        <thead><tr><th style="cursor:default">Metric</th>${a.windows.map(x => `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(([lab, f]) =>
+          `<tr><td>${lab}</td>${a.windows.map(x => `<td class="num">${f(a.byWindow[x.id])}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table>`;
+    },
+  },
+
+  volume: {
+    page: "analytics", label: "PR volume", span: 8,
+    sub: () => `by ${state.gran}`,
+    controls: ["gran", "range"],
+    render(expanded) {
+      if (!A()) return missingIngest();
+      const s = seriesSlice();
+      const series = [
+        { key: "opened", label: "Opened", color: "var(--accent)" },
+        { key: "merged", label: "Merged", color: "var(--good)" },
+        { key: "closed", label: "Closed unmerged", color: "var(--bad)" },
+      ];
+      const tot = k => s.reduce((n, b) => n + (b[k] ?? 0), 0);
+      const head = `<div class="kpis" style="margin:-14px -14px 14px">
+        ${kpi("Opened in range", fmt(tot("opened")), `${s.length} ${state.gran}s`)}
+        ${kpi("Merged in range", fmt(tot("merged")), pctFmt(tot("opened") ? tot("merged") / tot("opened") : null) + " of opened")}
+        ${kpi(`Peak ${state.gran}`, fmt(Math.max(0, ...s.map(b => b.opened))), s.length ? bucketLabel(s.reduce((m, b) => b.opened > m.opened ? b : m, s[0]).b) : "")}
+      </div>`;
+      return head + legend(series) + barChart(s, series, { height: expanded ? 380 : 210 }) +
+        (expanded ? volumeTable(s) : "");
+    },
+  },
+
+  backlog: {
+    page: "analytics", label: "Open backlog", span: 4,
+    sub: () => "PRs still open, by age",
+    render(expanded) {
+      const a = A();
+      if (!a) return missingIngest();
+      const b = a.backlog;
+      const colors = ["var(--good)", "var(--accent)", "var(--warn)", "#e8823a", "var(--bad)"];
+      const bars = `<div class="hbars">${b.buckets.map((x, i) => `
+        <div class="hbar">
+          <span class="lab">${esc(x.label)}</span>
+          <span class="track"><span class="fill" style="width:${(x.count / Math.max(1, ...b.buckets.map(y => y.count))) * 100}%;background:${colors[i]}"></span></span>
+          <span class="val">${fmt(x.count)}</span>
+        </div>`).join("")}</div>`;
+
+      const summary = `<div style="display:flex;gap:18px;margin-bottom:12px">
+        <div><div class="k" style="color:var(--muted);font-size:11px">OPEN</div><div style="font-size:22px;font-weight:600">${fmt(b.total)}</div></div>
+        <div><div class="k" style="color:var(--muted);font-size:11px">NEVER REVIEWED</div><div style="font-size:22px;font-weight:600" class="${b.unreviewed > b.total / 2 ? "down" : ""}">${fmt(b.unreviewed)}</div></div>
+        <div><div class="k" style="color:var(--muted);font-size:11px">OVER 3 MONTHS</div><div style="font-size:22px;font-weight:600">${fmt(b.buckets.slice(3).reduce((n, x) => n + x.count, 0))}</div></div>
+      </div>`;
+
+      if (!expanded) return summary + bars;
+
+      const cols = [
+        { key: "repo",   label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "number", label: "PR",     render: r => `<a href="${r.url}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "author", label: "Author", render: r => esc(r.author) },
+        { key: "ageDays",  label: "Opened",  render: r => age(r.ageDays) },
+        { key: "staleDays",label: "Updated", render: r => age(r.staleDays) },
+        { key: "reviewed", label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
+      ];
+      return summary + bars +
+        `<h3 style="font-size:13px;margin:22px 0 8px">Oldest open PRs</h3>` +
+        renderTable(sortRows(applyFilter(b.oldest), cols), cols, { sortable: true });
+    },
+  },
+
+  latency: {
+    page: "analytics", label: "Review latency", span: 6,
+    sub: () => "median hours, by month",
+    controls: ["range"],
+    render(expanded) {
+      if (!A()) return missingIngest();
+      const s = seriesSlice().filter(b => b.mergeN > 3);
+      const series = [
+        { key: "reviewMedianH", label: "To first review (median)", color: "var(--purple)" },
+        { key: "mergeMedianH",  label: "To merge (median)",        color: "var(--good)" },
+        { key: "mergeP90H",     label: "To merge (p90)",           color: "var(--warn)" },
+      ];
+      return legend(series) + lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur }) +
+        `<div class="hint" style="margin-top:10px">Bars only appear once a ${state.gran} has more than three merges — small samples swing the median wildly.</div>`;
+    },
+  },
+
+  growth: {
+    page: "analytics", label: "Contributor growth", span: 6,
+    sub: () => "active vs. first-time",
+    controls: ["range"],
+    render(expanded) {
+      if (!A()) return missingIngest();
+      const s = seriesSlice();
+      const series = [
+        { key: "authors",    label: "Active authors", color: "var(--accent)" },
+        { key: "newAuthors", label: "First-time",     color: "var(--pink)" },
+      ];
+      const a = A();
+      return `<div class="kpis" style="margin:-14px -14px 14px">
+          ${kpi("All-time contributors", fmt(a.totals.contributors), `since ${new Date(a.totals.firstPR).getFullYear()}`)}
+          ${kpi("New this window", fmt(W()?.newContributors), `in ${windowLabel().toLowerCase()}`)}
+          ${kpi("Repos with PRs", fmt(a.totals.repos), "all time")}
+        </div>` + legend(series) + lineChart(s, series, { height: expanded ? 380 : 200 });
+    },
+  },
+
+  repos: {
+    page: "analytics", label: "Busiest repos", span: 6,
+    sub: () => `PRs opened, last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const w = W();
+      if (!w) return missingIngest();
+      const rows = expanded ? w.topRepos : w.topRepos.slice(0, 6);
+      return hbars(rows, {
+        label: r => r.repo,
+        value: r => r.opened,
+        href: r => `https://github.com/${state.data.org}/${r.repo}/pulls`,
+      }) + (expanded ? `<h3 style="font-size:13px;margin:22px 0 8px">Merged share</h3>` +
+        hbars(rows, { label: r => r.repo, value: r => r.merged, color: "var(--good)" }) : "");
+    },
+  },
+
+  reviewload: {
+    page: "analytics", label: "Review load", span: 6,
+    sub: () => `approvals, last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const w = W();
+      if (!w) return missingIngest();
+      const n = expanded ? 8 : 6;
+      const conc = w.reviewConcentration;
+      return `<div class="kpis" style="margin:-14px -14px 14px">
+          ${kpi("Top-5 reviewer share", pctFmt(conc), "of all approvals", conc > 0.6 ? "down" : conc > 0.4 ? "flat" : "up")}
+          ${kpi("Active reviewers", fmt(w.activeReviewers), `${fmt(w.approvals)} approvals`)}
+          ${kpi("Merged unapproved", fmt(w.unapprovedMerges), `${pctFmt(1 - (w.approvedShare ?? 0))} of merges`)}
+        </div>` +
+        hbars(w.topReviewers.slice(0, n), {
+          label: r => r.login, value: r => r.count, color: "var(--purple)",
+          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+        }) +
+        (conc > 0.6 ? `<div class="hint" style="margin-top:12px">Five people are carrying most of the review load — worth watching for burnout.</div>` : "");
+    },
+  },
+
+  labels: {
+    page: "analytics", label: "Label mix", span: 6,
+    sub: () => "open PRs per tracked label",
+    render(expanded) {
+      const p = panel("byLabel");
+      if (!p?.ok) return `<div class="error">${esc(p?.error ?? "unavailable")}</div>`;
+      const rows = Object.entries(p.data)
+        .map(([name, prs]) => ({ name, count: prs.length }))
+        .filter(r => r.count)
+        .sort((a, b) => b.count - a.count);
+      return hbars(expanded ? rows : rows.slice(0, 8), {
+        label: r => r.name, value: r => r.count, color: "var(--warn)",
+      });
+    },
+  },
+
+  heatmap: {
+    page: "analytics", label: "When PRs open", span: 6,
+    sub: () => "last 12 months, UTC",
+    render() {
+      const a = A();
+      if (!a) return missingIngest();
+      const max = Math.max(1, ...a.heatmap.flat());
+      const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const cells = a.heatmap.map((row, d) =>
+        `<span class="rl">${days[d]}</span>` + row.map((v, h) =>
+          `<span class="cell" style="background:${v ? `color-mix(in srgb, var(--accent) ${Math.round((v / max) * 100)}%, var(--panel-2))` : "var(--panel-2)"}" title="${days[d]} ${String(h).padStart(2, "0")}:00 UTC — ${fmt(v)} PRs"></span>`).join("")
+      ).join("");
+      const hourRow = `<span></span>` + Array.from({ length: 24 }, (_, h) =>
+        `<span class="cl">${h % 6 === 0 ? h : ""}</span>`).join("");
+      return `<div class="heat">${cells}${hourRow}</div>
+        <div class="hint" style="margin-top:12px">Darker means more PRs opened in that hour. Useful for picking a maintenance window that annoys the fewest people.</div>`;
+    },
+  },
+
+  /* ---------------- Dream Panel ---------------- */
+
+  approvedUnmerged: {
+    page: "dream", label: "Approved, not merged", span: 6, flush: true,
+    panelId: "approvedUnmerged", cols: () => COLUMNS.pr,
+    sub: () => "green light, still sitting",
+  },
+  changesRequested: {
+    page: "dream", label: "Changes requested", span: 6, flush: true,
+    panelId: "changesRequested", cols: () => COLUMNS.pr,
+    sub: () => "waiting on the author",
+  },
+  needsRelease: {
+    page: "dream", label: "Needs a release", span: 6, flush: true,
+    panelId: "needsRelease", cols: () => COLUMNS.release,
+    sub: () => "merged but unreleased",
+  },
+  byLabel: {
+    page: "dream", label: "By label", span: 6, flush: true,
+    panelId: "byLabel", cols: () => COLUMNS.pr, controls: ["label"],
+    sub: () => state.label ?? "pick a label",
+  },
+
+  /* ---------------- Contributor Activity ---------------- */
+
+  leaderboard: {
+    page: "people", label: "Leaderboard", span: 12, flush: true,
+    controls: ["window", "minActivity"],
+    sub: () => `by activity, last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const p = panel("contributors");
+      if (!p?.ok) return `<div class="error">${esc(p.error)}</div>`;
+      const cols = contributorColumns();
+      const rows = sortRows(applyFilter(contributorRows()), cols);
+      const total = p.data.rows?.length ?? 0;
+      const hidden = total - contributorRows().length;
+      const hint = expanded && hidden > 0
+        ? `<div class="hint" style="padding:12px 14px 0">${fmt(hidden)} of ${fmt(total)} hidden by min activity ${state.minActivity} in this window — set it to 0 to show everyone.</div>` : "";
+      return hint + renderTable(rows, cols, { sortable: expanded, limit: expanded ? null : 8 });
+    },
+  },
+
+  topAuthors: {
+    page: "people", label: "Most PRs opened", span: 6,
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const rows = contributorRows()
+        .map(r => ({ login: r.login, count: r[state.window].prs }))
+        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      return hbars(rows.slice(0, expanded ? 25 : 7), {
+        label: r => r.login, value: r => r.count,
+        href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+      });
+    },
+  },
+
+  topReviewers: {
+    page: "people", label: "Most approvals given", span: 6,
+    sub: () => `last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const rows = contributorRows()
+        .map(r => ({ login: r.login, count: r[state.window].approvals }))
+        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      return hbars(rows.slice(0, expanded ? 25 : 7), {
+        label: r => r.login, value: r => r.count, color: "var(--purple)",
+        href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+      });
+    },
+  },
+
+  newcomers: {
+    page: "people", label: "New faces", span: 6, flush: true,
+    sub: () => `first PR in the last ${windowLabel().toLowerCase()}`,
+    render(expanded) {
+      const days = (A()?.windows ?? []).find(w => w.id === state.window)?.days ?? null;
+      const rows = contributorAll()
+        .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
+        .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
+      const cols = [
+        { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+        { key: "firstSeen", label: "First PR", get: r => r.firstSeen ?? "", render: r => age(daysSince(r.firstSeen)) },
+        { key: "prs", label: "PRs", get: r => r.all.prs, render: r => `<span class="num">${r.all.prs}</span>` },
+        { key: "merged", label: "Merged", get: r => r.all.merged, render: r => `<span class="num">${r.all.merged}</span>` },
+      ];
+      return renderTable(applyFilter(rows), cols, { sortable: expanded, limit: expanded ? null : 7 });
+    },
+  },
+
+  lapsed: {
+    page: "people", label: "Gone quiet", span: 6, flush: true,
+    sub: () => "regulars with no activity in 6 months",
+    render(expanded) {
+      const rows = contributorAll()
+        .filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180)
+        .sort((a, b) => (b.all.prs + b.all.approvals) - (a.all.prs + a.all.approvals));
+      const cols = [
+        { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+        { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
+        { key: "prs", label: "PRs (all time)", get: r => r.all.prs, render: r => `<span class="num">${fmt(r.all.prs)}</span>` },
+        { key: "approvals", label: "Approvals", get: r => r.all.approvals, render: r => `<span class="num">${fmt(r.all.approvals)}</span>` },
+      ];
+      return renderTable(applyFilter(rows), cols, { sortable: expanded, limit: expanded ? null : 7 });
+    },
+  },
+};
+
+const PAGES = [
+  {
+    id: "analytics", label: "General Analytics",
+    icon: `<path d="M1.5 14.5V2a.5.5 0 0 1 1 0v11.5H15a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5Z"/><path d="M4 11h2v2H4v-2Zm3.5-4h2v6h-2V7ZM11 3h2v10h-2V3Z"/>`,
+    modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap"],
+  },
+  {
+    id: "dream", label: "Dream Panel",
+    icon: `<path d="M8 1.5 2 4.2v4.1c0 3.4 2.4 6 6 6.2 3.6-.2 6-2.8 6-6.2V4.2L8 1.5Zm2.8 4.9-3.3 4a.7.7 0 0 1-1 .05L4.9 8.9a.7.7 0 1 1 .95-1l1 .95 2.8-3.4a.7.7 0 1 1 1.1.9Z"/>`,
+    modules: ["approvedUnmerged", "changesRequested", "needsRelease", "byLabel"],
+  },
+  {
+    id: "people", label: "Contributor Activity",
+    icon: `<path d="M5.5 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM.5 14c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5H.5Zm11 0c0-1.6-.6-3-1.6-4 .5-.3 1-.4 1.6-.4 2.2 0 4 1.6 4 4.4h-4Z"/>`,
+    modules: ["topAuthors", "topReviewers", "leaderboard", "newcomers", "lapsed"],
+  },
+];
+
+const missingIngest = () =>
+  `<div class="error">Analytics needs the local PR store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
+
+/* Generic panel-backed module renderer (Dream Panel tables). */
+for (const m of Object.values(MODULES)) {
+  if (!m.panelId || m.render) continue;
+  m.render = function (expanded) {
+    const p = panel(this.panelId);
+    if (!p?.ok) return `<div class="error">This panel failed to build:<br>${esc(p?.error)}</div>`;
+    const cols = this.cols();
+    const rows = sortRows(applyFilter(panelRows(this.panelId)), cols);
+    return renderTable(rows, expanded ? cols : preview(cols), {
+      sortable: expanded, limit: expanded ? null : 5,
+    });
+  };
+}
+
+function panelRows(id) {
+  const p = panel(id);
+  if (!p?.ok) return [];
+  if (id !== "byLabel") return p.data;
+  const key = state.label ?? Object.keys(p.data)[0];
+  return p.data[key] ?? [];
+}
+
+const contributorAll = () => panel("contributors")?.ok ? (panel("contributors").data.rows ?? []) : [];
+
+/** Filtered against the *selected* window, not all-time. */
+function contributorRows() {
+  const w = state.window;
+  return contributorAll().filter(r => r[w] && r[w].prs + r[w].approvals >= state.minActivity);
+}
+
 function contributorColumns() {
   const w = state.window;
   return [
-    { key: "login", label: "Contributor",
-      render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
-    { key: `${w}.prs`, label: "PRs opened", get: r => r[w].prs,
-      render: r => `<span class="num">${r[w].prs}</span>` },
-    { key: `${w}.merged`, label: "Merged", get: r => r[w].merged,
-      render: r => `<span class="num">${r[w].merged}</span>` },
-    { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals,
-      render: r => `<span class="num">${r[w].approvals}</span>` },
-    { key: "lastSeen", label: "Last active",
-      get: r => r.lastSeen ?? "",
-      render: r => age(r.lastSeen ? Math.floor((Date.now() - new Date(r.lastSeen)) / 86400000) : null) },
+    { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+    { key: `${w}.prs`,       label: "PRs opened",      get: r => r[w].prs,       render: r => `<span class="num">${fmt(r[w].prs)}</span>` },
+    { key: `${w}.merged`,    label: "Merged",          get: r => r[w].merged,    render: r => `<span class="num">${fmt(r[w].merged)}</span>` },
+    { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals, render: r => `<span class="num">${fmt(r[w].approvals)}</span>` },
+    { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
   ];
 }
 
-function render() {
-  const { data, tab } = state;
-
-  document.getElementById("tabs").innerHTML = TABS.map(t =>
-    `<button data-tab="${t.id}" aria-selected="${t.id === tab}">${t.label}<span class="count">${countFor(t.id)}</span></button>`
-  ).join("");
-
-  const picker = document.getElementById("labelPicker");
-  picker.hidden = tab !== "byLabel";
-  if (tab === "byLabel") {
-    const groups = data.panels.byLabel.data;
-    picker.innerHTML = Object.entries(groups)
-      .map(([k, v]) => `<option value="${esc(k)}"${k === state.label ? " selected" : ""}>${esc(k)} (${v.length})</option>`)
-      .join("");
-  }
-
-  const wp = document.getElementById("windowPicker");
-  wp.hidden = tab !== "contributors";
-  document.getElementById("minWrap").hidden = tab !== "contributors";
-  if (tab === "contributors" && data.panels.contributors.ok) {
-    wp.innerHTML = (data.panels.contributors.data.windows ?? [])
-      .map(w => `<option value="${w.id}"${w.id === state.window ? " selected" : ""}>${esc(w.label)}</option>`)
-      .join("");
-  }
-
-  const view = document.getElementById("view");
-  const panel = data.panels[tab];
-
-  if (!panel.ok) {
-    view.innerHTML = `<div class="error">This panel failed to build:<br>${esc(panel.error)}</div>`;
-    return;
-  }
-
-  const cols = tab === "contributors" ? contributorColumns()
-             : tab === "needsRelease" ? COLUMNS.release
-             : COLUMNS.pr;
-  let rows = rowsFor(tab) ?? [];
-
-  if (state.filter) {
-    const q = state.filter.toLowerCase();
-    rows = rows.filter(r =>
-      [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q))
-    );
-  }
-
-  if (state.sort) {
-    const col = cols.find(c => c.key === state.sort);
-    const val = col?.get ?? (r => r[state.sort]);
-    rows = [...rows].sort((a, b) => {
-      const x = val(a), y = val(b);
-      const cmp = typeof x === "number" && typeof y === "number"
-        ? x - y
-        : String(x ?? "").localeCompare(String(y ?? ""));
-      return cmp * state.dir;
-    });
-  }
-
-  if (!rows.length) {
-    view.innerHTML = `<div class="empty">Nothing here${state.filter ? " matching your filter" : ""}. ${state.filter ? "" : "That's good news."}</div>`;
-    return;
-  }
-
-  // Show how many people the threshold is hiding, so a surprisingly short
-  // list is obviously a filter and not missing data.
-  const hint = tab === "contributors"
-    ? (() => {
-        const total = panel.data.rows?.length ?? 0;
-        const hidden = total - (rowsFor(tab) ?? []).length;
-        return hidden > 0
-          ? `<div class="hint">${hidden} of ${total} hidden by min activity ${state.minActivity} in this window — set it to 0 to show everyone.</div>`
-          : `<div class="hint">Showing all ${total} contributors.</div>`;
-      })()
-    : "";
-
-  view.innerHTML = hint + `
-    <table>
-      <thead><tr>${cols.map(c =>
-        `<th ${c.sortable === false ? "" : `data-sort="${c.key}"`}>${c.label}${state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`
-      ).join("")}</tr></thead>
-      <tbody>${rows.map(r =>
-        `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`
-      ).join("")}</tbody>
-    </table>`;
+function volumeTable(s) {
+  const cols = [
+    { key: "b", label: state.gran === "week" ? "Week" : "Month", render: b => esc(bucketLabel(b.b)) },
+    { key: "opened", label: "Opened", render: b => `<span class="num">${fmt(b.opened)}</span>` },
+    { key: "merged", label: "Merged", render: b => `<span class="num">${fmt(b.merged)}</span>` },
+    { key: "closed", label: "Closed", render: b => `<span class="num">${fmt(b.closed)}</span>` },
+    { key: "authors", label: "Authors", render: b => `<span class="num">${fmt(b.authors)}</span>` },
+    { key: "newAuthors", label: "First-timers", render: b => `<span class="num">${fmt(b.newAuthors)}</span>` },
+    { key: "mergeMedianH", label: "Median merge", render: b => `<span class="num">${dur(b.mergeMedianH)}</span>` },
+  ];
+  return `<h3 style="font-size:13px;margin:26px 0 8px">Breakdown</h3>` +
+    renderTable([...s].reverse(), cols);
 }
 
-document.getElementById("tabs").addEventListener("click", e => {
-  const btn = e.target.closest("button[data-tab]");
-  if (!btn) return;
-  state.tab = btn.dataset.tab;
+/* ==========================================================================
+   Counts on tabs
+   ========================================================================== */
+
+function moduleCount(id) {
+  const m = MODULES[id];
+  if (m.panelId) {
+    const p = panel(m.panelId);
+    if (!p?.ok) return "!";
+    return m.panelId === "byLabel"
+      ? Object.values(p.data).reduce((n, g) => n + g.length, 0)
+      : p.data.length;
+  }
+  if (id === "leaderboard") return contributorRows().length;
+  if (id === "backlog") return A()?.backlog?.total ?? null;
+  return null;
+}
+
+/* ==========================================================================
+   Rendering
+   ========================================================================== */
+
+const currentPage = () => PAGES.find(p => p.id === state.page) ?? PAGES[0];
+
+function renderSidebar() {
+  document.getElementById("pages").innerHTML = PAGES.map(p => `
+    <button data-page="${p.id}" aria-current="${p.id === state.page}" title="${esc(p.label)}">
+      <svg viewBox="0 0 16 16" fill="currentColor">${p.icon}</svg>
+      <span class="plabel">${esc(p.label)}</span>
+    </button>`).join("");
+}
+
+function renderTabs() {
+  const page = currentPage();
+  document.getElementById("pageTitle").textContent = page.label;
+  document.getElementById("tabs").innerHTML =
+    `<button data-module="" aria-selected="${state.module === null}">Overview</button>` +
+    page.modules.map(id => {
+      const c = moduleCount(id);
+      return `<button data-module="${id}" aria-selected="${state.module === id}">${esc(MODULES[id].label)}${
+        c == null ? "" : `<span class="count">${typeof c === "number" ? fmt(c) : c}</span>`}</button>`;
+    }).join("");
+}
+
+/**
+ * Toolbar is per-view: the overview shows whatever its page needs globally,
+ * a module tab shows only the controls that module declares.
+ */
+function renderToolbar() {
+  const page = currentPage();
+  const mod = state.module ? MODULES[state.module] : null;
+  const wanted = new Set(
+    mod ? (mod.controls ?? []) : page.modules.flatMap(id => MODULES[id].controls ?? [])
+  );
+  // Window applies to nearly everything on the analytics and people pages.
+  if (page.id !== "dream") wanted.add("window");
+  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog"].includes(state.module) ||
+      page.id === "dream") wanted.add("filter");
+
+  const bits = [];
+
+  if (wanted.has("filter"))
+    bits.push(`<input type="search" id="filter" placeholder="Filter by repo, title, or author…" value="${esc(state.filter)}">`);
+
+  if (wanted.has("window")) {
+    const ws = A()?.windows ?? panel("contributors")?.data?.windows ?? [];
+    bits.push(`<label class="minlabel">window
+      <select id="windowPicker">${ws.map(w =>
+        `<option value="${w.id}"${w.id === state.window ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
+  }
+
+  if (wanted.has("gran"))
+    bits.push(`<span class="seg" id="granSeg">${["week", "month"].map(g =>
+      `<button data-gran="${g}" aria-pressed="${state.gran === g}">by ${g}</button>`).join("")}</span>`);
+
+  if (wanted.has("range"))
+    bits.push(`<span class="seg" id="rangeSeg">${RANGES.map(r =>
+      `<button data-range="${r.id}" aria-pressed="${state.range === r.id}">${r.label}</button>`).join("")}</span>`);
+
+  if (wanted.has("label")) {
+    const p = panel("byLabel");
+    if (p?.ok) bits.push(`<select id="labelPicker">${Object.entries(p.data).map(([k, v]) =>
+      `<option value="${esc(k)}"${k === state.label ? " selected" : ""}>${esc(k)} (${v.length})</option>`).join("")}</select>`);
+  }
+
+  if (wanted.has("minActivity"))
+    bits.push(`<label class="minlabel">min activity <input type="number" id="minActivity" min="0" step="1" value="${state.minActivity}"></label>`);
+
+  const tb = document.getElementById("toolbar");
+  tb.innerHTML = bits.join("");
+  tb.style.display = bits.length ? "" : "none";
+}
+
+function card(id) {
+  const m = MODULES[id];
+  let body;
+  try { body = m.render(false); }
+  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+  return `<section class="card" style="--span:${m.span}">
+    <header>
+      <h2>${esc(m.label)}</h2>
+      <span class="sub">${esc(m.sub ? m.sub() : "")}</span>
+      <button class="expand" data-open="${id}">Expand ↗</button>
+    </header>
+    <div class="body${m.flush ? " flush" : ""}">${body}</div>
+  </section>`;
+}
+
+function render() {
+  renderSidebar();
+  renderTabs();
+  renderToolbar();
+
+  const view = document.getElementById("view");
+  if (!state.data) return;
+
+  if (state.module === null) {
+    view.innerHTML = `<div class="grid">${currentPage().modules.map(card).join("")}</div>`;
+    return;
+  }
+
+  const m = MODULES[state.module];
+  let body;
+  try { body = m.render(true); }
+  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+  view.innerHTML = `<section class="card" style="--span:12">
+    <header><h2>${esc(m.label)}</h2><span class="sub">${esc(m.sub ? m.sub() : "")}</span></header>
+    <div class="body${m.flush ? " flush" : ""}">${body}</div>
+  </section>`;
+}
+
+/* ==========================================================================
+   Routing — hash keeps deep links shareable and survives a reload
+   ========================================================================== */
+
+function readHash() {
+  const [page, mod] = location.hash.replace(/^#/, "").split("/");
+  if (PAGES.some(p => p.id === page)) state.page = page;
+  state.module = mod && MODULES[mod]?.page === state.page ? mod : null;
+}
+
+function go(page, mod = null) {
+  state.page = page;
+  state.module = mod;
   state.sort = null;
+  state.filter = "";
+  location.hash = mod ? `${page}/${mod}` : page;
   render();
+}
+
+/* ==========================================================================
+   Events
+   ========================================================================== */
+
+document.getElementById("pages").addEventListener("click", e => {
+  const b = e.target.closest("button[data-page]");
+  if (b) go(b.dataset.page);
+});
+
+document.getElementById("tabs").addEventListener("click", e => {
+  const b = e.target.closest("button[data-module]");
+  if (b) go(state.page, b.dataset.module || null);
 });
 
 document.getElementById("view").addEventListener("click", e => {
+  const open = e.target.closest("button[data-open]");
+  if (open) return go(state.page, open.dataset.open);
+
   const th = e.target.closest("th[data-sort]");
-  if (!th) return;
-  const key = th.dataset.sort;
-  state.dir = state.sort === key ? -state.dir : -1;
-  state.sort = key;
-  render();
+  if (th) {
+    state.dir = state.sort === th.dataset.sort ? -state.dir : -1;
+    state.sort = th.dataset.sort;
+    render();
+  }
 });
 
-document.getElementById("filter").addEventListener("input", e => {
-  state.filter = e.target.value.trim();
+document.getElementById("toolbar").addEventListener("input", e => {
+  const t = e.target;
+  if (t.id === "filter") state.filter = t.value.trim();
+  else if (t.id === "windowPicker") state.window = t.value;
+  else if (t.id === "labelPicker") state.label = t.value;
+  else if (t.id === "minActivity") {
+    const v = Number(t.value);
+    state.minActivity = Number.isFinite(v) && v >= 0 ? v : 0;
+  } else return;
   render();
+  // Re-focus the text box: render() replaces the toolbar wholesale, which
+  // would otherwise drop the caret after every keystroke.
+  if (t.id === "filter") {
+    const f = document.getElementById("filter");
+    if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+  }
 });
 
-document.getElementById("labelPicker").addEventListener("change", e => {
-  state.label = e.target.value;
-  render();
+document.getElementById("toolbar").addEventListener("click", e => {
+  const g = e.target.closest("button[data-gran]");
+  if (g) { state.gran = g.dataset.gran; return render(); }
+  const r = e.target.closest("button[data-range]");
+  if (r) { state.range = r.dataset.range; return render(); }
 });
 
-document.getElementById("windowPicker").addEventListener("change", e => {
-  state.window = e.target.value;
-  render();
+document.getElementById("collapse").addEventListener("click", () => {
+  const c = document.body.classList.toggle("collapsed");
+  localStorage.setItem("nh:collapsed", c ? "1" : "0");
 });
 
-document.getElementById("minActivity").addEventListener("input", e => {
-  const v = Number(e.target.value);
-  state.minActivity = Number.isFinite(v) && v >= 0 ? v : 0;
-  render();
-});
+window.addEventListener("hashchange", () => { readHash(); render(); });
+
+/* ==========================================================================
+   Boot
+   ========================================================================== */
+
+if (localStorage.getItem("nh:collapsed") === "1") document.body.classList.add("collapsed");
 
 try {
   // Relative, not absolute: on GitHub Pages this lives under /NH-Dashboard/,
@@ -367,12 +1183,25 @@ try {
 
   const built = new Date(state.data.generatedAt);
   const mins = Math.round((Date.now() - built) / 60000);
-  document.getElementById("meta").textContent =
-    `${state.data.org} · built ${mins < 1 ? "just now" : `${mins} min ago`}`;
+  const ageText = mins < 1 ? "just now" : mins < 90 ? `${mins} min ago` : `${Math.round(mins / 60)} hr ago`;
+  const meta = document.getElementById("meta");
+  meta.textContent = `${state.data.org} · built ${ageText}`;
+  // Flag it visually once the data is older than a couple of cron cycles,
+  // which usually means a workflow run failed rather than just ran late.
+  if (mins > 90) meta.classList.add("stale");
+
+  // Derive the workflow URL from wherever this is hosted, so a fork or a
+  // move into the org doesn't need this hardcoded value updated.
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  const repo = m ? `${m[1]}/${location.pathname.split("/").filter(Boolean)[0] ?? ""}` : null;
+  document.getElementById("refresh").href = repo
+    ? `https://github.com/${repo}/actions/workflows/build.yml`
+    : "https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml";
 
   state.label = Object.keys(state.data.panels.byLabel?.data ?? {})[0] ?? null;
+  readHash();
   render();
-} catch {
+} catch (err) {
   document.getElementById("meta").textContent = "no data";
   document.getElementById("view").innerHTML =
     `<div class="error">No data found. Run <code>npm run build</code> first.</div>`;

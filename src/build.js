@@ -14,6 +14,7 @@ import { rateLimit, stats } from "./github/client.js";
 import { approvedUnmerged, byLabel, changesRequested } from "./panels/pullRequests.js";
 import { needsRelease } from "./panels/needsRelease.js";
 import { contributors } from "./panels/contributors.js";
+import { analytics } from "./panels/analytics.js";
 
 const DATA_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -56,6 +57,11 @@ async function main() {
     // explanatory message if `npm run ingest` hasn't been run yet.
     contributors: await run("Contributor activity", contributors, {
       empty: { windows: [], rows: [] },
+      optional: true,
+    }),
+    // Same deal as contributors: derived entirely from the local ingest store.
+    analytics: await run("Org analytics", analytics, {
+      empty: { windows: [], totals: {}, series: { week: [], month: [] } },
       optional: true,
     }),
   };
