@@ -39,9 +39,14 @@
     --pink: #bf3989;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
   body {
     margin: 0;
+    /* min-height, NOT height. `height: 100%` caps the body box at one viewport
+       even when the content overflows it, which makes the grid row exactly
+       100vh tall — and a sticky child can never travel outside its containing
+       block, so the sidebar scrolled away with the page. Letting the body grow
+       to its content is what gives sticky room to work. */
+    min-height: 100vh;
     background: var(--bg);
     color: var(--text);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
