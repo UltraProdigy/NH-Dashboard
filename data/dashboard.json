@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T03:26:43.935Z",
+  "generatedAt": "2026-08-10T03:34:48.972Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -1377,7 +1377,7 @@
             "createdAt": "2026-08-06T15:56:04Z",
             "updatedAt": "2026-08-07T03:32:22Z",
             "ageDays": 3,
-            "staleDays": 2
+            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1463,7 +1463,7 @@
             "createdAt": "2026-04-18T13:34:48Z",
             "updatedAt": "2026-07-03T03:29:49Z",
             "ageDays": 113,
-            "staleDays": 37
+            "staleDays": 38
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1957,7 +1957,7 @@
             "createdAt": "2026-07-30T14:11:08Z",
             "updatedAt": "2026-07-31T03:31:33Z",
             "ageDays": 10,
-            "staleDays": 9
+            "staleDays": 10
           },
           {
             "repo": "GTNewHorizons/ModularUI2",
@@ -2785,7 +2785,7 @@
             "createdAt": "2026-07-30T14:11:08Z",
             "updatedAt": "2026-07-31T03:31:33Z",
             "ageDays": 10,
-            "staleDays": 9
+            "staleDays": 10
           },
           {
             "repo": "GTNewHorizons/ModularUI2",
@@ -3567,6 +3567,25 @@
             "staleDays": 13
           },
           {
+            "repo": "GTNewHorizons/CosmeticArmorReworked",
+            "number": 7,
+            "title": "Cosmetic armor port to ModularUI2",
+            "url": "https://github.com/GTNewHorizons/CosmeticArmorReworked/pull/7",
+            "author": "logan-mcduffie",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/16262482?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              }
+            ],
+            "createdAt": "2026-07-15T03:28:20Z",
+            "updatedAt": "2026-07-15T04:25:59Z",
+            "ageDays": 26,
+            "staleDays": 25
+          },
+          {
             "repo": "GTNewHorizons/BetterQuesting",
             "number": 239,
             "title": "Modularize text for PanelTaskItemBase",
@@ -3670,25 +3689,6 @@
             "staleDays": 3
           },
           {
-            "repo": "GTNewHorizons/CosmeticArmorReworked",
-            "number": 7,
-            "title": "Cosmetic armor port to ModularUI2",
-            "url": "https://github.com/GTNewHorizons/CosmeticArmorReworked/pull/7",
-            "author": "logan-mcduffie",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/16262482?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              }
-            ],
-            "createdAt": "2026-07-15T03:28:20Z",
-            "updatedAt": "2026-07-15T04:25:59Z",
-            "ageDays": 25,
-            "staleDays": 25
-          },
-          {
             "repo": "GTNewHorizons/GT5-Unofficial",
             "number": 7483,
             "title": "Remove GT++ Iodine Items (except for Plasma)",
@@ -3705,7 +3705,7 @@
             "createdAt": "2026-07-17T15:59:41Z",
             "updatedAt": "2026-08-03T03:26:16Z",
             "ageDays": 23,
-            "staleDays": 6
+            "staleDays": 7
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3998,6 +3998,25 @@
             "staleDays": 1
           },
           {
+            "repo": "GTNewHorizons/GT5-Unofficial",
+            "number": 7652,
+            "title": "add fun flavor text to various late-game materials",
+            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7652",
+            "author": "flamingowrangler2869",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/69942965?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              }
+            ],
+            "createdAt": "2026-08-02T03:27:39Z",
+            "updatedAt": "2026-08-03T03:27:48Z",
+            "ageDays": 8,
+            "staleDays": 7
+          },
+          {
             "repo": "GTNewHorizons/Controlling",
             "number": 31,
             "title": "[chords 8/8] docs: document the chord and context api",
@@ -4203,25 +4222,6 @@
             "updatedAt": "2026-08-08T08:41:22Z",
             "ageDays": 7,
             "staleDays": 1
-          },
-          {
-            "repo": "GTNewHorizons/GT5-Unofficial",
-            "number": 7652,
-            "title": "add fun flavor text to various late-game materials",
-            "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/7652",
-            "author": "flamingowrangler2869",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/69942965?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              }
-            ],
-            "createdAt": "2026-08-02T03:27:39Z",
-            "updatedAt": "2026-08-03T03:27:48Z",
-            "ageDays": 7,
-            "staleDays": 6
           },
           {
             "repo": "GTNewHorizons/NewHorizonsCoreMod",
@@ -6631,7 +6631,7 @@
             "createdAt": "2026-08-06T15:56:04Z",
             "updatedAt": "2026-08-07T03:32:22Z",
             "ageDays": 3,
-            "staleDays": 2
+            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -52720,7 +52720,7 @@
               }
             ],
             "prev": {
-              "opened": 1142,
+              "opened": 1141,
               "merged": 1065,
               "closed": 76,
               "activeAuthors": 150,
@@ -52734,7 +52734,7 @@
               "reviewConcentration": 0.3533260632497274,
               "medianMergeHours": 5.4,
               "p90MergeHours": 266.8,
-              "medianFirstReviewHours": 3.6
+              "medianFirstReviewHours": 3.7
             },
             "prevLabel": "previous 1 month"
           },
