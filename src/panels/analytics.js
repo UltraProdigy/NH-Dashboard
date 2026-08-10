@@ -55,6 +55,22 @@ function weekKey(d) {
 const monthKey = (d) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
+/** 2026-08-10. Sorts lexically, same as the week and month keys. */
+const dayKey = (d) => d.toISOString().slice(0, 10);
+
+/**
+ * How far back the daily series reaches.
+ *
+ * The org's history starts in 2014, so an all-time daily series would be ~4,300
+ * buckets — roughly 800 KB in a file that's committed on every build, for a
+ * chart nobody can read at that width. Two years is 730 buckets (~135 KB) and
+ * covers every case where a day-by-day view answers something a weekly one
+ * doesn't. The frontend reads `series.dayFrom` and says so when the selected
+ * period reaches further back than the data does, rather than quietly plotting
+ * a shorter span than the control claims.
+ */
+export const DAY_SERIES_DAYS = 730;
+
 /**
  * Accumulator for one time bucket. `authors` is a Set while building and gets
  * flattened to a count on the way out — the identities are only needed to
@@ -117,6 +133,8 @@ export async function analytics() {
 
   const weeks = new Map();
   const months = new Map();
+  const days = new Map();
+  const dayCutoff = now - DAY_SERIES_DAYS * DAY;
   const firstSeen = new Map(); // login -> earliest createdAt, for "new contributors"
   const repos = new Set();
 
@@ -215,10 +233,14 @@ export async function analytics() {
     const isFirstEver = !bot && firstSeen.get(pr.author) === pr.createdAt;
 
     // ---- time series (opened bucket) ----
-    for (const [map, key] of [
+    // The daily map is only fed for the recent slice — see DAY_SERIES_DAYS.
+    const openedIn = [
       [weeks, weekKey(created)],
       [months, monthKey(created)],
-    ]) {
+    ];
+    if (created.getTime() >= dayCutoff) openedIn.push([days, dayKey(created)]);
+
+    for (const [map, key] of openedIn) {
       const b = bucketFor(map, key, pr.createdAt);
       if (pr.createdAt < b.t) b.t = pr.createdAt;
       b.opened++;
@@ -232,10 +254,13 @@ export async function analytics() {
     const endedAt = pr.mergedAt ?? (pr.state === "CLOSED" ? pr.updatedAt : null);
     if (endedAt) {
       const ended = new Date(endedAt);
-      for (const [map, key] of [
+      const endedIn = [
         [weeks, weekKey(ended)],
         [months, monthKey(ended)],
-      ]) {
+      ];
+      if (ended.getTime() >= dayCutoff) endedIn.push([days, dayKey(ended)]);
+
+      for (const [map, key] of endedIn) {
         const b = bucketFor(map, key, endedAt);
         if (endedAt < b.t) b.t = endedAt;
         if (pr.mergedAt) b.merged++;
@@ -373,7 +398,15 @@ export async function analytics() {
       repos: repos.size,
       firstPR: [...firstSeen.values()].sort()[0] ?? null,
     },
-    series: { week: series(weeks), month: series(months) },
+    series: {
+      day: series(days),
+      week: series(weeks),
+      month: series(months),
+      // How far the daily buckets actually reach, so the frontend can say
+      // "daily data starts here" instead of plotting a short chart under a
+      // control that promised five years.
+      dayFrom: new Date(dayCutoff).toISOString().slice(0, 10),
+    },
     byWindow,
     backlog: {
       total: openPRs.length,

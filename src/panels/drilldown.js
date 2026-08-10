@@ -188,7 +188,11 @@ function blankSubject(id, idKey) {
     total: 0,
     _w: Object.fromEntries(WINDOWS.map((w) => [w.id, blankWindow()])),
     _months: new Map(),
-    _counts: new Map(), // windowed ranked lists, keyed `${windowId}\n${name}`
+    // Windowed ranked lists, keyed `${windowId}\n${kind}\n${name}`. The kind
+    // segment is what lets one map carry several independent rankings — a
+    // repo's authors and reviewers, a contributor's authored and reviewed
+    // repos — without a second Map per subject.
+    _counts: new Map(),
     _partners: new Map(), // contributor only: reviewedBy / reviewsFor
     open: [],
     resolved: [], // contributor only: their merged and closed-unmerged PRs
@@ -359,7 +363,7 @@ export async function drilldown() {
         if (openedIn) {
           aw.opened++;
           aw.people.add(pr.repo);
-          bumpMap(author._counts, `${id}\n${pr.repo}`);
+          bumpMap(author._counts, `${id}\nopened\n${pr.repo}`);
           if (reviewHours != null) aw.reviewHours.push(reviewHours);
         }
         if (mergedIn) {
@@ -379,6 +383,10 @@ export async function drilldown() {
 
         const rev = person(login);
         rev._w[id].approvals++;
+        // Where this person's reviewing effort goes. Counted per repo the same
+        // way their authoring is, so the two lists on the Repos card answer the
+        // same question about the same period.
+        bumpMap(rev._counts, `${id}\nreviewed\n${pr.repo}`);
         // For a person this set means "authors I reviewed for", so a bot's PRs
         // shouldn't inflate it the way they don't inflate anything else.
         if (!authorIsBot) rev._w[id].reviewers.add(pr.author);
@@ -485,7 +493,10 @@ export async function drilldown() {
       windows: windowsOut(s),
       series: finishSeries(s._months, s.first),
       topRepos: Object.fromEntries(
-        WINDOWS.map((w) => [w.id, rankedFor(s._counts, w.id, "repo")])
+        WINDOWS.map((w) => [w.id, rankedFor(s._counts, `${w.id}\nopened`, "repo")])
+      ),
+      reviewRepos: Object.fromEntries(
+        WINDOWS.map((w) => [w.id, rankedFor(s._counts, `${w.id}\nreviewed`, "repo")])
       ),
       reviewedBy: partners("by"),
       reviewsFor: partners("for"),

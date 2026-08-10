@@ -106,6 +106,30 @@ export function summarizeRuns(runs) {
     // red" are very different and shouldn't render the same.
     passRate: decisive.length ? passes / decisive.length : null,
     medianMinutes: round1(median(durations)),
+
+    /* ---- how much Actions time this repo is spending ----
+       Wall-clock, summed across the sampled runs. This is deliberately *not*
+       GitHub's billable minutes, and the frontend says so:
+
+       - Billable minutes are per *job*, and a matrix of eight jobs running in
+         parallel bills eight times what the run took on the clock.
+       - macOS bills 10x and Windows 2x, which a duration can't know about.
+       - The only endpoint that gives the real number is
+         /actions/runs/{id}/timing, which is one request per run — ~20 per
+         active repo, or roughly 4,000 per build on top of what this panel
+         already costs. That would dominate the rate-limit budget for a figure
+         nobody is going to reconcile against an invoice.
+
+       Summed over a known run count it's still the useful comparison: it says
+       which repos are the expensive ones, which is the question being asked.
+
+       `timedRuns` rather than `runs` as the denominator, because a run missing
+       a usable timestamp contributes nothing to the total and would otherwise
+       drag the average down. */
+    totalMinutes: durations.length
+      ? round1(durations.reduce((n, m) => n + m, 0))
+      : null,
+    timedRuns: durations.length,
   };
 }
 
