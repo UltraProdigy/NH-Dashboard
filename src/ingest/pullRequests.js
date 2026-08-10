@@ -235,7 +235,9 @@ export async function ingest({ limit = Infinity } = {}) {
  * the lines that actually changed between runs rather than a reshuffled file.
  */
 export async function compactStore() {
-  const records = await readStore(); // already dedupes, keeping newest per key
+  // Copied before sorting: readStore memoizes and hands every caller the same
+  // array, so sorting in place would reorder it underneath them.
+  const records = [...(await readStore())]; // already dedupes, newest per key
 
   let before = 0;
   try {
@@ -259,10 +261,28 @@ export async function compactStore() {
 }
 
 /**
+ * Memoized so a build that reads the store from three panels parses the 9.5 MB
+ * file once instead of three times. Scoped to the process, so the ingest —
+ * which mutates the file and then compacts it — is unaffected: it runs as its
+ * own process and calls readStore exactly once, after the writes are done.
+ */
+let storeCache = null;
+
+/** Drop the memo. Only tests need this, when they swap NH_STORE_DIR mid-run. */
+export function clearStoreCache() {
+  storeCache = null;
+}
+
+/**
  * Read the store back, keeping only the newest record per repo#number.
  * The file is append-only, so later lines supersede earlier ones.
+ *
+ * Callers must treat the result as read-only — they all share one array now.
+ * The panels only ever read it, and `compactStore` sorts a copy for exactly
+ * this reason.
  */
 export async function readStore() {
+  if (storeCache) return storeCache;
   const byKey = new Map();
 
   try {
@@ -280,9 +300,12 @@ export async function readStore() {
       }
     }
   } catch (err) {
+    // Not memoized: an absent store is cheap to re-check, and caching it would
+    // make a build that runs straight after an ingest see nothing.
     if (err.code === "ENOENT") return [];
     throw err;
   }
 
-  return [...byKey.values()];
+  storeCache = [...byKey.values()];
+  return storeCache;
 }

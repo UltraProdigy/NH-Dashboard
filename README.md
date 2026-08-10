@@ -57,6 +57,7 @@ development needs one of the three options above rather than reusing the secret.
 | PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
 | Needs release | ~30 GraphQL + 1 REST per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
+| Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 
 ## Contributor activity
 
@@ -91,13 +92,49 @@ running anything locally.
 Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
 can't clobber real data.
 
+## Drilldowns
+
+Two pages answer "how is *this* one doing" rather than "how is the org doing":
+**Contributor Drilldown** and **Repo Drilldown**. Pick a subject with the search
+box; the toggle beside it switches between the two, landing on the equivalent
+tab where there is one.
+
+Both are pure local computation over the same ingest store, so a subject costs
+nothing to add and every time window is equally cheap. No extra API calls.
+
+Deep links carry the subject, so they're shareable:
+
+```
+#contributor/Dream-Master          overview
+#contributor/Dream-Master/cActivity  a specific tab
+#repo/GT5-Unofficial/rBacklog
+```
+
+The data lives in its own `data/drilldown.json` (~2.5 MB) rather than in
+`dashboard.json`. The frontend fetches it the first time you open a drilldown
+page and keeps it for the session, so the other three pages don't pay for data
+they never use.
+
+Size drove two visible choices:
+
+- **Contributor repo breakdowns** are stored for 1-year and all-time only.
+  1,189 contributors x 5 windows x 10 repos was most of a megabyte for a list
+  nobody reads at that granularity. The page uses the closer of the two and
+  says which one it's showing. Repos, at 295 subjects, get all five windows.
+- **Review relationships** ("who approves their PRs") are all-time. A review
+  relationship accumulates slowly, and windowing it mostly produces noise.
+
+New Faces on the Contributor Activity page has a jump button beside each name
+that opens that person's drilldown. The name itself still links to GitHub —
+the drilldown is the follow-up question, not a replacement for the profile.
+
 ## Layout
 
 ```
 src/config.js        tracked labels, thresholds, org — tune here first
 src/github/client.js API client: auth, pagination, rate limits, caching
 src/panels/          one module per panel
-src/build.js         runs all panels → data/dashboard.json
+src/build.js         runs all panels → data/dashboard.json + data/drilldown.json
 src/serve.js         local static server
 web/index.html       frontend (single file, no build step)
 data/                generated output — committed on purpose
@@ -108,6 +145,17 @@ the git history of that file becomes a free time-series of point-in-time values
 that can't be reconstructed from the API later (star counts, CI pass rates,
 team membership). Most historical metrics *are* reconstructible from
 `created_at`/`merged_at` timestamps and don't need this.
+
+`data/drilldown.json` is the exception, and is **gitignored**. Every byte of it
+comes from `prs.ndjson`, which is already committed, so its history would
+record nothing you couldn't regenerate exactly — it'd be repo growth in
+exchange for nothing. The build writes it on every run and the Pages deploy
+copies it off disk, so the hosted site is unaffected.
+
+The practical consequence: a fresh clone has no drilldown data until someone
+runs `npm run build`. `Dashboard.command` does that before serving, and the
+frontend shows a "run the build" message rather than breaking if the file is
+absent, so this only ever surfaces if you open `web/index.html` directly.
 
 ## Tuning
 
@@ -146,8 +194,10 @@ somewhere other than Pages to live.
 
 ## Not built yet
 
-- **Contributor activity** (PRs authored and reviews approved, over 1/3/6/12 months
-  and all-time). Needs a local ingestion pipeline rather than live queries —
-  review data is nested under each PR, so answering it live would mean walking
-  every PR in the org on every page load.
-- Scheduled builds via GitHub Actions.
+- **Per-repo detail beyond pull requests** — stars, watchers, open issues, CI
+  status, topics. None of it is in the ingest store, so the Repo Drilldown
+  covers PR and review activity only. Adding it means a per-repo API sweep on
+  every build (~295 extra GraphQL requests), which is affordable against the
+  5,000/hr budget but slows the build and adds a failure mode.
+- **Issue data.** The ingest walks pull requests only, so nothing anywhere
+  reflects issue volume or triage latency.

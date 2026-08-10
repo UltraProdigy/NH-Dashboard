@@ -5,6 +5,13 @@
 # API response cache (local dev only)
 .cache/
 
+# Derived output. Unlike the rest of data/, this one is reconstructible: every
+# byte comes from data/ingest/prs.ndjson, which *is* committed. Committing it
+# too would add ~0.3 MB (compressed) to the repo on every build in exchange for
+# history that records nothing new. The Pages deploy copies it off disk after
+# the build, so the hosted site gets it either way.
+data/drilldown.json
+
 node_modules/
 *.log
 .DS_Store
