@@ -339,6 +339,56 @@
   .subject { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .subject h2 { margin: 0; font-size: 20px; font-weight: 600; }
   .subject .dates { color: var(--muted); font-size: 12px; }
+  /* ---------- drilldown: paired stat boxes ---------- */
+  /* Two related rankings read as a comparison when they're side by side and as
+     a sequence when they're stacked. These are comparisons. */
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .duo { grid-template-columns: 1fr; } }
+  .duo-box {
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel-2);
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  .duo-box > h3 {
+    margin: 0; padding: 9px 12px;
+    font-size: 12px; font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .duo-box > h3 .n { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 11px; }
+  .duo-box .scroll { padding: 11px 12px; }
+
+  /* Lists are uncapped now, so long ones scroll inside their box instead of
+     making the page metres tall. */
+  .scroll { overflow-y: auto; scrollbar-width: thin; }
+  .scroll.tall { max-height: 620px; }
+  .scroll.short { max-height: 260px; }
+
+  /* ---------- drilldown: every-month axis ---------- */
+  /* Rendered as HTML under the chart rather than as SVG <text>. The charts use
+     preserveAspectRatio="none", which scales x and y differently — anything
+     drawn inside gets squashed horizontally as the card narrows, which is
+     survivable for six labels and unreadable for twenty-four. */
+  .xaxis { display: grid; margin-top: 5px; }
+  .xaxis span {
+    writing-mode: vertical-rl;
+    font-size: 10px; color: var(--muted);
+    justify-self: center; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- draft / status pills ---------- */
+  .pill {
+    display: inline-block; border-radius: 10px; padding: 0 7px;
+    font-size: 11px; border: 1px solid var(--border); white-space: nowrap;
+  }
+  .pill.draft { color: var(--muted); }
+  .pill.ready { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .pill.unknown { color: var(--muted); border-style: dashed; }
+  .pill.pass { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .pill.fail { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+  .pill.neutral { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+
   .picker { padding: 40px 0; text-align: center; }
   .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
   .picker p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
@@ -405,6 +455,11 @@ const state = {
   dir: -1,
 
   // ---- drilldown ----
+  // Its own window, independent of the analytics/people one. Looking at a
+  // single subject you almost always want their whole history first and then
+  // narrow; looking at the org you want the recent picture. Sharing one
+  // setting made each page wrong half the time.
+  drillWindow: "all",
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
   drillState: "idle", // idle | loading | ready | error
@@ -446,12 +501,17 @@ function dur(hours) {
   return d < 60 ? `${d < 10 ? d.toFixed(1) : Math.round(d)}d` : `${Math.round(d / 30)}mo`;
 }
 
+/** Bare text — for places that do their own styling, like the search popup. */
+function agoText(days) {
+  if (days == null) return "—";
+  return days === 0 ? "today" : days === 1 ? "1 day ago" : days < 60 ? `${days} days ago`
+    : days < 730 ? `${Math.floor(days / 30)} mo ago` : `${Math.floor(days / 365)} yr ago`;
+}
+
 function age(days) {
   if (days == null) return "—";
   const cls = days > 180 ? "age-ancient" : days > 60 ? "age-old" : "";
-  const text = days === 0 ? "today" : days === 1 ? "1 day ago" : days < 60 ? `${days} days ago`
-    : days < 730 ? `${Math.floor(days / 30)} mo ago` : `${Math.floor(days / 365)} yr ago`;
-  return `<span class="${cls} num">${text}</span>`;
+  return `<span class="${cls} num">${agoText(days)}</span>`;
 }
 
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
@@ -481,7 +541,7 @@ function niceMax(v) {
  * Shared scaffold: y grid lines + labels, x labels thinned to ~6 ticks.
  * Returns the plot geometry so each chart type only has to draw its marks.
  */
-function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6 }) {
+function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6, everyLabel = false }) {
   const W = 1000, H = height;
   const innerW = W - padL - 6, innerH = H - padB - padT;
   const top = niceMax(max);
@@ -493,9 +553,10 @@ function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6 }) {
     <text class="axis" x="${padL - 7}" y="${y(t) + 3}" text-anchor="end">${t >= 1000 ? `${Math.round(t / 1000)}k` : Math.round(t * 10) / 10}</text>`).join("");
 
   // Label roughly six evenly-spaced buckets, anchored on the newest one so the
-  // right-hand edge is always dated.
+  // right-hand edge is always dated. When everyLabel is set the labels move
+  // out of the SVG entirely — see xAxis() — so nothing is drawn here.
   const every = Math.max(1, Math.ceil(buckets.length / 6));
-  const xLabels = buckets.map((b, i) =>
+  const xLabels = everyLabel ? "" : buckets.map((b, i) =>
     (buckets.length - 1 - i) % every === 0
       ? `<text class="axis" x="${padL + (innerW / buckets.length) * (i + 0.5)}" y="${H - 6}" text-anchor="middle">${esc(bucketLabel(b.b))}</text>`
       : ""
@@ -504,11 +565,25 @@ function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6 }) {
   return { W, H, padL, padT, innerW, innerH, top, y, gridSvg, xLabels };
 }
 
+/**
+ * Every bucket labelled, as HTML beneath the plot.
+ *
+ * Inset to match the plot area so label i sits under bar i. The percentages
+ * come from the same geometry plotFrame uses, so the two can't drift.
+ */
+function xAxis(buckets, { padL = 38, W = 1000, padR = 6 } = {}) {
+  if (!buckets.length) return "";
+  const left = (padL / W) * 100;
+  const width = ((W - padR - padL) / W) * 100;
+  return `<div class="xaxis" style="margin-left:${left}%;width:${width}%;grid-template-columns:repeat(${buckets.length},1fr)">${
+    buckets.map(b => `<span>${esc(bucketLabel(b.b))}</span>`).join("")}</div>`;
+}
+
 /** Grouped vertical bars. `series` = [{ key, label, color }]. */
-function barChart(buckets, series, { height = 190 } = {}) {
+function barChart(buckets, series, { height = 190, everyLabel = false } = {}) {
   if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
   const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
-  const f = plotFrame(buckets, max, { height });
+  const f = plotFrame(buckets, max, { height, everyLabel });
   const slot = f.innerW / buckets.length;
   const bw = Math.max(1, (slot * 0.74) / series.length);
 
@@ -527,14 +602,14 @@ function barChart(buckets, series, { height = 190 } = {}) {
     </rect>`).join("");
 
   return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
-    ${f.gridSvg}${bars}${hover}${f.xLabels}</svg>`;
+    ${f.gridSvg}${bars}${hover}${f.xLabels}</svg>` + (everyLabel ? xAxis(buckets) : "");
 }
 
 /** Multi-series line chart. Nulls break the line rather than dropping to zero. */
-function lineChart(buckets, series, { height = 190, fmtV = fmt } = {}) {
+function lineChart(buckets, series, { height = 190, fmtV = fmt, everyLabel = false } = {}) {
   if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
   const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
-  const f = plotFrame(buckets, max, { height });
+  const f = plotFrame(buckets, max, { height, everyLabel });
   const slot = f.innerW / buckets.length;
   const px = i => f.padL + slot * (i + 0.5);
 
@@ -555,7 +630,7 @@ function lineChart(buckets, series, { height = 190, fmtV = fmt } = {}) {
     </rect>`).join("");
 
   return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
-    ${f.gridSvg}${paths}${hover}${f.xLabels}</svg>`;
+    ${f.gridSvg}${paths}${hover}${f.xLabels}</svg>` + (everyLabel ? xAxis(buckets) : "");
 }
 
 function legend(series) {
@@ -644,8 +719,21 @@ function applyFilter(rows) {
 const panel = id => state.data?.panels?.[id];
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
-const windowLabel = () =>
-  (A()?.windows ?? []).find(w => w.id === state.window)?.label ?? state.window;
+
+/** Whichever window picker is on screen: drilldowns keep their own. */
+const activeWindow = () => (isDrill(state.page) ? state.drillWindow : state.window);
+
+const windowLabel = () => {
+  const id = activeWindow();
+  const ws = A()?.windows ?? state.drill?.windows ?? [];
+  return ws.find(w => w.id === id)?.label ?? id;
+};
+
+/** "last 3 months" or "all time" — "last all time" reads like a typo. */
+const windowPhrase = () => {
+  const l = windowLabel().toLowerCase();
+  return l === "all time" ? "all time" : `last ${l}`;
+};
 
 /** Time series trimmed to the selected granularity + lookback. */
 function seriesSlice() {
@@ -723,7 +811,7 @@ const EMPTY_WINDOW = {
   medianMergeHours: null, p90MergeHours: null, medianFirstReviewHours: null,
   people: 0, reviewers: 0,
 };
-const SW = () => subject()?.windows?.[state.window] ?? EMPTY_WINDOW;
+const SW = () => subject()?.windows?.[activeWindow()] ?? EMPTY_WINDOW;
 
 /**
  * Expand the column-oriented series the build emits back into the named
@@ -756,18 +844,25 @@ function subjectSlice() {
 }
 
 /**
- * The contributor records only carry repo breakdowns for 1-year and all-time,
- * because 1,189 subjects x 5 windows x 10 repos was most of a megabyte for
- * lists nobody reads at that granularity. Pick the closer of the two and let
- * the caller say which it got, rather than mislabelling it.
+ * Two ranked lists in side-by-side boxes. Each scrolls independently, so a
+ * 400-entry list and a 3-entry one sit next to each other without either
+ * dictating the height of the card.
  */
-function topReposFor(windowId) {
-  const s = subject();
-  if (!s?.topRepos) return { rows: [], label: "" };
-  return windowId === "all"
-    ? { rows: s.topRepos.all ?? [], label: "all time" }
-    : { rows: s.topRepos.y1 ?? [], label: "last 12 months" };
+function duo(left, right, { height = "tall" } = {}) {
+  const box = ({ title, rows, color, href, label, value }) => `
+    <section class="duo-box">
+      <h3>${esc(title)}<span class="n">${fmt(rows.length)}</span></h3>
+      <div class="scroll ${height}">${
+        rows.length
+          ? hbars(rows, { label, value, color, href })
+          : `<div class="empty" style="padding:18px 0">Nothing here.</div>`
+      }</div>
+    </section>`;
+  return `<div class="duo">${box(left)}${box(right)}</div>`;
 }
+
+const byLogin = { label: r => r.login, value: r => r.count,
+  href: r => `https://github.com/${encodeURIComponent(r.login)}` };
 
 /** URL for whatever the current page's subjects are on GitHub. */
 const subjectUrl = (id) =>
@@ -798,7 +893,7 @@ const MODULES = {
   pulse: {
     page: "analytics", label: "Pulse", span: 12, flush: true,
     sub: () => W()?.prevLabel
-      ? `last ${windowLabel().toLowerCase()} vs. ${W().prevLabel}`
+      ? `${windowPhrase()} vs. ${W().prevLabel}`
       : windowLabel().toLowerCase(),
     render(expanded) {
       const a = A(), w = W();
@@ -943,7 +1038,7 @@ const MODULES = {
 
   repos: {
     page: "analytics", label: "Busiest repos", span: 6,
-    sub: () => `PRs opened, last ${windowLabel().toLowerCase()}`,
+    sub: () => `PRs opened, ${windowPhrase()}`,
     render(expanded) {
       const w = W();
       if (!w) return missingIngest();
@@ -959,7 +1054,7 @@ const MODULES = {
 
   reviewload: {
     page: "analytics", label: "Review load", span: 6,
-    sub: () => `approvals, last ${windowLabel().toLowerCase()}`,
+    sub: () => `approvals, ${windowPhrase()}`,
     render(expanded) {
       const w = W();
       if (!w) return missingIngest();
@@ -1041,7 +1136,7 @@ const MODULES = {
   leaderboard: {
     page: "people", label: "Leaderboard", span: 12, flush: true,
     controls: ["window", "minActivity"],
-    sub: () => `by activity, last ${windowLabel().toLowerCase()}`,
+    sub: () => `by activity, ${windowPhrase()}`,
     render(expanded) {
       const p = panel("contributors");
       if (!p?.ok) return `<div class="error">${esc(p.error)}</div>`;
@@ -1057,7 +1152,7 @@ const MODULES = {
 
   topAuthors: {
     page: "people", label: "Most PRs opened", span: 6,
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()
         .map(r => ({ login: r.login, count: r[state.window].prs }))
@@ -1071,7 +1166,7 @@ const MODULES = {
 
   topReviewers: {
     page: "people", label: "Most approvals given", span: 6,
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()
         .map(r => ({ login: r.login, count: r[state.window].approvals }))
@@ -1085,7 +1180,7 @@ const MODULES = {
 
   newcomers: {
     page: "people", label: "New faces", span: 6, flush: true,
-    sub: () => `first PR in the last ${windowLabel().toLowerCase()}`,
+    sub: () => activeWindow() === "all" ? "first PR ever" : `first PR in the ${windowPhrase()}`,
     render(expanded) {
       const days = (A()?.windows ?? []).find(w => w.id === state.window)?.days ?? null;
       const rows = contributorAll()
@@ -1130,7 +1225,7 @@ const MODULES = {
 
   cProfile: {
     page: "contributor", label: "Profile", span: 12, flush: true, twin: "rProfile",
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = SW();
       if (!expanded) {
@@ -1174,11 +1269,11 @@ const MODULES = {
         { key: "closed", label: "Closed unmerged", color: "var(--bad)" },
       ];
       const reviews = [{ key: "approvals", label: "Approvals given", color: "var(--purple)" }];
-      const authoring = legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200 });
+      const authoring = legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200, everyLabel: true });
       // Two charts rather than one: a prolific reviewer's approval count dwarfs
       // their PR count, and on a shared axis the PR bars vanish entirely.
       const reviewing = `<h3 style="font-size:13px;margin:22px 0 8px">Reviewing</h3>` +
-        legend(reviews) + barChart(s, reviews, { height: expanded ? 240 : 140 });
+        legend(reviews) + barChart(s, reviews, { height: expanded ? 240 : 140, everyLabel: true });
       return authoring + reviewing +
         (expanded ? `<h3 style="font-size:13px;margin:26px 0 8px">Breakdown</h3>` +
           renderTable([...s].reverse(), [
@@ -1194,13 +1289,14 @@ const MODULES = {
 
   cRepos: {
     page: "contributor", label: "Repos", span: 4, twin: "rPeople",
-    sub: () => `PRs opened, ${topReposFor(state.window).label}`,
+    sub: () => `PRs opened, ${windowPhrase()}`,
     render(expanded) {
-      const { rows, label } = topReposFor(state.window);
-      return hbars(expanded ? rows : rows.slice(0, 7), {
-        label: r => r.repo, value: r => r.count, color: "var(--accent)",
-      }) + (state.window === "all" ? "" :
-        `<div class="hint" style="margin-top:12px">Repo breakdowns are stored for ${esc(label)} and all time only — the full per-window split would multiply the data file several times over for a list this short.</div>`);
+      const rows = subject()?.topRepos?.[activeWindow()] ?? [];
+      if (!rows.length) return `<div class="empty">No PRs opened in this window.</div>`;
+      return `<div class="scroll ${expanded ? "tall" : "short"}">${
+        hbars(rows, { label: r => r.repo, value: r => r.count, color: "var(--accent)",
+          href: r => `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}` })
+      }</div>`;
     },
   },
 
@@ -1209,17 +1305,11 @@ const MODULES = {
     sub: () => "all time",
     render(expanded) {
       const s = subject();
-      const n = expanded ? 10 : 5;
-      const half = (title, rows, color) =>
-        `<h3 style="font-size:13px;margin:0 0 8px">${title}</h3>` +
-        hbars(rows.slice(0, n), {
-          label: r => r.login, value: r => r.count, color,
-          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
-        });
-      return half("Who approves their PRs", s.reviewedBy, "var(--good)") +
-        `<div style="height:22px"></div>` +
-        half("Whose PRs they approve", s.reviewsFor, "var(--purple)") +
-        `<div class="hint" style="margin-top:14px">Counted over all time. A review relationship builds up slowly, and slicing it by window mostly produces noise.</div>`;
+      return duo(
+        { title: "Approves their PRs", rows: s.reviewedBy, color: "var(--good)", ...byLogin },
+        { title: "They approve", rows: s.reviewsFor, color: "var(--purple)", ...byLogin },
+        { height: expanded ? "tall" : "short" }
+      );
     },
   },
 
@@ -1231,12 +1321,14 @@ const MODULES = {
       const cols = [
         { key: "repo",   label: "Repo", render: r => `<span class="repo">${esc(r.repo)}</span>` },
         { key: "number", label: "PR",   render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "draft",  label: "State", get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
         { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
         { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
         { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
       ];
-      return renderTable(sortRows(applyFilter(s.backlog.oldest), cols), cols,
-        { sortable: expanded, limit: expanded ? null : 7, total: s.backlog.total });
+      return draftNotice(s.backlog) +
+        renderTable(sortRows(applyFilter(s.backlog.oldest), cols), cols,
+          { sortable: expanded, limit: expanded ? null : 7, total: s.backlog.total });
     },
   },
 
@@ -1244,7 +1336,7 @@ const MODULES = {
 
   rProfile: {
     page: "repo", label: "Profile", span: 12, flush: true, twin: "cProfile",
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = SW();
       if (!expanded) {
@@ -1289,9 +1381,9 @@ const MODULES = {
         { key: "closed", label: "Closed unmerged", color: "var(--bad)" },
       ];
       const people = [{ key: "people", label: "Distinct authors", color: "var(--pink)" }];
-      return legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200 }) +
+      return legend(prs) + barChart(s, prs, { height: expanded ? 300 : 200, everyLabel: true }) +
         `<h3 style="font-size:13px;margin:22px 0 8px">People</h3>` +
-        legend(people) + lineChart(s, people, { height: expanded ? 240 : 140 }) +
+        legend(people) + lineChart(s, people, { height: expanded ? 240 : 140, everyLabel: true }) +
         (expanded ? `<h3 style="font-size:13px;margin:26px 0 8px">Breakdown</h3>` +
           renderTable([...s].reverse(), [
             { key: "b", label: "Month", render: b => esc(bucketLabel(b.b)) },
@@ -1305,19 +1397,14 @@ const MODULES = {
 
   rPeople: {
     page: "repo", label: "People", span: 6, twin: "cRepos",
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render(expanded) {
-      const s = subject();
-      const n = expanded ? 10 : 5;
-      const half = (title, rows, color) =>
-        `<h3 style="font-size:13px;margin:0 0 8px">${title}</h3>` +
-        hbars(rows.slice(0, n), {
-          label: r => r.login, value: r => r.count, color,
-          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
-        });
-      return half("Most PRs opened", s.topAuthors[state.window] ?? [], "var(--accent)") +
-        `<div style="height:22px"></div>` +
-        half("Most approvals given", s.topReviewers[state.window] ?? [], "var(--purple)");
+      const s = subject(), w = activeWindow();
+      return duo(
+        { title: "PRs opened", rows: s.topAuthors[w] ?? [], color: "var(--accent)", ...byLogin },
+        { title: "Approvals given", rows: s.topReviewers[w] ?? [], color: "var(--purple)", ...byLogin },
+        { height: expanded ? "tall" : "short" }
+      );
     },
   },
 
@@ -1335,29 +1422,40 @@ const MODULES = {
           <span class="val">${fmt(x.count)}</span>
         </div>`).join("")}</div>`;
 
-      const summary = `<div style="display:flex;gap:18px;margin-bottom:12px">
-        <div><div style="color:var(--muted);font-size:11px">OPEN</div><div style="font-size:22px;font-weight:600">${fmt(b.total)}</div></div>
-        <div><div style="color:var(--muted);font-size:11px">NEVER REVIEWED</div><div style="font-size:22px;font-weight:600" class="${b.unreviewed > b.total / 2 ? "down" : ""}">${fmt(b.unreviewed)}</div></div>
+      const stat = (k, v, cls = "") =>
+        `<div><div style="color:var(--muted);font-size:11px">${k}</div><div style="font-size:22px;font-weight:600" class="${cls}">${v}</div></div>`;
+      const summary = `<div style="display:flex;gap:18px;margin-bottom:12px;flex-wrap:wrap">
+        ${stat("OPEN", fmt(b.total))}
+        ${stat("NEVER REVIEWED", fmt(b.unreviewed), b.unreviewed > b.total / 2 ? "down" : "")}
+        ${stat("DRAFT", b.draftsKnown ? fmt(b.drafts) : "—")}
       </div>`;
-
-      if (!expanded) return summary + bars;
 
       const cols = [
         { key: "number", label: "PR",     render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(s.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "author", label: "Author", render: r => esc(r.author ?? "—") },
+        { key: "draft",  label: "State",  get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
         { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
         { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
         { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
       ];
-      return summary + bars +
-        `<h3 style="font-size:13px;margin:22px 0 8px">Oldest open PRs</h3>` +
+
+      // The overview card is only 4 columns wide and the buckets alone left it
+      // stretched against a much taller neighbour, so it carries the top of the
+      // list too rather than a block of empty panel.
+      if (!expanded)
+        return summary + bars +
+          `<h3 style="font-size:12px;margin:18px 0 6px;color:var(--muted)">Oldest</h3>` +
+          `<div class="scroll short">${renderTable(b.oldest, [cols[0], cols[2], cols[3]], { limit: 8, total: b.total })}</div>`;
+
+      return summary + bars + draftNotice(b) +
+        `<h3 style="font-size:13px;margin:22px 0 8px">Open PRs, oldest first</h3>` +
         renderTable(sortRows(applyFilter(b.oldest), cols), cols, { sortable: true });
     },
   },
 
   rHealth: {
     page: "repo", label: "Health", span: 6, twin: "cCollab",
-    sub: () => `last ${windowLabel().toLowerCase()}`,
+    sub: () => `${windowPhrase()}`,
     render() {
       const s = subject(), w = SW();
       const rel = releaseFor(s.repo);
@@ -1376,7 +1474,7 @@ const MODULES = {
         </div>`).join("")}</div>`;
 
       const release = rel
-        ? `<div class="kpis" style="margin:18px -14px -14px">
+        ? `<div class="kpis" style="margin:18px -14px 0">
              ${kpi("Last release", `<a href="${rel.releaseUrl}" target="_blank" rel="noopener" style="font-size:18px">${esc(rel.tagName)}</a>`,
                    `${fmt(rel.commitsAhead ?? "?")} commits behind ${esc(rel.defaultBranch)}`)}
              ${kpi("Released", age(rel.daysSinceRelease), rel.isPrerelease ? "prerelease" : "")}
@@ -1387,10 +1485,79 @@ const MODULES = {
           ${kpi("Merged unapproved", fmt(w.unapprovedMerges), `of ${fmt(w.merged)} merges`, w.unapprovedMerges > w.merged / 2 ? "down" : "")}
           ${kpi("Median first review", dur(w.medianFirstReviewHours), "after opening")}
           ${kpi("Reviewers active", fmt(w.reviewers), `${fmt(w.approvals)} approvals`)}
-        </div>` + gauges + release;
+        </div>` + gauges + ciSection(s.repo) + release;
     },
   },
 };
+
+/* ---- draft status -------------------------------------------------------
+   Tri-state. Records ingested before `isDraft` was added to the query carry
+   null, which has to look different from "not a draft" — otherwise the column
+   silently claims every old PR is ready for review. */
+
+const draftPill = (v) =>
+  v == null
+    ? `<span class="pill unknown" title="Not ingested yet — run npm run ingest to backfill">unknown</span>`
+    : v
+      ? `<span class="pill draft">draft</span>`
+      : `<span class="pill ready">ready</span>`;
+
+/** Sort order: drafts, then ready, then unknown. */
+const draftOrder = (v) => (v === true ? 0 : v === false ? 1 : 2);
+
+const draftNotice = (backlog) =>
+  backlog.draftsKnown ? "" :
+    `<div class="hint" style="padding:12px 14px 0">Draft status is missing for PRs ingested before it was tracked. Run <code>npm run ingest</code> — it re-fetches just the open ones.</div>`;
+
+/* ---- CI health ---------------------------------------------------------- */
+
+/**
+ * CI runs are minutes-scale, and `dur()` takes hours — round-tripping 4.5
+ * minutes through it yields "5m", quietly throwing away the precision that
+ * makes two workflows comparable. Format minutes directly and hand off to
+ * dur() only once we're past an hour, where its unit-switching earns its keep.
+ */
+const ciDur = (m) =>
+  m == null ? "—" : m < 60 ? `${m < 10 ? m.toFixed(1) : Math.round(m)}m` : dur(m / 60);
+
+const CI_TONE = {
+  success: "pass",
+  failure: "fail", timed_out: "fail", startup_failure: "fail",
+  cancelled: "neutral", skipped: "neutral", action_required: "neutral",
+};
+
+/**
+ * Default-branch Actions health. Lives in dashboard.json rather than the
+ * drilldown file because it's API-derived rather than store-derived, and it's
+ * small enough that the split costs nothing.
+ */
+function ciSection(repo) {
+  const p = panel("ciHealth");
+  if (!p) return "";  // built before this panel existed
+  if (!p.ok)
+    return `<div class="hint" style="margin-top:18px">CI health unavailable — ${esc(p.error)}</div>`;
+
+  const ci = p.data[repo];
+  if (!ci)
+    return `<div class="hint" style="margin-top:18px">No completed Actions runs on this repo's default branch.</div>`;
+
+  const c = ci.latest?.conclusion;
+  const tone = CI_TONE[c] ?? "neutral";
+  const badge = ci.latest
+    ? `<a href="${ci.latest.url}" target="_blank" rel="noopener" class="pill ${tone}" style="font-size:12px">${esc(c ?? "unknown")}</a>`
+    : `<span class="pill unknown">no verdict</span>`;
+
+  const rate = ci.passRate;
+  const rateCls = rate == null ? "" : rate > 0.9 ? "up" : rate > 0.7 ? "flat" : "down";
+
+  return `<h3 style="font-size:13px;margin:22px 0 8px">CI on ${esc(ci.defaultBranch)}</h3>
+    <div class="kpis" style="margin:0 -14px">
+      ${kpi("Latest run", badge, ci.latest?.workflow ? esc(ci.latest.workflow) : "")}
+      ${kpi("Pass rate", pctFmt(rate), `${fmt(ci.decisive)} decisive of ${fmt(ci.runs)} runs`, rateCls)}
+      ${kpi("Median duration", ciDur(ci.medianMinutes), `${fmt(ci.failures)} failed`)}
+    </div>
+    <div class="hint" style="margin-top:12px">Cancelled and skipped runs are excluded from the pass rate — they say something about the humans, not the code.</div>`;
+}
 
 /** Cross-reference into the needsRelease panel, which already has this data. */
 function releaseFor(repo) {
@@ -1435,7 +1602,11 @@ const PAGES = [
   {
     id: "repo", label: "Repo Drilldown",
     icon: `<path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.7.75.75 0 1 1-1.08 1.05A2.5 2.5 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.71A2.49 2.49 0 0 1 4.5 9h8Z"/>`,
-    modules: ["rProfile", "rActivity", "rPeople", "rBacklog", "rHealth"],
+    // Order matters on the overview: the grid is 12 columns and a card that
+    // doesn't fit the remainder wraps, leaving a hole. rPeople (6) after
+    // rActivity (8) left 4 columns empty; rBacklog (4) fills them exactly, so
+    // the rows now tile 12 / 8+4 / 6+6 with no gaps.
+    modules: ["rProfile", "rActivity", "rBacklog", "rPeople", "rHealth"],
   },
 ];
 
@@ -1576,9 +1747,13 @@ function comboPopHtml() {
     const name = at === -1 ? esc(o.id)
       : esc(o.id.slice(0, at)) + `<mark>${esc(o.id.slice(at, at + q.length))}</mark>` +
         esc(o.id.slice(at + q.length));
-    const meta = state.page === "contributor"
-      ? `${fmt(o.n)} PRs · ${fmt(o.a)} approvals`
-      : `${fmt(o.n)} PRs · ${fmt(o.open)} open`;
+    // Last active, not volume. The totals were already visible on the profile
+    // you're about to open; recency is the thing that tells you whether this
+    // is the person you meant before you commit to the click.
+    //
+    // The list is still ranked by total activity — when you type "dre" you
+    // want Dream-Master first, not whoever pushed most recently.
+    const meta = esc(agoText(daysSince(o.last)));
     return `<div class="combo-opt" role="option" data-pick="${esc(o.id)}"
       aria-selected="${i === state.combo.active}"><span class="n">${name}</span><span class="c">${meta}</span></div>`;
   }).join("");
@@ -1646,10 +1821,11 @@ function renderToolbar() {
     bits.push(`<input type="search" id="filter" placeholder="Filter by repo, title, or author…" value="${esc(state.filter)}">`);
 
   if (wanted.has("window")) {
-    const ws = A()?.windows ?? panel("contributors")?.data?.windows ?? [];
+    const ws = A()?.windows ?? state.drill?.windows ?? panel("contributors")?.data?.windows ?? [];
+    const cur = activeWindow();
     bits.push(`<label class="minlabel">window
       <select id="windowPicker">${ws.map(w =>
-        `<option value="${w.id}"${w.id === state.window ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
+        `<option value="${w.id}"${w.id === cur ? " selected" : ""}>${esc(w.label)}</option>`).join("")}</select></label>`);
   }
 
   if (wanted.has("gran"))
@@ -1879,7 +2055,10 @@ document.getElementById("toolbar").addEventListener("input", e => {
     return updateComboPop();
   }
   if (t.id === "filter") state.filter = t.value.trim();
-  else if (t.id === "windowPicker") state.window = t.value;
+  else if (t.id === "windowPicker") {
+    if (isDrill(state.page)) state.drillWindow = t.value;
+    else state.window = t.value;
+  }
   else if (t.id === "labelPicker") state.label = t.value;
   else if (t.id === "minActivity") {
     const v = Number(t.value);

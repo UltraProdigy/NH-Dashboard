@@ -12,15 +12,16 @@
  * fetches it lazily on first visit and the pages people actually live on stay
  * as fast as they are today.
  *
- * Size is the design constraint throughout. 1,200 contributors x 5 windows x a
- * top-N list each is millions of small objects, so the top-N lists are emitted
- * at the granularity where they earn their bytes:
+ * Ranked lists are emitted in full rather than truncated. That was measured,
+ * not assumed: capping at 10 gave 2.54 MB, capping at 100 gave 3.11 MB, and
+ * uncapped gives 3.18 MB — 0.36 MB over the wire once Pages gzips it. The
+ * distributions are steep (median repo has 10 distinct authors, p90 has 45),
+ * so the cap was only ever truncating the handful of subjects where the long
+ * tail is the interesting part.
  *
- *   repos        295 subjects  -> top authors/reviewers for every window
- *   contributors 1,200 subjects -> top repos for 1-year and all-time only
- *
- * The frontend picks the closer of the two for whatever window is selected and
- * says which one it's showing, rather than silently mislabelling it.
+ * Contributor repo breakdowns are still per-window like everything else; the
+ * earlier two-window compromise existed to bound exactly the cost that turned
+ * out not to matter.
  */
 
 import { readStore } from "../ingest/pullRequests.js";
@@ -34,11 +35,12 @@ const HOUR = 3_600_000;
 /** How much history the per-subject charts carry. */
 const SERIES_MONTHS = 24;
 
-/** Cap on every ranked list. Enough to be interesting, small enough to ship. */
-const TOP_N = 10;
-
-/** The two windows contributors get repo breakdowns for. See the header. */
-const CONTRIBUTOR_REPO_WINDOWS = ["y1", "all"];
+/**
+ * Ranked lists are uncapped — see the header for the measurements. Kept as a
+ * named constant so there's an obvious lever if the org grows enough to change
+ * the arithmetic.
+ */
+const TOP_N = Infinity;
 
 const isBot = (login) => !login || BOT_PATTERN.test(login);
 
@@ -318,8 +320,7 @@ export async function drilldown() {
         if (openedIn) {
           aw.opened++;
           aw.people.add(pr.repo);
-          if (CONTRIBUTOR_REPO_WINDOWS.includes(id))
-            bumpMap(author._counts, `${id}\n${pr.repo}`);
+          bumpMap(author._counts, `${id}\n${pr.repo}`);
           if (reviewHours != null) aw.reviewHours.push(reviewHours);
         }
         if (mergedIn) {
@@ -367,6 +368,10 @@ export async function drilldown() {
           ? Math.floor((now - new Date(pr.updatedAt)) / DAY)
           : null,
         reviewed: fr != null,
+        // null, not false, for records ingested before isDraft was queried.
+        // "not a draft" and "we don't know yet" have to render differently or
+        // the column quietly lies until the backfill runs.
+        draft: pr.isDraft ?? null,
       };
       repo.open.push({ ...entry, author: pr.author });
       if (author) author.open.push({ ...entry, repo: pr.repo });
@@ -400,8 +405,13 @@ export async function drilldown() {
     return {
       total: open.length,
       unreviewed: open.filter((p) => !p.reviewed).length,
+      drafts: open.filter((p) => p.draft === true).length,
+      // Distinguishes "no drafts" from "haven't ingested draft status yet".
+      draftsKnown: open.every((p) => p.draft !== null),
       buckets,
-      oldest: [...open].sort((a, b) => b.ageDays - a.ageDays).slice(0, 25),
+      // Full list, sorted oldest first. It's bounded by the repo's open PR
+      // count, and truncating it made the Backlog tab's own filter lie.
+      oldest: [...open].sort((a, b) => b.ageDays - a.ageDays),
     };
   };
 
@@ -422,9 +432,8 @@ export async function drilldown() {
       totalPRs: s.total,
       windows: windowsOut(s),
       series: finishSeries(s._months, s.first),
-      // Keyed by window id so the frontend can say which slice it's showing.
       topRepos: Object.fromEntries(
-        CONTRIBUTOR_REPO_WINDOWS.map((id) => [id, rankedFor(s._counts, id, "repo")])
+        WINDOWS.map((w) => [w.id, rankedFor(s._counts, w.id, "repo")])
       ),
       reviewedBy: partners("by"),
       reviewsFor: partners("for"),
