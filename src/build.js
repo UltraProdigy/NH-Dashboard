@@ -93,11 +93,21 @@ async function main() {
       (stats.rateLimitWaits ? `, ${stats.rateLimitWaits} rate-limit waits` : "")
   );
 
+  // REST and GraphQL have entirely separate buckets, and this build leans on
+  // GraphQL far harder than REST — reporting only `core` hid the number that
+  // actually constrains us. Both windows are rolling: they reset one hour
+  // after the first request that opened them, not on the clock hour.
   const rl = await rateLimit();
-  if (rl?.resources?.core) {
-    const { remaining, limit } = rl.resources.core;
-    console.log(`  ${remaining}/${limit} core quota remaining\n`);
+  for (const name of ["core", "graphql", "search"]) {
+    const r = rl?.resources?.[name];
+    if (!r) continue;
+    const mins = Math.max(0, Math.round((r.reset * 1000 - Date.now()) / 60000));
+    console.log(
+      `  ${String(r.remaining).padStart(5)}/${r.limit} ${name} remaining` +
+        ` (resets in ${mins} min)`
+    );
   }
+  console.log("");
 
   const failed = Object.entries(panels).filter(([, v]) => !v.ok && !v.optional);
   if (failed.length) {
