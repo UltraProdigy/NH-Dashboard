@@ -321,20 +321,6 @@
   .combo-opt mark { background: none; color: var(--accent); font-weight: 600; }
   .combo-none { padding: 12px; color: var(--muted); font-size: 12px; }
 
-  /* ---------- drilldown: jump button ---------- */
-  /* Sits beside a name without replacing its GitHub link. Muted until the row
-     is hovered so dense tables don't turn into a wall of icons. */
-  .drill {
-    display: inline-grid; place-items: center;
-    width: 20px; height: 18px; vertical-align: -4px;
-    margin-left: 2px; padding: 0;
-    background: none; border: 1px solid transparent; border-radius: 5px;
-    color: var(--muted); opacity: .45; cursor: pointer;
-  }
-  .drill svg { width: 12px; height: 12px; display: block; }
-  tr:hover .drill, .drill:focus-visible { opacity: 1; }
-  .drill:hover { color: var(--accent); border-color: var(--border); background: var(--panel-2); opacity: 1; }
-
   /* ---------- drilldown: subject header ---------- */
   .subject { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .subject h2 { margin: 0; font-size: 20px; font-weight: 600; }
@@ -356,7 +342,7 @@
     display: flex; align-items: baseline; gap: 8px;
   }
   .duo-box > h3 .n { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 11px; }
-  .duo-box .scroll { padding: 11px 12px; }
+  .duo-box > .scroll { padding: 11px 12px; flex: 1; min-height: 0; }
 
   /* Lists are uncapped now, so long ones scroll inside their box instead of
      making the page metres tall. */
@@ -364,18 +350,33 @@
   .scroll.tall { max-height: 620px; }
   .scroll.short { max-height: 260px; }
 
+  /* On the overview grid a card is stretched to the height of the tallest in
+     its row, so a fixed max-height leaves a list floating in empty panel. In
+     `fill` cards the list grows into whatever height the row ended up with.
+     `min-height:0` is the load-bearing part — without it a flex child refuses
+     to shrink below its content and scrolls the page instead of the box. */
+  .card .body.fill { display: flex; flex-direction: column; min-height: 0; }
+  .card .body.fill > .scroll { flex: 1; min-height: 0; max-height: none; }
+  .card .body.fill > .duo { flex: 1; min-height: 0; }
+  .card .body.fill .duo-box { min-height: 0; }
+  .card .body.fill .duo-box > .scroll { flex: 1; min-height: 0; max-height: none; }
+
   /* ---------- drilldown: every-month axis ---------- */
   /* Rendered as HTML under the chart rather than as SVG <text>. The charts use
      preserveAspectRatio="none", which scales x and y differently — anything
      drawn inside gets squashed horizontally as the card narrows, which is
      survivable for six labels and unreadable for twenty-four. */
-  .xaxis { display: grid; margin-top: 5px; }
+  /* Two horizontal lines rather than one rotated one. At 24 buckets a single
+     line of "Aug '26" doesn't fit the slot, and rotating it makes the axis
+     hard to read; stacking the month over the year keeps every label upright
+     and halves the width it needs. */
+  .xaxis { display: grid; margin-top: 6px; }
   .xaxis span {
-    writing-mode: vertical-rl;
-    font-size: 10px; color: var(--muted);
-    justify-self: center; white-space: nowrap;
+    font-size: 9px; line-height: 1.2; color: var(--muted);
+    justify-self: center; text-align: center; white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
+  .xaxis .yr { display: block; opacity: .7; }
 
   /* ---------- draft / status pills ---------- */
   .pill {
@@ -460,6 +461,9 @@ const state = {
   // narrow; looking at the org you want the recent picture. Sharing one
   // setting made each page wrong half the time.
   drillWindow: "all",
+  // Same reasoning for the chart lookback: on one subject you want the whole
+  // history the file holds, which is 24 months.
+  drillRange: "all",
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
   drillState: "idle", // idle | loading | ready | error
@@ -489,6 +493,22 @@ const RANGES = [
    ========================================================================== */
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/**
+ * A contributor's name, linking to their drilldown rather than to GitHub.
+ *
+ * The drilldown carries more of what you're after when you click a name in
+ * this dashboard, and it has a "View on GitHub" button of its own, so nothing
+ * is lost. A real anchor rather than a button, so middle-click and
+ * open-in-new-tab keep working; the view's click handler intercepts plain
+ * clicks to reset sort/filter and leaves modified clicks to the browser.
+ *
+ * Declared up here with the other formatters because module-scope consts like
+ * `byLogin` reference it at initialization time.
+ */
+const contribHref = (r) => `#contributor/${encodeURIComponent(r.login)}`;
+const contribLink = (login) =>
+  `<a href="${contribHref({ login })}" data-drilllink>${esc(login)}</a>`;
 const fmt = n => (n == null ? "—" : Number(n).toLocaleString());
 const pctFmt = x => (x == null ? "—" : `${Math.round(x * 100)}%`);
 
@@ -516,14 +536,25 @@ function age(days) {
 
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
 
-/** Bucket keys are 2026-08 / 2026-W32; neither reads well on an axis as-is. */
-function bucketLabel(b) {
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+/**
+ * Bucket keys are 2026-08 / 2026-W32; neither reads well on an axis as-is.
+ * Split into the period and its year so an axis can stack them on two lines
+ * and a tooltip can join them back into one.
+ */
+function bucketParts(b) {
   if (b.includes("W")) {
     const [y, w] = b.split("-W");
-    return `w${Number(w)} '${y.slice(2)}`;
+    return { period: `w${Number(w)}`, year: y };
   }
   const [y, m] = b.split("-");
-  return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m) - 1]} '${y.slice(2)}`;
+  return { period: MONTHS[Number(m) - 1], year: y };
+}
+
+function bucketLabel(b) {
+  const { period, year } = bucketParts(b);
+  return `${period} '${year.slice(2)}`;
 }
 
 /* ==========================================================================
@@ -576,7 +607,10 @@ function xAxis(buckets, { padL = 38, W = 1000, padR = 6 } = {}) {
   const left = (padL / W) * 100;
   const width = ((W - padR - padL) / W) * 100;
   return `<div class="xaxis" style="margin-left:${left}%;width:${width}%;grid-template-columns:repeat(${buckets.length},1fr)">${
-    buckets.map(b => `<span>${esc(bucketLabel(b.b))}</span>`).join("")}</div>`;
+    buckets.map(b => {
+      const { period, year } = bucketParts(b.b);
+      return `<span>${esc(period)}<span class="yr">${esc(year)}</span></span>`;
+    }).join("")}</div>`;
 }
 
 /** Grouped vertical bars. `series` = [{ key, label, color }]. */
@@ -639,13 +673,16 @@ function legend(series) {
 }
 
 /** Horizontal ranked bars — better than a pie for "top N of many". */
-function hbars(rows, { label, value, color = "var(--accent)", href = null, fmtV = fmt } = {}) {
+function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt } = {}) {
   if (!rows.length) return `<div class="empty">Nothing to show.</div>`;
   const max = Math.max(...rows.map(value));
+  // `internal` links stay in the app (a #hash route), so they must not open in
+  // a new tab the way the github.com links do.
+  const attrs = internal ? " data-drilllink" : ` target="_blank" rel="noopener"`;
   return `<div class="hbars">${rows.map(r => {
     const text = esc(label(r));
     return `<div class="hbar">
-      <span class="lab" title="${text}">${href ? `<a href="${href(r)}" target="_blank" rel="noopener">${text}</a>` : text}</span>
+      <span class="lab" title="${text}">${href ? `<a href="${href(r)}"${attrs}>${text}</a>` : text}</span>
       <span class="track"><span class="fill" style="width:${(value(r) / max) * 100}%;background:${color}"></span></span>
       <span class="val">${fmtV(value(r))}</span>
     </div>`;
@@ -720,8 +757,9 @@ const panel = id => state.data?.panels?.[id];
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
-/** Whichever window picker is on screen: drilldowns keep their own. */
+/** Whichever pickers are on screen: drilldowns keep their own. */
 const activeWindow = () => (isDrill(state.page) ? state.drillWindow : state.window);
+const activeRange = () => (isDrill(state.page) ? state.drillRange : state.range);
 
 const windowLabel = () => {
   const id = activeWindow();
@@ -839,7 +877,7 @@ function subjectSeries() {
 /** Series trimmed to the selected lookback. Monthly only — 24 months of it. */
 function subjectSlice() {
   const all = subjectSeries();
-  const days = RANGES.find(r => r.id === state.range)?.days;
+  const days = RANGES.find(r => r.id === activeRange())?.days;
   return days == null ? all : all.slice(-Math.ceil(days / 30.4));
 }
 
@@ -862,7 +900,7 @@ function duo(left, right, { height = "tall" } = {}) {
 }
 
 const byLogin = { label: r => r.login, value: r => r.count,
-  href: r => `https://github.com/${encodeURIComponent(r.login)}` };
+  href: contribHref, internal: true };
 
 /** URL for whatever the current page's subjects are on GitHub. */
 const subjectUrl = (id) =>
@@ -870,13 +908,6 @@ const subjectUrl = (id) =>
     ? `https://github.com/${encodeURIComponent(id)}`
     : `https://github.com/${state.data.org}/${encodeURIComponent(id)}`;
 
-/** The little button that jumps from a name elsewhere into its drilldown. */
-const DRILL_GLYPH = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/></svg>`;
-
-function drillButton(page, id, what = "drilldown") {
-  return `<button class="drill" data-drill="${page}" data-subject="${esc(id)}"
-    title="Open ${esc(id)} in the ${esc(what)}" aria-label="Open ${esc(id)} in the ${esc(what)}">${DRILL_GLYPH}</button>`;
-}
 
 /* ==========================================================================
    Modules
@@ -1067,7 +1098,7 @@ const MODULES = {
         </div>` +
         hbars(w.topReviewers.slice(0, n), {
           label: r => r.login, value: r => r.count, color: "var(--purple)",
-          href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+          href: contribHref, internal: true,
         }) +
         (conc > 0.6 ? `<div class="hint" style="margin-top:12px">Five people are carrying most of the review load — worth watching for burnout.</div>` : "");
     },
@@ -1159,7 +1190,7 @@ const MODULES = {
         .filter(r => r.count).sort((a, b) => b.count - a.count);
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count,
-        href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+        href: contribHref, internal: true,
       });
     },
   },
@@ -1173,7 +1204,7 @@ const MODULES = {
         .filter(r => r.count).sort((a, b) => b.count - a.count);
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count, color: "var(--purple)",
-        href: r => `https://github.com/${encodeURIComponent(r.login)}`,
+        href: contribHref, internal: true,
       });
     },
   },
@@ -1187,12 +1218,7 @@ const MODULES = {
         .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
         .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
       const cols = [
-        // Name still goes to GitHub; the button beside it opens the drilldown.
-        // Someone landing on a new contributor usually wants the profile — the
-        // drilldown is the follow-up question, not a replacement for it.
-        { key: "login", label: "Contributor", render: r =>
-          `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` +
-          drillButton("contributor", r.login, "contributor drilldown") },
+        { key: "login", label: "Contributor", render: r => contribLink(r.login) },
         { key: "firstSeen", label: "First PR", get: r => r.firstSeen ?? "", render: r => age(daysSince(r.firstSeen)) },
         { key: "prs", label: "PRs", get: r => r.all.prs, render: r => `<span class="num">${r.all.prs}</span>` },
         { key: "merged", label: "Merged", get: r => r.all.merged, render: r => `<span class="num">${r.all.merged}</span>` },
@@ -1209,7 +1235,7 @@ const MODULES = {
         .filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180)
         .sort((a, b) => (b.all.prs + b.all.approvals) - (a.all.prs + a.all.approvals));
       const cols = [
-        { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+        { key: "login", label: "Contributor", render: r => contribLink(r.login) },
         { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
         { key: "prs", label: "PRs (all time)", get: r => r.all.prs, render: r => `<span class="num">${fmt(r.all.prs)}</span>` },
         { key: "approvals", label: "Approvals", get: r => r.all.approvals, render: r => `<span class="num">${fmt(r.all.approvals)}</span>` },
@@ -1288,7 +1314,7 @@ const MODULES = {
   },
 
   cRepos: {
-    page: "contributor", label: "Repos", span: 4, twin: "rPeople",
+    page: "contributor", label: "Repos", span: 4, twin: "rPeople", fill: true,
     sub: () => `PRs opened, ${windowPhrase()}`,
     render(expanded) {
       const rows = subject()?.topRepos?.[activeWindow()] ?? [];
@@ -1301,7 +1327,7 @@ const MODULES = {
   },
 
   cCollab: {
-    page: "contributor", label: "Collaboration", span: 6, twin: "rHealth",
+    page: "contributor", label: "Collaboration", span: 6, twin: "rHealth", fill: true,
     sub: () => "all time",
     render(expanded) {
       const s = subject();
@@ -1396,7 +1422,7 @@ const MODULES = {
   },
 
   rPeople: {
-    page: "repo", label: "People", span: 6, twin: "cRepos",
+    page: "repo", label: "People", span: 6, twin: "cRepos", fill: true,
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = activeWindow();
@@ -1646,7 +1672,7 @@ function contributorRows() {
 function contributorColumns() {
   const w = state.window;
   return [
-    { key: "login", label: "Contributor", render: r => `<a href="https://github.com/${encodeURIComponent(r.login)}" target="_blank" rel="noopener">${esc(r.login)}</a>` },
+    { key: "login", label: "Contributor", render: r => contribLink(r.login) },
     { key: `${w}.prs`,       label: "PRs opened",      get: r => r[w].prs,       render: r => `<span class="num">${fmt(r[w].prs)}</span>` },
     { key: `${w}.merged`,    label: "Merged",          get: r => r[w].merged,    render: r => `<span class="num">${fmt(r[w].merged)}</span>` },
     { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals, render: r => `<span class="num">${fmt(r[w].approvals)}</span>` },
@@ -1753,7 +1779,7 @@ function comboPopHtml() {
     //
     // The list is still ranked by total activity — when you type "dre" you
     // want Dream-Master first, not whoever pushed most recently.
-    const meta = esc(agoText(daysSince(o.last)));
+    const meta = `Active: ${esc(agoText(daysSince(o.last)))}`;
     return `<div class="combo-opt" role="option" data-pick="${esc(o.id)}"
       aria-selected="${i === state.combo.active}"><span class="n">${name}</span><span class="c">${meta}</span></div>`;
   }).join("");
@@ -1832,9 +1858,11 @@ function renderToolbar() {
     bits.push(`<span class="seg" id="granSeg">${["week", "month"].map(g =>
       `<button data-gran="${g}" aria-pressed="${state.gran === g}">by ${g}</button>`).join("")}</span>`);
 
-  if (wanted.has("range"))
+  if (wanted.has("range")) {
+    const cur = activeRange();
     bits.push(`<span class="seg" id="rangeSeg">${RANGES.map(r =>
-      `<button data-range="${r.id}" aria-pressed="${state.range === r.id}">${r.label}</button>`).join("")}</span>`);
+      `<button data-range="${r.id}" aria-pressed="${cur === r.id}">${r.label}</button>`).join("")}</span>`);
+  }
 
   if (wanted.has("label")) {
     const p = panel("byLabel");
@@ -1862,13 +1890,17 @@ function card(id) {
   let body;
   try { body = m.render(false); }
   catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+  // `fill` only on the overview: here the card is stretched by its row and the
+  // list should take up the slack. In the expanded view the card stands alone,
+  // so an unbounded list would just make the page metres long — there the
+  // module's own max-height applies.
   return `<section class="card" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
       <span class="sub">${esc(m.sub ? m.sub() : "")}</span>
       <button class="expand" data-open="${id}">Expand ↗</button>
     </header>
-    <div class="body${m.flush ? " flush" : ""}">${body}</div>
+    <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}">${body}</div>
   </section>`;
 }
 
@@ -1963,6 +1995,20 @@ function render() {
  */
 const NO_SUBJECT = "_";
 
+/**
+ * Where you last were on each page, so the sidebar and the mode toggle put you
+ * back rather than resetting to Overview with nothing selected.
+ *
+ * In memory only. The hash stays the source of truth, so a reload or a shared
+ * link still lands exactly where the URL says — this only fills in the blanks
+ * when a navigation doesn't specify them.
+ */
+const lastPlace = Object.create(null);
+
+const remember = () => {
+  lastPlace[state.page] = { module: state.module, subject: state.subject };
+};
+
 function readHash() {
   const parts = location.hash.replace(/^#/, "").split("/");
   const page = parts[0];
@@ -1974,6 +2020,7 @@ function readHash() {
 
   const mod = parts[drill ? 2 : 1];
   state.module = mod && MODULES[mod]?.page === state.page ? mod : null;
+  remember();
 }
 
 /**
@@ -1992,6 +2039,7 @@ function go(page, mod = null, subject) {
   state.sort = null;
   state.filter = "";
   closeCombo();
+  remember();
 
   if (drill) {
     const seg = [page];
@@ -2010,13 +2058,19 @@ function drillTo(page, id) {
   go(page, null, id);
 }
 
+/** Sidebar and mode-toggle navigation: resume rather than reset. */
+function goPage(page, fallbackModule = null) {
+  const last = lastPlace[page];
+  go(page, last?.module ?? fallbackModule, last?.subject ?? null);
+}
+
 /* ==========================================================================
    Events
    ========================================================================== */
 
 document.getElementById("pages").addEventListener("click", e => {
   const b = e.target.closest("button[data-page]");
-  if (b) go(b.dataset.page);
+  if (b) goPage(b.dataset.page);
 });
 
 document.getElementById("tabs").addEventListener("click", e => {
@@ -2025,10 +2079,17 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 
 document.getElementById("view").addEventListener("click", e => {
-  // Jump buttons and picker chips. Buttons win over the sort/expand handlers
-  // below because they're checked first and every branch returns.
-  const drill = e.target.closest("button[data-drill]");
-  if (drill) return drillTo(drill.dataset.drill, drill.dataset.subject);
+  // Contributor names are real anchors to #contributor/<login>, so the browser
+  // handles middle-click and cmd-click natively. Plain clicks are intercepted
+  // only so they route through go(), which clears the sort and filter the way
+  // every other navigation does — letting the hash change on its own would
+  // carry a stale filter onto the new subject.
+  const link = e.target.closest("a[data-drilllink]");
+  if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+    e.preventDefault();
+    const [page, subj] = link.getAttribute("href").slice(1).split("/");
+    return drillTo(page, decodeURIComponent(subj));
+  }
 
   const pick = e.target.closest("[data-pick]");
   if (pick) return drillTo(state.page, pick.dataset.pick);
@@ -2079,16 +2140,21 @@ document.getElementById("toolbar").addEventListener("click", e => {
 
   const mode = e.target.closest("button[data-mode]");
   if (mode && mode.dataset.mode !== state.page) {
-    // Land on the equivalent tab in the other mode where there is one, so
-    // flipping between a repo and a person doesn't bounce you to Overview.
+    // Resume the other mode where you left it. Only if you've never been
+    // there does it fall back to the equivalent tab, so flipping between a
+    // repo and a person doesn't bounce you to Overview either way.
     const twin = state.module ? MODULES[state.module].twin ?? null : null;
-    return go(mode.dataset.mode, twin, null);
+    return goPage(mode.dataset.mode, twin);
   }
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }
   const r = e.target.closest("button[data-range]");
-  if (r) { state.range = r.dataset.range; return render(); }
+  if (r) {
+    if (isDrill(state.page)) state.drillRange = r.dataset.range;
+    else state.range = r.dataset.range;
+    return render();
+  }
 });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
