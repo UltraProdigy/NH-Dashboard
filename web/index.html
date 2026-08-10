@@ -350,14 +350,21 @@
   .scroll.tall { max-height: 620px; }
   .scroll.short { max-height: 260px; }
 
-  /* On the overview grid a card is stretched to the height of the tallest in
-     its row, so a fixed max-height leaves a list floating in empty panel. In
-     `fill` cards the list grows into whatever height the row ended up with.
-     `min-height:0` is the load-bearing part — without it a flex child refuses
-     to shrink below its content and scrolls the page instead of the box. */
-  .card .body.fill { display: flex; flex-direction: column; min-height: 0; }
-  .card .body.fill > .scroll { flex: 1; min-height: 0; max-height: none; }
-  .card .body.fill > .duo { flex: 1; min-height: 0; }
+  /* A list card should take its height *from* the chart beside it, never give
+     height to the row. Flexbox can't do that: a flex child still reports its
+     content size to the grid, so a 400-row list made its own row 6,000px tall
+     and dragged the chart with it.
+
+     Taking the content out of flow with `position:absolute` is what actually
+     works — an absolutely-positioned child contributes nothing to layout, so
+     the row is sized purely by its other card and the list scrolls inside
+     whatever that turns out to be. `min-height` is the floor for when there is
+     no other card, which is every card once the grid collapses to one column
+     below 1080px. */
+  .card .body.fill { position: relative; min-height: 260px; padding: 0; }
+  .card .body.fill > * { position: absolute; inset: 14px; }
+  .card .body.fill > .scroll { overflow-y: auto; max-height: none; }
+  .card .body.fill > .duo { overflow: hidden; }
   .card .body.fill .duo-box { min-height: 0; }
   .card .body.fill .duo-box > .scroll { flex: 1; min-height: 0; max-height: none; }
 
@@ -386,6 +393,8 @@
   .pill.draft { color: var(--muted); }
   .pill.ready { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
   .pill.unknown { color: var(--muted); border-style: dashed; }
+  .pill.merged { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--border)); }
+  .pill.dropped { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
   .pill.pass { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
   .pill.fail { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
   .pill.neutral { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
@@ -464,6 +473,7 @@ const state = {
   // Same reasoning for the chart lookback: on one subject you want the whole
   // history the file holds, which is 24 months.
   drillRange: "all",
+  closedState: "all", // Closed PRs tab: all | merged | dropped
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
   drillState: "idle", // idle | loading | ready | error
@@ -479,6 +489,9 @@ const state = {
 const DRILL = { contributor: "contributors", repo: "repos" };
 const isDrill = (page) => Object.hasOwn(DRILL, page);
 const otherMode = (page) => (page === "contributor" ? "repo" : "contributor");
+
+/** Closed PRs toggle. Key order is the order the buttons appear in. */
+const CLOSED_LABEL = { all: "Both", merged: "Merged", dropped: "Closed" };
 
 const RANGES = [
   { id: "m3", label: "3m", days: 90 },
@@ -872,6 +885,35 @@ function subjectSeries() {
     return out;
   });
   return s._series;
+}
+
+/**
+ * The contributor's merged and closed PRs, newest first.
+ *
+ * Stored packed (positional rows, repo names interned per contributor) because
+ * there are 25,660 of them org-wide; expanded on first use and memoized onto
+ * the record, the same deal as the series.
+ */
+function resolvedAll() {
+  const s = subject();
+  if (!s?.resolved) return [];
+  if (s._resolved) return s._resolved;
+  const { repos, rows } = s.resolved;
+  s._resolved = rows.map(([r, number, at, merged]) => ({
+    repo: repos[r], number, at, merged: merged === 1,
+  }));
+  return s._resolved;
+}
+
+/** Filtered by the merged/closed toggle and the window picker. */
+function resolvedRows() {
+  const days = (state.drill?.windows ?? []).find(w => w.id === activeWindow())?.days;
+  const cutoff = days == null ? null : Date.now() - days * 86400000;
+  return resolvedAll().filter(r => {
+    if (state.closedState === "merged" && !r.merged) return false;
+    if (state.closedState === "dropped" && r.merged) return false;
+    return cutoff == null || new Date(r.at).getTime() >= cutoff;
+  });
 }
 
 /** Series trimmed to the selected lookback. Monthly only — 24 months of it. */
@@ -1358,6 +1400,28 @@ const MODULES = {
     },
   },
 
+  cClosed: {
+    page: "contributor", label: "Closed PRs", span: 12, flush: true,
+    controls: ["closedState"],
+    sub: () => `${CLOSED_LABEL[state.closedState]}, ${windowPhrase()}`,
+    render(expanded) {
+      const rows = resolvedRows();
+      const cols = [
+        { key: "repo",   label: "Repo",  render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "number", label: "PR",    render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "merged", label: "Outcome", get: r => (r.merged ? 0 : 1),
+          render: r => r.merged
+            ? `<span class="pill merged">merged</span>`
+            : `<span class="pill dropped">closed</span>` },
+        { key: "at", label: "Resolved", get: r => r.at, render: r => age(daysSince(r.at)) },
+      ];
+      // Already newest-first from the build, and sortRows is a no-op until a
+      // header is clicked, so that's the default order for free.
+      return renderTable(sortRows(applyFilter(rows), cols), cols,
+        { sortable: expanded, limit: expanded ? null : 10, total: rows.length });
+    },
+  },
+
   /* ---------------- Repo Drilldown ---------------- */
 
   rProfile: {
@@ -1623,7 +1687,8 @@ const PAGES = [
   {
     id: "contributor", label: "Contributor Drilldown",
     icon: `<path d="M10.56 8.07a6 6 0 0 1 3.43 5.15.75.75 0 1 1-1.5.07 4.5 4.5 0 0 0-8.98 0 .75.75 0 0 1-1.5-.07 6 6 0 0 1 3.43-5.15 4 4 0 1 1 5.12 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/>`,
-    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs"],
+    // Tiles 12 / 8+4 / 6+6 / 12 — see the note on the repo page about gaps.
+    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cClosed"],
   },
   {
     id: "repo", label: "Repo Drilldown",
@@ -1711,6 +1776,7 @@ function moduleCount(id) {
   if (id === "backlog") return A()?.backlog?.total ?? null;
   // Null until a subject is picked, which is also when the tabs mean anything.
   if (id === "cOpenPRs" || id === "rBacklog") return subject()?.backlog?.total ?? null;
+  if (id === "cClosed") return subject() ? resolvedRows().length : null;
   return null;
 }
 
@@ -1817,7 +1883,7 @@ function renderToolbar() {
   );
   // Window applies to nearly everything except the Dream Panel.
   if (page.id !== "dream") wanted.add("window");
-  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog"].includes(state.module) ||
+  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
   // The subject picker is the whole point of a drilldown page, so it's always
   // there — including before anything is selected, which is when it's needed.
@@ -1869,6 +1935,12 @@ function renderToolbar() {
     if (p?.ok) bits.push(`<select id="labelPicker">${Object.entries(p.data).map(([k, v]) =>
       `<option value="${esc(k)}"${k === state.label ? " selected" : ""}>${esc(k)} (${v.length})</option>`).join("")}</select>`);
   }
+
+  if (wanted.has("closedState"))
+    bits.push(`<span class="seg" id="closedSeg">${
+      Object.entries(CLOSED_LABEL).map(([id, label]) =>
+        `<button data-closed="${id}" aria-pressed="${state.closedState === id}">${esc(label)}</button>`
+      ).join("")}</span>`);
 
   if (wanted.has("minActivity"))
     bits.push(`<label class="minlabel">min activity <input type="number" id="minActivity" min="0" step="1" value="${state.minActivity}"></label>`);
@@ -2146,6 +2218,9 @@ document.getElementById("toolbar").addEventListener("click", e => {
     const twin = state.module ? MODULES[state.module].twin ?? null : null;
     return goPage(mode.dataset.mode, twin);
   }
+
+  const cs = e.target.closest("button[data-closed]");
+  if (cs) { state.closedState = cs.dataset.closed; return render(); }
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }

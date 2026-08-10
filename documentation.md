@@ -198,6 +198,29 @@ of empty panel below. In the expanded tab view they take their own max-height
 instead — the card stands alone there, so an uncapped list would just make the
 page metres long.
 
+### Closed PRs
+
+The contributor drilldown carries every PR of theirs that reached a terminal
+state — merged or closed unmerged — newest first, with a toggle for Both /
+Merged / Closed. It respects the window picker like everything else, so
+all-time by default. Full width on the overview, since a half-width table of
+four columns looked stranded.
+
+There are 25,660 of these org-wide, and the obvious
+`{repo, number, at, merged}` shape cost ~1.9 MB in repeated key names and
+repeated repo strings — more than every other contributor field combined. They
+ship packed instead: positional rows, with the repo replaced by an index into a
+short per-contributor list, since people work in a handful of repos even when
+they have hundreds of PRs. That's 0.73 MB, and the frontend expands it on first
+use like the series.
+
+Timestamps are stored as plain dates. The list sorts by recency and renders
+"3 days ago"; the time of day was 25,660 records' worth of bytes nobody reads.
+
+**No PR titles.** The ingest never asked for them, so rows are identified by
+repo and number. Adding titles means a full re-walk of all 28k PRs plus roughly
+1.4 MB on `prs.ndjson`, which is why it hasn't been done on spec.
+
 ### Getting there
 
 **Every contributor name in the dashboard links to their drilldown**, not to

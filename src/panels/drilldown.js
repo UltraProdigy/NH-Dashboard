@@ -131,6 +131,36 @@ function summarize(a) {
   };
 }
 
+/**
+ * Pack a contributor's resolved PRs into `{ repos, rows }`.
+ *
+ * 25,660 of these across the org, so the naive `{repo, number, at, merged}`
+ * object costs about 1.9 MB in repeated key names and repeated repo strings —
+ * more than every other contributor field combined. Rows become positional
+ * arrays and the repo name is replaced by an index into a per-contributor
+ * list, which is short because people work in a handful of repos even when
+ * they have hundreds of PRs.
+ *
+ * Sorted newest-first here so the frontend doesn't re-sort on every render to
+ * get back to the tab's default order.
+ */
+function packResolved(list) {
+  const repos = [];
+  const seen = new Map();
+  const rows = list
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((r) => {
+      let i = seen.get(r.repo);
+      if (i === undefined) {
+        i = repos.length;
+        seen.set(r.repo, i);
+        repos.push(r.repo);
+      }
+      return [i, r.number, r.at, r.merged ? 1 : 0];
+    });
+  return { repos, rows };
+}
+
 /** Ranked list from a login/name -> count map. */
 const topN = (map, key, n = TOP_N) =>
   [...map.entries()]
@@ -153,6 +183,7 @@ function blankSubject(id, idKey) {
     _counts: new Map(), // windowed ranked lists, keyed `${windowId}\n${name}`
     _partners: new Map(), // contributor only: reviewedBy / reviewsFor
     open: [],
+    resolved: [], // contributor only: their merged and closed-unmerged PRs
   };
 }
 
@@ -359,6 +390,19 @@ export async function drilldown() {
       }
     }
 
+    /* ---- resolved PRs, for the contributor's Closed PRs tab ----
+       Dated by the event that ended them, and stored as a plain date: the list
+       is sorted by recency and rendered as "3 days ago", so the time of day is
+       28,000 records' worth of bytes nobody reads. */
+    if (author && endedAt) {
+      author.resolved.push({
+        repo: pr.repo,
+        number: pr.number,
+        at: endedAt.slice(0, 10),
+        merged: !!pr.mergedAt,
+      });
+    }
+
     /* ---- open backlog ---- */
     if (pr.state === "OPEN" && !pr.mergedAt) {
       const entry = {
@@ -438,6 +482,7 @@ export async function drilldown() {
       reviewedBy: partners("by"),
       reviewsFor: partners("for"),
       backlog: backlogOf(s.open),
+      resolved: packResolved(s.resolved),
     };
   }
 
