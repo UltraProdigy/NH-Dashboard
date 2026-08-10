@@ -6,9 +6,12 @@ Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install s
 
 ## Viewing it
 
-**Hosted (no setup):** the scheduled build deploys to GitHub Pages, so the
-dashboard is just a URL — nothing to install or run. Data refreshes every 30
-minutes. This is the way to read it from any machine.
+**Hosted (no setup):** the build workflow deploys to
+[GitHub Pages](https://ultraprodigy.github.io/NH-Dashboard/), so the dashboard
+is just a URL — nothing to install or run. Data refreshes when the
+[build workflow](https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml)
+runs: on every push to `main`, or on demand via **Run workflow**. This is the
+way to read it from any machine.
 
 **Locally (fresh data on demand):** double-click `Dashboard.command` in Finder.
 It builds, starts the server, and opens your browser. Closing the Terminal
@@ -33,10 +36,13 @@ Tried in order:
 2. The `gh` CLI's stored credential — nothing on disk, nothing to rotate
 3. `.env` (gitignored) — see `.env.example`
 
-### Scheduled builds and Pages
+### Builds and Pages
 
-`.github/workflows/build.yml` runs every 30 minutes: it builds the data,
-commits `data/`, and deploys `web/` + `data/` to GitHub Pages.
+`.github/workflows/build.yml` runs on push to `main` and on manual dispatch: it
+builds the data, commits `data/`, and deploys `web/` + `data/` to GitHub Pages.
+A 30-minute `schedule:` trigger is parked (commented out) in the workflow —
+uncomment to bring it back. Cost isn't the concern; every run commits `data/`,
+so 48 runs a day grow the repo whether or not anyone is reading the dashboard.
 
 One-time setup: Settings → Pages → Source → **GitHub Actions**.
 

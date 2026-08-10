@@ -17,6 +17,7 @@ on:
     paths-ignore:
       - "data/**"
       - "README.md"
+      - "documentation.md"
 
 permissions:
   contents: write
