@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T03:34:48.972Z",
+  "generatedAt": "2026-08-10T05:04:30.953Z",
   "org": "GTNewHorizons",
   "trackedLabels": [
     ":construction: Testing on Zeta",
@@ -87,7 +87,7 @@
           "draft": false,
           "labels": [],
           "createdAt": "2026-08-09T05:13:17Z",
-          "updatedAt": "2026-08-10T01:24:27Z",
+          "updatedAt": "2026-08-10T04:49:07Z",
           "ageDays": 0,
           "staleDays": 0
         }
@@ -123,7 +123,7 @@
           "createdAt": "2026-04-05T15:12:01Z",
           "updatedAt": "2026-04-12T04:15:05Z",
           "ageDays": 126,
-          "staleDays": 119
+          "staleDays": 120
         },
         {
           "repo": "GTNewHorizons/StructureLib",
@@ -456,6 +456,20 @@
           "staleDays": 2
         },
         {
+          "repo": "GTNewHorizons/GTNHLib",
+          "number": 445,
+          "title": "Compat w/ Alfheim - stop preinit mixins from messing with asjcore",
+          "url": "https://github.com/GTNewHorizons/GTNHLib/pull/445",
+          "author": "mitchej123",
+          "authorAvatar": "https://avatars.githubusercontent.com/u/1894689?v=4",
+          "draft": false,
+          "labels": [],
+          "createdAt": "2026-08-08T23:09:39Z",
+          "updatedAt": "2026-08-09T04:13:37Z",
+          "ageDays": 1,
+          "staleDays": 1
+        },
+        {
           "repo": "GTNewHorizons/Hodgepodge",
           "number": 840,
           "title": "Fix newline characters not rendering as line breaks",
@@ -525,20 +539,6 @@
           "staleDays": 0
         },
         {
-          "repo": "GTNewHorizons/GTNHLib",
-          "number": 445,
-          "title": "Compat w/ Alfheim - stop preinit mixins from messing with asjcore",
-          "url": "https://github.com/GTNewHorizons/GTNHLib/pull/445",
-          "author": "mitchej123",
-          "authorAvatar": "https://avatars.githubusercontent.com/u/1894689?v=4",
-          "draft": false,
-          "labels": [],
-          "createdAt": "2026-08-08T23:09:39Z",
-          "updatedAt": "2026-08-09T04:13:37Z",
-          "ageDays": 1,
-          "staleDays": 0
-        },
-        {
           "repo": "GTNewHorizons/GT5-Unofficial",
           "number": 7727,
           "title": "Refactor waila",
@@ -553,7 +553,7 @@
             }
           ],
           "createdAt": "2026-08-08T21:17:04Z",
-          "updatedAt": "2026-08-09T10:48:49Z",
+          "updatedAt": "2026-08-10T04:37:12Z",
           "ageDays": 1,
           "staleDays": 0
         },
@@ -751,8 +751,8 @@
             ],
             "createdAt": "2026-08-07T03:49:43Z",
             "updatedAt": "2026-08-07T03:49:43Z",
-            "ageDays": 2,
-            "staleDays": 2
+            "ageDays": 3,
+            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/ThaumicHorizons",
@@ -774,8 +774,8 @@
             ],
             "createdAt": "2026-08-07T03:47:28Z",
             "updatedAt": "2026-08-07T03:49:53Z",
-            "ageDays": 2,
-            "staleDays": 2
+            "ageDays": 3,
+            "staleDays": 3
           }
         ],
         "❌ There is a Merge Conflict With Another PR": [],
@@ -1041,9 +1041,9 @@
               }
             ],
             "createdAt": "2026-07-15T14:08:30Z",
-            "updatedAt": "2026-08-05T02:27:00Z",
+            "updatedAt": "2026-08-10T04:37:22Z",
             "ageDays": 25,
-            "staleDays": 5
+            "staleDays": 0
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1066,7 +1066,7 @@
             "createdAt": "2026-07-18T14:55:01Z",
             "updatedAt": "2026-07-19T04:59:44Z",
             "ageDays": 22,
-            "staleDays": 21
+            "staleDays": 22
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -1141,7 +1141,7 @@
               }
             ],
             "createdAt": "2026-08-08T13:47:01Z",
-            "updatedAt": "2026-08-09T05:53:48Z",
+            "updatedAt": "2026-08-10T04:36:53Z",
             "ageDays": 1,
             "staleDays": 0
           }
@@ -1283,7 +1283,7 @@
             "createdAt": "2026-08-03T15:01:51Z",
             "updatedAt": "2026-08-04T04:54:20Z",
             "ageDays": 6,
-            "staleDays": 5
+            "staleDays": 6
           },
           {
             "repo": "GTNewHorizons/Binnie",
@@ -1327,7 +1327,7 @@
               }
             ],
             "createdAt": "2026-08-09T08:54:40Z",
-            "updatedAt": "2026-08-09T19:02:18Z",
+            "updatedAt": "2026-08-10T04:36:21Z",
             "ageDays": 0,
             "staleDays": 0
           }
@@ -1721,7 +1721,7 @@
               }
             ],
             "createdAt": "2026-07-19T05:37:35Z",
-            "updatedAt": "2026-08-09T07:55:15Z",
+            "updatedAt": "2026-08-10T04:37:03Z",
             "ageDays": 21,
             "staleDays": 0
           },
@@ -1895,6 +1895,25 @@
             "staleDays": 9
           },
           {
+            "repo": "GTNewHorizons/MatterManipulator",
+            "number": 77,
+            "title": "Fix AE upgrades installation",
+            "url": "https://github.com/GTNewHorizons/MatterManipulator/pull/77",
+            "author": "Azusfin",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/96245167?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Bug Fix",
+                "color": "7ff74f"
+              }
+            ],
+            "createdAt": "2026-07-29T04:13:37Z",
+            "updatedAt": "2026-07-29T22:09:38Z",
+            "ageDays": 12,
+            "staleDays": 11
+          },
+          {
             "repo": "GTNewHorizons/OpenComputers",
             "number": 216,
             "title": "feat(dropfile): add configurable limits for drop file",
@@ -1916,25 +1935,6 @@
             "updatedAt": "2026-07-30T23:55:34Z",
             "ageDays": 11,
             "staleDays": 10
-          },
-          {
-            "repo": "GTNewHorizons/MatterManipulator",
-            "number": 77,
-            "title": "Fix AE upgrades installation",
-            "url": "https://github.com/GTNewHorizons/MatterManipulator/pull/77",
-            "author": "Azusfin",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/96245167?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Bug Fix",
-                "color": "7ff74f"
-              }
-            ],
-            "createdAt": "2026-07-29T04:13:37Z",
-            "updatedAt": "2026-07-29T22:09:38Z",
-            "ageDays": 11,
-            "staleDays": 11
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -2109,6 +2109,52 @@
             "staleDays": 1
           },
           {
+            "repo": "GTNewHorizons/NewHorizonsCoreMod",
+            "number": 1894,
+            "title": "Recreate removed Thaumic Horizons recipes",
+            "url": "https://github.com/GTNewHorizons/NewHorizonsCoreMod/pull/1894",
+            "author": "FourIsTheNumber",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Bug Fix",
+                "color": "7ff74f"
+              },
+              {
+                "name": "⚠️ AUTHOR MERGE ONLY",
+                "color": "7a0e20"
+              }
+            ],
+            "createdAt": "2026-08-07T03:49:43Z",
+            "updatedAt": "2026-08-07T03:49:43Z",
+            "ageDays": 3,
+            "staleDays": 3
+          },
+          {
+            "repo": "GTNewHorizons/ThaumicHorizons",
+            "number": 139,
+            "title": "Remove gt dependency",
+            "url": "https://github.com/GTNewHorizons/ThaumicHorizons/pull/139",
+            "author": "FourIsTheNumber",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "⚠️ AUTHOR MERGE ONLY",
+                "color": "7a0e20"
+              },
+              {
+                "name": "Bug Fix",
+                "color": "7ff74f"
+              }
+            ],
+            "createdAt": "2026-08-07T03:47:28Z",
+            "updatedAt": "2026-08-07T03:49:53Z",
+            "ageDays": 3,
+            "staleDays": 3
+          },
+          {
             "repo": "GTNewHorizons/ModularUI2",
             "number": 159,
             "title": "Fixed several bugs in TextFieldWidget",
@@ -2147,52 +2193,6 @@
             "staleDays": 0
           },
           {
-            "repo": "GTNewHorizons/NewHorizonsCoreMod",
-            "number": 1894,
-            "title": "Recreate removed Thaumic Horizons recipes",
-            "url": "https://github.com/GTNewHorizons/NewHorizonsCoreMod/pull/1894",
-            "author": "FourIsTheNumber",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Bug Fix",
-                "color": "7ff74f"
-              },
-              {
-                "name": "⚠️ AUTHOR MERGE ONLY",
-                "color": "7a0e20"
-              }
-            ],
-            "createdAt": "2026-08-07T03:49:43Z",
-            "updatedAt": "2026-08-07T03:49:43Z",
-            "ageDays": 2,
-            "staleDays": 2
-          },
-          {
-            "repo": "GTNewHorizons/ThaumicHorizons",
-            "number": 139,
-            "title": "Remove gt dependency",
-            "url": "https://github.com/GTNewHorizons/ThaumicHorizons/pull/139",
-            "author": "FourIsTheNumber",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "⚠️ AUTHOR MERGE ONLY",
-                "color": "7a0e20"
-              },
-              {
-                "name": "Bug Fix",
-                "color": "7ff74f"
-              }
-            ],
-            "createdAt": "2026-08-07T03:47:28Z",
-            "updatedAt": "2026-08-07T03:49:53Z",
-            "ageDays": 2,
-            "staleDays": 2
-          },
-          {
             "repo": "GTNewHorizons/GT5-Unofficial",
             "number": 7722,
             "title": "Fix SLAM issues",
@@ -2226,7 +2226,7 @@
               }
             ],
             "createdAt": "2026-08-08T16:19:57Z",
-            "updatedAt": "2026-08-09T16:08:01Z",
+            "updatedAt": "2026-08-10T04:36:39Z",
             "ageDays": 1,
             "staleDays": 0
           },
@@ -2268,7 +2268,7 @@
               }
             ],
             "createdAt": "2026-08-09T08:54:40Z",
-            "updatedAt": "2026-08-09T19:02:18Z",
+            "updatedAt": "2026-08-10T04:36:21Z",
             "ageDays": 0,
             "staleDays": 0
           },
@@ -2677,7 +2677,7 @@
             ],
             "createdAt": "2026-04-19T03:38:18Z",
             "updatedAt": "2026-08-04T16:18:28Z",
-            "ageDays": 112,
+            "ageDays": 113,
             "staleDays": 5
           },
           {
@@ -3021,7 +3021,7 @@
             "createdAt": "2026-02-22T15:08:31Z",
             "updatedAt": "2026-06-08T04:52:26Z",
             "ageDays": 168,
-            "staleDays": 62
+            "staleDays": 63
           },
           {
             "repo": "GTNewHorizons/GTNHGradle",
@@ -3109,7 +3109,7 @@
             "createdAt": "2026-03-30T12:33:51Z",
             "updatedAt": "2026-08-04T04:21:26Z",
             "ageDays": 132,
-            "staleDays": 5
+            "staleDays": 6
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3158,7 +3158,7 @@
             ],
             "createdAt": "2026-04-19T03:36:13Z",
             "updatedAt": "2026-06-27T09:44:27Z",
-            "ageDays": 112,
+            "ageDays": 113,
             "staleDays": 43
           },
           {
@@ -3303,7 +3303,7 @@
             ],
             "createdAt": "2026-05-29T04:13:42Z",
             "updatedAt": "2026-08-01T08:31:47Z",
-            "ageDays": 72,
+            "ageDays": 73,
             "staleDays": 8
           },
           {
@@ -3583,7 +3583,7 @@
             "createdAt": "2026-07-15T03:28:20Z",
             "updatedAt": "2026-07-15T04:25:59Z",
             "ageDays": 26,
-            "staleDays": 25
+            "staleDays": 26
           },
           {
             "repo": "GTNewHorizons/BetterQuesting",
@@ -3665,9 +3665,9 @@
               }
             ],
             "createdAt": "2026-07-15T14:08:30Z",
-            "updatedAt": "2026-08-05T02:27:00Z",
+            "updatedAt": "2026-08-10T04:37:22Z",
             "ageDays": 25,
-            "staleDays": 5
+            "staleDays": 0
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -3865,7 +3865,7 @@
             "createdAt": "2026-07-22T19:58:18Z",
             "updatedAt": "2026-07-31T03:40:30Z",
             "ageDays": 18,
-            "staleDays": 9
+            "staleDays": 10
           },
           {
             "repo": "GTNewHorizons/EnderIO",
@@ -3996,6 +3996,25 @@
             "updatedAt": "2026-08-09T00:03:48Z",
             "ageDays": 12,
             "staleDays": 1
+          },
+          {
+            "repo": "GTNewHorizons/Freecam",
+            "number": 25,
+            "title": "feat: Add ServerUtils Ranks compat",
+            "url": "https://github.com/GTNewHorizons/Freecam/pull/25",
+            "author": "Caedis",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Enhancement",
+                "color": "84b6eb"
+              }
+            ],
+            "createdAt": "2026-08-01T04:15:11Z",
+            "updatedAt": "2026-08-06T16:02:37Z",
+            "ageDays": 9,
+            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -4180,25 +4199,6 @@
             "updatedAt": "2026-08-09T15:14:27Z",
             "ageDays": 8,
             "staleDays": 0
-          },
-          {
-            "repo": "GTNewHorizons/Freecam",
-            "number": 25,
-            "title": "feat: Add ServerUtils Ranks compat",
-            "url": "https://github.com/GTNewHorizons/Freecam/pull/25",
-            "author": "Caedis",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/18713839?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Enhancement",
-                "color": "84b6eb"
-              }
-            ],
-            "createdAt": "2026-08-01T04:15:11Z",
-            "updatedAt": "2026-08-06T16:02:37Z",
-            "ageDays": 8,
-            "staleDays": 3
           },
           {
             "repo": "GTNewHorizons/Hodgepodge",
@@ -4415,7 +4415,7 @@
             ],
             "createdAt": "2025-05-28T04:06:16Z",
             "updatedAt": "2026-01-13T11:19:52Z",
-            "ageDays": 438,
+            "ageDays": 439,
             "staleDays": 208
           },
           {
@@ -4935,7 +4935,7 @@
               }
             ],
             "createdAt": "2026-08-08T13:47:01Z",
-            "updatedAt": "2026-08-09T05:53:48Z",
+            "updatedAt": "2026-08-10T04:36:53Z",
             "ageDays": 1,
             "staleDays": 0
           },
@@ -5209,7 +5209,7 @@
             ],
             "createdAt": "2026-04-19T03:38:18Z",
             "updatedAt": "2026-08-04T16:18:28Z",
-            "ageDays": 112,
+            "ageDays": 113,
             "staleDays": 5
           },
           {
@@ -5232,7 +5232,7 @@
             ],
             "createdAt": "2026-04-19T03:36:13Z",
             "updatedAt": "2026-06-27T09:44:27Z",
-            "ageDays": 112,
+            "ageDays": 113,
             "staleDays": 43
           },
           {
@@ -5651,7 +5651,7 @@
             "createdAt": "2026-07-18T14:55:01Z",
             "updatedAt": "2026-07-19T04:59:44Z",
             "ageDays": 22,
-            "staleDays": 21
+            "staleDays": 22
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -5795,7 +5795,7 @@
               }
             ],
             "createdAt": "2026-08-08T13:47:01Z",
-            "updatedAt": "2026-08-09T05:53:48Z",
+            "updatedAt": "2026-08-10T04:36:53Z",
             "ageDays": 1,
             "staleDays": 0
           },
@@ -5929,6 +5929,29 @@
             "staleDays": 9
           },
           {
+            "repo": "GTNewHorizons/NewHorizonsCoreMod",
+            "number": 1887,
+            "title": "Cleanup, mostly tc-related",
+            "url": "https://github.com/GTNewHorizons/NewHorizonsCoreMod/pull/1887",
+            "author": "FourIsTheNumber",
+            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
+            "draft": false,
+            "labels": [
+              {
+                "name": "Refactor",
+                "color": "aaffaa"
+              },
+              {
+                "name": "Performance",
+                "color": "d049f8"
+              }
+            ],
+            "createdAt": "2026-08-03T04:01:04Z",
+            "updatedAt": "2026-08-05T02:26:05Z",
+            "ageDays": 7,
+            "staleDays": 5
+          },
+          {
             "repo": "GTNewHorizons/EnderIO",
             "number": 246,
             "title": "Performance: reduce per-tick conduit network overhead (wave 1)",
@@ -5949,30 +5972,7 @@
             "createdAt": "2026-08-03T15:01:51Z",
             "updatedAt": "2026-08-04T04:54:20Z",
             "ageDays": 6,
-            "staleDays": 5
-          },
-          {
-            "repo": "GTNewHorizons/NewHorizonsCoreMod",
-            "number": 1887,
-            "title": "Cleanup, mostly tc-related",
-            "url": "https://github.com/GTNewHorizons/NewHorizonsCoreMod/pull/1887",
-            "author": "FourIsTheNumber",
-            "authorAvatar": "https://avatars.githubusercontent.com/u/33456283?v=4",
-            "draft": false,
-            "labels": [
-              {
-                "name": "Refactor",
-                "color": "aaffaa"
-              },
-              {
-                "name": "Performance",
-                "color": "d049f8"
-              }
-            ],
-            "createdAt": "2026-08-03T04:01:04Z",
-            "updatedAt": "2026-08-05T02:26:05Z",
-            "ageDays": 6,
-            "staleDays": 5
+            "staleDays": 6
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -6184,7 +6184,7 @@
             "createdAt": "2026-06-23T08:55:02Z",
             "updatedAt": "2026-06-26T05:02:46Z",
             "ageDays": 47,
-            "staleDays": 44
+            "staleDays": 45
           },
           {
             "repo": "GTNewHorizons/HoloInventory",
@@ -6513,7 +6513,7 @@
             ],
             "createdAt": "2026-08-03T04:01:04Z",
             "updatedAt": "2026-08-05T02:26:05Z",
-            "ageDays": 6,
+            "ageDays": 7,
             "staleDays": 5
           },
           {
@@ -6554,7 +6554,7 @@
               }
             ],
             "createdAt": "2026-08-08T21:17:04Z",
-            "updatedAt": "2026-08-09T10:48:49Z",
+            "updatedAt": "2026-08-10T04:37:12Z",
             "ageDays": 1,
             "staleDays": 0
           }
@@ -6583,9 +6583,9 @@
               }
             ],
             "createdAt": "2026-07-15T14:08:30Z",
-            "updatedAt": "2026-08-05T02:27:00Z",
+            "updatedAt": "2026-08-10T04:37:22Z",
             "ageDays": 25,
-            "staleDays": 5
+            "staleDays": 0
           },
           {
             "repo": "GTNewHorizons/GT5-Unofficial",
@@ -7019,6 +7019,21 @@
       "error": null,
       "data": [
         {
+          "repo": "TC4Tweaks",
+          "repoUrl": "https://github.com/GTNewHorizons/TC4Tweaks",
+          "isFork": true,
+          "defaultBranch": "master",
+          "headSha": "2a9131bdca8a6cdb0ed63910564ebc3fe1ba9131",
+          "lastCommitAt": "2026-07-20T03:40:22Z",
+          "tagName": "1.5.3",
+          "tagSha": "b34f029b60517ebf71fa3cfa6e87050ab37fcf85",
+          "releaseUrl": "https://github.com/GTNewHorizons/TC4Tweaks/releases/tag/1.5.3",
+          "releasedAt": "2023-03-10T09:28:34Z",
+          "isPrerelease": false,
+          "commitsAhead": 102,
+          "daysSinceRelease": 1248
+        },
+        {
           "repo": "DreamAssemblerXXL",
           "repoUrl": "https://github.com/GTNewHorizons/DreamAssemblerXXL",
           "isFork": false,
@@ -7032,21 +7047,6 @@
           "isPrerelease": true,
           "commitsAhead": 101,
           "daysSinceRelease": 46
-        },
-        {
-          "repo": "TC4Tweaks",
-          "repoUrl": "https://github.com/GTNewHorizons/TC4Tweaks",
-          "isFork": true,
-          "defaultBranch": "master",
-          "headSha": "6b1ab8555d1587817f01b62a49e105f70844e85d",
-          "lastCommitAt": "2026-06-11T05:38:51Z",
-          "tagName": "1.5.3",
-          "tagSha": "b34f029b60517ebf71fa3cfa6e87050ab37fcf85",
-          "releaseUrl": "https://github.com/GTNewHorizons/TC4Tweaks/releases/tag/1.5.3",
-          "releasedAt": "2023-03-10T09:28:34Z",
-          "isPrerelease": false,
-          "commitsAhead": 100,
-          "daysSinceRelease": 1248
         },
         {
           "repo": "BugTorch",
@@ -7154,21 +7154,6 @@
           "daysSinceRelease": 7
         },
         {
-          "repo": "GT5-Unofficial",
-          "repoUrl": "https://github.com/GTNewHorizons/GT5-Unofficial",
-          "isFork": false,
-          "defaultBranch": "master",
-          "headSha": "81adae170134eea04c6651a69352dc8a5679f8c7",
-          "lastCommitAt": "2026-08-09T22:36:49Z",
-          "tagName": "5.09.54.78",
-          "tagSha": "30d8eb94275f68286bd062598885bcfb9d6c7d17",
-          "releaseUrl": "https://github.com/GTNewHorizons/GT5-Unofficial/releases/tag/5.09.54.78",
-          "releasedAt": "2026-08-09T07:41:29Z",
-          "isPrerelease": false,
-          "commitsAhead": 4,
-          "daysSinceRelease": 0
-        },
-        {
           "repo": "Controlling",
           "repoUrl": "https://github.com/GTNewHorizons/Controlling",
           "isFork": true,
@@ -7229,36 +7214,6 @@
           "daysSinceRelease": 1286
         },
         {
-          "repo": "Hodgepodge",
-          "repoUrl": "https://github.com/GTNewHorizons/Hodgepodge",
-          "isFork": false,
-          "defaultBranch": "master",
-          "headSha": "5cb11dc2ff3a7872865ced65ade351ec7941aa2b",
-          "lastCommitAt": "2026-08-10T02:19:41Z",
-          "tagName": "2.7.182",
-          "tagSha": "5cd7412020cc92e60aa4f3dd7a62b809bb0025c2",
-          "releaseUrl": "https://github.com/GTNewHorizons/Hodgepodge/releases/tag/2.7.182",
-          "releasedAt": "2026-08-08T15:40:01Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 1
-        },
-        {
-          "repo": "ForestryMC",
-          "repoUrl": "https://github.com/GTNewHorizons/ForestryMC",
-          "isFork": true,
-          "defaultBranch": "master",
-          "headSha": "ea1c4edae40af169aa0d042a366fb87995f463d3",
-          "lastCommitAt": "2026-08-10T01:22:57Z",
-          "tagName": "4.11.33",
-          "tagSha": "4c46626cdb3ffa2c83c74c4dec5ced9b654d2ab4",
-          "releaseUrl": "https://github.com/GTNewHorizons/ForestryMC/releases/tag/4.11.33",
-          "releasedAt": "2026-08-09T07:24:43Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 0
-        },
-        {
           "repo": "Variable-Horizons",
           "repoUrl": "https://github.com/GTNewHorizons/Variable-Horizons",
           "isFork": false,
@@ -7274,36 +7229,6 @@
           "daysSinceRelease": 1
         },
         {
-          "repo": "BetterQuesting",
-          "repoUrl": "https://github.com/GTNewHorizons/BetterQuesting",
-          "isFork": true,
-          "defaultBranch": "master",
-          "headSha": "fcf556cf1f8f7443fa2504dc3a54522e43d04c5b",
-          "lastCommitAt": "2026-08-09T22:24:57Z",
-          "tagName": "3.8.75-GTNH",
-          "tagSha": "272ccaedcddd551fd839da4358617772d4b207e0",
-          "releaseUrl": "https://github.com/GTNewHorizons/BetterQuesting/releases/tag/3.8.75-GTNH",
-          "releasedAt": "2026-07-30T19:51:06Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 10
-        },
-        {
-          "repo": "Binnie",
-          "repoUrl": "https://github.com/GTNewHorizons/Binnie",
-          "isFork": false,
-          "defaultBranch": "master",
-          "headSha": "0d6d7ff9aac734360fc74f20517ce394855eb1c7",
-          "lastCommitAt": "2026-08-09T16:17:36Z",
-          "tagName": "2.6.39",
-          "tagSha": "0b7ae46d2e9da6718d091dd3a848739d13e5b597",
-          "releaseUrl": "https://github.com/GTNewHorizons/Binnie/releases/tag/2.6.39",
-          "releasedAt": "2026-08-06T03:58:40Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 3
-        },
-        {
           "repo": "Amazing-Trophies",
           "repoUrl": "https://github.com/GTNewHorizons/Amazing-Trophies",
           "isFork": false,
@@ -7317,51 +7242,6 @@
           "isPrerelease": false,
           "commitsAhead": 1,
           "daysSinceRelease": 6
-        },
-        {
-          "repo": "twilightforest",
-          "repoUrl": "https://github.com/GTNewHorizons/twilightforest",
-          "isFork": true,
-          "defaultBranch": "master",
-          "headSha": "bc897210eb863face66a75c2d6f1b076c255051b",
-          "lastCommitAt": "2026-08-09T09:58:48Z",
-          "tagName": "2.7.38",
-          "tagSha": "c67c9c9e1d1bd7b495aa0f3df5305c2d88b17a00",
-          "releaseUrl": "https://github.com/GTNewHorizons/twilightforest/releases/tag/2.7.38",
-          "releasedAt": "2026-08-01T15:32:05Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 8
-        },
-        {
-          "repo": "NotEnoughItems",
-          "repoUrl": "https://github.com/GTNewHorizons/NotEnoughItems",
-          "isFork": true,
-          "defaultBranch": "master",
-          "headSha": "a51836fe9b938c3289f7f7698776b4e6d33e5fe0",
-          "lastCommitAt": "2026-08-07T16:05:01Z",
-          "tagName": "2.8.119-GTNH",
-          "tagSha": "139ca22e515d47fbfdf56f5a44f711560e3788fe",
-          "releaseUrl": "https://github.com/GTNewHorizons/NotEnoughItems/releases/tag/2.8.119-GTNH",
-          "releasedAt": "2026-08-07T03:49:55Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 2
-        },
-        {
-          "repo": "RetroFuturaGradle",
-          "repoUrl": "https://github.com/GTNewHorizons/RetroFuturaGradle",
-          "isFork": false,
-          "defaultBranch": "master",
-          "headSha": "98c1aa4ee6b66123376129d5f02670883910c60c",
-          "lastCommitAt": "2026-08-07T06:45:04Z",
-          "tagName": "2.0.2",
-          "tagSha": "77d3566bd8523ab3d8eda3646a6132e3483d28e8",
-          "releaseUrl": "https://github.com/GTNewHorizons/RetroFuturaGradle/releases/tag/2.0.2",
-          "releasedAt": "2025-11-30T14:40:42Z",
-          "isPrerelease": false,
-          "commitsAhead": 1,
-          "daysSinceRelease": 252
         },
         {
           "repo": "CoreTweaks",
@@ -7421,7 +7301,7 @@
           "releasedAt": "2026-07-09T04:22:28Z",
           "isPrerelease": false,
           "commitsAhead": 1,
-          "daysSinceRelease": 31
+          "daysSinceRelease": 32
         },
         {
           "repo": "gendustry",
@@ -7436,7 +7316,7 @@
           "releasedAt": "2026-06-11T04:55:00Z",
           "isPrerelease": false,
           "commitsAhead": 1,
-          "daysSinceRelease": 59
+          "daysSinceRelease": 60
         },
         {
           "repo": "ThaumicMachina",
@@ -7451,7 +7331,7 @@
           "releasedAt": "2026-06-11T04:57:47Z",
           "isPrerelease": false,
           "commitsAhead": 1,
-          "daysSinceRelease": 59
+          "daysSinceRelease": 60
         },
         {
           "repo": "BetterLoadingScreen",
@@ -7466,7 +7346,7 @@
           "releasedAt": "2026-06-11T05:01:49Z",
           "isPrerelease": false,
           "commitsAhead": 1,
-          "daysSinceRelease": 59
+          "daysSinceRelease": 60
         },
         {
           "repo": "MaterialLib",
@@ -7625,32 +7505,32 @@
           {
             "login": "boubou19",
             "m1": {
-              "prs": 40,
+              "prs": 42,
               "merged": 38,
               "approvals": 32
             },
             "m3": {
-              "prs": 54,
+              "prs": 56,
               "merged": 54,
               "approvals": 118
             },
             "m6": {
-              "prs": 67,
+              "prs": 69,
               "merged": 66,
               "approvals": 291
             },
             "y1": {
-              "prs": 126,
+              "prs": 128,
               "merged": 120,
               "approvals": 462
             },
             "all": {
-              "prs": 425,
+              "prs": 427,
               "merged": 407,
               "approvals": 1334
             },
             "firstSeen": "2020-05-18T23:01:01Z",
-            "lastSeen": "2026-08-10T02:19:42Z"
+            "lastSeen": "2026-08-10T04:33:20Z"
           },
           {
             "login": "serenibyss",
@@ -8056,7 +7936,7 @@
             },
             "m6": {
               "prs": 50,
-              "merged": 52,
+              "merged": 51,
               "approvals": 77
             },
             "y1": {
@@ -8231,7 +8111,7 @@
             },
             "m3": {
               "prs": 182,
-              "merged": 156,
+              "merged": 155,
               "approvals": 10
             },
             "m6": {
@@ -8567,7 +8447,7 @@
             "m6": {
               "prs": 11,
               "merged": 12,
-              "approvals": 8
+              "approvals": 7
             },
             "y1": {
               "prs": 27,
@@ -9011,7 +8891,7 @@
             },
             "m3": {
               "prs": 121,
-              "merged": 118,
+              "merged": 117,
               "approvals": 16
             },
             "m6": {
@@ -9041,7 +8921,7 @@
             },
             "m3": {
               "prs": 46,
-              "merged": 48,
+              "merged": 47,
               "approvals": 98
             },
             "m6": {
@@ -11675,7 +11555,7 @@
           {
             "login": "jordanamr",
             "m1": {
-              "prs": 7,
+              "prs": 6,
               "merged": 7,
               "approvals": 2
             },
@@ -43203,7 +43083,7 @@
             "lastSeen": "2025-10-23T21:03:32Z"
           }
         ],
-        "totalPRs": 28481,
+        "totalPRs": 28484,
         "truncated": 12
       }
     },
@@ -43239,9 +43119,9 @@
           }
         ],
         "totals": {
-          "prs": 28481,
+          "prs": 28484,
           "merged": 26045,
-          "open": 426,
+          "open": 429,
           "closed": 2010,
           "approvals": 22819,
           "contributors": 1168,
@@ -50715,7 +50595,7 @@
             {
               "b": "2026-W33",
               "t": "2026-08-10T01:22:57Z",
-              "opened": 2,
+              "opened": 5,
               "merged": 4,
               "closed": 0,
               "authors": 2,
@@ -52579,7 +52459,7 @@
             {
               "b": "2026-08",
               "t": "2026-08-01T00:01:40Z",
-              "opened": 331,
+              "opened": 334,
               "merged": 267,
               "closed": 29,
               "authors": 73,
@@ -52594,7 +52474,7 @@
         },
         "byWindow": {
           "m1": {
-            "opened": 1130,
+            "opened": 1132,
             "merged": 950,
             "closed": 88,
             "activeAuthors": 144,
@@ -52617,7 +52497,7 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 58,
+                "opened": 59,
                 "merged": 51
               },
               {
@@ -52669,12 +52549,12 @@
                 "count": 44
               },
               {
-                "login": "Worive",
+                "login": "boubou19",
                 "count": 42
               },
               {
-                "login": "boubou19",
-                "count": 40
+                "login": "Worive",
+                "count": 42
               },
               {
                 "login": "mitchej123",
@@ -52720,39 +52600,39 @@
               }
             ],
             "prev": {
-              "opened": 1141,
-              "merged": 1065,
+              "opened": 1137,
+              "merged": 1060,
               "closed": 76,
               "activeAuthors": 150,
               "activeReviewers": 75,
-              "activeRepos": 122,
+              "activeRepos": 121,
               "newContributors": 37,
-              "approvals": 917,
-              "mergeRate": 0.9333917616126205,
-              "approvedShare": 0.8300469483568075,
+              "approvals": 916,
+              "mergeRate": 0.9330985915492958,
+              "approvedShare": 0.8292452830188679,
               "unapprovedMerges": 181,
-              "reviewConcentration": 0.3533260632497274,
+              "reviewConcentration": 0.35262008733624456,
               "medianMergeHours": 5.4,
               "p90MergeHours": 266.8,
-              "medianFirstReviewHours": 3.7
+              "medianFirstReviewHours": 3.6
             },
             "prevLabel": "previous 1 month"
           },
           "m3": {
-            "opened": 3658,
-            "merged": 3314,
+            "opened": 3661,
+            "merged": 3311,
             "closed": 279,
             "activeAuthors": 289,
             "activeReviewers": 115,
             "activeRepos": 197,
             "newContributors": 122,
             "approvals": 2791,
-            "mergeRate": 0.922349011967715,
-            "approvedShare": 0.8056729028364514,
-            "unapprovedMerges": 644,
+            "mergeRate": 0.9222841225626741,
+            "approvedShare": 0.8057988523104802,
+            "unapprovedMerges": 643,
             "reviewConcentration": 0.3138659978502329,
             "medianMergeHours": 3.2,
-            "p90MergeHours": 231.8,
+            "p90MergeHours": 231.6,
             "medianFirstReviewHours": 2.9,
             "topRepos": [
               {
@@ -52767,7 +52647,7 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 192,
+                "opened": 193,
                 "merged": 176
               },
               {
@@ -52866,38 +52746,38 @@
             ],
             "prev": {
               "opened": 3180,
-              "merged": 2857,
+              "merged": 2859,
               "closed": 215,
               "activeAuthors": 258,
               "activeReviewers": 90,
               "activeRepos": 212,
               "newContributors": 108,
-              "approvals": 2407,
-              "mergeRate": 0.9300130208333334,
-              "approvedShare": 0.8193909695484775,
-              "unapprovedMerges": 516,
-              "reviewConcentration": 0.4810968009970918,
+              "approvals": 2406,
+              "mergeRate": 0.9300585556278465,
+              "approvedShare": 0.8191675410982862,
+              "unapprovedMerges": 517,
+              "reviewConcentration": 0.48129675810473815,
               "medianMergeHours": 2.1,
-              "p90MergeHours": 295.4,
+              "p90MergeHours": 296,
               "medianFirstReviewHours": 2.9
             },
             "prevLabel": "previous 3 months"
           },
           "m6": {
-            "opened": 6838,
-            "merged": 6171,
+            "opened": 6841,
+            "merged": 6170,
             "closed": 494,
             "activeAuthors": 426,
             "activeReviewers": 130,
             "activeRepos": 242,
             "newContributors": 230,
-            "approvals": 5198,
-            "mergeRate": 0.9258814703675919,
-            "approvedShare": 0.8120239831469778,
+            "approvals": 5197,
+            "mergeRate": 0.9258703481392557,
+            "approvedShare": 0.8119935170178282,
             "unapprovedMerges": 1160,
-            "reviewConcentration": 0.3813005001923817,
+            "reviewConcentration": 0.3813738695401193,
             "medianMergeHours": 2.7,
-            "p90MergeHours": 255.7,
+            "p90MergeHours": 255.8,
             "medianFirstReviewHours": 2.9,
             "topRepos": [
               {
@@ -52912,7 +52792,7 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 379,
+                "opened": 380,
                 "merged": 354
               },
               {
@@ -53011,17 +52891,17 @@
             ],
             "prev": {
               "opened": 3883,
-              "merged": 3554,
+              "merged": 3555,
               "closed": 330,
               "activeAuthors": 291,
               "activeReviewers": 95,
               "activeRepos": 179,
               "newContributors": 137,
-              "approvals": 3309,
-              "mergeRate": 0.9150360453141092,
-              "approvedShare": 0.8936409679234665,
+              "approvals": 3310,
+              "mergeRate": 0.915057915057915,
+              "approvedShare": 0.8936708860759494,
               "unapprovedMerges": 378,
-              "reviewConcentration": 0.4641885766092475,
+              "reviewConcentration": 0.46404833836858006,
               "medianMergeHours": 3.2,
               "p90MergeHours": 366.9,
               "medianFirstReviewHours": 1.8
@@ -53029,7 +52909,7 @@
             "prevLabel": "previous 6 months"
           },
           "y1": {
-            "opened": 10795,
+            "opened": 10798,
             "merged": 9786,
             "closed": 825,
             "activeAuthors": 577,
@@ -53057,7 +52937,7 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 579,
+                "opened": 580,
                 "merged": 536
               },
               {
@@ -53155,18 +53035,18 @@
               }
             ],
             "prev": {
-              "opened": 5546,
-              "merged": 5052,
+              "opened": 5545,
+              "merged": 5051,
               "closed": 347,
               "activeAuthors": 382,
               "activeReviewers": 88,
               "activeRepos": 218,
               "newContributors": 230,
-              "approvals": 4909,
-              "mergeRate": 0.9357288386738285,
-              "approvedShare": 0.9423990498812351,
+              "approvals": 4908,
+              "mergeRate": 0.93571693219711,
+              "approvedShare": 0.9423876460106909,
               "unapprovedMerges": 291,
-              "reviewConcentration": 0.5999185170095742,
+              "reviewConcentration": 0.5998370008149959,
               "medianMergeHours": 6.1,
               "p90MergeHours": 228,
               "medianFirstReviewHours": 4.4
@@ -53174,7 +53054,7 @@
             "prevLabel": "previous 1 year"
           },
           "all": {
-            "opened": 28481,
+            "opened": 28484,
             "merged": 26045,
             "closed": 2010,
             "activeAuthors": 1168,
@@ -53207,7 +53087,7 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 1258,
+                "opened": 1259,
                 "merged": 1157
               },
               {
@@ -53227,7 +53107,7 @@
               },
               {
                 "repo": "AE2FluidCraft-Rework",
-                "opened": 456,
+                "opened": 458,
                 "merged": 418
               }
             ],
@@ -53304,16 +53184,16 @@
           }
         },
         "backlog": {
-          "total": 426,
-          "unreviewed": 321,
+          "total": 429,
+          "unreviewed": 324,
           "buckets": [
             {
               "label": "< 1 week",
-              "count": 79
+              "count": 81
             },
             {
               "label": "1–4 weeks",
-              "count": 122
+              "count": 123
             },
             {
               "label": "1–3 months",
@@ -53478,7 +53358,7 @@
               "number": 4401,
               "author": "MireskaleFay",
               "url": "https://github.com/GTNewHorizons/GT5-Unofficial/pull/4401",
-              "ageDays": 438,
+              "ageDays": 439,
               "staleDays": 208,
               "reviewed": false
             },
@@ -53561,8 +53441,8 @@
             63,
             55,
             45,
-            33,
-            50,
+            34,
+            51,
             37,
             35,
             31,
@@ -53740,6 +53620,16 @@
             69
           ]
         ]
+      }
+    },
+    "drilldown": {
+      "ok": true,
+      "error": null,
+      "data": null,
+      "file": "drilldown.json",
+      "subjects": {
+        "contributors": 1189,
+        "repos": 295
       }
     }
   }
