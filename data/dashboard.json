@@ -52575,18 +52575,18 @@
         },
         "byWindow": {
           "m1": {
-            "opened": 1134,
+            "opened": 1128,
             "merged": 948,
             "closed": 88,
             "activeAuthors": 144,
             "activeReviewers": 78,
             "activeRepos": 133,
             "newContributors": 44,
-            "approvals": 818,
+            "approvals": 813,
             "mergeRate": 0.915057915057915,
             "approvedShare": 0.820675105485232,
             "unapprovedMerges": 170,
-            "reviewConcentration": 0.33985330073349634,
+            "reviewConcentration": 0.33948339483394835,
             "medianMergeHours": 3.9,
             "p90MergeHours": 156.2,
             "medianFirstReviewHours": 2.3,
@@ -52598,8 +52598,8 @@
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
-                "opened": 59,
-                "merged": 52
+                "opened": 58,
+                "merged": 51
               },
               {
                 "repo": "Angelica",
@@ -52677,7 +52677,7 @@
               },
               {
                 "login": "AnsonYeung",
-                "count": 40
+                "count": 39
               },
               {
                 "login": "Algent",
@@ -52685,11 +52685,11 @@
               },
               {
                 "login": "Dream-Master",
-                "count": 35
+                "count": 34
               },
               {
                 "login": "RecursivePineapple",
-                "count": 34
+                "count": 33
               },
               {
                 "login": "boubou19",
@@ -52699,21 +52699,39 @@
                 "login": "koolkrafter5",
                 "count": 26
               }
-            ]
+            ],
+            "prev": {
+              "opened": 1142,
+              "merged": 1065,
+              "closed": 76,
+              "activeAuthors": 150,
+              "activeReviewers": 75,
+              "activeRepos": 122,
+              "newContributors": 37,
+              "approvals": 917,
+              "mergeRate": 0.9333917616126205,
+              "approvedShare": 0.8300469483568075,
+              "unapprovedMerges": 181,
+              "reviewConcentration": 0.3533260632497274,
+              "medianMergeHours": 5.4,
+              "p90MergeHours": 266.8,
+              "medianFirstReviewHours": 3.6
+            },
+            "prevLabel": "previous 1 month"
           },
           "m3": {
-            "opened": 3657,
+            "opened": 3656,
             "merged": 3312,
             "closed": 279,
             "activeAuthors": 289,
             "activeReviewers": 115,
             "activeRepos": 197,
             "newContributors": 122,
-            "approvals": 2816,
+            "approvals": 2790,
             "mergeRate": 0.9223057644110275,
             "approvedShare": 0.8058574879227053,
             "unapprovedMerges": 643,
-            "reviewConcentration": 0.31285511363636365,
+            "reviewConcentration": 0.3139784946236559,
             "medianMergeHours": 3.2,
             "p90MergeHours": 231.8,
             "medianFirstReviewHours": 2.9,
@@ -52725,8 +52743,8 @@
               },
               {
                 "repo": "GT-New-Horizons-Modpack",
-                "opened": 201,
-                "merged": 183
+                "opened": 200,
+                "merged": 182
               },
               {
                 "repo": "Applied-Energistics-2-Unofficial",
@@ -52796,11 +52814,11 @@
             "topReviewers": [
               {
                 "login": "UltraProdigy",
-                "count": 388
+                "count": 387
               },
               {
                 "login": "Dream-Master",
-                "count": 133
+                "count": 132
               },
               {
                 "login": "Kogepan229",
@@ -52808,39 +52826,57 @@
               },
               {
                 "login": "boubou19",
-                "count": 120
+                "count": 118
               },
               {
                 "login": "Algent",
-                "count": 117
-              },
-              {
-                "login": "AnsonYeung",
-                "count": 102
+                "count": 116
               },
               {
                 "login": "koolkrafter5",
                 "count": 101
               },
               {
+                "login": "AnsonYeung",
+                "count": 101
+              },
+              {
                 "login": "Luca-Guettinger",
-                "count": 100
+                "count": 98
               }
-            ]
+            ],
+            "prev": {
+              "opened": 3181,
+              "merged": 2857,
+              "closed": 215,
+              "activeAuthors": 258,
+              "activeReviewers": 90,
+              "activeRepos": 212,
+              "newContributors": 108,
+              "approvals": 2407,
+              "mergeRate": 0.9300130208333334,
+              "approvedShare": 0.8193909695484775,
+              "unapprovedMerges": 516,
+              "reviewConcentration": 0.4810968009970918,
+              "medianMergeHours": 2.1,
+              "p90MergeHours": 295.4,
+              "medianFirstReviewHours": 2.9
+            },
+            "prevLabel": "previous 3 months"
           },
           "m6": {
-            "opened": 6838,
-            "merged": 6170,
+            "opened": 6837,
+            "merged": 6169,
             "closed": 494,
             "activeAuthors": 426,
             "activeReviewers": 130,
             "activeRepos": 242,
             "newContributors": 230,
-            "approvals": 5235,
-            "mergeRate": 0.9258703481392557,
-            "approvedShare": 0.8121555915721231,
+            "approvals": 5197,
+            "mergeRate": 0.9258592225724148,
+            "approvedShare": 0.8121251418382234,
             "unapprovedMerges": 1159,
-            "reviewConcentration": 0.38032473734479466,
+            "reviewConcentration": 0.3813738695401193,
             "medianMergeHours": 2.7,
             "p90MergeHours": 255.8,
             "medianFirstReviewHours": 2.9,
@@ -52872,8 +52908,8 @@
               },
               {
                 "repo": "NewHorizonsCoreMod",
-                "opened": 298,
-                "merged": 274
+                "opened": 297,
+                "merged": 273
               },
               {
                 "repo": "Hodgepodge",
@@ -52923,15 +52959,15 @@
             "topReviewers": [
               {
                 "login": "UltraProdigy",
-                "count": 830
+                "count": 828
               },
               {
                 "login": "Dream-Master",
-                "count": 421
+                "count": 419
               },
               {
                 "login": "boubou19",
-                "count": 294
+                "count": 291
               },
               {
                 "login": "Kogepan229",
@@ -52939,7 +52975,7 @@
               },
               {
                 "login": "mitchej123",
-                "count": 184
+                "count": 182
               },
               {
                 "login": "koolkrafter5",
@@ -52947,13 +52983,31 @@
               },
               {
                 "login": "VortexSo4",
-                "count": 152
+                "count": 150
               },
               {
                 "login": "Alexdoru",
-                "count": 135
+                "count": 133
               }
-            ]
+            ],
+            "prev": {
+              "opened": 3882,
+              "merged": 3554,
+              "closed": 330,
+              "activeAuthors": 291,
+              "activeReviewers": 95,
+              "activeRepos": 179,
+              "newContributors": 137,
+              "approvals": 3309,
+              "mergeRate": 0.9150360453141092,
+              "approvedShare": 0.8936409679234665,
+              "unapprovedMerges": 378,
+              "reviewConcentration": 0.4641885766092475,
+              "medianMergeHours": 3.2,
+              "p90MergeHours": 366.9,
+              "medianFirstReviewHours": 1.8
+            },
+            "prevLabel": "previous 6 months"
           },
           "y1": {
             "opened": 10793,
@@ -52963,11 +53017,11 @@
             "activeReviewers": 154,
             "activeRepos": 256,
             "newContributors": 371,
-            "approvals": 8633,
+            "approvals": 8570,
             "mergeRate": 0.9222358374964653,
             "approvedShare": 0.8428045789043336,
             "unapprovedMerges": 1538,
-            "reviewConcentration": 0.38885671261438665,
+            "reviewConcentration": 0.3899649941656943,
             "medianMergeHours": 2.9,
             "p90MergeHours": 286.9,
             "medianFirstReviewHours": 2.4,
@@ -53050,37 +53104,55 @@
             "topReviewers": [
               {
                 "login": "UltraProdigy",
-                "count": 1370
+                "count": 1366
               },
               {
                 "login": "Dream-Master",
-                "count": 839
+                "count": 837
               },
               {
                 "login": "boubou19",
-                "count": 468
+                "count": 462
               },
               {
                 "login": "Kogepan229",
-                "count": 341
+                "count": 340
               },
               {
                 "login": "chrombread",
-                "count": 339
+                "count": 337
               },
               {
                 "login": "mitchej123",
-                "count": 288
+                "count": 285
               },
               {
                 "login": "RecursivePineapple",
-                "count": 260
+                "count": 255
               },
               {
                 "login": "sisyphussy",
-                "count": 234
+                "count": 233
               }
-            ]
+            ],
+            "prev": {
+              "opened": 5546,
+              "merged": 5052,
+              "closed": 347,
+              "activeAuthors": 382,
+              "activeReviewers": 88,
+              "activeRepos": 218,
+              "newContributors": 230,
+              "approvals": 4909,
+              "mergeRate": 0.9357288386738285,
+              "approvedShare": 0.9423990498812351,
+              "unapprovedMerges": 291,
+              "reviewConcentration": 0.5999185170095742,
+              "medianMergeHours": 6.1,
+              "p90MergeHours": 228,
+              "medianFirstReviewHours": 4.4
+            },
+            "prevLabel": "previous 1 year"
           },
           "all": {
             "opened": 28479,
@@ -53090,11 +53162,11 @@
             "activeReviewers": 229,
             "activeRepos": 295,
             "newContributors": 1168,
-            "approvals": 22975,
+            "approvals": 22818,
             "mergeRate": 0.928349909100631,
             "approvedShare": 0.8430288369235495,
             "unapprovedMerges": 4088,
-            "reviewConcentration": 0.4216322089227421,
+            "reviewConcentration": 0.4222543605925147,
             "medianMergeHours": 3.7,
             "p90MergeHours": 171.8,
             "medianFirstReviewHours": 2.7,
@@ -53177,37 +53249,39 @@
             "topReviewers": [
               {
                 "login": "Dream-Master",
-                "count": 4389
+                "count": 4367
               },
               {
                 "login": "UltraProdigy",
-                "count": 1398
+                "count": 1394
               },
               {
                 "login": "serenibyss",
-                "count": 1380
+                "count": 1378
               },
               {
                 "login": "boubou19",
-                "count": 1348
+                "count": 1334
               },
               {
                 "login": "mitchej123",
-                "count": 1172
+                "count": 1162
               },
               {
                 "login": "OneEyeMaker",
-                "count": 965
+                "count": 964
               },
               {
                 "login": "eigenraven",
-                "count": 741
+                "count": 738
               },
               {
                 "login": "Caedis",
-                "count": 598
+                "count": 591
               }
-            ]
+            ],
+            "prev": null,
+            "prevLabel": null
           }
         },
         "backlog": {
@@ -53220,11 +53294,11 @@
             },
             {
               "label": "1–4 weeks",
-              "count": 126
+              "count": 122
             },
             {
               "label": "1–3 months",
-              "count": 102
+              "count": 106
             },
             {
               "label": "3–12 months",
@@ -53291,6 +53365,15 @@
               "reviewed": false
             },
             {
+              "repo": "Botania",
+              "number": 75,
+              "author": "ReignOfFROZE",
+              "url": "https://github.com/GTNewHorizons/Botania/pull/75",
+              "ageDays": 526,
+              "staleDays": 236,
+              "reviewed": true
+            },
+            {
               "repo": "RetroFuturaBootstrap",
               "number": 13,
               "author": "mitchej123",
@@ -53298,15 +53381,6 @@
               "ageDays": 526,
               "staleDays": 60,
               "reviewed": false
-            },
-            {
-              "repo": "Botania",
-              "number": 75,
-              "author": "ReignOfFROZE",
-              "url": "https://github.com/GTNewHorizons/Botania/pull/75",
-              "ageDays": 525,
-              "staleDays": 236,
-              "reviewed": true
             },
             {
               "repo": "Tinkers-Defense",

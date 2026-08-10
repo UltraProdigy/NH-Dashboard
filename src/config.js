@@ -46,6 +46,54 @@ export const MAX_TRACKED_LABELS = 40;
 export const RELEASE_COMMIT_THRESHOLD = 1;
 
 /**
+ * Repos that never want a release, and so shouldn't clutter the panel.
+ *
+ * Some repos legitimately sit ahead of their last tag forever — the modpack
+ * itself, anything released out-of-band, tooling that only tags on demand.
+ * Listing them here is cheaper than explaining the same false positive to
+ * every admin who looks at the dashboard.
+ *
+ * Entries are repo names without the org prefix. `*` and `?` wildcards work,
+ * matching is case-insensitive, and a leading `!` re-includes something an
+ * earlier pattern excluded:
+ *
+ *   "GT-New-Horizons-Modpack"   exact
+ *   "*-Test"                    every repo ending in -Test
+ *   "Horizon-*", "!Horizon-QA"  the whole prefix except that one
+ *
+ * NH_RELEASE_EXCLUDE=a,b in the environment adds to this list rather than
+ * replacing it, so CI can suppress something without a commit.
+ */
+export const RELEASE_EXCLUDED_REPOS = [
+  // "GT-New-Horizons-Modpack",
+];
+
+const releaseRules = [
+  ...RELEASE_EXCLUDED_REPOS,
+  ...(process.env.NH_RELEASE_EXCLUDE ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+].map((raw) => {
+  const negated = raw.startsWith("!");
+  const pattern = negated ? raw.slice(1) : raw;
+  const re = new RegExp(
+    `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
+    "i"
+  );
+  return { negated, re };
+});
+
+/** Later rules win, so a `!` entry can carve an exception out of a wildcard. */
+export function isReleaseExcluded(repoName) {
+  let excluded = false;
+  for (const rule of releaseRules) {
+    if (rule.re.test(repoName)) excluded = !rule.negated;
+  }
+  return excluded;
+}
+
+/**
  * Skip repos with no pushes in this many days when doing org-wide sweeps.
  * GTNH carries a lot of dormant forks; ignoring them makes the expensive
  * panels dramatically cheaper. Set to null to sweep everything.

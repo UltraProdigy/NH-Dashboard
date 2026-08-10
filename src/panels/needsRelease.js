@@ -14,7 +14,12 @@
  */
 
 import { graphql, rest } from "../github/client.js";
-import { ORG, RELEASE_COMMIT_THRESHOLD, STALE_REPO_CUTOFF_DAYS } from "../config.js";
+import {
+  ORG,
+  RELEASE_COMMIT_THRESHOLD,
+  STALE_REPO_CUTOFF_DAYS,
+  isReleaseExcluded,
+} from "../config.js";
 
 const DAY = 86_400_000;
 
@@ -64,6 +69,7 @@ export async function needsRelease() {
   const candidates = [];
   let cursor = null;
   let scanned = 0;
+  let excluded = 0;
   let hitStaleCutoff = false;
 
   // Stage 1 — sweep.
@@ -80,6 +86,13 @@ export async function needsRelease() {
       if (cutoff && new Date(repo.pushedAt).getTime() < cutoff) {
         hitStaleCutoff = true;
         break;
+      }
+
+      // Checked before the stage-2 compare call, so an excluded repo costs
+      // nothing beyond the sweep it was already part of.
+      if (isReleaseExcluded(repo.name)) {
+        excluded++;
+        continue;
       }
 
       const head = repo.defaultBranchRef?.target;
@@ -111,7 +124,10 @@ export async function needsRelease() {
     cursor = page.pageInfo.endCursor;
   }
 
-  console.log(`  swept ${scanned} repos, ${candidates.length} ahead of their last release`);
+  console.log(
+    `  swept ${scanned} repos, ${candidates.length} ahead of their last release` +
+      (excluded ? ` (${excluded} skipped by RELEASE_EXCLUDED_REPOS)` : "")
+  );
 
   // Stage 2 — exact commit counts for candidates only.
   const results = [];

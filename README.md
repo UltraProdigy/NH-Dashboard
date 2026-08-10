@@ -115,8 +115,24 @@ Everything worth adjusting lives in `src/config.js`:
 
 - `TRACKED_LABELS` — which labels get a tab
 - `RELEASE_COMMIT_THRESHOLD` — raise it if repos that auto-release on merge are noisy
+- `RELEASE_EXCLUDED_REPOS` — repos that never want a release, hidden from that panel
 - `STALE_REPO_CUTOFF_DAYS` — skips dormant repos in org-wide sweeps; the main cost lever
 - `CACHE_TTL_MINUTES` — local API response cache
+
+`RELEASE_EXCLUDED_REPOS` takes repo names without the org prefix, matched
+case-insensitively. `*` and `?` wildcards work, and a leading `!` re-includes
+something an earlier pattern caught:
+
+```js
+export const RELEASE_EXCLUDED_REPOS = [
+  "GT-New-Horizons-Modpack",  // released out of band
+  "Horizon-*",                // all the tooling repos…
+  "!Horizon-QA",              // …except this one
+];
+```
+
+`NH_RELEASE_EXCLUDE=a,b` in the environment adds to that list instead of
+replacing it, so CI can suppress a repo without a commit.
 
 Pass `--no-cache` (or `npm run build:fresh`) to bypass the cache.
 
