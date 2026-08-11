@@ -223,6 +223,12 @@
     display: flex; flex-direction: column;
     min-width: 0;
     overflow: hidden;
+    /* Makes the card a query container so KPI strips size themselves against
+       the card they're in rather than the viewport. Matters because the
+       sidebar collapses: at a given viewport width the card is 176px wider
+       with the rail than with the full sidebar, and a viewport media query
+       can't see that. */
+    container-type: inline-size;
   }
   .card > header {
     display: flex; align-items: center; gap: 10px;
@@ -243,15 +249,87 @@
   .expand:hover { color: var(--text); background: var(--panel-2); }
   @media (max-width: 1080px) { .card { grid-column: span 12 !important; } }
 
-  /* ---------- kpis ---------- */
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--border); }
-  .kpi { background: var(--panel); padding: 14px; min-width: 0; }
+  /* ---------- kpis ----------
+     The column count is pinned per tile count instead of being left to
+     auto-fit. auto-fit derives the count from whatever width happens to be
+     available, so one panel was a 9-wide bar on a large monitor and 8+1 on a
+     laptop — and the orphan stretched a single tile across the full width
+     beside an empty stretch of border. Every rule below lands on a complete
+     rectangle, so a panel only changes shape at a width we picked.
+
+     Tile counts actually in use: 2, 3, 4, 9, 10. Breakpoints assume a ~108px
+     floor per tile plus the 1px gaps, measured against the *card* (see
+     container-type on .card) rather than the viewport.
+
+     The base rule stays on auto-fit deliberately: it's the fallback for any
+     tile count not enumerated below, so adding a KPI to a panel degrades to
+     today's behaviour instead of collapsing to something wrong. */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 1px; background: var(--border); }
+
+  /* ":has(> :nth-child(N):last-child)" reads as "has exactly N children". */
+  @container (min-width: 340px) {
+    .kpis:has(> :nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .kpis:has(> :nth-child(9):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @container (min-width: 452px) {
+    .kpis:has(> :nth-child(4):last-child)  { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .kpis:has(> :nth-child(8):last-child)  { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .kpis:has(> :nth-child(10):last-child) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  }
+
+  /* Single bar. Eight tiles need 8x108 + 7 gaps = 871px of card, nine need 980,
+     ten need 1089. A 1440px laptop gives the card 1158px with the sidebar open,
+     so all three clear it — that's the whole point of dropping the floor from
+     140px to ~108px. At that size the 24px value would overflow the six-digit
+     counts, so the type and padding scale with the container and stop at their
+     original values once there's room to spare.
+
+     Pulse is 8 tiles on the all-time window and 9 on every other one, so it has
+     to look right at both. */
+  @container (min-width: 871px) {
+    .kpis:has(> :nth-child(8):last-child) {
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      --kpi-pad: clamp(10px, 1.2cqi, 14px);
+      --kpi-val: clamp(17px, 2.2cqi, 24px);
+    }
+  }
+  @container (min-width: 980px) {
+    .kpis:has(> :nth-child(9):last-child) {
+      grid-template-columns: repeat(9, minmax(0, 1fr));
+      --kpi-pad: clamp(10px, 1.1cqi, 14px);
+      --kpi-val: clamp(17px, 1.95cqi, 24px);
+    }
+  }
+  @container (min-width: 1089px) {
+    .kpis:has(> :nth-child(10):last-child) {
+      grid-template-columns: repeat(10, minmax(0, 1fr));
+      --kpi-pad: clamp(10px, 1.0cqi, 14px);
+      --kpi-val: clamp(17px, 1.75cqi, 24px);
+    }
+  }
+
+  .kpi { background: var(--panel); padding: var(--kpi-pad, 14px); min-width: 0; }
   .kpi .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-  .kpi .v { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .kpi .v { font-size: var(--kpi-val, 24px); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
   .kpi .d { font-size: 12px; color: var(--muted); }
   .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--muted); }
 
   /* ---------- tables ---------- */
+  /* Horizontal escape hatch for tables too wide to fit — see renderTable.
+     width:100% on the table keeps it filling the card when it does fit, and
+     auto table layout lets it grow past that when the nowrap columns demand
+     it, at which point this wrapper scrolls rather than the card clipping.
+
+     There is no way to scroll one axis without becoming a scroll container on
+     both — `visible` computes to `auto` next to a scrolling axis, and `clip`
+     computes to `hidden`, which is still a scrollport. That matters because
+     `th` is position:sticky: once this box is the nearest scrollport, the
+     header sticks to *it* rather than to the page, and on an uncapped box that
+     means it never sticks at all. So this takes the vertical axis too and caps
+     its height, which puts the sticky headers back and matches what the lists
+     above already do — long content scrolls inside its box instead of making
+     the page metres tall. Tables shorter than the cap are unaffected. */
+  .tscroll { overflow: auto; overscroll-behavior-x: contain; scrollbar-width: thin; max-height: 620px; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th {
@@ -1024,7 +1102,13 @@ function renderTable(rows, cols, { sortable = false, limit = null } = {}) {
       sortable && state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const body = shown.map(r => `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`).join("");
   const rest = rows.length - shown.length;
-  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
+  // The table is wrapped rather than emitted bare because .num cells are
+  // nowrap, which gives any table with a few numeric columns a hard minimum
+  // width. Past that it overflowed the card and .card's overflow:hidden — there
+  // to clip the border radius — silently cut the rest off with no way to reach
+  // it. The wrapper scrolls instead of clipping. The "+ N more" line stays
+  // outside it so it doesn't slide out of view when you scroll across.
+  return `<div class="tscroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
     (rest > 0 ? `<div class="more">+ ${fmt(rest)} more — open the tab for the full list.</div>` : "");
 }
 
@@ -1396,7 +1480,17 @@ const MODULES = {
           ${kpi("Median time to merge", dur(w.medianMergeHours), delta("medianMergeHours", { invert: true, fallback: `p90 ${dur(w.p90MergeHours)}` }))}
           ${kpi("Median first review", dur(w.medianFirstReviewHours), delta("medianFirstReviewHours", { invert: true, fallback: `${fmt(w.approvals)} approvals` }))}
           ${kpi("Active contributors", fmt(w.activeAuthors), delta("activeAuthors", { fallback: `${fmt(w.activeReviewers)} of them reviewed` }))}
-          ${kpi("First-time authors", fmt(w.newContributors), delta("newContributors", { fallback: `since ${new Date(a.totals.firstPR).getFullYear()}` }))}
+          ${/* Dropped on the all-time window, where it is guaranteed to be a
+                duplicate of the tile above rather than merely likely to look
+                like one. activeAuthors counts distinct non-bot authors in the
+                window; newContributors counts PRs that were their author's
+                first ever. Over all of history every author's first PR falls
+                inside the window, so each one increments newContributors
+                exactly once and the two counts are forced equal. On a bounded
+                window they diverge and the tile earns its place. */
+            w.prevLabel
+              ? kpi("First-time authors", fmt(w.newContributors), delta("newContributors", { fallback: `since ${new Date(a.totals.firstPR).getFullYear()}` }))
+              : ""}
           ${kpi("Lines changed", kfmt(w.linesChanged), w.sizedPRs
                 ? delta("linesChanged", { fallback: `median ${kfmt(w.medianPRLines)} per PR` })
                 : "no diff data yet")}
