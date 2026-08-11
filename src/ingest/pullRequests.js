@@ -56,12 +56,29 @@ const REPOS = `
 /** Shared by both PR queries so the two can't drift into different shapes. */
 const PR_FIELDS = `
   number
+  title
   createdAt
   updatedAt
   mergedAt
   state
   isDraft
   author { login }
+  # Diff size and commit count. All scalars on the PR itself, so they cost
+  # nothing in nodes — the expensive part of adding them was the one-time
+  # re-walk to populate records that predate the field.
+  additions
+  deletions
+  changedFiles
+  commits { totalCount }
+  # Issue comments on the PR. Review comments are counted separately via
+  # reviews below; conflating the two would make a PR with one long review
+  # thread look like a contentious one.
+  comments { totalCount }
+  # totalCount only, no nodes — a reaction connection with no pagination args
+  # is a scalar as far as the node budget is concerned.
+  reactions { totalCount }
+  thumbsUp: reactions(content: THUMBS_UP) { totalCount }
+  thumbsDown: reactions(content: THUMBS_DOWN) { totalCount }
   # 50 PRs x 50 reviews = 2500 nodes/query, still well inside limits.
   # At 20 this truncated ~90 heavily-reviewed PRs; 50 covers all but a
   # handful, and reviewsTruncated flags whatever still overflows.
@@ -107,18 +124,42 @@ const OPEN_PRS = `
   }
 `;
 
+/**
+ * Titles are trimmed on the way in.
+ *
+ * They're the single largest field on the store — 28k of them — and a
+ * ranked-list row ellipsises long past this anyway. 160 characters keeps every
+ * normal title intact and clips only the handful that are really a paragraph.
+ */
+const MAX_TITLE = 160;
+
 const toRecord = (repo, pr) => ({
   repo,
   number: pr.number,
+  title: pr.title ? pr.title.slice(0, MAX_TITLE) : null,
   author: pr.author?.login ?? null,
   createdAt: pr.createdAt,
   updatedAt: pr.updatedAt,
   mergedAt: pr.mergedAt,
   state: pr.state,
   isDraft: pr.isDraft,
+  // Diff size and effort. `changedFiles` is what separates "one generated file
+  // regenerated" from "a real 4,000-line change" when the LoC numbers look
+  // implausible, which on a modpack org they regularly do.
+  additions: pr.additions,
+  deletions: pr.deletions,
+  changedFiles: pr.changedFiles,
+  commits: pr.commits?.totalCount ?? 0,
+  // Engagement. Review count is derived from the review list rather than
+  // stored, but the comment and reaction totals have no other source.
+  comments: pr.comments?.totalCount ?? 0,
+  reactions: pr.reactions?.totalCount ?? 0,
+  thumbsUp: pr.thumbsUp?.totalCount ?? 0,
+  thumbsDown: pr.thumbsDown?.totalCount ?? 0,
   // Truncation is recorded so aggregation can flag undercounts rather than
   // silently reporting wrong numbers.
   reviewsTruncated: pr.reviews.totalCount > pr.reviews.nodes.length,
+  reviewCount: pr.reviews.totalCount,
   reviews: pr.reviews.nodes.map((r) => ({
     author: r.author?.login ?? null,
     state: r.state,
@@ -184,40 +225,45 @@ async function ingestRepo(repo, seenThrough) {
 }
 
 /**
- * Re-fetch open PRs that predate a field being added to the query.
+ * Re-fetch records that predate a field being added to the query.
  *
  * The incremental walk is watermark-driven: a PR that hasn't been updated
  * since the last run is never re-fetched, so adding a field to the query only
  * populates it for PRs that happen to change afterwards. Everything already in
  * the store keeps whatever shape it had.
  *
- * This closes that gap for `isDraft` without a full 28k-PR re-walk. It's
- * scoped to open PRs because draft status is meaningless on a merged or closed
- * one, and scoped to repos that actually hold such a PR, which is ~100 of the
- * org's repos rather than all 1,400.
+ * Rather than a bespoke pass per field, this takes a predicate for "records
+ * that still need it" and a query to re-walk the repos holding them with. Two
+ * shapes are in use:
  *
- * Self-limiting: the set it works on is "open records missing the field", so
- * once they're filled in this costs one local store read and zero requests.
+ *   - `OPEN_PRS`, for a field only meaningful on an open PR (draft status).
+ *     Cheap: ~118 requests against the 570 a full re-walk costs.
+ *   - `PRS`, for a field meaningful on every PR (diff size, comments,
+ *     reactions, titles). That *is* the full re-walk, but it's paid once.
+ *
+ * Every pass is self-limiting for the same reason: the set it works on is
+ * "records missing the field", so once they're filled in it costs one local
+ * store read and zero requests. It's also naturally resumable — records
+ * written before an interruption already carry the field, so the next run
+ * picks up at the repos that didn't get there.
  */
-async function backfillOpenDrafts() {
+async function backfillField({ label, query, needs }) {
   clearStoreCache(); // the main pass just appended; don't read a stale memo
-  const stale = (await readStore()).filter(
-    (p) => p.state === "OPEN" && p.isDraft === undefined
-  );
+  const stale = (await readStore()).filter(needs);
   if (!stale.length) return 0;
 
   const repos = [...new Set(stale.map((p) => p.repo))];
-  console.log(
-    `  backfilling draft status: ${stale.length} open PRs across ${repos.length} repos`
-  );
+  console.log(`  backfilling ${label}: ${stale.length} PRs across ${repos.length} repos`);
 
   let written = 0;
+  let done = 0;
+
   for (const repo of repos) {
     const records = [];
     let cursor = null;
     try {
       while (true) {
-        const data = await graphql(OPEN_PRS, { owner: ORG, name: repo, cursor });
+        const data = await graphql(query, { owner: ORG, name: repo, cursor });
         const page = data.repository?.pullRequests;
         if (!page) break;
         for (const pr of page.nodes) records.push(toRecord(repo, pr));
@@ -231,18 +277,44 @@ async function backfillOpenDrafts() {
     }
 
     if (records.length) {
+      // Appended per repo rather than batched at the end: this pass can run for
+      // a while on its first outing, and a Ctrl-C should keep what it earned.
       await appendFile(
         STORE_FILE,
         records.map((r) => JSON.stringify(r)).join("\n") + "\n"
       );
       written += records.length;
     }
+
+    if (++done % 25 === 0)
+      console.log(`  ${done}/${repos.length} repos, ${written} records re-fetched`);
   }
 
   // These appends aren't in the memo either, and compaction reads it next.
   clearStoreCache();
   return written;
 }
+
+/**
+ * Which backfills run, in order. Draft status first because it's the cheap one
+ * and the expensive pass may well be interrupted.
+ *
+ * `additions` stands in for the whole diff-size/engagement/title group — they
+ * were all added in the same change and are fetched by the same query, so one
+ * of them being absent means all of them are.
+ */
+const BACKFILLS = [
+  {
+    label: "draft status",
+    query: OPEN_PRS,
+    needs: (p) => p.state === "OPEN" && p.isDraft === undefined,
+  },
+  {
+    label: "diff size, comments, reactions and titles",
+    query: PRS,
+    needs: (p) => p.additions === undefined,
+  },
+];
 
 export async function ingest({ limit = Infinity } = {}) {
   const state = await loadState();
@@ -300,7 +372,8 @@ export async function ingest({ limit = Infinity } = {}) {
   await saveState(state);
 
   // After the main pass, so anything it already refreshed is skipped.
-  const backfilled = await backfillOpenDrafts();
+  let backfilled = 0;
+  for (const b of BACKFILLS) backfilled += await backfillField(b);
 
   const { before, after } = await compactStore();
   console.log(

@@ -130,6 +130,92 @@ export function summarizeRuns(runs) {
       ? round1(durations.reduce((n, m) => n + m, 0))
       : null,
     timedRuns: durations.length,
+
+    /* ---- how fast this repo burns through runs ----
+       The sample is "the last N completed runs", so the span it covers is not
+       a fixed period — a busy repo's 20 runs might be two days and a quiet
+       one's might be two years. Recording the span is what lets the org-wide
+       estimate turn a sample into a rate.
+
+       Null when there's only one run: a single timestamp has no span, and
+       dividing by zero days would report an infinite rate for the least active
+       repos in the org. */
+    sampleSpanDays: spanDays(ordered),
+  };
+}
+
+/** Days between the oldest and newest run in a sample. Null if it has no width. */
+function spanDays(ordered) {
+  if (ordered.length < 2) return null;
+  const at = (r) => new Date(r.run_started_at ?? r.created_at).getTime();
+  const span = (at(ordered[0]) - at(ordered[ordered.length - 1])) / DAY;
+  return span > 0 ? round1(span) : null;
+}
+
+/**
+ * Project the sampled runs onto the whole org, per 30 days.
+ *
+ * Nothing here costs a request: every repo's sample was already fetched for the
+ * pass rate and the median duration. Each repo contributes a rate — runs in the
+ * sample divided by the days that sample covers — and the org figure is the sum
+ * of those rates over a 30-day month.
+ *
+ * The honest caveats, which the panel repeats rather than hiding:
+ *
+ *   - It's an *estimate from a recent sample*. A repo that ran CI hard last
+ *     week and has been quiet since projects a month that won't happen.
+ *   - Only default-branch runs are sampled, and `exclude_pull_requests=true`
+ *     drops PR-triggered runs entirely. On most repos that is the majority of
+ *     all CI activity, so this is a floor, not a total.
+ *   - Minutes are wall-clock, not GitHub's billable minutes — a matrix of
+ *     eight parallel jobs bills roughly eight times what it took on the clock,
+ *     and macOS bills 10x. See the note on `totalMinutes` above.
+ *   - There is no job count anywhere in this data. `/actions/runs` returns
+ *     runs, not jobs; jobs need one more request per run (~1,500 a build), so
+ *     the panel reports runs and says plainly that it can't report jobs.
+ */
+export function summarizeOrg(perRepo) {
+  const repos = Object.values(perRepo);
+
+  let runsPerMonth = 0;
+  let minutesPerMonth = 0;
+  let projected = 0; // repos whose sample had enough width to extrapolate from
+
+  let sampledRuns = 0;
+  let sampledMinutes = 0;
+  let decisive = 0;
+  let passes = 0;
+
+  for (const r of repos) {
+    sampledRuns += r.runs;
+    sampledMinutes += r.totalMinutes ?? 0;
+    decisive += r.decisive;
+    passes += r.decisive - r.failures;
+
+    if (!r.sampleSpanDays || !r.timedRuns) continue;
+    const perDay = r.runs / r.sampleSpanDays;
+    const meanMinutes = (r.totalMinutes ?? 0) / r.timedRuns;
+    runsPerMonth += perDay * 30;
+    minutesPerMonth += perDay * 30 * meanMinutes;
+    projected++;
+  }
+
+  return {
+    repos: repos.length,
+    projectedFrom: projected,
+    // Whole numbers: the precision implied by "4,138.7 runs a month" is not
+    // there, and printing it invites the figure to be trusted more than it
+    // deserves.
+    runsPerMonth: Math.round(runsPerMonth),
+    minutesPerMonth: Math.round(minutesPerMonth),
+    hoursPerMonth: round1(minutesPerMonth / 60),
+    // What the estimate is actually built on, so the panel can show its work.
+    sampledRuns,
+    sampledMinutes: round1(sampledMinutes),
+    meanRunMinutes: sampledRuns ? round1(sampledMinutes / sampledRuns) : null,
+    passRate: decisive ? passes / decisive : null,
+    decisive,
+    failures: decisive - passes,
   };
 }
 
@@ -190,10 +276,17 @@ export async function ciHealth() {
     }
   }
 
+  const org = summarizeOrg(out);
+
   console.log(
     `  ${active.length} active repos, ${withCI} with runs on their default branch` +
-      (failed ? `, ${failed} errored` : "")
+      (failed ? `, ${failed} errored` : "") +
+      `\n  ~${org.runsPerMonth.toLocaleString()} runs/month, ~${org.hoursPerMonth.toLocaleString()} wall-clock hours (projected from ${org.projectedFrom} repos)`
   );
 
-  return out;
+  // Nested rather than flat. The per-repo map used to *be* the panel data,
+  // which left nowhere to put an org-wide roll-up that a repo couldn't
+  // accidentally shadow — an org with a repo named `org` would have overwritten
+  // it.
+  return { repos: out, org };
 }

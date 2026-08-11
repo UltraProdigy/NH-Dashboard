@@ -64,7 +64,9 @@ development needs one of the three options above rather than reusing the secret.
 | Needs release | ~30 GraphQL + 1 REST per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
+| Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
+| Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
 
 ## Dream Panel
 
@@ -73,10 +75,11 @@ Approved-not-merged, Needs a release, Changes requested, By label.
 
 ### Exclusions
 
-A multi-select at the top hides repos and labels from **every** card on the
-page. It defaults to the **⚠️ AUTHOR MERGE ONLY** label and the **Angelica**
-repo, and the choice is remembered in `localStorage` — the same handful
-shouldn't have to be dismissed every morning.
+Two buttons on the toolbar — **Repos** and **Labels** — each opening a
+searchable checklist that hides its entries from **every** card on the page.
+They default to the **⚠️ AUTHOR MERGE ONLY** label and the **Angelica** repo,
+and the choice is remembered in `localStorage`; the same handful shouldn't have
+to be dismissed every morning.
 
 The page's whole job is a short list of things somebody should act on. A label
 that means "this is not yours to merge" is noise on it permanently, not just on
@@ -89,28 +92,42 @@ Repo names arrive in two spellings — the search-backed panels carry
 `GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica` — so
 everything is compared bare.
 
-It's a popup of checkboxes rather than a native `<select multiple>`. The native
+They're checkbox lists rather than native `<select multiple>` boxes. The native
 control is a fixed-height scrolling box that can't show which of eighty repos
 are ticked without scrolling, and ctrl-clicking to deselect one entry is a
 well-known way to lose the other nine.
 
-Each column has its own search box and its own scroll, so the headers stay put
-while the list moves. **Anything currently hidden is pinned to the top of its
-column**, above an "Everything else" divider, and stays there while you search
-— with nineteen labels and eighty repos, "what am I hiding right now" is the
-first question the list has to answer, and it shouldn't require scrolling an
-alphabetical list to audit.
+**Anything currently hidden is pinned to the top of its list**, above an
+"Everything else" divider, and stays there while you search — with nineteen
+labels and eighty repos, "what am I hiding right now" is the first question the
+list has to answer, and it shouldn't require scrolling an alphabetical list to
+audit. The full name is on each row's `title`, since the visible one ellipsises.
 
-Rows are an explicit two-column grid — a checkbox track and a name track —
-rather than a flex row. The name needs a column that the checkbox can't
-collapse, and `minmax(0, 1fr)` is what stops a long label either overflowing
-the popup or squeezing itself to nothing. The full name is also on the row's
-`title`, since the visible one ellipsises.
+#### Why two buttons rather than one popup
 
-The search inputs carry a `.excl-pop`-qualified width rule: the global
-`input[type="search"]` sets a 260px floor, which is right for the toolbar and
-twice too wide for half of this popup. Qualified rather than relying on source
-order, so it wins on specificity.
+This started as a single **Exclusions ▾** button opening a two-column popup,
+and every problem it had came from that one decision:
+
+- The row layout had to work at half the popup's width, which is what kept
+  putting the checkboxes somewhere other than where they belonged.
+- The search inputs needed a `.excl-pop`-qualified rule to win a specificity
+  fight with the global `input[type="search"]` 260px floor — right for the
+  toolbar, twice too wide for half a popup.
+- The toolbar showed one count, which was the sum of two unrelated numbers. Six
+  hidden things told you nothing about whether any of them were repos.
+
+Hiding a repo and hiding a label are unrelated decisions and there's no reason
+to make them at the same moment. One list per popup costs one more slot on a
+toolbar that has room, and all three problems stop existing rather than being
+worked around. Opening one closes the other; **Clear** is scoped to the group
+you're looking at, so clearing repo exclusions can't silently un-hide every
+label as well.
+
+Rows are a flex line with an explicitly non-shrinking checkbox (`flex: none`)
+rather than a grid with a fixed first track. The two look equivalent, but a
+fixed grid track only has to be handed one contradictory width — from a browser's
+own form defaults, a zoom level, a stylesheet that arrives later — to put the
+box somewhere unintended. `flex: none` can't be talked out of its size.
 
 ### The label picker
 
@@ -135,11 +152,27 @@ on one toolbar, answering subtly different questions about the same page. A
 3-month window next to a 1-year range is not a state anyone chose on purpose.
 They're now one control, and the charts read the window like everything else.
 
-Analytics and Contributor Activity default to **3 months**; the drilldowns keep
+Analytics and Contributor Activity default to **6 months**; the drilldowns keep
 their own setting and still default to all time. Looking at the org you want
 the recent picture, looking at one subject you want their whole history first
 and then to narrow. The two settings are independent, so moving between them
 doesn't reset either.
+
+Six rather than three because three is short enough that a quiet fortnight
+moves every number on the page, and on an org this size the question being
+asked is nearly always "what does the last half-year look like".
+
+**New Faces is the exception**, and keeps a period of its own defaulting to
+3 months. "Who's new" and "who's busiest" want different spans by nature — six
+months of first-timers is a long list of people who stopped being new some time
+ago. The alternative, rewriting the page's period whenever you open that tab,
+changes what Leaderboard was showing behind your back.
+
+The cost is that its card on the overview grid doesn't answer to the toolbar
+control above it, so its caption names the period it's actually on rather than
+leaving you to assume it matches its neighbours. `OWN_WINDOW` in the frontend
+is the whole mechanism: a module id mapped to the slot of `state` its period
+lives in, which `windowKey()` consults before falling back to the page's.
 
 Granularity is a separate control, because it isn't a time range — it's what
 one bar *means*. It's labelled **x-axis** for exactly that reason, and offers
@@ -193,25 +226,67 @@ running anything locally.
 Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
 can't clobber real data.
 
+### What each record carries
+
+Beyond the identity and timing fields, every PR record holds:
+
+| Field | Feeds |
+|---|---|
+| `title` | Most grossing, Biggest PRs, Closed PRs |
+| `additions`, `deletions`, `changedFiles` | lines-changed metrics everywhere, Biggest PRs |
+| `commits` | commit counts per repo and per contributor |
+| `comments` | Most commented, engagement totals |
+| `reactions`, `thumbsUp`, `thumbsDown` | Most 👍 / Most 👎 |
+| `reviewCount`, `reviews[]` | approvals, review latency, Collaboration |
+| `isDraft` | Open PRs / Backlog state column |
+
+All of them are scalars or `totalCount`-only connections on the PR itself, so
+they cost nothing against the GraphQL node budget — 50 PRs × 50 reviews is
+still 2,500 nodes a page. The expensive part was never the fields; it was the
+one-time re-walk to populate the records that predate them.
+
+Titles are clipped to 160 characters on the way in. They're the single largest
+field in the store, a ranked-list row ellipsises long before that, and only a
+handful of PR titles are really a paragraph.
+
 ### Backfilling a newly-added field
 
 The incremental walk is watermark-driven, so adding a field to the GraphQL
 query only populates it for PRs that happen to change afterwards. Everything
 already in the store keeps its old shape indefinitely.
 
-`isDraft` was added this way, so the ingest carries a targeted backfill: after
-the main pass it looks for open records missing the field and re-fetches only
-the repos holding one. That's ~118 requests against the 570 a full re-walk
-would cost, and it's scoped to open PRs because draft status is meaningless on
-a merged one.
+`backfillField` closes that gap. It takes a predicate for "records that still
+need this" and a query to re-walk the repos holding them with, and runs after
+the main pass so anything that pass already refreshed is skipped. Two are wired
+up in `BACKFILLS`:
 
-It's self-limiting — once the field is populated the pass costs one local store
-read and zero requests — so it can stay in place permanently and serves as the
-pattern for the next field that gets added.
+| Pass | Predicate | Query | Cost |
+|---|---|---|---|
+| Draft status | open records missing `isDraft` | `OPEN_PRS` | ~118 requests |
+| Diff size, comments, reactions, titles | any record missing `additions` | `PRS` | ~570 requests, once |
 
-Until you've run `npm run ingest` once, the drilldowns show draft state as
-`unknown` rather than guessing. That's deliberate: rendering "ready" for a PR
-we've never asked about would be a quiet lie.
+The second one *is* a full re-walk — every record in the store predates those
+fields, so "the repos holding a record that needs it" is every repo. There's no
+cheaper option: diff size is meaningful on merged PRs, so it can't be scoped to
+open ones the way draft status could. It's paid once, and 570 requests against
+a 5,000/hour budget is an inconvenience rather than a problem.
+
+Every pass is **self-limiting** — once the field is populated it costs one local
+store read and zero requests — so both can stay in place permanently. They're
+also **naturally resumable**: records written before an interruption already
+carry the field, so the next run picks up at the repos that didn't get there.
+Appends happen per repo rather than batched at the end for exactly that reason.
+
+Until the second pass has run, everything derived from diff size reports
+honestly rather than guessing. Windows carry `sizedPRs` — how many PRs in that
+window actually had diff data — and the tiles say "no diff data yet" and point
+at `npm run ingest` rather than rendering a confident `0`. PRs missing the data
+are dropped from Biggest PRs entirely instead of being ranked at zero, which on
+an un-backfilled store would be a list ordered by nothing.
+
+Draft state is the same deal: the drilldowns show `unknown` rather than
+guessing, because rendering "ready" for a PR we've never asked about would be a
+quiet lie.
 
 ## CI health
 
@@ -260,6 +335,44 @@ The org's actual billed total is one request to
 per-repo breakdown, so it would be an Analytics tile rather than anything the
 repo drilldown could use. Not built.
 
+### Actions load, org-wide
+
+General Analytics carries an **Actions load** card projecting the same sampled
+runs onto the whole org: runs per month, wall-clock hours per month, average
+run duration, and the aggregate pass rate. It costs **zero extra requests** —
+every number comes from samples the CI health sweep already fetched.
+
+The projection is per repo and then summed. Each repo's sample covers a span
+(`sampleSpanDays`, the gap between its oldest and newest sampled run), which
+turns "20 runs" into a rate; that rate times 30 days is its contribution. A
+repo with fewer than two runs has no span to divide by and is skipped rather
+than reported as infinite — `projectedFrom` on the card says how many of the
+repos actually contributed.
+
+The card states its limits rather than burying them, because the numbers are
+large and large numbers get quoted:
+
+- **It's an estimate from a recent sample.** A repo that hammered CI last week
+  and has been quiet since projects a month that won't happen.
+- **It's a floor, not a total.** Only completed default-branch runs are
+  sampled, and `exclude_pull_requests=true` drops PR-triggered runs outright.
+  On most repos those are the majority of all CI activity.
+- **Minutes are wall-clock**, with the same matrix-and-macOS caveat as above.
+- **There are no job counts.** `/actions/runs` returns runs, not jobs. A job
+  breakdown needs one more request per run — roughly 1,500 a build — which
+  would cost more than every other panel combined. The card says so instead of
+  quietly reporting runs under a heading that says jobs.
+
+The expanded tab adds a sortable per-repo table — estimated minutes and runs
+per month, median run, pass rate — which is the form that answers "which repos
+are the expensive ones".
+
+The panel's payload is `{ repos, org }` rather than the flat repo map it used
+to be. A flat map left nowhere to put an org-wide roll-up that a repo couldn't
+accidentally shadow; an org containing a repo named `org` would have overwritten
+it. The frontend reads `p.data.repos ?? p.data`, so a stale `dashboard.json`
+still renders while a rebuild is pending.
+
 ## Drilldowns
 
 Two pages answer "how is *this* one doing" rather than "how is the org doing":
@@ -278,8 +391,8 @@ Deep links carry the subject, so they're shareable:
 #repo/GT5-Unofficial/rBacklog
 ```
 
-The data lives in its own `data/drilldown.json` (~3.4 MB, 0.4 MB gzipped)
-rather than in `dashboard.json`. The frontend fetches it the first time you open
+The data lives in its own `data/drilldown.json` (~9 MB once the size and title
+fields are populated, roughly 1.5 MB gzipped) rather than in `dashboard.json`. The frontend fetches it the first time you open
 a drilldown page and keeps it for the session, so the other three pages don't
 pay for data they never use.
 
@@ -318,12 +431,46 @@ about which windows exist — after a change like adding 2y and 5y, one is
 rebuilt before the other — so a drilldown reads its own list rather than
 borrowing the analytics one and hiding options its data actually has.
 
+Both profiles also carry **lines changed** and **commits** for the period, with
+the median PR size beside them. Added and removed are shown separately rather
+than as a net figure — a refactor that moves 4,000 lines nets to zero, which is
+the least informative thing that could be said about it — and the median sits
+next to the sum because the sum is dominated by whichever PR regenerated a lang
+file. The all-window table breaks out added, removed, median and p90 PR size,
+commits, files touched and comments.
+
+These come from PR diffs, not from the commit graph, so they miss anything
+pushed straight to a branch without a PR. `/repos/{org}/{repo}/stats/contributors`
+would cover that — one REST request per repo for true all-time commits and line
+counts per contributor — but it's computed asynchronously (a `202` on the first
+call, needing retry logic) and caps at each repo's top 100 contributors. Not
+built; the PR-derived numbers came free with data the ingest was already
+fetching.
+
 Ranked lists — top repos, top authors, review partners — are **uncapped**. That
 was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
 3.11 MB, and uncapped 3.18 MB. The distributions are steep (the median repo has
 10 distinct authors, p90 has 45), so the cap was only ever truncating the
 handful of subjects where the long tail is the interesting part. Long lists
 scroll inside their box rather than stretching the page.
+
+### Numbered rows and shares
+
+Every `hbars` list ranks by exactly one metric, so each row carries its
+position. Rank is information in a single-metric list, and "who is seventh"
+shouldn't need counting down from the top with a finger. The numbers are right
+aligned and tabular so 9 and 10 line up on their last digit rather than the
+list developing a kink at every power of ten.
+
+The contributor's **Repos** card and the repo's **People** card also show each
+row's **share of the list total** beside the count. Those breakdowns are
+exhaustive — every PR someone opened lands in exactly one repo — so the list
+total is the subject's total, and the percentage is meaningful rather than a
+share of some truncated top-N. It changes what the number means: "48 PRs in
+GT5-Unofficial" is a different fact at 12% of someone's output than at 80%, and
+on the repo side one person at 70% is a bus factor where three at 25% each
+isn't. The bar alone can't say this — it compares each row against the biggest
+one, not against the whole.
 
 Review relationships ("who approves their PRs") are counted over all time. A
 review relationship accumulates slowly, and windowing it mostly produces noise.
@@ -388,15 +535,90 @@ There are 25,660 of these org-wide, and the obvious
 repeated repo strings — more than every other contributor field combined. They
 ship packed instead: positional rows, with the repo replaced by an index into a
 short per-contributor list, since people work in a handful of repos even when
-they have hundreds of PRs. That's 0.73 MB, and the frontend expands it on first
-use like the series.
+they have hundreds of PRs. The frontend expands them on first use like the
+series, destructuring positionally against `RESOLVED_FIELDS`:
+
+```
+[repo, number, at, merged, additions, deletions, commits, comments, title]
+```
 
 Timestamps are stored as plain dates. The list sorts by recency and renders
 "3 days ago"; the time of day was 25,660 records' worth of bytes nobody reads.
 
-**No PR titles.** The ingest never asked for them, so rows are identified by
-repo and number. Adding titles means a full re-walk of all 28k PRs plus roughly
-1.4 MB on `prs.ndjson`, which is why it hasn't been done on spec.
+Diff size, commits and comments ride along on these rows rather than living in
+a separate "biggest PRs" list. A precomputed top-15 per contributor would have
+been barely smaller — 17,835 rows against 25,660 — and could only ever answer
+one question. Carrying the numbers here means Biggest PRs, the Closed PRs table
+and the merged/dropped toggle all read the same array, and every one of them
+follows the period control for free.
+
+Rows written before those columns existed are four long, so the tail
+destructures to `undefined` and is normalised to `null` — "we haven't asked" and
+"this PR changed nothing" have to render differently.
+
+### Biggest PRs
+
+The contributor page ranks their PRs by lines changed, with commits, comments
+and outcome beside them. "Biggest" has four plausible meanings, so all four
+columns are sortable in the expanded tab and diff size only leads because it's
+the one that most often matches what somebody means by "their big PR".
+
+Open PRs are included alongside resolved ones. A 6,000-line PR that has been
+sitting open for a year is exactly what this card should surface, and excluding
+it for not having landed would be perverse. Resolved PRs are windowed by when
+they ended and open ones by when they were opened — the only dates each half
+has, and the same ones Closed PRs and Open PRs already window by, so the three
+cards agree about what "last 6 months" contains.
+
+It reads `resolvedAll()` rather than `resolvedRows()`, deliberately: the latter
+also applies the Closed PRs tab's merged/dropped toggle, which isn't shown on
+this card. Reusing it would let a setting made two tabs ago quietly halve the
+list.
+
+### Most grossing
+
+Three ranked lists — most commented, most 👍, most 👎 — on every repo
+drilldown, and an org-wide version on General Analytics. They answer a different
+question from everything else here: not how much work happened, but what the
+org actually argued about, liked, or hated.
+
+**All-time, in both places**, and the caption says so rather than displaying a
+period control that would do nothing. A window-keyed top 5 across three kinds
+and seven windows is 105 rows per repo — with titles attached that's roughly
+9 MB across 1,400 repos, to slice a list whose whole appeal is that it's the
+hall of fame. Windowing would also leave the 1-month view as three empty boxes
+on most repos, since the median PR draws no reaction at all.
+
+The org board shows ten rows where a repo shows five: a top 5 across 1,400
+repos is almost entirely one repo's greatest hits, which is the opposite of
+what an org-wide board is for.
+
+Lists are truncated at whatever actually scored, never padded — a repo where
+nothing was ever discussed shows an empty box and says so, rather than claiming
+a ranking among PRs with zero comments. Ties break on PR number so the output
+is deterministic across builds instead of reshuffling with whatever the store
+happened to yield first.
+
+Rows are rendered without bars. These counts span three orders of magnitude — a
+400-comment thread next to a 6-comment one — and a proportional track renders
+four invisible slivers under one full-width one, which tells you less than the
+numbers already did.
+
+The ranking lives in `src/panels/grossing.js` rather than in either panel.
+Both own half of it otherwise, and having `analytics.js` import it from
+`drilldown.js` would make a needless import cycle out of forty lines of sorting.
+
+### "+ N more" counts what was truncated
+
+`renderTable` derives its "+ N more — open the tab for the full list" line from
+the array it was handed, and says nothing when nothing was cut.
+
+It used to take a separate `total` and subtract the rows shown from it. Callers
+passed the pre-filter count, so searching an already-complete list produced
+"+ 312 more — open the tab for the full list" underneath every matching row:
+the list *was* complete, the search had simply removed 312 rows on purpose. A
+count of hidden rows has to come from the same array the rows came from, or it
+ends up answering a different question than the one the sentence asks.
 
 ### Getting there
 
@@ -413,8 +635,21 @@ open-in-new-tab behave normally. Plain clicks are intercepted only so they
 route through `go()` and clear the sort and filter, which a bare hash change
 wouldn't.
 
-Repo names still link to github.com. Making them open the Repo Drilldown would
-be the same one-line change if that turns out to be the more useful default.
+**Repo names work the same way**, linking to `#repo/<name>` — the Busiest repos
+list, the repo columns on every PR table, the contributor's Repos card, all of
+it. Same trade, same reasoning: the drilldown answers more of what you were
+asking when you clicked a repo name here, and it carries its own "View on
+GitHub" button.
+
+The one exception is **Needs a release** on the Dream Panel. That card exists to
+send you somewhere to press a button, and the button is on github.com — routing
+it through a drilldown would add a step to the one place on the dashboard whose
+entire purpose is not having steps. Which is why `COLUMNS.release` keeps its
+direct links while `COLUMNS.pr` doesn't.
+
+Everything is compared bare before linking, since the search-backed panels carry
+`GTNewHorizons/Angelica` and the drilldown is keyed on `Angelica` — the same
+`bareRepo` the exclusion filter uses.
 
 ### Remembering where you were
 
@@ -433,6 +668,7 @@ fills in what a navigation didn't specify.
 src/config.js        tracked labels, thresholds, org — tune here first
 src/github/client.js API client: auth, pagination, rate limits, caching
 src/panels/          one module per panel
+src/panels/grossing.js  shared by analytics and drilldown, owned by neither
 src/build.js         runs all panels → data/dashboard.json + data/drilldown.json
 src/serve.js         local static server
 web/index.html       frontend (single file, no build step)
@@ -500,5 +736,17 @@ somewhere other than Pages to live.
 - **Per-workflow CI breakdown.** The Health tab aggregates all default-branch
   runs together, so it tells you a repo is flaky but not which job is at fault.
   That needs an extra request per repo to list workflows.
+- **Job-level Actions data.** Jobs per run, per-job duration and per-job
+  pass/fail all need `/actions/runs/{id}/jobs` — one request per run, roughly
+  1,500 a build even capped at five runs per repo. Actions load reports runs
+  instead and says plainly that it can't report jobs.
+- **Real billed Actions minutes.** One request to
+  `/orgs/{org}/settings/billing/actions`, but it needs `admin:org` and returns
+  no per-repo breakdown. It would be worth adding as a single calibration tile
+  next to the projection if the estimate ever needs defending.
+- **True commit and line counts.** Everything on the dashboard is derived from
+  PR diffs, so commits pushed straight to a branch are invisible.
+  `/repos/{org}/{repo}/stats/contributors` would cover them at one request per
+  repo, at the cost of `202`-and-retry handling and a top-100-contributors cap.
 - **Issue data.** The ingest walks pull requests only, so nothing anywhere
   reflects issue volume or triage latency.

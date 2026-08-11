@@ -14,6 +14,7 @@
 import { readStore } from "../ingest/pullRequests.js";
 import { BOT_PATTERN, ORG } from "../config.js";
 import { WINDOWS } from "./contributors.js";
+import { grossingLists, hasEngagement } from "./grossing.js";
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -148,6 +149,10 @@ export async function analytics() {
 
   const totals = { prs: 0, merged: 0, open: 0, closed: 0, approvals: 0 };
   const openPRs = [];
+  // Candidates for the org-wide most-commented / most-liked / most-hated
+  // lists. Only PRs that drew something are kept, which is a small fraction of
+  // 28k and saves sorting the rest three times.
+  const gross = [];
 
   /**
    * Every window gets a second, equal-length accumulator covering the period
@@ -184,6 +189,16 @@ export async function analytics() {
     mergeHours: [],
     reviewHours: [],
     newContributors: 0,
+    // Diff size and effort, attributed to the date the PR was opened so they
+    // sit on the same clock as `opened` — "lines per PR" then divides two
+    // numbers describing the same set of PRs.
+    additions: 0,
+    deletions: 0,
+    commits: 0,
+    comments: 0,
+    // Lines changed per PR, for a median. The mean is worthless on this org:
+    // one regenerated lang file drags it past every real number in the list.
+    sizes: [],
   });
 
   const win = Object.fromEntries(periods.map((p) => [p.key, blankPeriod()]));
@@ -283,6 +298,19 @@ export async function analytics() {
       });
     }
 
+    // ---- most grossing ----
+    if (hasEngagement(pr)) {
+      gross.push({
+        repo: pr.repo,
+        number: pr.number,
+        title: pr.title ?? "",
+        author: bot ? null : pr.author,
+        comments: pr.comments ?? 0,
+        thumbsUp: pr.thumbsUp ?? 0,
+        thumbsDown: pr.thumbsDown ?? 0,
+      });
+    }
+
     // ---- heatmap (last 365 days only) ----
     if (now - created <= 365 * DAY && !bot) {
       heat[(created.getUTCDay() + 6) % 7][created.getUTCHours()]++;
@@ -306,6 +334,17 @@ export async function analytics() {
         if (pr.mergedAt) r.merged++;
         acc.repos.set(pr.repo, r);
         if (reviewHours != null) acc.reviewHours.push(reviewHours);
+
+        acc.comments += pr.comments ?? 0;
+        // Skipped rather than added as zeroes on records the ingest hasn't
+        // backfilled — a half-backfilled store should report a smaller sample,
+        // not a smaller codebase.
+        if (typeof pr.additions === "number") {
+          acc.additions += pr.additions;
+          acc.deletions += pr.deletions;
+          acc.commits += pr.commits ?? 0;
+          acc.sizes.push(pr.additions + pr.deletions);
+        }
       }
 
       if (inPeriod(p, pr.mergedAt)) {
@@ -334,6 +373,7 @@ export async function analytics() {
   function summarize(a) {
     const merge = a.mergeHours.sort((x, y) => x - y);
     const review = a.reviewHours.sort((x, y) => x - y);
+    const sizes = a.sizes.sort((x, y) => x - y);
     const reviewerTotal = [...a.reviewers.values()].reduce((n, v) => n + v, 0);
     const top5 = [...a.reviewers.values()]
       .sort((x, y) => y - x)
@@ -360,6 +400,17 @@ export async function analytics() {
       medianMergeHours: round1(pct(merge, 50)),
       p90MergeHours: round1(pct(merge, 90)),
       medianFirstReviewHours: round1(pct(review, 50)),
+      additions: a.additions,
+      deletions: a.deletions,
+      linesChanged: a.additions + a.deletions,
+      commits: a.commits,
+      comments: a.comments,
+      // Null rather than 0 when no PR in the period carries diff data — that's
+      // "the ingest hasn't backfilled yet", which must not render as "nobody
+      // wrote any code this quarter".
+      medianPRLines: sizes.length ? pct(sizes, 50) : null,
+      p90PRLines: sizes.length ? pct(sizes, 90) : null,
+      sizedPRs: sizes.length,
     };
   }
 
@@ -414,6 +465,9 @@ export async function analytics() {
       buckets: backlogCounts,
       oldest: openPRs.sort((a, b) => b.ageDays - a.ageDays).slice(0, 25),
     },
+    // Ten rather than the repo drilldown's five: this is the org-wide board and
+    // a top 5 across 1,400 repos is almost entirely one repo's greatest hits.
+    grossing: grossingLists(gross, 10),
     heatmap: heat,
   };
 }

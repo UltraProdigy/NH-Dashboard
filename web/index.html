@@ -283,17 +283,56 @@
   svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparent); }
 
   .hbars { display: flex; flex-direction: column; gap: 7px; }
-  .hbar { display: grid; grid-template-columns: minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+  /* Four tracks: rank, name, bar, value. Every one of these lists ranks by a
+     single metric, so the row's position *is* information — "who is fourth"
+     shouldn't require counting down from the top with a finger. */
+  .hbar { display: grid; grid-template-columns: auto minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
   .hbar .track { background: var(--panel-2); border-radius: 3px; height: 9px; overflow: hidden; }
   .hbar .fill { height: 100%; border-radius: 3px; }
   .hbar .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Right-aligned and tabular so 9 and 10 line up on their last digit rather
+     than the list developing a kink at every power of ten. */
+  .hbar .rk {
+    color: var(--muted); font-variant-numeric: tabular-nums;
+    text-align: right; min-width: 1.4em; font-size: 11px;
+  }
   /* Inside a paired box the name is the thing you're reading and the bar is
      just a sense of scale, so the split is inverted from the wide cards: the
      label takes whatever's left and the track is capped at a third. At 34% a
      repo name in a half-width box ellipsised after twelve characters while a
      bar sat in acres of empty panel beside it. */
-  .duo-box .hbar { grid-template-columns: minmax(0, 1fr) minmax(44px, 32%) auto; }
-  .hbar .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .duo-box .hbar { grid-template-columns: auto minmax(0, 1fr) minmax(44px, 32%) auto; }
+  .hbar .val { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* The share of the subject's total this row accounts for. Dimmer than the
+     count: the count is the fact, the percentage is the context. */
+  .hbar .val .sh { opacity: .65; margin-left: 5px; }
+
+  /* Three ranked boxes rather than two — "most grossing" is three questions
+     (argued about, liked, hated) that only mean anything side by side. */
+  .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 1000px) { .trio { grid-template-columns: 1fr; } }
+  .trio.stacked { grid-template-columns: 1fr; }
+
+  /* A ranked list whose rows are PRs rather than names: number, title, count.
+     No bar — the counts here span three orders of magnitude and a proportional
+     track just renders four invisible slivers under one full-width one. */
+  .prlist { display: flex; flex-direction: column; gap: 2px; }
+  .prrow {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 9px; align-items: baseline;
+    padding: 5px 0; font-size: 12px;
+  }
+  .prrow + .prrow { border-top: 1px solid var(--border); }
+  .prrow .rk { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.4em; text-align: right; font-size: 11px; }
+  .prrow .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prrow .ttl .who { color: var(--muted); }
+  .prrow .ct { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* Diff size. Green added / red removed, side by side, so a 4,000-line PR
+     that deleted 3,900 of them doesn't read as a 4,000-line addition. */
+  .diff { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .diff .add { color: var(--good); }
+  .diff .del { color: var(--bad); margin-left: 6px; }
 
   .heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); }
   .heat .cell { aspect-ratio: 1; border-radius: 2px; background: var(--panel-2); }
@@ -421,19 +460,24 @@
   }
   select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 
-  /* ---------- dream panel: exclusion popup ----------
-     Two searchable checklists. The row is an explicit two-column grid — a
-     checkbox track and a name track — rather than a flex row: the name has to
-     be given its own column that can't be collapsed by the checkbox, and
-     `minmax(0, 1fr)` is what stops a long label from either overflowing the
-     popup or squeezing itself to nothing. */
+  /* ---------- dream panel: exclusion popups ----------
+     One button and one popup per kind — repos and labels are two unrelated
+     decisions, and pairing them in a two-column popup meant every rule in here
+     had to work at half width. That constraint is what produced the row layout
+     that kept collapsing; a single column removes it entirely.
+
+     The row is a flex line with an explicitly non-shrinking checkbox. A grid
+     with a fixed first track looked equivalent and wasn't: the box only has to
+     be handed one contradictory width — from a stylesheet, a zoom level, a
+     browser's own form defaults — to end up somewhere other than the left edge.
+     `flex: none` can't be talked out of its size. */
   .excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
   .excl-pop {
-    /* Overrides combo-pop's min-width/max-height/overflow: the columns scroll
-       here, not the popup, so the search boxes stay put while you scroll. */
-    width: min(620px, calc(100vw - 60px));
+    /* Overrides combo-pop's min-width/max-height/overflow: the list scrolls
+       here, not the popup, so the search box stays put while you scroll. */
+    width: min(340px, calc(100vw - 60px));
     min-width: 0;
-    max-height: min(460px, 70vh);
+    max-height: min(440px, 70vh);
     padding: 0; overflow: hidden;
     display: flex; flex-direction: column;
   }
@@ -446,43 +490,29 @@
   .excl-head .ghost { margin-left: auto; flex: none; }
   .excl-head .ghost[disabled] { opacity: .45; cursor: default; }
 
-  .excl-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
-  @media (max-width: 720px) { .excl-cols { grid-template-columns: 1fr; } }
-  .excl-group {
-    display: flex; flex-direction: column;
-    min-width: 0; min-height: 0;
-    padding-top: 10px;
-  }
-  .excl-group + .excl-group { border-left: 1px solid var(--border); }
-  .excl-group h4 {
-    flex: none; margin: 0; padding: 0 12px 7px;
-    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-    color: var(--muted);
-    display: flex; align-items: baseline; gap: 8px;
-  }
-  .excl-group h4 .n { margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0; }
   /* The global `input[type="search"]` rule sets a 260px floor, which is right
-     for the toolbar and twice too wide for half of this popup. Qualified with
-     .excl-pop so it wins on specificity rather than on source order. */
+     for the toolbar and too wide for this popup. Qualified with .excl-pop so it
+     wins on specificity rather than on source order. */
   .excl-pop input[type="search"] {
     width: 100%; min-width: 0;
-    padding: 4px 8px; font-size: 12px;
+    padding: 5px 8px; font-size: 12px;
   }
-  .excl-search { flex: none; padding: 0 12px 8px; }
-  .excl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; }
+  .excl-search { flex: none; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  .excl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px 0 8px; }
 
   .excl-opt {
-    display: grid; grid-template-columns: 15px minmax(0, 1fr);
-    align-items: center; gap: 9px;
+    display: flex; align-items: center; gap: 9px;
     padding: 5px 12px; cursor: pointer;
     font-size: 12px; color: var(--text);
   }
   .excl-opt:hover { background: var(--panel-2); }
   .excl-opt input[type="checkbox"] {
+    flex: none;
     width: 15px; height: 15px; margin: 0; accent-color: var(--accent);
   }
   .excl-opt .nm {
-    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--text);
   }
   /* What's currently hidden should be findable without reading every row. */
@@ -554,7 +584,13 @@ const state = {
   // window dropdown for the aggregates and a separate range picker for the
   // chart's x-axis — which put two time controls on one toolbar answering
   // subtly different questions about the same page.
-  window: "m3",
+  // Six months rather than three. Three is short enough that a quiet fortnight
+  // moves every number on the page, and on an org this size the question is
+  // nearly always "what does the last half-year look like".
+  window: "m6",
+  // New Faces is the exception, and keeps its own — see OWN_WINDOW. Six months
+  // of first-timers is a long list of people who aren't new any more.
+  newFacesWindow: "m3",
   gran: "month",      // x-axis granularity: day | week | month
   filter: "",
   label: null,
@@ -568,7 +604,11 @@ const state = {
   // either way they're noise on a page whose whole job is a short actionable
   // list. Held as arrays rather than Sets so they serialize to localStorage.
   dreamExcl: { repos: [], labels: [] },
-  exclOpen: false,
+  // Which exclusion popup is open, if any: null | "repos" | "labels". They're
+  // two buttons rather than one popup with two columns — hiding a repo and
+  // hiding a label are unrelated decisions, and pairing them meant every rule
+  // in that popup had to survive at half width.
+  exclOpen: null,
   exclQ: { repos: "", labels: "" },   // search text, per group
 
   // ---- drilldown ----
@@ -634,8 +674,47 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&l
 const contribHref = (r) => `#contributor/${encodeURIComponent(r.login)}`;
 const contribLink = (login) =>
   `<a href="${contribHref({ login })}" data-drilllink>${esc(login)}</a>`;
+
+/**
+ * Repo names arrive in two shapes: the search-backed panels carry the full
+ * `GTNewHorizons/Angelica`, the release sweep and the ingest store carry a bare
+ * `Angelica`. The drilldown is keyed bare, so every link has to strip the org
+ * before routing — and the exclusion filter compares bare for the same reason.
+ */
+const bareRepo = (r) => String(r ?? "").split("/").pop();
+
+/**
+ * A repo name, linking to its drilldown rather than to GitHub — the same trade
+ * contributor names make. The drilldown answers more of what you were asking
+ * when you clicked the name here, and it carries a "View on GitHub" button of
+ * its own, so the repo page is one more click rather than gone.
+ *
+ * The single exception is Dream Panel's "Needs a release": that card exists to
+ * send you somewhere to press a button, and the button is on github.com. Those
+ * rows keep their direct links, which is why this isn't wired into
+ * COLUMNS.release.
+ */
+const repoHref = (repo) => `#repo/${encodeURIComponent(bareRepo(repo))}`;
+const repoLink = (repo, cls = "repo") =>
+  `<a class="${cls}" href="${repoHref(repo)}" data-drilllink>${esc(repo)}</a>`;
+
 const fmt = n => (n == null ? "—" : Number(n).toLocaleString());
 const pctFmt = x => (x == null ? "—" : `${Math.round(x * 100)}%`);
+
+/** Big line counts are noise at full precision — 41,207 reads as "41k". */
+const kfmt = n =>
+  n == null ? "—"
+    : Math.abs(n) < 10_000 ? Number(n).toLocaleString()
+    : Math.abs(n) < 1_000_000 ? `${Math.round(n / 1000).toLocaleString()}k`
+    : `${(n / 1_000_000).toFixed(1)}M`;
+
+/** A PR's diff, as +added / −removed. Null when the ingest hasn't backfilled. */
+const diff = (add, del) =>
+  add == null && del == null
+    ? `<span class="diff">—</span>`
+    : `<span class="diff"><span class="add">+${kfmt(add ?? 0)}</span><span class="del">−${kfmt(del ?? 0)}</span></span>`;
+
+const linesOf = (r) => (r.additions == null ? null : r.additions + (r.deletions ?? 0));
 
 /** Hours read badly past a day or two, so switch units rather than print 412h. */
 function dur(hours) {
@@ -800,22 +879,101 @@ function legend(series) {
     `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("")}</div>`;
 }
 
-/** Horizontal ranked bars — better than a pie for "top N of many". */
-function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt } = {}) {
+/**
+ * Horizontal ranked bars — better than a pie for "top N of many".
+ *
+ * Every one of these lists ranks by a single metric, so each row is numbered:
+ * position in the list is information, and "who is seventh" shouldn't need
+ * counting down from the top. `share` adds each row's percentage of the list's
+ * total beside its count — on a per-repo breakdown of someone's PRs, "48 in
+ * GT5-Unofficial" means something quite different at 12% than at 80%.
+ */
+function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt, rank = true, share = false } = {}) {
   if (!rows.length) return `<div class="empty">Nothing to show.</div>`;
   const max = Math.max(...rows.map(value));
+  // Of the list, not of the subject's grand total: these breakdowns are
+  // exhaustive (every PR they opened lands in exactly one repo), so the two are
+  // the same number — and computing it from the rows can't drift out of step
+  // with a window that omitted something.
+  const total = share ? rows.reduce((n, r) => n + value(r), 0) : 0;
   // `internal` links stay in the app (a #hash route), so they must not open in
   // a new tab the way the github.com links do.
   const attrs = internal ? " data-drilllink" : ` target="_blank" rel="noopener"`;
-  return `<div class="hbars">${rows.map(r => {
+  return `<div class="hbars">${rows.map((r, i) => {
     const text = esc(label(r));
+    const v = value(r);
     return `<div class="hbar">
+      ${rank ? `<span class="rk">${i + 1}</span>` : `<span></span>`}
       <span class="lab" title="${text}">${href ? `<a href="${href(r)}"${attrs}>${text}</a>` : text}</span>
-      <span class="track"><span class="fill" style="width:${(value(r) / max) * 100}%;background:${color}"></span></span>
-      <span class="val">${fmtV(value(r))}</span>
+      <span class="track"><span class="fill" style="width:${(v / max) * 100}%;background:${color}"></span></span>
+      <span class="val">${fmtV(v)}${
+        share && total ? `<span class="sh">${Math.round((v / total) * 100)}%</span>` : ""}</span>
     </div>`;
   }).join("")}</div>`;
 }
+
+/**
+ * A ranked list of PRs — "most grossing", and anything else where the row is a
+ * pull request rather than a name.
+ *
+ * No bar. These counts span three orders of magnitude (a 400-comment thread
+ * next to a 6-comment one), and a proportional track renders four invisible
+ * slivers under one full-width one, which tells you less than the numbers do.
+ */
+function prList(rows, { unit = "", repo = null } = {}) {
+  if (!rows.length) return `<div class="empty" style="padding:18px 0">Nothing here.</div>`;
+  const org = state.data.org;
+  return `<div class="prlist">${rows.map((r, i) => {
+    // Rows from a repo's own lists don't carry a repo — the card is already
+    // about one. The org-wide board does, and needs it on every row.
+    const where = bareRepo(r.repo ?? repo);
+    const id = r.repo ? `${where}#${r.number}` : `#${r.number}`;
+    // Titles are absent until the ingest backfill has run; fall back to the
+    // identifier rather than rendering a blank row.
+    const text = r.title ? esc(r.title) : id;
+    return `<div class="prrow">
+      <span class="rk">${i + 1}</span>
+      <span class="ttl" title="${esc(r.title || id)}">
+        <a href="https://github.com/${org}/${encodeURIComponent(where)}/pull/${r.number}"
+           target="_blank" rel="noopener">${text}</a>
+        <span class="who">${esc(id)}${r.author ? ` · ${esc(r.author)}` : ""}</span>
+      </span>
+      <span class="ct">${fmt(r.count)}${unit ? ` ${unit}` : ""}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+/**
+ * Three ranked boxes — the shape "most grossing" takes everywhere it appears.
+ *
+ * Same construction as duo(), one box wider. Kept separate rather than
+ * generalising duo() to n boxes: the two have different collapse points and
+ * different empty-state wording, and a `boxes(...lists)` that took both would
+ * be mostly branches on how many it was handed.
+ */
+function trio(boxes, { height = "short", stacked = false, repo = null } = {}) {
+  return `<div class="trio${stacked ? " stacked" : ""}">${boxes.map(b => `
+    <section class="duo-box">
+      <h3>${esc(b.title)}<span class="n">${fmt(b.rows.length)}</span></h3>
+      <div class="scroll ${height}">${prList(b.rows, { unit: b.unit, repo })}</div>
+    </section>`).join("")}</div>`;
+}
+
+/** The three lists, in the order they read best: argued about, liked, hated. */
+const GROSSING_BOXES = [
+  { key: "commented", title: "Most commented", unit: "comments" },
+  { key: "liked", title: "Most 👍", unit: "" },
+  { key: "disliked", title: "Most 👎", unit: "" },
+];
+
+const grossingBoxes = (g) =>
+  GROSSING_BOXES.map(b => ({ ...b, rows: g?.[b.key] ?? [] }));
+
+/** Shown when a build predates the engagement fields, or nothing drew any. */
+const grossingNote = (g) =>
+  g && GROSSING_BOXES.some(b => (g[b.key] ?? []).length)
+    ? ""
+    : `<div class="hint" style="margin-top:12px">No comment or reaction data yet. It arrives with the ingest backfill — run <code>npm run ingest</code>, which re-walks the store once to populate diff sizes, comment counts and reactions, then <code>npm run build</code>.</div>`;
 
 function kpi(k, v, d = "", cls = "") {
   return `<div class="kpi"><div class="k">${esc(k)}</div><div class="v ${cls}">${v}</div><div class="d">${d}</div></div>`;
@@ -827,7 +985,7 @@ function kpi(k, v, d = "", cls = "") {
 
 const COLUMNS = {
   pr: [
-    { key: "repo",      label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
+    { key: "repo",      label: "Repo",   render: r => repoLink(r.repo) },
     { key: "title",     label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
     { key: "author",    label: "Author", render: r => esc(r.author) },
     { key: "labels",    label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
@@ -846,14 +1004,26 @@ const COLUMNS = {
 /** Compact column subset for overview previews — six columns don't fit a card. */
 const preview = cols => cols.filter(c => ["repo", "title", "tagName", "commitsAhead", "ageDays", "login"].includes(c.key));
 
-function renderTable(rows, cols, { sortable = false, limit = null, total = null } = {}) {
+/**
+ * `rows` is whatever the caller decided should be in this table — already
+ * filtered and sorted. The "+ N more" line therefore counts only what *this
+ * render* truncated, and says nothing when nothing was.
+ *
+ * It used to take a separate `total` and subtract the rows shown from that.
+ * Callers passed the pre-filter count, so searching an already-complete list
+ * produced "+ 312 more — open the tab for the full list" underneath every
+ * matching row: the list was complete, the search had simply removed 312 rows
+ * on purpose. A count of hidden rows has to be derived from the same array the
+ * rows came from, or it ends up describing a different question.
+ */
+function renderTable(rows, cols, { sortable = false, limit = null } = {}) {
   if (!rows.length) return `<div class="empty">Nothing here. That's usually good news.</div>`;
   const shown = limit ? rows.slice(0, limit) : rows;
   const head = cols.map(c =>
     `<th ${sortable && c.sortable !== false ? `data-sort="${c.key}"` : ""}>${c.label}${
       sortable && state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const body = shown.map(r => `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`).join("");
-  const rest = (total ?? rows.length) - shown.length;
+  const rest = rows.length - shown.length;
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
     (rest > 0 ? `<div class="more">+ ${fmt(rest)} more — open the tab for the full list.</div>` : "");
 }
@@ -885,8 +1055,30 @@ const panel = id => state.data?.panels?.[id];
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
-/** Drilldowns keep their own window, independent of the org pages. */
-const activeWindow = () => (isDrill(state.page) ? state.drillWindow : state.window);
+/**
+ * Modules that keep a period of their own, independent of their page's.
+ *
+ * New Faces is the only one. "Who's new" and "who's busiest" want different
+ * spans by nature — six months of first-timers is a long list of people who
+ * stopped being new some time ago — and the alternative, rewriting the page's
+ * period whenever you open that tab, silently changes what Leaderboard was
+ * showing behind your back.
+ *
+ * The cost is that its card on the overview grid doesn't answer to the toolbar
+ * control above it. Its caption says which period it's on, for exactly that
+ * reason.
+ */
+const OWN_WINDOW = { newcomers: "newFacesWindow" };
+
+/**
+ * Which slot of state holds the period for a given module: its own if it has
+ * one, otherwise the page's — and the drilldowns keep theirs separate from the
+ * org pages, so looking at a person doesn't reset what Analytics was showing.
+ */
+const windowKey = (mod = state.module) =>
+  OWN_WINDOW[mod] ?? (isDrill(state.page) ? "drillWindow" : "window");
+
+const activeWindow = (mod) => state[windowKey(mod)];
 
 /**
  * The window list for whichever page is showing.
@@ -903,20 +1095,20 @@ const windowList = () =>
   ?? A()?.windows ?? state.drill?.windows
   ?? panel("contributors")?.data?.windows ?? [];
 
-const windowLabel = () => {
-  const id = activeWindow();
+const windowLabel = (mod) => {
+  const id = activeWindow(mod);
   return windowList().find(w => w.id === id)?.label ?? id;
 };
 
 /** "last 3 months" or "all time" — "last all time" reads like a typo. */
-const windowPhrase = () => {
-  const l = windowLabel().toLowerCase();
+const windowPhrase = (mod) => {
+  const l = windowLabel(mod).toLowerCase();
   return l === "all time" ? "all time" : `last ${l}`;
 };
 
 /** How many days the selected period covers; null for all time. */
-const windowDays = () =>
-  windowList().find(w => w.id === activeWindow())?.days ?? null;
+const windowDays = (mod) =>
+  windowList().find(w => w.id === activeWindow(mod))?.days ?? null;
 
 /**
  * Time series for the selected granularity, trimmed to the selected period.
@@ -1016,8 +1208,21 @@ const EMPTY_WINDOW = {
   mergeRate: null, approvedShare: null, unapprovedMerges: 0,
   medianMergeHours: null, p90MergeHours: null, medianFirstReviewHours: null,
   people: 0, reviewers: 0,
+  additions: 0, deletions: 0, filesChanged: 0, commits: 0, comments: 0,
+  medianPRLines: null, p90PRLines: null, sizedPRs: 0,
 };
 const SW = () => subject()?.windows?.[activeWindow()] ?? EMPTY_WINDOW;
+
+/**
+ * Total lines a window touched, or null if the data isn't there.
+ *
+ * `w.additions + w.deletions` on a window built before these fields existed is
+ * `NaN`, which formats as "NaNM" — a number-shaped thing that is not a number.
+ * A dashboard.json and a drilldown.json are built separately and either can be
+ * the stale one, so this has to hold for a while rather than until the next
+ * build.
+ */
+const linesIn = (w) => (w?.additions == null ? null : w.additions + (w.deletions ?? 0));
 
 /**
  * Expand the column-oriented series the build emits back into the named
@@ -1054,10 +1259,54 @@ function resolvedAll() {
   if (!s?.resolved) return [];
   if (s._resolved) return s._resolved;
   const { repos, rows } = s.resolved;
-  s._resolved = rows.map(([r, number, at, merged]) => ({
+  // Positional destructuring against RESOLVED_FIELDS in the build. Rows written
+  // before the size columns existed are four long, so the tail destructures to
+  // undefined — normalised to null here, which is what "not ingested yet" means
+  // everywhere else and renders as an em dash rather than a zero.
+  s._resolved = rows.map(([r, number, at, merged, additions, deletions, commits, comments, title]) => ({
     repo: repos[r], number, at, merged: merged === 1,
+    additions: additions ?? null,
+    deletions: deletions ?? null,
+    commits: commits ?? null,
+    comments: comments ?? null,
+    title: title ?? "",
   }));
   return s._resolved;
+}
+
+/**
+ * Every PR of theirs that carries a diff size, resolved and open together,
+ * biggest first — the backing list for Biggest PRs.
+ *
+ * Resolved PRs are windowed by when they ended, open ones by when they were
+ * opened. Those are the only dates each half has, and they're the same dates
+ * the Closed PRs tab and the Open PRs tab already window by, so the three
+ * cards agree about what "last 6 months" contains.
+ *
+ * PRs with no diff data are dropped rather than sorted to the bottom as zeroes:
+ * on a store that hasn't been backfilled that would be the whole list, ranked
+ * by nothing.
+ */
+function biggestRows() {
+  const s = subject();
+  if (!s) return [];
+  const days = windowDays();
+  const cutoff = days == null ? null : Date.now() - days * 86400000;
+
+  const open = (s.backlog?.oldest ?? [])
+    .filter(r => days == null || r.ageDays <= days)
+    .map(r => ({ ...r, open: true }));
+
+  // resolvedAll(), not resolvedRows(): the latter also applies the Closed PRs
+  // tab's merged/dropped toggle, which isn't shown on this card. Reusing it
+  // would let a setting made two tabs ago quietly halve this list.
+  const resolved = resolvedAll().filter(
+    r => cutoff == null || new Date(r.at).getTime() >= cutoff
+  );
+
+  return [...resolved, ...open]
+    .filter(r => linesOf(r) != null)
+    .sort((a, b) => linesOf(b) - linesOf(a));
 }
 
 /** Filtered by the merged/closed toggle and the window picker. */
@@ -1090,13 +1339,13 @@ function subjectSlice() {
  * 400-entry list and a 3-entry one sit next to each other without either
  * dictating the height of the card.
  */
-function duo(left, right, { height = "tall", stacked = false } = {}) {
+function duo(left, right, { height = "tall", stacked = false, share = false } = {}) {
   const box = ({ title, rows, color, href, internal, label, value }) => `
     <section class="duo-box">
       <h3>${esc(title)}<span class="n">${fmt(rows.length)}</span></h3>
       <div class="scroll ${height}">${
         rows.length
-          ? hbars(rows, { label, value, color, href, internal })
+          ? hbars(rows, { label, value, color, href, internal, share })
           : `<div class="empty" style="padding:18px 0">Nothing here.</div>`
       }</div>
     </section>`;
@@ -1105,6 +1354,10 @@ function duo(left, right, { height = "tall", stacked = false } = {}) {
 
 const byLogin = { label: r => r.login, value: r => r.count,
   href: contribHref, internal: true };
+
+/** The repo-side equivalent, now that repo names route to their drilldown. */
+const byRepo = { label: r => r.repo, value: r => r.count,
+  href: r => repoHref(r.repo), internal: true };
 
 /** URL for whatever the current page's subjects are on GitHub. */
 const subjectUrl = (id) =>
@@ -1144,8 +1397,11 @@ const MODULES = {
           ${kpi("Median first review", dur(w.medianFirstReviewHours), delta("medianFirstReviewHours", { invert: true, fallback: `${fmt(w.approvals)} approvals` }))}
           ${kpi("Active contributors", fmt(w.activeAuthors), delta("activeAuthors", { fallback: `${fmt(w.activeReviewers)} of them reviewed` }))}
           ${kpi("First-time authors", fmt(w.newContributors), delta("newContributors", { fallback: `since ${new Date(a.totals.firstPR).getFullYear()}` }))}
+          ${kpi("Lines changed", kfmt(w.linesChanged), w.sizedPRs
+                ? delta("linesChanged", { fallback: `median ${kfmt(w.medianPRLines)} per PR` })
+                : "no diff data yet")}
           ${kpi("Open backlog", fmt(a.backlog.total), `${fmt(a.backlog.unreviewed)} never reviewed`, a.backlog.unreviewed > a.backlog.total / 2 ? "down" : "")}
-        </div>`;
+        </div>` + sizeNotice(w);
       }
       // Expanded: every window side by side, so trends are readable without
       // clicking through the picker one option at a time.
@@ -1165,6 +1421,12 @@ const MODULES = {
         ["Active reviewers",     w => fmt(w.activeReviewers)],
         ["First-time contributors", w => fmt(w.newContributors)],
         ["Repos touched",        w => fmt(w.activeRepos)],
+        ["Lines added",          w => kfmt(w.additions)],
+        ["Lines removed",        w => kfmt(w.deletions)],
+        ["Median PR size",       w => (w.sizedPRs ? `${kfmt(w.medianPRLines)} lines` : "—")],
+        ["p90 PR size",          w => (w.sizedPRs ? `${kfmt(w.p90PRLines)} lines` : "—")],
+        ["Commits",              w => fmt(w.commits)],
+        ["PR comments",          w => fmt(w.comments)],
       ];
       return `<table>
         <thead><tr><th style="cursor:default">Metric</th>${a.windows.map(x => `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
@@ -1221,7 +1483,7 @@ const MODULES = {
       if (!expanded) return summary + bars;
 
       const cols = [
-        { key: "repo",   label: "Repo",   render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "repo",   label: "Repo",   render: r => repoLink(r.repo) },
         { key: "number", label: "PR",     render: r => `<a href="${r.url}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "author", label: "Author", render: r => esc(r.author) },
         { key: "ageDays",  label: "Opened",  render: r => age(r.ageDays) },
@@ -1281,7 +1543,7 @@ const MODULES = {
       return hbars(rows, {
         label: r => r.repo,
         value: r => r.opened,
-        href: r => `https://github.com/${state.data.org}/${r.repo}/pulls`,
+        href: r => repoHref(r.repo), internal: true,
       }) + (expanded ? `<h3 style="font-size:13px;margin:22px 0 8px">Merged share</h3>` +
         hbars(rows, { label: r => r.repo, value: r => r.merged, color: "var(--good)" }) : "");
     },
@@ -1340,6 +1602,94 @@ const MODULES = {
         `<span class="cl">${h % 6 === 0 ? h : ""}</span>`).join("");
       return `<div class="heat">${cells}${hourRow}</div>
         <div class="hint" style="margin-top:12px">Darker means more PRs opened in that hour. Useful for picking a maintenance window that annoys the fewest people.</div>`;
+    },
+  },
+
+  /**
+   * The org-wide version of the repo drilldown's Most Grossing card.
+   *
+   * Ten rows rather than five: a top 5 across 1,400 repos is almost entirely
+   * one repo's greatest hits, and the point of the org board is that it isn't.
+   */
+  grossing: {
+    page: "analytics", label: "Most grossing", span: 12,
+    sub: () => "most discussed and most reacted-to PRs in the org, all time",
+    render(expanded) {
+      const a = A();
+      if (!a) return missingIngest();
+      return trio(grossingBoxes(a.grossing), {
+        height: expanded ? "tall" : "short",
+      }) + grossingNote(a.grossing);
+    },
+  },
+
+  /**
+   * What Actions is costing the org, projected from the runs CI health already
+   * sampled.
+   *
+   * Everything here is an estimate and the card says so in three places, because
+   * the numbers are large and large numbers get quoted. See summarizeOrg in
+   * src/panels/ciHealth.js for what the projection does and doesn't cover; the
+   * short version is that it sees only completed default-branch runs with
+   * PR-triggered runs excluded, which on most repos is the minority of all CI
+   * activity.
+   */
+  actions: {
+    page: "analytics", label: "Actions load", span: 12,
+    sub: () => "estimated org-wide, projected from sampled runs",
+    render(expanded) {
+      const p = panel("ciHealth");
+      if (!p) return `<div class="hint">Built before this panel existed — rerun <code>npm run build</code>.</div>`;
+      if (!p.ok) return `<div class="error">CI health unavailable — ${esc(p.error)}</div>`;
+      const o = p.data.org;
+      if (!o) return `<div class="hint">No org-wide roll-up in this build. Rerun <code>npm run build</code>.</div>`;
+
+      const rateCls = o.passRate == null ? "" : o.passRate > 0.9 ? "up" : o.passRate > 0.7 ? "flat" : "down";
+      const tiles = `<div class="kpis" style="margin:-14px -14px 14px">
+        ${kpi("Runs per month", `~${fmt(o.runsPerMonth)}`, `projected from ${fmt(o.projectedFrom)} of ${fmt(o.repos)} repos`)}
+        ${kpi("Wall-clock hours per month", `~${fmt(o.hoursPerMonth)}`, `~${fmt(o.minutesPerMonth)} minutes`)}
+        ${kpi("Average run", ciDur(o.meanRunMinutes), `over ${fmt(o.sampledRuns)} sampled runs`)}
+        ${kpi("Pass rate", pctFmt(o.passRate), `${fmt(o.failures)} failed of ${fmt(o.decisive)} decisive`, rateCls)}
+      </div>`;
+
+      // The first two are the ones that stop the headline number being
+      // misread, so the overview card carries those and the tab carries all
+      // four. A card of four paragraphs of caveat under four tiles reads as an
+      // apology rather than a measurement.
+      const caveats = [
+        `<strong>These are estimates, not a bill.</strong> Each repo contributes a rate — the runs in its sample divided by the days that sample covers — and the org figure is the sum of those rates over a 30-day month. A repo that hammered CI last week and has been quiet since projects a month that won't happen.`,
+        `<strong>It's a floor, not a total.</strong> Only completed runs on each repo's default branch are sampled, and PR-triggered runs are excluded outright. On most repos those are the majority of all CI activity.`,
+        `<strong>Wall-clock, not billable minutes.</strong> Billing is per job: a run with eight matrix jobs in parallel bills roughly eight times what it took on the clock, and macOS bills 10x, Windows 2x. Use this to see the trend and compare periods, not to reconcile an invoice.`,
+        `<strong>No job counts.</strong> The runs endpoint returns runs, not jobs — a job breakdown needs one more request per run, roughly 1,500 per build, which would cost more than every other panel combined. The org's real billed total is one request to <code>/orgs/${esc(state.data.org)}/settings/billing/actions</code>, but that needs <code>admin:org</code> and has no per-repo breakdown.`,
+      ];
+      const notes = (n) => caveats.slice(0, n)
+        .map(c => `<div class="hint" style="margin-top:8px">${c}</div>`).join("");
+
+      if (!expanded) return tiles + notes(2);
+
+      // Expanded: which repos are actually spending the time.
+      const repos = Object.values(p.data.repos ?? {})
+        .filter(r => r.sampleSpanDays && r.timedRuns)
+        .map(r => ({
+          repo: r.repo,
+          perMonth: Math.round((r.runs / r.sampleSpanDays) * 30),
+          minutes: Math.round((r.runs / r.sampleSpanDays) * 30 * ((r.totalMinutes ?? 0) / r.timedRuns)),
+          median: r.medianMinutes,
+          passRate: r.passRate,
+        }))
+        .sort((a, b) => b.minutes - a.minutes);
+
+      const cols = [
+        { key: "repo", label: "Repo", render: r => repoLink(r.repo) },
+        { key: "minutes", label: "Est. minutes/month", render: r => `<span class="num">${fmt(r.minutes)}</span>` },
+        { key: "perMonth", label: "Est. runs/month", render: r => `<span class="num">${fmt(r.perMonth)}</span>` },
+        { key: "median", label: "Median run", render: r => `<span class="num">${ciDur(r.median)}</span>` },
+        { key: "passRate", label: "Pass rate", get: r => r.passRate ?? -1, render: r => `<span class="num">${pctFmt(r.passRate)}</span>` },
+      ];
+
+      return tiles + notes(4) +
+        `<h3 style="font-size:13px;margin:26px 0 8px">Where the time goes</h3>` +
+        renderTable(sortRows(applyFilter(repos), cols), cols, { sortable: true });
     },
   },
 
@@ -1418,9 +1768,14 @@ const MODULES = {
 
   newcomers: {
     page: "people", label: "New faces", span: 6, flush: true,
-    sub: () => activeWindow() === "all" ? "first PR ever" : `first PR in the ${windowPhrase()}`,
+    // Names its own period explicitly. This card doesn't follow the toolbar
+    // control above it on the overview grid, so the caption has to say what it
+    // is showing rather than leaving you to assume it matches its neighbours.
+    sub: () => activeWindow("newcomers") === "all"
+      ? "first PR ever"
+      : `first PR in the ${windowPhrase("newcomers")}`,
     render(expanded) {
-      const days = (A()?.windows ?? []).find(w => w.id === state.window)?.days ?? null;
+      const days = windowDays("newcomers");
       const rows = contributorAll()
         .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
         .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
@@ -1475,11 +1830,18 @@ const MODULES = {
           ${kpi("Repos touched", fmt(w.people), `in ${windowLabel().toLowerCase()}`)}
           ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
           ${kpi("Median first review", dur(w.medianFirstReviewHours), "on their PRs")}
+          ${/* Added and removed rather than a net figure: a refactor that moves
+                4,000 lines nets to zero, which is the least informative thing
+                that could be said about it. The median is beside it because the
+                sum is dominated by whichever PR regenerated a lang file. */""}
+          ${kpi("Lines changed", kfmt(linesIn(w)),
+                w.sizedPRs ? `median ${kfmt(w.medianPRLines)} per PR` : "no diff data yet")}
+          ${kpi("Commits", fmt(w.commits), `across ${fmt(w.sizedPRs)} sized PRs`)}
           ${kpi("Open PRs", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
                 s.backlog.unreviewed ? "down" : "")}
           ${kpi("Active since", s.first ? new Date(s.first).getFullYear() : "—",
                 s.last ? `last seen ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
-        </div>`;
+        </div>` + sizeNotice(w);
       }
       return windowTable([
         ["PRs opened",            w => fmt(w.opened)],
@@ -1493,6 +1855,13 @@ const MODULES = {
         ["Authors reviewed for",  w => fmt(w.reviewers)],
         ["Repos touched",         w => fmt(w.people)],
         ["Merged without approval", w => fmt(w.unapprovedMerges)],
+        ["Lines added",           w => kfmt(w.additions)],
+        ["Lines removed",         w => kfmt(w.deletions)],
+        ["Median PR size",        w => (w.sizedPRs ? `${kfmt(w.medianPRLines)} lines` : "—")],
+        ["p90 PR size",           w => (w.sizedPRs ? `${kfmt(w.p90PRLines)} lines` : "—")],
+        ["Commits",               w => fmt(w.commits)],
+        ["Files touched",         w => fmt(w.filesChanged)],
+        ["Comments received",     w => fmt(w.comments)],
       ]);
     },
   },
@@ -1541,17 +1910,17 @@ const MODULES = {
     render(expanded) {
       const s = subject();
       const w = activeWindow();
-      const byRepo = {
-        label: r => r.repo,
-        value: r => r.count,
-        href: r => `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}`,
-      };
       // Side by side once the card is full width, stacked in the 4-column
       // overview slot where two ranked lists would be too narrow to read.
+      //
+      // `share` is the point of the card as much as the counts are: "48 PRs in
+      // GT5-Unofficial" is a different fact at 12% of their output than at 80%,
+      // and the bar only compares rows against the biggest one, not against
+      // the whole.
       return duo(
         { title: "PRs opened", rows: s?.topRepos?.[w] ?? [], color: "var(--accent)", ...byRepo },
         { title: "PRs reviewed", rows: s?.reviewRepos?.[w] ?? [], color: "var(--purple)", ...byRepo },
-        { height: expanded ? "tall" : "short", stacked: !expanded }
+        { height: expanded ? "tall" : "short", stacked: !expanded, share: true }
       );
     },
   },
@@ -1575,7 +1944,7 @@ const MODULES = {
     render(expanded) {
       const s = subject();
       const cols = [
-        { key: "repo",   label: "Repo", render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "repo",   label: "Repo", render: r => repoLink(r.repo) },
         { key: "number", label: "PR",   render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "draft",  label: "State", get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
         { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
@@ -1584,7 +1953,7 @@ const MODULES = {
       ];
       return draftNotice(s.backlog) +
         renderTable(sortRows(applyFilter(s.backlog.oldest), cols), cols,
-          { sortable: expanded, limit: expanded ? null : 7, total: s.backlog.total });
+          { sortable: expanded, limit: expanded ? null : 7 });
     },
   },
 
@@ -1599,7 +1968,7 @@ const MODULES = {
     render(expanded) {
       const rows = resolvedRows();
       const cols = [
-        { key: "repo",   label: "Repo",  render: r => `<span class="repo">${esc(r.repo)}</span>` },
+        { key: "repo",   label: "Repo",  render: r => repoLink(r.repo) },
         { key: "number", label: "PR",    render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "merged", label: "Outcome", get: r => (r.merged ? 0 : 1),
           render: r => r.merged
@@ -1610,7 +1979,54 @@ const MODULES = {
       // Already newest-first from the build, and sortRows is a no-op until a
       // header is clicked, so that's the default order for free.
       return renderTable(sortRows(applyFilter(rows), cols), cols,
-        { sortable: expanded, limit: expanded ? null : 10, total: rows.length });
+        { sortable: expanded, limit: expanded ? null : 10 });
+    },
+  },
+
+  /**
+   * The PRs this person is known for.
+   *
+   * Ranked by lines changed, with commits, comments and reviews beside them —
+   * "biggest" has four plausible meanings and the honest answer is to show all
+   * four and let the column headers re-rank. Diff size leads because it's the
+   * one that most often matches what someone means by "their big PR".
+   *
+   * Open PRs are included alongside resolved ones: a 6,000-line PR that has
+   * been sitting open for a year is exactly the kind of thing this card should
+   * surface, and excluding it because it hasn't landed would be perverse.
+   */
+  cBiggest: {
+    page: "contributor", label: "Biggest PRs", span: 12, flush: true,
+    controls: ["window"], twin: "rGrossing",
+    sub: () => `by lines changed, ${windowPhrase()}`,
+    render(expanded) {
+      const rows = biggestRows();
+      if (!rows.length)
+        return `<div class="hint" style="padding:14px">No diff data for this period. It arrives with the ingest backfill — run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
+
+      const cols = [
+        { key: "repo", label: "Repo", render: r => repoLink(r.repo) },
+        { key: "title", label: "PR", get: r => r.title ?? "",
+          render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">${
+            r.title ? esc(r.title) : `#${r.number}`}</a> <span class="repo">#${r.number}</span>` },
+        { key: "lines", label: "Lines", get: r => linesOf(r) ?? -1,
+          render: r => `<span class="num">${kfmt(linesOf(r))}</span>` },
+        { key: "diff", label: "Diff", sortable: false, render: r => diff(r.additions, r.deletions) },
+        { key: "commits", label: "Commits", get: r => r.commits ?? -1,
+          render: r => `<span class="num">${fmt(r.commits)}</span>` },
+        { key: "comments", label: "Comments", get: r => r.comments ?? -1,
+          render: r => `<span class="num">${fmt(r.comments)}</span>` },
+        { key: "state", label: "Outcome", get: r => (r.open ? 0 : r.merged ? 1 : 2),
+          render: r => r.open
+            ? `<span class="pill draft">open</span>`
+            : r.merged
+              ? `<span class="pill merged">merged</span>`
+              : `<span class="pill dropped">closed</span>` },
+      ];
+      // Pre-sorted by size, so sortRows is a no-op until a header is clicked
+      // and that's the default order for free — the same deal as Closed PRs.
+      return renderTable(sortRows(applyFilter(rows), cols), cols,
+        { sortable: expanded, limit: expanded ? 100 : 8 });
     },
   },
 
@@ -1635,11 +2051,14 @@ const MODULES = {
           ${kpi("Approvals", fmt(w.approvals), `${pctFmt(w.approvedShare)} of merges approved`)}
           ${kpi("Median time to merge", dur(w.medianMergeHours), `p90 ${dur(w.p90MergeHours)}`)}
           ${kpi("Median first review", dur(w.medianFirstReviewHours), "after opening")}
+          ${kpi("Lines changed", kfmt(linesIn(w)),
+                w.sizedPRs ? `median ${kfmt(w.medianPRLines)} per PR` : "no diff data yet")}
+          ${kpi("Commits", fmt(w.commits), `across ${fmt(w.sizedPRs)} sized PRs`)}
           ${kpi("Open backlog", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
                 s.backlog.unreviewed > s.backlog.total / 2 ? "down" : "")}
           ${kpi("First PR", s.first ? new Date(s.first).getFullYear() : "—",
                 s.last ? `last ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
-        </div>`;
+        </div>` + sizeNotice(w);
       }
       return windowTable([
         ["PRs opened",            w => fmt(w.opened)],
@@ -1654,7 +2073,34 @@ const MODULES = {
         ["Merged without approval", w => fmt(w.unapprovedMerges)],
         ["Contributors",          w => fmt(w.people)],
         ["Reviewers",             w => fmt(w.reviewers)],
+        ["Lines added",           w => kfmt(w.additions)],
+        ["Lines removed",         w => kfmt(w.deletions)],
+        ["Median PR size",        w => (w.sizedPRs ? `${kfmt(w.medianPRLines)} lines` : "—")],
+        ["p90 PR size",           w => (w.sizedPRs ? `${kfmt(w.p90PRLines)} lines` : "—")],
+        ["Commits",               w => fmt(w.commits)],
+        ["Files touched",         w => fmt(w.filesChanged)],
+        ["Comments",              w => fmt(w.comments)],
       ]);
+    },
+  },
+
+  /**
+   * What this repo actually argued about, liked and hated.
+   *
+   * All-time — see the note in src/panels/grossing.js. The other cards on this
+   * page follow the period control; this one says "all time" in its caption
+   * rather than displaying a control that would do nothing.
+   */
+  rGrossing: {
+    page: "repo", label: "Most grossing", span: 12, twin: "cBiggest",
+    sub: () => "most discussed and most reacted-to PRs, all time",
+    render(expanded) {
+      const s = subject();
+      return trio(grossingBoxes(s.grossing), {
+        height: expanded ? "tall" : "short",
+        stacked: false,
+        repo: s.repo,
+      }) + grossingNote(s.grossing);
     },
   },
 
@@ -1689,10 +2135,13 @@ const MODULES = {
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = activeWindow();
+      // Shares alongside the counts, mirroring the contributor's Repos card:
+      // on a repo, "who wrote most of this" is a question about proportion —
+      // one person at 70% is a bus factor, three at 25% each isn't.
       return duo(
         { title: "PRs opened", rows: s.topAuthors[w] ?? [], color: "var(--accent)", ...byLogin },
         { title: "Approvals given", rows: s.topReviewers[w] ?? [], color: "var(--purple)", ...byLogin },
-        { height: expanded ? "tall" : "short" }
+        { height: expanded ? "tall" : "short", share: true }
       );
     },
   },
@@ -1734,7 +2183,7 @@ const MODULES = {
       if (!expanded)
         return summary + bars +
           `<h3 style="font-size:12px;margin:18px 0 6px;color:var(--muted)">Oldest</h3>` +
-          `<div class="scroll short">${renderTable(b.oldest, [cols[0], cols[2], cols[3]], { limit: 8, total: b.total })}</div>`;
+          `<div class="scroll short">${renderTable(b.oldest, [cols[0], cols[2], cols[3]], { limit: 8 })}</div>`;
 
       return summary + bars + draftNotice(b) +
         `<h3 style="font-size:13px;margin:22px 0 8px">Open PRs, oldest first</h3>` +
@@ -1795,6 +2244,17 @@ const draftPill = (v) =>
 /** Sort order: drafts, then ready, then unknown. */
 const draftOrder = (v) => (v === true ? 0 : v === false ? 1 : 2);
 
+/**
+ * Shown when a window has PRs but no diff data behind them.
+ *
+ * Same shape as draftNotice, and the same reasoning: a tile reading "0 lines
+ * changed" for someone who has opened forty PRs is a lie, and the fix is a
+ * command, so say the command.
+ */
+const sizeNotice = (w) =>
+  !w.opened || w.sizedPRs ? "" :
+    `<div class="hint" style="padding:12px 14px 0">No diff data for these PRs yet. Run <code>npm run ingest</code> — it re-walks the store once to populate lines changed, commits, comments and reactions, then <code>npm run build</code>.</div>`;
+
 const draftNotice = (backlog) =>
   backlog.draftsKnown ? "" :
     `<div class="hint" style="padding:12px 14px 0">Draft status is missing for PRs ingested before it was tracked. Run <code>npm run ingest</code> — it re-fetches just the open ones.</div>`;
@@ -1827,7 +2287,10 @@ function ciSection(repo) {
   if (!p.ok)
     return `<div class="hint" style="margin-top:18px">CI health unavailable — ${esc(p.error)}</div>`;
 
-  const ci = p.data[repo];
+  // `{ repos, org }` since the org roll-up was added; the flat map is what
+  // builds before that wrote. Tolerated rather than required, so a stale
+  // dashboard.json renders instead of throwing while a rebuild is pending.
+  const ci = (p.data.repos ?? p.data)[repo];
   if (!ci)
     return `<div class="hint" style="margin-top:18px">No completed Actions runs on this repo's default branch.</div>`;
 
@@ -1875,7 +2338,9 @@ const PAGES = [
   {
     id: "analytics", label: "General Analytics",
     icon: `<path d="M1.5 14.5V2a.5.5 0 0 1 1 0v11.5H15a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5Z"/><path d="M4 11h2v2H4v-2Zm3.5-4h2v6h-2V7ZM11 3h2v10h-2V3Z"/>`,
-    modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap"],
+    // 12 / 8+4 / 6+6 / 6+6 / 6+6 / 12 / 12 — every row fills its twelve columns,
+    // so nothing wraps and leaves a hole. See the note on the repo page.
+    modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap", "grossing", "actions"],
   },
   {
     id: "dream", label: "Dream Panel",
@@ -1891,7 +2356,7 @@ const PAGES = [
     id: "contributor", label: "Contributor Drilldown",
     icon: `<path d="M10.56 8.07a6 6 0 0 1 3.43 5.15.75.75 0 1 1-1.5.07 4.5 4.5 0 0 0-8.98 0 .75.75 0 0 1-1.5-.07 6 6 0 0 1 3.43-5.15 4 4 0 1 1 5.12 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/>`,
     // Tiles 12 / 8+4 / 6+6 / 12 — see the note on the repo page about gaps.
-    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cClosed"],
+    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed"],
   },
   {
     id: "repo", label: "Repo Drilldown",
@@ -1900,7 +2365,7 @@ const PAGES = [
     // doesn't fit the remainder wraps, leaving a hole. rPeople (6) after
     // rActivity (8) left 4 columns empty; rBacklog (4) fills them exactly, so
     // the rows now tile 12 / 8+4 / 6+6 with no gaps.
-    modules: ["rProfile", "rActivity", "rBacklog", "rPeople", "rHealth"],
+    modules: ["rProfile", "rActivity", "rBacklog", "rPeople", "rHealth", "rGrossing"],
   },
 ];
 
@@ -1930,12 +2395,9 @@ for (const m of Object.values(MODULES)) {
    once rather than skipped over every morning.
    ========================================================================== */
 
-/**
- * Repo names arrive in two shapes: the search-backed panels carry the full
- * `GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica`. One
- * exclusion list has to match both, so everything is compared bare.
- */
-const bareRepo = (r) => String(r ?? "").split("/").pop();
+/* `bareRepo` lives up with the formatters — the exclusion list and the repo
+   drilldown links both need it, and it has to be defined before the module-scope
+   consts that close over it. */
 
 const DREAM_PANELS = ["approvedUnmerged", "changesRequested", "needsRelease", "byLabel"];
 
@@ -2002,15 +2464,18 @@ function panelRows(id) {
   return rows.filter(r => !isExcludedRow(r));
 }
 
-/* ---- the exclusion popup ------------------------------------------------
-   Two checkbox groups in one popup rather than two native <select multiple>
-   boxes: the native control is a fixed-height scrolling list that can't show
-   which of 80 repos are ticked without scrolling, and ctrl-clicking to
-   deselect one item is a well-known way to lose the other nine. */
+/* ---- the exclusion popups -----------------------------------------------
+   Checkbox lists rather than native <select multiple> boxes: the native control
+   is a fixed-height scrolling list that can't show which of 80 repos are ticked
+   without scrolling, and ctrl-clicking to deselect one item is a well-known way
+   to lose the other nine.
 
-function exclCount() {
-  return state.dreamExcl.repos.length + state.dreamExcl.labels.length;
-}
+   One popup per kind. They used to share one, as two columns — which meant the
+   row layout had to work at half the width, the search inputs needed a
+   specificity fight with the global search rule to stop being twice too wide,
+   and the toolbar showed a single count that was the sum of two unrelated
+   things. Two buttons cost one more slot on a toolbar that has room, and every
+   one of those problems stops existing. */
 
 /** One checkbox row. */
 const exclOpt = (kind, name, on) => `
@@ -2041,30 +2506,32 @@ function exclListHtml(kind, options) {
     rest.map(o => exclOpt(kind, o, false)).join("");
 }
 
-function exclPopHtml() {
-  const group = (kind, title, options) => `
-    <div class="excl-group">
-      <h4>${esc(title)}<span class="n">${state.dreamExcl[kind].length} hidden</span></h4>
-      <div class="excl-search">
-        <input type="search" data-exclq="${kind}" autocomplete="off"
-               placeholder="Search ${esc(title.toLowerCase())}…" value="${esc(state.exclQ[kind])}">
-      </div>
-      <div class="excl-list" id="exclList-${kind}">${exclListHtml(kind, options)}</div>
-    </div>`;
+/** The options one group offers, computed on demand from the live panel data. */
+const exclOptions = (kind) =>
+  kind === "labels" ? dreamLabelOptions() : dreamRepoOptions();
+
+const EXCL_GROUPS = [
+  { kind: "repos", label: "Repos", noun: "repos" },
+  { kind: "labels", label: "Labels", noun: "labels" },
+];
+
+function exclPopHtml(kind) {
+  const n = state.dreamExcl[kind].length;
   return `<div class="excl-head">
-      <span>Hide from every card on this page</span>
-      <button class="ghost" id="exclClear"${exclCount() ? "" : " disabled"}>Clear all</button>
+      <span>${n ? `${n} hidden from every card` : "Hide from every card on this page"}</span>
+      <button class="ghost" data-exclclear="${kind}"${n ? "" : " disabled"}>Clear</button>
     </div>
-    <div class="excl-cols">
-      ${group("labels", "Labels", dreamLabelOptions())}
-      ${group("repos", "Repos", dreamRepoOptions())}
-    </div>`;
+    <div class="excl-search">
+      <input type="search" data-exclq="${kind}" autocomplete="off"
+             placeholder="Search ${esc(kind)}…" value="${esc(state.exclQ[kind])}">
+    </div>
+    <div class="excl-list" id="exclList-${kind}">${exclListHtml(kind, exclOptions(kind))}</div>`;
 }
 
 /** Repaint one list in place — a full render() would drop the search caret. */
 function updateExclList(kind) {
   const el = document.getElementById(`exclList-${kind}`);
-  if (el) el.innerHTML = exclListHtml(kind, kind === "labels" ? dreamLabelOptions() : dreamRepoOptions());
+  if (el) el.innerHTML = exclListHtml(kind, exclOptions(kind));
 }
 
 /** Persisted, so the same handful doesn't have to be re-hidden every morning. */
@@ -2137,6 +2604,7 @@ function moduleCount(id) {
   // Null until a subject is picked, which is also when the tabs mean anything.
   if (id === "cOpenPRs" || id === "rBacklog") return subject()?.backlog?.total ?? null;
   if (id === "cClosed") return subject() ? resolvedRows().length : null;
+  if (id === "cBiggest") return subject() ? biggestRows().length : null;
   return null;
 }
 
@@ -2251,7 +2719,7 @@ function renderToolbar() {
   // all-time Collaboration, the open-PR list — doesn't display a control that
   // changes nothing when you touch it.
   if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
-  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed"].includes(state.module) ||
+  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed", "cBiggest", "actions"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
   // Page-wide on Dream: it hides rows from every card, so it belongs up here
   // rather than on any one of them.
@@ -2308,15 +2776,21 @@ function renderToolbar() {
       <span class="seg" id="granSeg">${GRANS.map(g =>
         `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
+  // One button per kind. "Exclusions ▾" hid two unrelated decisions behind one
+  // control and gave no clue from the toolbar whether what was hidden was a
+  // repo or a label — the count was the sum of both.
   if (wanted.has("excl")) {
-    const n = exclCount();
-    bits.push(`<span class="combo" id="excl">
-      <button class="ghost excl-btn" id="exclBtn" aria-expanded="${state.exclOpen}">
-        Exclusions${n ? ` <span class="count">${n}</span>` : ""} ▾
-      </button>
-      <div class="combo-pop excl-pop" id="exclPop"${state.exclOpen ? "" : " hidden"}>${
-        state.exclOpen ? exclPopHtml() : ""}</div>
-    </span>`);
+    for (const g of EXCL_GROUPS) {
+      const open = state.exclOpen === g.kind;
+      const n = state.dreamExcl[g.kind].length;
+      bits.push(`<span class="combo excl-wrap" data-exclgroup="${g.kind}">
+        <button class="ghost excl-btn" data-exclbtn="${g.kind}" aria-expanded="${open}">
+          ${esc(g.label)}${n ? ` <span class="count">${n}</span>` : ""} ▾
+        </button>
+        <div class="combo-pop excl-pop"${open ? "" : " hidden"}>${
+          open ? exclPopHtml(g.kind) : ""}</div>
+      </span>`);
+    }
   }
 
   if (wanted.has("closedState"))
@@ -2620,12 +3094,12 @@ document.getElementById("toolbar").addEventListener("click", e => {
     return goPage(mode.dataset.mode, twin);
   }
 
-  // One control, two homes for its value: the drilldowns keep their own period
-  // so looking at a person doesn't reset what Analytics was showing.
+  // One control, several homes for its value: the drilldowns keep their own
+  // period so looking at a person doesn't reset what Analytics was showing, and
+  // New Faces keeps its own so it can default to a shorter span than its page.
   const w = e.target.closest("button[data-window]");
   if (w) {
-    if (isDrill(state.page)) state.drillWindow = w.dataset.window;
-    else state.window = w.dataset.window;
+    state[windowKey()] = w.dataset.window;
     return render();
   }
 
@@ -2636,17 +3110,23 @@ document.getElementById("toolbar").addEventListener("click", e => {
   if (g) { state.gran = g.dataset.gran; return render(); }
 
   /* ---- exclusions ---- */
-  if (e.target.closest("#exclBtn")) {
+  const eb = e.target.closest("button[data-exclbtn]");
+  if (eb) {
     // Stopped here rather than left to bubble: the document-level
     // close-on-outside-click handler would otherwise see this same click
     // *after* render() has torn the button out of the DOM, and decide it
     // landed outside the popup it just opened.
     e.stopPropagation();
-    state.exclOpen = !state.exclOpen;
+    // Opening one closes the other. Two popups side by side would overlap, and
+    // there's no reason to consult both at once.
+    state.exclOpen = state.exclOpen === eb.dataset.exclbtn ? null : eb.dataset.exclbtn;
     return render();
   }
-  if (e.target.closest("#exclClear")) {
-    state.dreamExcl = { repos: [], labels: [] };
+  const ec = e.target.closest("button[data-exclclear]");
+  if (ec) {
+    // Scoped to its own group: "Clear" inside the Repos popup should not
+    // silently un-hide every label as well.
+    state.dreamExcl[ec.dataset.exclclear] = [];
     saveExclusions();
     return render();
   }
@@ -2665,15 +3145,13 @@ document.getElementById("toolbar").addEventListener("change", e => {
   if (box.checked) { if (i === -1) list.push(box.value); }
   else if (i !== -1) list.splice(i, 1);
   saveExclusions();
-  // render() rebuilds the popup from scratch; put both lists' scroll positions
+  // render() rebuilds the popup from scratch; put the list's scroll position
   // back so ticking the fortieth repo doesn't fling you to the top.
-  const tops = ["repos", "labels"].map(k =>
-    [k, document.getElementById(`exclList-${k}`)?.scrollTop ?? 0]);
+  const kind = box.dataset.excl;
+  const top = document.getElementById(`exclList-${kind}`)?.scrollTop ?? 0;
   render();
-  for (const [k, top] of tops) {
-    const fresh = document.getElementById(`exclList-${k}`);
-    if (fresh) fresh.scrollTop = top;
-  }
+  const fresh = document.getElementById(`exclList-${kind}`);
+  if (fresh) fresh.scrollTop = top;
 });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
@@ -2723,8 +3201,11 @@ document.getElementById("toolbar").addEventListener("focusin", e => {
 /* Close on an outside click rather than on blur: blur fires before click, so a
    blur handler would tear the popup down before the option got selected. */
 document.addEventListener("click", e => {
-  if (state.exclOpen && !e.target.closest("#excl")) {
-    state.exclOpen = false;
+  // Closes when the click lands outside *the open group's* wrapper — clicking
+  // the other exclusion button counts as outside, and its own handler opens it.
+  if (state.exclOpen &&
+      e.target.closest(".excl-wrap")?.dataset.exclgroup !== state.exclOpen) {
+    state.exclOpen = null;
     render();
   }
   if (!state.combo.open || e.target.closest("#combo")) return;
