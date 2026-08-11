@@ -28,6 +28,7 @@ import { readStore } from "../ingest/pullRequests.js";
 import { BOT_PATTERN } from "../config.js";
 import { WINDOWS } from "./contributors.js";
 import { BACKLOG_BUCKETS } from "./analytics.js";
+import { grossingLists, hasEngagement } from "./grossing.js";
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -114,12 +115,25 @@ function blankWindow() {
     reviewHours: [],
     people: new Set(), // repo: authors who opened here. contributor: repos touched.
     reviewers: new Set(),
+    // Diff size and effort, summed over PRs *opened* in the window. Attributing
+    // them to the open date rather than the merge date keeps them on the same
+    // clock as `opened`, so "lines per PR" divides two numbers that describe
+    // the same set of PRs.
+    additions: 0,
+    deletions: 0,
+    filesChanged: 0,
+    commits: 0,
+    comments: 0,
+    // Lines changed per PR, for a median. The mean is useless here — one
+    // regenerated lang file drags it past every real number in the list.
+    sizes: [],
   };
 }
 
 function summarize(a) {
   const merge = a.mergeHours.sort((x, y) => x - y);
   const review = a.reviewHours.sort((x, y) => x - y);
+  const sizes = a.sizes.sort((x, y) => x - y);
   return {
     opened: a.opened,
     merged: a.merged,
@@ -136,6 +150,17 @@ function summarize(a) {
     medianFirstReviewHours: round1(pct(review, 50)),
     people: a.people.size,
     reviewers: a.reviewers.size,
+    additions: a.additions,
+    deletions: a.deletions,
+    filesChanged: a.filesChanged,
+    commits: a.commits,
+    comments: a.comments,
+    // Null rather than 0 when no PR in the window carries diff data — that's
+    // "the ingest hasn't backfilled yet", which must not render as "nobody
+    // wrote any code".
+    medianPRLines: sizes.length ? pct(sizes, 50) : null,
+    p90PRLines: sizes.length ? pct(sizes, 90) : null,
+    sizedPRs: sizes.length,
   };
 }
 
@@ -151,7 +176,22 @@ function summarize(a) {
  *
  * Sorted newest-first here so the frontend doesn't re-sort on every render to
  * get back to the tab's default order.
+ *
+ * Diff size, commit and comment counts ride along on the same rows rather than
+ * living in a separate "biggest PRs" list. A precomputed top-15 per contributor
+ * would have been barely smaller (17,835 rows against 25,660) and could only
+ * ever answer one question; carrying the numbers here means Biggest PRs, the
+ * Closed PRs table and the merged/dropped toggle all read the same array and
+ * every one of them follows the period control for free.
+ *
+ * `null`, not `0`, for records the ingest hasn't backfilled yet — "we haven't
+ * asked" and "this PR changed nothing" have to render differently.
  */
+export const RESOLVED_FIELDS =
+  ["repo", "number", "at", "merged", "additions", "deletions", "commits", "comments", "title"];
+
+const orNull = (v) => (typeof v === "number" ? v : null);
+
 function packResolved(list) {
   const repos = [];
   const seen = new Map();
@@ -164,7 +204,12 @@ function packResolved(list) {
         seen.set(r.repo, i);
         repos.push(r.repo);
       }
-      return [i, r.number, r.at, r.merged ? 1 : 0];
+      return [
+        i, r.number, r.at, r.merged ? 1 : 0,
+        orNull(r.additions), orNull(r.deletions),
+        orNull(r.commits), orNull(r.comments),
+        r.title ?? "",
+      ];
     });
   return { repos, rows };
 }
@@ -175,6 +220,7 @@ const topN = (map, key, n = TOP_N) =>
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
     .map(([k, count]) => ({ [key]: k, count }));
+
 
 /* ==========================================================================
    Subject scaffolding
@@ -194,12 +240,30 @@ function blankSubject(id, idKey) {
     // repos — without a second Map per subject.
     _counts: new Map(),
     _partners: new Map(), // contributor only: reviewedBy / reviewsFor
+    _gross: [],   // repo only: PRs that drew comments or reactions
     open: [],
     resolved: [], // contributor only: their merged and closed-unmerged PRs
   };
 }
 
 const bumpMap = (map, key, by = 1) => map.set(key, (map.get(key) ?? 0) + by);
+
+/**
+ * Fold one PR's diff size and effort into a window accumulator.
+ *
+ * `lines` is null on records the ingest hasn't backfilled, and those are
+ * skipped entirely rather than added as zeroes — a half-backfilled store
+ * should report a smaller sample, not a smaller codebase.
+ */
+function addSize(w, pr, lines) {
+  w.comments += pr.comments ?? 0;
+  if (lines == null) return;
+  w.additions += pr.additions;
+  w.deletions += pr.deletions;
+  w.filesChanged += pr.changedFiles ?? 0;
+  w.commits += pr.commits ?? 0;
+  w.sizes.push(lines);
+}
 
 function monthBucket(subject, key, field, by = 1) {
   let b = subject._months.get(key);
@@ -315,9 +379,24 @@ export async function drilldown() {
     const closedUnmerged = !pr.mergedAt && pr.state === "CLOSED";
     const endedAt = pr.mergedAt ?? (closedUnmerged ? pr.updatedAt : null);
 
+    // Absent on records ingested before diff data was queried. Kept as null so
+    // the window rollups can tell "no data yet" from a genuinely empty PR.
+    const sized = typeof pr.additions === "number";
+    const lines = sized ? pr.additions + pr.deletions : null;
+
     const repo = repository(pr.repo);
     repo.total++;
     touch(repo, pr.createdAt);
+    if (hasEngagement(pr)) {
+      repo._gross.push({
+        number: pr.number,
+        title: pr.title ?? "",
+        author: authorIsBot ? null : pr.author,
+        comments: pr.comments ?? 0,
+        thumbsUp: pr.thumbsUp ?? 0,
+        thumbsDown: pr.thumbsDown ?? 0,
+      });
+    }
 
     const author = authorIsBot ? null : person(pr.author);
     if (author) {
@@ -350,6 +429,7 @@ export async function drilldown() {
           bumpMap(repo._counts, `${id}\nauthor\n${pr.author}`);
         }
         if (reviewHours != null) rw.reviewHours.push(reviewHours);
+        addSize(rw, pr, lines);
       }
       if (mergedIn) {
         rw.merged++;
@@ -365,6 +445,7 @@ export async function drilldown() {
           aw.people.add(pr.repo);
           bumpMap(author._counts, `${id}\nopened\n${pr.repo}`);
           if (reviewHours != null) aw.reviewHours.push(reviewHours);
+          addSize(aw, pr, lines);
         }
         if (mergedIn) {
           aw.merged++;
@@ -416,6 +497,11 @@ export async function drilldown() {
         number: pr.number,
         at: endedAt.slice(0, 10),
         merged: !!pr.mergedAt,
+        title: pr.title,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        commits: pr.commits,
+        comments: pr.comments,
       });
     }
 
@@ -423,6 +509,13 @@ export async function drilldown() {
     if (pr.state === "OPEN" && !pr.mergedAt) {
       const entry = {
         number: pr.number,
+        title: pr.title ?? "",
+        // Same fields the resolved rows carry, so Biggest PRs can concatenate
+        // the two lists without special-casing which half a row came from.
+        additions: orNull(pr.additions),
+        deletions: orNull(pr.deletions),
+        commits: orNull(pr.commits),
+        comments: orNull(pr.comments),
         ageDays: Math.floor((now - created) / DAY),
         staleDays: pr.updatedAt
           ? Math.floor((now - new Date(pr.updatedAt)) / DAY)
@@ -526,6 +619,7 @@ export async function drilldown() {
           rankedFor(s._counts, `${w.id}\nreviewer`, "login"),
         ])
       ),
+      grossing: grossingLists(s._gross),
       backlog: backlogOf(s.open),
     };
   }
@@ -552,6 +646,7 @@ export async function drilldown() {
   return {
     windows: WINDOWS,
     seriesFields: SERIES_FIELDS,
+    resolvedFields: RESOLVED_FIELDS,
     generatedAt: new Date().toISOString(),
     index,
     contributors: contributorsOut,

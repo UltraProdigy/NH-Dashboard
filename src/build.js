@@ -32,13 +32,16 @@ const DATA_DIR = path.join(
  * isn't present in CI. Without this, a missing ingest store would turn the
  * whole workflow red and block the Pages deploy.
  */
-async function run(name, fn, { empty = [], optional = false } = {}) {
+async function run(name, fn, { empty = [], optional = false, count } = {}) {
   const started = Date.now();
   process.stdout.write(`▸ ${name}\n`);
   try {
     const data = await fn();
-    const count = Array.isArray(data) ? data.length : Object.keys(data).length;
-    console.log(`  ✓ ${count} results in ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
+    // `count` is an override for panels whose payload isn't the list itself —
+    // ciHealth returns `{ repos, org }`, and "2 results" would be a silly line
+    // to print about a sweep of three hundred repos.
+    const n = count ? count(data) : Array.isArray(data) ? data.length : Object.keys(data).length;
+    console.log(`  ✓ ${n} results in ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
     return { ok: true, data, optional };
   } catch (err) {
     console.error(`  ${optional ? "-" : "✗"} ${optional ? "skipped" : "failed"}: ${err.message}\n`);
@@ -58,7 +61,11 @@ async function main() {
     // Optional: reading Actions runs needs a token scope the other panels
     // don't, so a token that works everywhere else can still fail here. That
     // shouldn't turn the build red or block the Pages deploy.
-    ciHealth: await run("CI health", ciHealth, { empty: {}, optional: true }),
+    ciHealth: await run("CI health", ciHealth, {
+      empty: { repos: {}, org: null },
+      optional: true,
+      count: (d) => Object.keys(d.repos ?? {}).length,
+    }),
     // Reads the local ingest store, not the API. Fails gracefully with an
     // explanatory message if `npm run ingest` hasn't been run yet.
     contributors: await run("Contributor activity", contributors, {
