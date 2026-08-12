@@ -1,0 +1,95 @@
+/* ---------- drilldown: search-and-select ---------- */
+/* Hand-rolled rather than a <datalist>: 1,200 options make the native popup
+   sluggish, it can't show the activity counts that make the right person
+   obvious, and its styling is untouchable. */
+.combo { position: relative; }
+.combo input { min-width: 280px; }
+.combo-pop {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0;
+  min-width: 320px; max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  scrollbar-width: thin;
+}
+:root[data-theme="light"] .combo-pop { box-shadow: 0 8px 24px rgba(31,35,40,.12); }
+.combo-pop[hidden] { display: none; }
+.combo-opt {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 11px; cursor: pointer; white-space: nowrap;
+}
+.combo-opt .n { overflow: hidden; text-overflow: ellipsis; }
+.combo-opt .c { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.combo-opt[aria-selected="true"] { background: var(--panel-2); }
+.combo-opt mark { background: none; color: var(--accent); font-weight: 600; }
+.combo-none { padding: 12px; color: var(--muted); font-size: 12px; }
+
+/* ---------- drilldown: subject header ---------- */
+.subject { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.subject h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.subject .dates { color: var(--muted); font-size: 12px; }
+/* ---------- drilldown: paired stat boxes ---------- */
+/* Two related rankings read as a comparison when they're side by side and as
+   a sequence when they're stacked. These are comparisons. */
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .duo { grid-template-columns: 1fr; } }
+/* Same two boxes, one above the other. A 4-column overview card is too
+   narrow to put two ranked lists beside each other — the repo names ellipsis
+   down to nothing — so it stacks there and pairs up in the expanded view,
+   where there's a full 12 columns to spend. Explicit rows rather than `auto`:
+   inside a `fill` body the pair has to split the height it's given, not ask
+   for the height its content wants. */
+.duo.stacked { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+.duo-box {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel-2);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.duo-box > h3 {
+  margin: 0; padding: 9px 12px;
+  font-size: 12px; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.duo-box > h3 .n { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 11px; }
+.duo-box > .scroll { padding: 11px 12px; flex: 1; min-height: 0; }
+
+/* Lists are uncapped now, so long ones scroll inside their box instead of
+   making the page metres tall. */
+.scroll { overflow-y: auto; scrollbar-width: thin; }
+.scroll.tall { max-height: 620px; }
+.scroll.short { max-height: 260px; }
+
+/* A list card should take its height *from* the chart beside it, never give
+   height to the row. Flexbox can't do that: a flex child still reports its
+   content size to the grid, so a 400-row list made its own row 6,000px tall
+   and dragged the chart with it.
+
+   Taking the content out of flow with `position:absolute` is what actually
+   works — an absolutely-positioned child contributes nothing to layout, so
+   the row is sized purely by its other card and the list scrolls inside
+   whatever that turns out to be. `min-height` is the floor for when there is
+   no other card, which is every card once the grid collapses to one column
+   below 1080px. */
+.card .body.fill { position: relative; min-height: 260px; padding: 0; }
+.card .body.fill > * { position: absolute; inset: 14px; }
+.card .body.fill > .scroll { overflow-y: auto; max-height: none; }
+.card .body.fill > .duo { overflow: hidden; }
+.card .body.fill .duo-box { min-height: 0; }
+.card .body.fill .duo-box > .scroll { flex: 1; min-height: 0; max-height: none; }
+
+/* ---------- drilldown: every-month axis ---------- */
+/* Rendered as HTML under the chart rather than as SVG <text>. The charts use
+   preserveAspectRatio="none", which scales x and y differently — anything
+   drawn inside gets squashed horizontally as the card narrows, which is
+   survivable for six labels and unreadable for twenty-four. */
+/* Two horizontal lines rather than one rotated one. At 24 buckets a single
+   line of "Aug '26" doesn't fit the slot, and rotating it makes the axis
+   hard to read; stacking the month over the year keeps every label upright
+   and halves the width it needs. */
+.xaxis { display: grid; margin-top: 6px; }
+.xaxis span {
+  font-size: 9px; line-height: 1.2; color: var(--muted);
+  justify-self: center; text-align: center; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.xaxis .yr { display: block; opacity: .7; }

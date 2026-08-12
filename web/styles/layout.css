@@ -1,0 +1,69 @@
+/* ---------- main column ---------- */
+main { min-width: 0; display: flex; flex-direction: column; }
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 24px;
+  min-height: 57px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.meta { color: var(--muted); font-size: 12px; }
+.meta.stale { color: var(--warn); }
+.spacer { margin-left: auto; }
+
+nav.tabs {
+  display: flex; gap: 2px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+nav.tabs button {
+  background: none; border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 11px 12px;
+  font: inherit; cursor: pointer; white-space: nowrap;
+}
+nav.tabs button:hover { color: var(--text); }
+nav.tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: #f78166;
+}
+.count {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 6px; margin-left: 6px;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+
+.content { padding: 20px 24px 60px; }
+
+/* ---------- controls ---------- */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+input[type="search"], select, input[type="number"] {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+}
+input[type="search"] { min-width: 260px; }
+input[type="number"] { width: 72px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button {
+  background: var(--panel); border: none; color: var(--muted);
+  padding: 6px 11px; font: inherit; cursor: pointer;
+}
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+.seg button:hover { color: var(--text); }
+.ghost {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 11px; font-size: 12px; color: var(--text);
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+.ghost:hover { border-color: var(--accent); text-decoration: none; }
+.minlabel { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }

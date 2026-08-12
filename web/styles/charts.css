@@ -1,0 +1,66 @@
+/* ---------- charts ---------- */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
+svg.chart { display: block; width: 100%; overflow: visible; }
+svg.chart .grid-line { stroke: var(--border); stroke-width: 1; }
+svg.chart .axis { fill: var(--muted); font-size: 10px; }
+svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparent); }
+
+.hbars { display: flex; flex-direction: column; gap: 7px; }
+/* Four tracks: rank, name, bar, value. Every one of these lists ranks by a
+   single metric, so the row's position *is* information — "who is fourth"
+   shouldn't require counting down from the top with a finger. */
+.hbar { display: grid; grid-template-columns: auto minmax(90px, 34%) 1fr auto; gap: 10px; align-items: center; font-size: 12px; }
+.hbar .track { background: var(--panel-2); border-radius: 3px; height: 9px; overflow: hidden; }
+.hbar .fill { height: 100%; border-radius: 3px; }
+.hbar .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Right-aligned and tabular so 9 and 10 line up on their last digit rather
+   than the list developing a kink at every power of ten. */
+.hbar .rk {
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  text-align: right; min-width: 1.4em; font-size: 11px;
+}
+/* Inside a paired box the name is the thing you're reading and the bar is
+   just a sense of scale, so the split is inverted from the wide cards: the
+   label takes whatever's left and the track is capped at a third. At 34% a
+   repo name in a half-width box ellipsised after twelve characters while a
+   bar sat in acres of empty panel beside it. */
+.duo-box .hbar { grid-template-columns: auto minmax(0, 1fr) minmax(44px, 32%) auto; }
+.hbar .val { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The share of the subject's total this row accounts for. Dimmer than the
+   count: the count is the fact, the percentage is the context. */
+.hbar .val .sh { opacity: .65; margin-left: 5px; }
+
+/* Three ranked boxes rather than two — "most grossing" is three questions
+   (argued about, liked, hated) that only mean anything side by side. */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1000px) { .trio { grid-template-columns: 1fr; } }
+.trio.stacked { grid-template-columns: 1fr; }
+
+/* A ranked list whose rows are PRs rather than names: number, title, count.
+   No bar — the counts here span three orders of magnitude and a proportional
+   track just renders four invisible slivers under one full-width one. */
+.prlist { display: flex; flex-direction: column; gap: 2px; }
+.prrow {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px; align-items: baseline;
+  padding: 5px 0; font-size: 12px;
+}
+.prrow + .prrow { border-top: 1px solid var(--border); }
+.prrow .rk { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.4em; text-align: right; font-size: 11px; }
+.prrow .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prrow .ttl .who { color: var(--muted); }
+.prrow .ct { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Diff size. Green added / red removed, side by side, so a 4,000-line PR
+   that deleted 3,900 of them doesn't read as a 4,000-line addition. */
+.diff { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diff .add { color: var(--good); }
+.diff .del { color: var(--bad); margin-left: 6px; }
+
+.heat { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; font-size: 10px; color: var(--muted); }
+.heat .cell { aspect-ratio: 1; border-radius: 2px; background: var(--panel-2); }
+.heat .rl { display: flex; align-items: center; }
+.heat .cl { text-align: center; }
+
+code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
