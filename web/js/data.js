@@ -10,6 +10,17 @@ const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
 /**
+ * The issue store's equivalents of A() and W().
+ *
+ * Two stores, two panels, two accessors — the issue page needs the same
+ * window-scoped rollups and the same bucketed series the PR page does, and the
+ * helpers below take whichever one they're handed rather than each page
+ * growing its own copy of the slicing logic.
+ */
+const I = () => panel("issues")?.ok ? panel("issues").data : null;
+const IW = () => I()?.byWindow?.[state.window] ?? null;
+
+/**
  * Modules that keep a period of their own, independent of their page's.
  *
  * New Faces is the only one. "Who's new" and "who's busiest" want different
@@ -47,7 +58,7 @@ const activeWindow = (mod) => state[windowKey(mod)];
 const windowList = () =>
   (isDrill(state.page) ? state.drill?.windows : null)
   ?? A()?.windows ?? state.drill?.windows
-  ?? panel("contributors")?.data?.windows ?? [];
+  ?? I()?.windows ?? panel("contributors")?.data?.windows ?? [];
 
 const windowLabel = (mod) => {
   const id = activeWindow(mod);
@@ -70,8 +81,8 @@ const windowDays = (mod) =>
  * One control drives both now, so this reads the same window the KPI tiles do
  * rather than a second lookback of its own.
  */
-function seriesSlice() {
-  const a = A();
+function seriesSlice(src = A()) {
+  const a = src;
   if (!a) return [];
   const all = a.series[state.gran] ?? [];
   const days = windowDays();
@@ -88,9 +99,9 @@ function seriesSlice() {
  * on every build. Saying so is better than silently drawing a two-year chart
  * under a control that says "5 years".
  */
-function dayLimitNote() {
+function dayLimitNote(src = A()) {
   if (state.gran !== "day") return "";
-  const from = A()?.series?.dayFrom;
+  const from = src?.series?.dayFrom;
   if (!from) return "";
   const days = windowDays();
   if (days != null && Date.now() - days * 86400000 >= new Date(from).getTime())
@@ -106,8 +117,7 @@ function dayLimitNote() {
  *   invert: lower is better (latency, unapproved merges)
  *   pp:     the metric is already a share, so report points, not % of a %
  */
-function delta(key, { invert = false, pp = false, fallback = "" } = {}) {
-  const w = W();
+function delta(key, { invert = false, pp = false, fallback = "", w = W() } = {}) {
   const prev = w?.prev?.[key];
   const cur = w?.[key];
   if (cur == null || prev == null || (!pp && !prev)) return fallback;
@@ -125,6 +135,8 @@ function delta(key, { invert = false, pp = false, fallback = "" } = {}) {
 
 export {
   A,
+  I,
+  IW,
   W,
   activeWindow,
   dayLimitNote,

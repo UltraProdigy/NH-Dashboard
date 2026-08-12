@@ -157,7 +157,7 @@ function hbars(rows, { label, value, color = "var(--accent)", href = null, inter
  * next to a 6-comment one), and a proportional track renders four invisible
  * slivers under one full-width one, which tells you less than the numbers do.
  */
-function prList(rows, { unit = "", repo = null } = {}) {
+function prList(rows, { unit = "", repo = null, kind = "pull" } = {}) {
   if (!rows.length) return `<div class="empty" style="padding:18px 0">Nothing here.</div>`;
   const org = state.data.org;
   return `<div class="prlist">${rows.map((r, i) => {
@@ -171,7 +171,7 @@ function prList(rows, { unit = "", repo = null } = {}) {
     return `<div class="prrow">
       <span class="rk">${i + 1}</span>
       <span class="ttl" title="${esc(r.title || id)}">
-        <a href="https://github.com/${org}/${encodeURIComponent(where)}/pull/${r.number}"
+        <a href="https://github.com/${org}/${encodeURIComponent(where)}/${kind}/${r.number}"
            target="_blank" rel="noopener">${text}</a>
         <span class="who">${esc(id)}${r.author ? ` · ${esc(r.author)}` : ""}</span>
       </span>
@@ -188,11 +188,11 @@ function prList(rows, { unit = "", repo = null } = {}) {
  * different empty-state wording, and a `boxes(...lists)` that took both would
  * be mostly branches on how many it was handed.
  */
-function trio(boxes, { height = "short", stacked = false, repo = null } = {}) {
+function trio(boxes, { height = "short", stacked = false, repo = null, kind = "pull" } = {}) {
   return `<div class="trio${stacked ? " stacked" : ""}">${boxes.map(b => `
     <section class="duo-box">
       <h3>${esc(b.title)}<span class="n">${fmt(b.rows.length)}</span></h3>
-      <div class="scroll ${height}">${prList(b.rows, { unit: b.unit, repo })}</div>
+      <div class="scroll ${height}">${prList(b.rows, { unit: b.unit, repo, kind })}</div>
     </section>`).join("")}</div>`;
 }
 
