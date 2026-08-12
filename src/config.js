@@ -94,6 +94,29 @@ export function isReleaseExcluded(repoName) {
 }
 
 /**
+ * How long an open issue has to sit untouched before Issue Analytics calls it
+ * stale.
+ *
+ * Ninety days rather than thirty: on a modpack this size a bug report going
+ * quiet for a month usually means it's queued behind a release, not that it
+ * was dropped. Three months is where "nobody has looked at this" stops being
+ * a guess.
+ */
+export const ISSUE_STALE_DAYS = 90;
+
+/**
+ * The repo whose labels the Label mix card opens on, and the only one that
+ * gets per-label monthly trends.
+ *
+ * Labels are a per-tracker taxonomy, not an org-wide one — the modpack sorts
+ * issues by mod across 174 `Mod:` labels, while a library repo has four. The
+ * other repos' label counts are still there behind the picker; only the trend
+ * series is scoped, because that is the part whose size scales with labels
+ * times months.
+ */
+export const ISSUE_LABEL_REPO = "GT-New-Horizons-Modpack";
+
+/**
  * Skip repos with no pushes in this many days when doing org-wide sweeps.
  * GTNH carries a lot of dormant forks; ignoring them makes the expensive
  * panels dramatically cheaper. Set to null to sweep everything.

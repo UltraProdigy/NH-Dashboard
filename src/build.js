@@ -15,6 +15,7 @@ import { approvedUnmerged, byLabel, changesRequested } from "./panels/pullReques
 import { needsRelease } from "./panels/needsRelease.js";
 import { contributors } from "./panels/contributors.js";
 import { analytics } from "./panels/analytics.js";
+import { issues } from "./panels/issues.js";
 import { drilldown, serializeDrilldown } from "./panels/drilldown.js";
 import { ciHealth } from "./panels/ciHealth.js";
 
@@ -76,6 +77,21 @@ async function main() {
     analytics: await run("Org analytics", analytics, {
       empty: { windows: [], totals: {}, series: { week: [], month: [] } },
       optional: true,
+    }),
+    // Reads the issue store, which is separate from the PR one and can be
+    // absent on its own — a checkout that predates issue ingestion has one and
+    // not the other, and that should cost the issue page, not the build.
+    issues: await run("Issue analytics", issues, {
+      empty: {
+        windows: [],
+        totals: {},
+        series: { week: [], month: [] },
+        triage: null,
+        labels: [],
+        repos: [],
+      },
+      optional: true,
+      count: (d) => d.totals?.issues ?? 0,
     }),
   };
 
