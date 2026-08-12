@@ -1,0 +1,37 @@
+/* ---------- tables ---------- */
+/* Horizontal escape hatch for tables too wide to fit — see renderTable.
+   width:100% on the table keeps it filling the card when it does fit, and
+   auto table layout lets it grow past that when the nowrap columns demand
+   it, at which point this wrapper scrolls rather than the card clipping.
+
+   There is no way to scroll one axis without becoming a scroll container on
+   both — `visible` computes to `auto` next to a scrolling axis, and `clip`
+   computes to `hidden`, which is still a scrollport. That matters because
+   `th` is position:sticky: once this box is the nearest scrollport, the
+   header sticks to *it* rather than to the page, and on an uncapped box that
+   means it never sticks at all. So this takes the vertical axis too and caps
+   its height, which puts the sticky headers back and matches what the lists
+   above already do — long content scrolls inside its box instead of making
+   the page metres tall. Tables shorter than the cap are unaffected. */
+.tscroll { overflow: auto; overscroll-behavior-x: contain; scrollbar-width: thin; max-height: 620px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th {
+  color: var(--muted); font-weight: 500; font-size: 12px;
+  cursor: pointer; user-select: none;
+  position: sticky; top: 0; background: var(--panel); z-index: 1;
+}
+th:hover { color: var(--text); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--panel-2); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.repo { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.label { display: inline-block; border-radius: 10px; padding: 0 7px; font-size: 11px; margin: 1px 3px 1px 0; border: 1px solid var(--border); }
+.age-old { color: var(--warn); }
+.age-ancient { color: var(--bad); }
+.more { padding: 9px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+.hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.empty, .error { color: var(--muted); padding: 32px 0; text-align: center; font-size: 13px; }
+.error { color: var(--bad); }

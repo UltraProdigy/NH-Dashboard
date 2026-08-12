@@ -1,0 +1,82 @@
+/* ---------- a select living in a card header ---------- */
+/* Sized to read as a caption rather than as a form field — it sits where the
+   descriptive text sits on every other card. */
+select.inline-sel {
+  padding: 2px 6px; font-size: 12px; color: var(--muted);
+  max-width: 260px;
+}
+select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
+
+/* ---------- dream panel: exclusion popups ----------
+   One button and one popup per kind — repos and labels are two unrelated
+   decisions, and pairing them in a two-column popup meant every rule in here
+   had to work at half width. That constraint is what produced the row layout
+   that kept collapsing; a single column removes it entirely.
+
+   The row is a flex line with an explicitly non-shrinking checkbox. A grid
+   with a fixed first track looked equivalent and wasn't: the box only has to
+   be handed one contradictory width — from a stylesheet, a zoom level, a
+   browser's own form defaults — to end up somewhere other than the left edge.
+   `flex: none` can't be talked out of its size. */
+.excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
+.excl-pop {
+  /* Overrides combo-pop's min-width/max-height/overflow: the list scrolls
+     here, not the popup, so the search box stays put while you scroll. */
+  width: min(340px, calc(100vw - 60px));
+  min-width: 0;
+  max-height: min(440px, 70vh);
+  padding: 0; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.excl-head {
+  flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  color: var(--muted); font-size: 12px;
+}
+.excl-head .ghost { margin-left: auto; flex: none; }
+.excl-head .ghost[disabled] { opacity: .45; cursor: default; }
+
+/* The global `input[type="search"]` rule sets a 260px floor, which is right
+   for the toolbar and too wide for this popup. Qualified with .excl-pop so it
+   wins on specificity rather than on source order. */
+.excl-pop input[type="search"] {
+  width: 100%; min-width: 0;
+  padding: 5px 8px; font-size: 12px;
+}
+.excl-search { flex: none; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.excl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px 0 8px; }
+
+.excl-opt {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px; cursor: pointer;
+  font-size: 12px; color: var(--text);
+}
+.excl-opt:hover { background: var(--panel-2); }
+.excl-opt input[type="checkbox"] {
+  flex: none;
+  width: 15px; height: 15px; margin: 0; accent-color: var(--accent);
+}
+.excl-opt .nm {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text);
+}
+/* What's currently hidden should be findable without reading every row. */
+.excl-opt.on .nm { color: var(--accent); }
+.excl-sep {
+  padding: 8px 12px 4px; margin-top: 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+}
+
+.picker { padding: 40px 0; text-align: center; }
+.picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.picker p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+.picker .chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; max-width: 720px; margin: 0 auto; }
+.picker .chips button {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px;
+  color: var(--text); padding: 5px 13px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.picker .chips button:hover { border-color: var(--accent); color: var(--accent); }
+.loading { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }

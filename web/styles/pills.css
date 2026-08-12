@@ -1,0 +1,13 @@
+/* ---------- draft / status pills ---------- */
+.pill {
+  display: inline-block; border-radius: 10px; padding: 0 7px;
+  font-size: 11px; border: 1px solid var(--border); white-space: nowrap;
+}
+.pill.draft { color: var(--muted); }
+.pill.ready { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.pill.unknown { color: var(--muted); border-style: dashed; }
+.pill.merged { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--border)); }
+.pill.dropped { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
+.pill.pass { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.pill.fail { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.pill.neutral { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }

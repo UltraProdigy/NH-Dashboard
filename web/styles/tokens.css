@@ -1,0 +1,50 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --good: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --purple: #bc8cff;
+  --pink: #f778ba;
+  --sidebar-w: 232px;
+  --rail-w: 56px;
+}
+/* Explicit rather than a prefers-color-scheme media query: the toggle has to
+   be able to override the OS, and a media query would fight it. The initial
+   value is picked from the OS in script, then remembered. */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --panel: #f6f8fa;
+  --panel-2: #eaeef2;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --muted: #59636e;
+  --accent: #0969da;
+  --good: #1a7f37;
+  --warn: #9a6700;
+  --bad: #cf222e;
+  --purple: #8250df;
+  --pink: #bf3989;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  /* min-height, NOT height. `height: 100%` caps the body box at one viewport
+     even when the content overflows it, which makes the grid row exactly
+     100vh tall — and a sticky child can never travel outside its containing
+     block, so the sidebar scrolled away with the page. Letting the body grow
+     to its content is what gives sticky room to work. */
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  transition: grid-template-columns .16s ease;
+}
+body.collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
