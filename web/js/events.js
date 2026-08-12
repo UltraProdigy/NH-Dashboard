@@ -49,10 +49,23 @@ document.getElementById("view").addEventListener("click", e => {
 /* The By-label picker lives in that card's header rather than the toolbar, so
    its events arrive here. */
 document.getElementById("view").addEventListener("change", e => {
-  if (e.target.id !== "labelPicker") return;
-  state.label = e.target.value;
-  state.sort = null;
-  render();
+  if (e.target.id === "labelPicker") {
+    state.label = e.target.value;
+    state.sort = null;
+    return render();
+  }
+  // Issue Analytics label view. Changing repo clears the label pick, since a
+  // label from one tracker means nothing in another.
+  if (e.target.id === "issueLabelRepo") {
+    state.issueLabelRepo = e.target.value;
+    state.issueLabel = null;
+    state.sort = null;
+    return render();
+  }
+  if (e.target.id === "issueLabelPick") {
+    state.issueLabel = e.target.value;
+    return render();
+  }
 });
 
 document.getElementById("toolbar").addEventListener("input", e => {

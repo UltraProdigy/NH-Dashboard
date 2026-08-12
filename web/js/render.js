@@ -1,6 +1,6 @@
 import { CLOSED_LABEL, GRANS, isDrill, state } from "./state.js";
 import { age, agoText, daysSince, esc, fmt } from "./format.js";
-import { A, activeWindow, panel, windowList } from "./data.js";
+import { A, I, activeWindow, panel, windowList } from "./data.js";
 import {
   biggestRows,
   resolvedRows,
@@ -31,6 +31,9 @@ function moduleCount(id) {
   }
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
+  if (id === "iTriage") return I()?.triage?.open ?? null;
+  if (id === "iLabels") return I()?.labels?.filter(l => l.open).length ?? null;
+  if (id === "iRepos") return I()?.repos?.filter(r => r.open).length ?? null;
   // Null until a subject is picked, which is also when the tabs mean anything.
   if (id === "cOpenPRs" || id === "rBacklog") return subject()?.backlog?.total ?? null;
   if (id === "cClosed") return subject() ? resolvedRows().length : null;

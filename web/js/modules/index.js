@@ -4,6 +4,7 @@ import { applyFilter, preview, renderTable, sortRows } from "../table.js";
 import { panelRows } from "../dream.js";
 import { analyticsModules } from "./analytics.js";
 import { dreamModules } from "./dream.js";
+import { issueModules } from "./issues.js";
 import { peopleModules } from "./people.js";
 import { contributorModules } from "./contributor.js";
 import { repoModules } from "./repo.js";
@@ -16,6 +17,7 @@ import { repoModules } from "./repo.js";
 const MODULES = {
   ...analyticsModules,
   ...dreamModules,
+  ...issueModules,
   ...peopleModules,
   ...contributorModules,
   ...repoModules,
