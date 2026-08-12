@@ -28,9 +28,49 @@ const CACHE_DIR = path.join(
 const CACHE_ENABLED = !process.argv.includes("--no-cache");
 
 /** Simple counters so `npm run build` can report what it cost. */
-export const stats = { requests: 0, cacheHits: 0, rateLimitWaits: 0 };
+export const stats = { requests: 0, cacheHits: 0, rateLimitWaits: 0, spacingMs: 0 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Adaptive spacing between requests, in milliseconds.
+ *
+ * GitHub has two unrelated limits and they need opposite responses. The
+ * primary quota is a budget: spend it as fast as you like, then wait for the
+ * reset. The *secondary* limits are about pace — concurrent requests, points
+ * per minute, and server CPU per minute — and hitting one costs a flat 60s
+ * penalty no matter how small the request that tripped it was.
+ *
+ * Against a pace limit, going flat out is strictly worse than going steadily:
+ * a walk that trips a 60s penalty every fifth request averages 12s a request,
+ * where the same walk spaced a second apart may never trip one at all.
+ *
+ * So rather than pick a spacing up front and hope, this starts at zero and
+ * climbs by a step every time a secondary limit is hit, settling wherever the
+ * API is willing to be talked to. `NH_REQUEST_SPACING_MS` sets a floor for a
+ * run that already knows it will be throttled — the first walk over a large
+ * org — so it doesn't have to rediscover the number from scratch.
+ */
+let spacing = Number(process.env.NH_REQUEST_SPACING_MS) || 0;
+const SPACING_STEP = 250;
+const SPACING_MAX = 3000;
+let lastRequestAt = 0;
+
+async function pace() {
+  if (spacing > 0) {
+    const wait = lastRequestAt + spacing - Date.now();
+    if (wait > 0) await sleep(wait);
+  }
+  lastRequestAt = Date.now();
+}
+
+/** Back off a step. Capped, because past a few seconds the walk is the problem. */
+function widenSpacing() {
+  if (spacing >= SPACING_MAX) return;
+  spacing = Math.min(SPACING_MAX, spacing + SPACING_STEP);
+  stats.spacingMs = spacing;
+  console.warn(`  spacing requests ${spacing}ms apart from here on`);
+}
 
 function cachePath(key) {
   const hash = createHash("sha256").update(key).digest("hex").slice(0, 32);
@@ -69,6 +109,7 @@ async function writeCache(key, body) {
  * Both are handled here so callers never think about it.
  */
 async function request(url, { method = "GET", body, headers = {} } = {}, attempt = 0) {
+  await pace();
   stats.requests++;
 
   const res = await fetch(url, {
@@ -105,7 +146,22 @@ async function request(url, { method = "GET", body, headers = {} } = {}, attempt
     if (waitMs !== null) {
       stats.rateLimitWaits++;
       const secs = Math.ceil(waitMs / 1000);
-      console.warn(`  rate limited — waiting ${secs}s (attempt ${attempt + 1})`);
+      // GitHub names the limit it enforced in the response body. Swallowing it
+      // meant every throttle looked identical from out here, and the only way
+      // to tell a quota exhaustion from a pace limit was to guess.
+      const why = await res
+        .json()
+        .then((b) => b?.message?.replace(/\s+/g, " ").trim())
+        .catch(() => null);
+      const kind = Number.isFinite(retryAfter) && retryAfter > 0 ? "secondary" : "primary";
+      console.warn(
+        `  ${kind} rate limit — waiting ${secs}s (attempt ${attempt + 1})` +
+          (remaining != null ? `, ${remaining} left in this window` : "") +
+          (why ? `\n    GitHub says: ${why}` : "")
+      );
+      // A pace limit means we're going too fast, so slow down permanently
+      // rather than resuming at exactly the speed that just got us stopped.
+      if (kind === "secondary") widenSpacing();
       await sleep(waitMs);
       return request(url, { method, body, headers }, attempt + 1);
     }
