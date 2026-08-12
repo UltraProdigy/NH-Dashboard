@@ -65,6 +65,7 @@ development needs one of the three options above rather than reusing the secret.
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
+| Issue analytics | 0 (reads local store) | Triage state, volume, labels and responders, aggregated from ingested issue data — see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
 
@@ -287,6 +288,188 @@ an un-backfilled store would be a list ordered by nothing.
 Draft state is the same deal: the drilldowns show `unknown` rather than
 guessing, because rendering "ready" for a PR we've never asked about would be a
 quiet lie.
+
+## Issue analytics
+
+The same trade the contributor panels make, applied to issues: walk them once,
+store them, and every question about history becomes free.
+
+```bash
+npm run ingest                    # both stores
+npm run ingest -- --only=issues   # just this one
+npm run ingest -- --bulk=NAME     # first-load one big tracker over REST
+```
+
+The issue store lives in `data/ingest/issues.ndjson` with its own watermark
+file, `issues-state.json`. It's separate from the PR store on purpose — the two
+have independent watermarks, so a run that dies halfway through issues doesn't
+cost the PR pass its progress, and a checkout can legitimately have one and not
+the other. The build treats the issue panel as optional for that reason: no
+issue store means the Issue Analytics page says so and every other page carries
+on.
+
+Only repos with the issue tab switched on are walked. Most of the org's repos
+have it off, and asking them costs a request each.
+
+One difference from the PR ingest worth knowing about: there's no "nothing
+pushed since we last looked" shortcut. Issue activity doesn't imply a commit —
+somebody can comment on or close an issue in a repo that hasn't been touched in
+years — so every issue-enabled repo costs at least one request per run. The
+watermark keeps it to exactly one.
+
+### What each record carries
+
+| Field | Feeds |
+|---|---|
+| `title` | every ranked list on the page |
+| `state`, `closedAt`, `stateReason` | volume, time to close, completed vs. not planned |
+| `labels[]` | Label mix, unlabeled counts |
+| `assignees[]` | unassigned count |
+| `comments` | Most commented, engagement totals |
+| `reactions`, `thumbsUp`, `thumbsDown` | Most 👍 / Most 👎 |
+| `firstResponseAt`, `firstResponder` | first-response latency, "never answered", who answers |
+
+First response is derived at ingest time rather than stored raw. The question
+is "when did somebody other than the reporter first say anything", and keeping
+ten comment nodes per issue to recompute that later would roughly double the
+store for nothing. Ten comments are fetched per issue; when all ten are the
+reporter or bots and more exist, the record sets `responseUnknown` instead of
+claiming silence, and those issues are dropped from both sides of the response
+stats rather than counted as unanswered.
+
+### Two orderings, and why
+
+A first walk and a refresh want opposite things from the same query.
+
+The refresh wants newest-updated first, so it can stop at the first issue it
+has already seen — that is what makes a daily run cost one request per repo.
+But ordering by update time reads a secondary index and seeks further into it
+on every page, so cost grows with depth. That is invisible on a few hundred
+issues and fatal on tens of thousands.
+
+So a repo with no watermark is walked oldest-created first instead. A first
+walk takes everything anyway, so it has nothing to stop early at, and creation
+order runs with the grain of the rows rather than against an index. It is also
+the safer order to paginate: issues opened mid-walk are appended past the end
+instead of shifting the window under the cursor.
+
+The switch is automatic — `seenThrough` is only set once a repo finishes, so a
+resumed first walk keeps the ordering that produced its cursor.
+
+### Bulk loading a large tracker
+
+Even oldest-first, GraphQL could not fill the modpack from empty. 22,000
+issues asked for 50 at a time, each page carrying labels, assignees and
+comments, is refused by GitHub's abuse limit — not the hourly quota, a
+*secondary* limit about pace and cost, which returns a flat 60-second penalty
+however small the request that tripped it.
+
+`--bulk` fills one repo over REST instead, and `src/ingest/issuesBulk.js`
+explains why that works where GraphQL doesn't. Briefly: 100 items a page
+instead of 50, `since` walking forward through an index rather than paging into
+an offset, and list endpoints cheap enough not to look like scraping.
+
+It runs two passes. The first streams every comment in the repo in creation
+order to learn who replied first on each issue; the second streams the issues
+and writes complete records. Both checkpoint — the comment map lives in a
+sidecar beside the store until the load finishes, then is deleted.
+
+First response comes out *better* than the GraphQL path's. That one samples ten
+comments per issue and sets `responseUnknown` when that isn't enough; this sees
+every comment in the repo, so `responseUnknown` is never set. It keeps the
+first three distinct commenters per issue and credits the first who isn't the
+reporter, so somebody replying to their own bug report twice before anyone else
+speaks is not recorded as the response.
+
+Records are written in exactly the shape the GraphQL walk produces — the panel
+cannot tell which path wrote one. Afterwards the repo has a watermark and every
+future run uses the normal incremental path at one request.
+
+`--bulk` refuses to run on a repo that already has a watermark, so it cannot be
+fired by accident later.
+
+### Progress survives interruption
+
+Both the GraphQL walk and the bulk loader checkpoint per *page*, not per repo.
+The distinction matters at this scale: an earlier version accumulated a repo in
+memory and wrote on completion, so twenty-five minutes of fetching the modpack
+evaporated when the connection gave out on the last page, and every retry
+started from the top. A page is the unit of work you can afford to lose.
+
+### Adding a field later
+
+The PR store grew a bespoke backfill pass per field added. The issue store
+carries a version number on every record instead: bump `REC_VERSION` in
+`src/ingest/issues.js` when the query changes, and the next run re-walks every
+repo holding a record below it. Same properties as the PR backfills — it's
+self-limiting once the store is current, and resumable, because records
+rewritten before an interruption are already excluded from the next run's set.
+
+### Two caveats worth knowing
+
+**Close reasons are a moving target.** GitHub has grown the list over time —
+`DUPLICATE` arrived well after `NOT_PLANNED` — and the panel treats both as
+unresolved, with everything else counting as completed. That means a reason
+added in future fails towards the flattering side, so `UNRESOLVED` in
+`src/panels/issues.js` is worth re-checking against live data now and then.
+Issues closed before GitHub recorded a reason at all appear to have been
+backfilled to `COMPLETED`; the null branch stays anyway, and `unknownReason` in
+the totals reports how many landed there so the assumption stays visible if it
+ever starts firing.
+
+**Reactions aren't collected.** Three aggregate counts per issue is 150
+aggregations on a 50-issue page, and that was the part GitHub's abuse limit
+kept refusing on the modpack. They fed the 👍/👎 lists and nothing else, so
+Most Discussed ranks on comment count instead — a plain field on the issue that
+costs nothing. Reinstating them means a `REC_VERSION` bump and a re-walk.
+
+**Nobody knows who closed an issue.** The closing actor lives in the issue's
+timeline, which is one more paginated connection per issue and would roughly
+triple the ingest. First responder is the proxy the page uses instead, and the
+card says plainly that answering first and fixing it are not the same job.
+
+### Labels are a per-repo taxonomy
+
+The modpack names labels `Prefix: Value` — `Mod: GT`, `Status: Stale`,
+`Type: Recipe` — across 233 of them, and the prefixes are different questions
+rather than one long list:
+
+| Group | Labels | Answers |
+|---|---|---|
+| `Status:` | 9 | where an issue is stuck |
+| `Bug:` | 3 | how bad it is |
+| `Type:` | 30 | what kind of thing it is |
+| `Platform:` | 3 | which OS |
+| `Mod:` | 174 | which component |
+| no prefix | 14 | Suggestion, Crash, and friends |
+
+Flattened into one ranked chart, the nine `Status:` labels that describe where
+work is stuck disappear under a hundred that describe what it is about. So the
+card groups by prefix, and the overview shows `Status:` alone — the triage
+pipeline is the part you act on. A repo with no `Status:` labels falls back to
+its busiest and says so.
+
+Label stats are per repo for the same reason: the org-wide sum of a taxonomy
+one tracker invented means nothing. The picker reaches every repo with labels;
+`ISSUE_LABEL_REPO` in `src/config.js` sets which one it opens on.
+
+Monthly trends are kept for that focus repo only, and only for labels with 20+
+issues. That bound is deliberate — series size scales with labels times months,
+and a trend line for a label carrying four issues is two dots and a gap.
+
+### Triage
+
+Three counts drive the page, and they mean different things:
+
+- **Unlabeled** — nobody has classified it.
+- **Unassigned** — nobody owns it.
+- **Unanswered** — nobody except the reporter has said a word. A label or an
+  assignment doesn't count here, because neither is visible to the person
+  waiting for a reply.
+
+Needs attention ranks the open issues three ways — oldest, longest untouched,
+never answered — because an issue can be bad news in any one of them
+independently. The ones sitting in all three are the ones worth opening first.
 
 ## CI health
 
@@ -731,6 +914,8 @@ Everything worth adjusting lives in `src/config.js`:
 - `RELEASE_COMMIT_THRESHOLD` — raise it if repos that auto-release on merge are noisy
 - `RELEASE_EXCLUDED_REPOS` — repos that never want a release, hidden from that panel
 - `STALE_REPO_CUTOFF_DAYS` — skips dormant repos in org-wide sweeps; the main cost lever
+- `ISSUE_STALE_DAYS` — how long an open issue sits untouched before Triage state calls it stale
+- `ISSUE_LABEL_REPO` — which tracker the Label mix card opens on, and the only one with per-label trends
 - `CACHE_TTL_MINUTES` — local API response cache
 
 `RELEASE_EXCLUDED_REPOS` takes repo names without the org prefix, matched
@@ -749,6 +934,29 @@ export const RELEASE_EXCLUDED_REPOS = [
 replacing it, so CI can suppress a repo without a commit.
 
 Pass `--no-cache` (or `npm run build:fresh`) to bypass the cache.
+
+## Rate limits
+
+GitHub enforces two unrelated limits and they need opposite responses.
+
+The **primary quota** is a budget — 5,000 points an hour. Spend it as fast as
+you like and wait for the reset. Nothing in this project comes close.
+
+The **secondary limits** are about pace: concurrent requests, points per
+minute, server CPU per minute. Hitting one costs a flat 60-second penalty
+regardless of how small the request that tripped it was, and against a limit
+like that going flat out is strictly worse than going steadily — a walk that
+trips a penalty every fifth request averages twelve seconds a request, where
+the same walk spaced a second apart may never trip one.
+
+So `src/github/client.js` starts at zero spacing and widens it by 250 ms every
+time a secondary limit is hit, up to three seconds, settling wherever the API
+is willing to be talked to. `NH_REQUEST_SPACING_MS` sets a floor for a run that
+already knows it will be throttled.
+
+It also prints which limit was hit and GitHub's own message. That matters more
+than it sounds: before it did, every throttle looked identical from outside,
+and the only way to tell an exhausted quota from a pace limit was to guess.
 
 ## Moving into the org
 
@@ -779,5 +987,10 @@ somewhere other than Pages to live.
   PR diffs, so commits pushed straight to a branch are invisible.
   `/repos/{org}/{repo}/stats/contributors` would cover them at one request per
   repo, at the cost of `202`-and-retry handling and a top-100-contributors cap.
-- **Issue data.** The ingest walks pull requests only, so nothing anywhere
-  reflects issue volume or triage latency.
+- **Who closed an issue.** The closing actor is in the issue's timeline, which
+  is another paginated connection per issue. Issue Analytics credits the first
+  responder instead and says so.
+- **Issue-to-PR links.** "Fixes #123" would let the dashboard say which PRs are
+  clearing the backlog and which issues are waiting on a specific review. It
+  needs `closedByPullRequestsReferences` on each issue, which is one more
+  connection on a query that already walks every issue in the org.
