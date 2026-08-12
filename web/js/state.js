@@ -38,6 +38,14 @@ const state = {
   exclOpen: null,
   exclQ: { repos: "", labels: "" },   // search text, per group
 
+  // ---- Issue Analytics ----
+  // Which repo's labels the Label mix tab is showing, and which label the
+  // trend chart is on. Null means "whatever the panel says is the focus" —
+  // held as null rather than seeded with the config value so the default can
+  // change in config.js without a stale name pinned in here.
+  issueLabelRepo: null,
+  issueLabel: null,
+
   // ---- drilldown ----
   // Its own window, independent of the analytics/people one. Looking at a
   // single subject you almost always want their whole history first and then
