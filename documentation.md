@@ -671,9 +671,40 @@ src/panels/          one module per panel
 src/panels/grossing.js  shared by analytics and drilldown, owned by neither
 src/build.js         runs all panels → data/dashboard.json + data/drilldown.json
 src/serve.js         local static server
-web/index.html       frontend (single file, no build step)
+web/index.html       page markup — no logic, no styles
+web/styles/          one stylesheet per region of the page
+web/js/              frontend (native ES modules, no build step)
 data/                generated output — committed on purpose
 ```
+
+The frontend is plain ES modules loaded by the browser. There is no bundler and
+no build step: `web/index.html` links the stylesheets and loads `js/main.js`,
+and the browser resolves the rest. Both the local server and the Pages deploy
+copy `web/` verbatim, so what you edit is what runs.
+
+```
+js/state.js            the single mutable state object, plus its constants
+js/format.js           escaping, numbers, durations, dates, entity links
+js/charts.js           hand-rolled SVG chart primitives
+js/table.js            column definitions, sorting, filtering, table markup
+js/data.js             reads dashboard.json: panels, windows, deltas
+js/drilldown-data.js   reads drilldown.json: one subject at a time
+js/contributor-data.js the contributor rows shared by the people modules
+js/module-helpers.js   fragments several modules render the same way
+js/dream.js            Dream Panel exclusions and the label picker
+js/pages.js            the five pages and the modules each one shows
+js/modules/            one file per page's modules; index.js composes them
+js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
+js/router.js           hash routing
+js/events.js           every delegated listener
+js/theme.js            dark/light toggle
+js/main.js             entry point: boot, load dashboard.json, first render
+```
+
+Dependencies run one way, roughly top to bottom in that list — `state` and
+`format` know about nothing, `main` knows about everything. A module that
+renders a card only ever imports helpers, never the renderer that calls it, so
+there are no import cycles.
 
 `data/` is committed deliberately. Once a cron runs the build on a schedule,
 the git history of that file becomes a free time-series of point-in-time values
