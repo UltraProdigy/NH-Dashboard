@@ -1,0 +1,95 @@
+import { state } from "../state.js";
+import { age, contribHref, contribLink, daysSince, esc, fmt } from "../format.js";
+import { hbars } from "../charts.js";
+import { applyFilter, renderTable, sortRows } from "../table.js";
+import { activeWindow, panel, windowDays, windowPhrase } from "../data.js";
+import { contributorAll, contributorColumns, contributorRows } from "../contributor-data.js";
+
+export const peopleModules = {
+  /* ---------------- Contributor Activity ---------------- */
+
+  leaderboard: {
+    page: "people", label: "Leaderboard", span: 12, flush: true,
+    controls: ["window", "minActivity"],
+    sub: () => `by activity, ${windowPhrase()}`,
+    render(expanded) {
+      const p = panel("contributors");
+      if (!p?.ok) return `<div class="error">${esc(p.error)}</div>`;
+      const cols = contributorColumns();
+      const rows = sortRows(applyFilter(contributorRows()), cols);
+      const total = p.data.rows?.length ?? 0;
+      const hidden = total - contributorRows().length;
+      const hint = expanded && hidden > 0
+        ? `<div class="hint" style="padding:12px 14px 0">${fmt(hidden)} of ${fmt(total)} hidden by min activity ${state.minActivity} in this window — set it to 0 to show everyone.</div>` : "";
+      return hint + renderTable(rows, cols, { sortable: expanded, limit: expanded ? null : 8 });
+    },
+  },
+
+  topAuthors: {
+    page: "people", label: "Most PRs opened", span: 6,
+    sub: () => `${windowPhrase()}`,
+    render(expanded) {
+      const rows = contributorRows()
+        .map(r => ({ login: r.login, count: r[state.window].prs }))
+        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      return hbars(rows.slice(0, expanded ? 25 : 7), {
+        label: r => r.login, value: r => r.count,
+        href: contribHref, internal: true,
+      });
+    },
+  },
+
+  topReviewers: {
+    page: "people", label: "Most approvals given", span: 6,
+    sub: () => `${windowPhrase()}`,
+    render(expanded) {
+      const rows = contributorRows()
+        .map(r => ({ login: r.login, count: r[state.window].approvals }))
+        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      return hbars(rows.slice(0, expanded ? 25 : 7), {
+        label: r => r.login, value: r => r.count, color: "var(--purple)",
+        href: contribHref, internal: true,
+      });
+    },
+  },
+
+  newcomers: {
+    page: "people", label: "New faces", span: 6, flush: true,
+    // Names its own period explicitly. This card doesn't follow the toolbar
+    // control above it on the overview grid, so the caption has to say what it
+    // is showing rather than leaving you to assume it matches its neighbours.
+    sub: () => activeWindow("newcomers") === "all"
+      ? "first PR ever"
+      : `first PR in the ${windowPhrase("newcomers")}`,
+    render(expanded) {
+      const days = windowDays("newcomers");
+      const rows = contributorAll()
+        .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
+        .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
+      const cols = [
+        { key: "login", label: "Contributor", render: r => contribLink(r.login) },
+        { key: "firstSeen", label: "First PR", get: r => r.firstSeen ?? "", render: r => age(daysSince(r.firstSeen)) },
+        { key: "prs", label: "PRs", get: r => r.all.prs, render: r => `<span class="num">${r.all.prs}</span>` },
+        { key: "merged", label: "Merged", get: r => r.all.merged, render: r => `<span class="num">${r.all.merged}</span>` },
+      ];
+      return renderTable(sortRows(applyFilter(rows), cols), cols, { sortable: expanded, limit: expanded ? null : 7 });
+    },
+  },
+
+  lapsed: {
+    page: "people", label: "Gone quiet", span: 6, flush: true,
+    sub: () => "regulars with no activity in 6 months",
+    render(expanded) {
+      const rows = contributorAll()
+        .filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180)
+        .sort((a, b) => (b.all.prs + b.all.approvals) - (a.all.prs + a.all.approvals));
+      const cols = [
+        { key: "login", label: "Contributor", render: r => contribLink(r.login) },
+        { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
+        { key: "prs", label: "PRs (all time)", get: r => r.all.prs, render: r => `<span class="num">${fmt(r.all.prs)}</span>` },
+        { key: "approvals", label: "Approvals", get: r => r.all.approvals, render: r => `<span class="num">${fmt(r.all.approvals)}</span>` },
+      ];
+      return renderTable(sortRows(applyFilter(rows), cols), cols, { sortable: expanded, limit: expanded ? null : 7 });
+    },
+  },
+};
