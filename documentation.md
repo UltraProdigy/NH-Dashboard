@@ -406,6 +406,18 @@ repo holding a record below it. Same properties as the PR backfills — it's
 self-limiting once the store is current, and resumable, because records
 rewritten before an interruption are already excluded from the next run's set.
 
+**But a bump is the expensive option, and it is often the wrong one.** The
+re-walk uses the full query, which is the shape GitHub's abuse limit refuses on
+the modpack — the closer field learned this the hard way, and `patchClosers` is
+what replaced it. When a new field can be fetched *on its own*, fetch it on its
+own: a query of just that field, a hundred a page, merged onto the record already
+on disk, with a cursor saved per page. Reserve the bump for changes that really
+do need every field re-read, and reserve `--bulk` for filling a tracker from
+nothing.
+
+`--limit=N` bounds both passes as well as the main walk now, so a cautious first
+run is actually cautious.
+
 ### Caveats worth knowing
 
 **Close reasons are a moving target.** GitHub has grown the list over time —
@@ -461,22 +473,43 @@ usually two different people doing two different jobs:
 The same close can therefore be counted for two people in two different columns.
 That's the honest reading, and every card that shows both says so.
 
-**The catch.** This arrived as `REC_VERSION` 3, so every record written before it
-counts as *unattributed* until `npm run ingest` re-walks the store — 26,000
-issues at 50 a page, resumable, and it will rewrite `issues.ndjson` wholesale in
-one commit. Until then every close count reads as zero, which is why nothing
-renders a bare zero: `closerKnown` is a per-record tri-state, the panels count
-what they can't attribute, and every affected card carries a note saying how many
-closes it couldn't see and what to run. A record only counts as attributed if it
-says out loud that it asked — a bulk load over REST cannot ask, so it writes
-`closerKnown: false` rather than staying silent and being mistaken for "closed by
-nobody".
+Existing records don't have any of this, and getting it to them is where the
+first attempt went wrong. It rode `REC_VERSION`, which orders a full re-walk —
+and a full re-walk uses the *heavy* query, fifty issues a page carrying fifteen
+labels, ten comments and five assignees each. That is the exact shape GitHub's
+abuse limit refuses on the modpack, the reason `--bulk` exists in the first
+place. It cleared all 86 repos in a request each and then sat in a 60-second
+penalty every few requests, forever.
 
-The backfill also got safer while this was going in. It used to accumulate a
-whole repo in memory and write on completion, which on the modpack meant losing
-an hour of fetching to one refused request; it now appends per page and tracks
-which issue numbers are still stale, so a resumed run skips what already landed
-and stops as soon as the repo's stale set is empty.
+So the closer gets a pass of its own instead: `patchClosers` asks only for the
+number and the one timeline node, a hundred issues a page, `states: [CLOSED]`
+because an open issue has nothing to tell you — about 300 nodes a page against
+the full query's 1,550, at half the requests. It merges onto the record already
+on disk rather than rebuilding it, so nothing else is re-fetched to obtain one
+field. Open issues are stamped locally, for free: the answer is known without
+asking.
+
+It is resumable on two axes. The set it works on is "closed records that don't
+know their closer", so anything already patched is excluded next time, *and* the
+page cursor is saved per page, so an interruption costs one page rather than a
+repo. That second part is what the version-driven backfill could never do — it
+had no way to record where in a repo it had got to, so a refused request three
+hundred pages into the modpack threw away all three hundred.
+
+Measured against the real store with a stubbed API: 407 pages, every record
+attributed, nothing else in any record altered.
+
+Until that pass has run, closes read as unattributed rather than as zero.
+`closerKnown` is a per-record tri-state, the panels count what they can't
+attribute, and every affected card says how many closes it couldn't see and what
+to run. A record only counts as attributed if it says out loud that it asked — a
+bulk load over REST cannot ask, so it writes `closerKnown: false` rather than
+staying silent and being mistaken for "closed by nobody".
+
+The version-driven backfill is still there for fields that genuinely need every
+other field re-read, and it got safer on the way past: it appends per page and
+tracks which issue numbers are still stale, instead of accumulating a whole repo
+in memory and writing on completion.
 
 ### By contributor
 
