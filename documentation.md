@@ -65,7 +65,7 @@ development needs one of the three options above rather than reusing the secret.
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
-| Issue analytics | 0 (reads local store) | Triage state, volume, labels and responders, aggregated from ingested issue data — see below |
+| Issue analytics | 0 (reads local store) | Triage state, volume, labels, and who files, answers and closes — aggregated from ingested issue data, see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
 
@@ -328,6 +328,7 @@ watermark keeps it to exactly one.
 | `comments` | Most commented, engagement totals |
 | `reactions`, `thumbsUp`, `thumbsDown` | Most 👍 / Most 👎 |
 | `firstResponseAt`, `firstResponder` | first-response latency, "never answered", who answers |
+| `closedBy`, `closedVia`, `closerKnown` | who closes, closed-by-hand vs. closed-by-a-PR, every triage metric |
 
 First response is derived at ingest time rather than stored raw. The question
 is "when did somebody other than the reporter first say anything", and keeping
@@ -405,7 +406,7 @@ repo holding a record below it. Same properties as the PR backfills — it's
 self-limiting once the store is current, and resumable, because records
 rewritten before an interruption are already excluded from the next run's set.
 
-### Two caveats worth knowing
+### Caveats worth knowing
 
 **Close reasons are a moving target.** GitHub has grown the list over time —
 `DUPLICATE` arrived well after `NOT_PLANNED` — and the panel treats both as
@@ -423,10 +424,82 @@ kept refusing on the modpack. They fed the 👍/👎 lists and nothing else, so
 Most Discussed ranks on comment count instead — a plain field on the issue that
 costs nothing. Reinstating them means a `REC_VERSION` bump and a re-walk.
 
-**Nobody knows who closed an issue.** The closing actor lives in the issue's
-timeline, which is one more paginated connection per issue and would roughly
-triple the ingest. First responder is the proxy the page uses instead, and the
-card says plainly that answering first and fixing it are not the same job.
+**Closing credit is a floor until the store is re-walked.** The next section says
+why, and what to run.
+
+### Who closed it
+
+The store used to know *when* an issue closed and not by whose hand, which left
+the org's actual triage work invisible: the people whose job is to sort, answer
+and close tickets appeared in no number on the dashboard, while anybody who
+opened a one-line PR appeared in several.
+
+The ingest now asks for the last `CLOSED_EVENT` on each issue and keeps two
+things from it:
+
+- **`closedBy`** — who pressed the button.
+- **`closedVia`** — what closed it: a pull request (with its number, repo and
+  author), a commit, or nothing at all, which means somebody closed it by hand.
+
+That is one timeline node per issue, about 2% on top of a page already carrying
+fifteen labels and ten comments per issue — nothing like the reaction aggregates
+that had to be abandoned. `last: 1` because an issue can be closed and reopened
+several times and only the close that stuck describes the record's state.
+
+Both are credited separately everywhere they appear, because on this org they are
+usually two different people doing two different jobs:
+
+- **Closed** — they pressed the button. Split further into their own issues and
+  other people's, and into closed-by-hand versus closed-by-a-PR.
+- **Closed by their PR** — the pull request that closed the issue was theirs,
+  whoever pressed the button.
+- **Triage acts** — first replies plus closes of somebody else's issue. The one
+  number for "how much triage is this person doing". Deliberately a sum of acts
+  rather than a weighted score: weighting answering against closing would be
+  inventing a judgement the data can't support.
+
+The same close can therefore be counted for two people in two different columns.
+That's the honest reading, and every card that shows both says so.
+
+**The catch.** This arrived as `REC_VERSION` 3, so every record written before it
+counts as *unattributed* until `npm run ingest` re-walks the store — 26,000
+issues at 50 a page, resumable, and it will rewrite `issues.ndjson` wholesale in
+one commit. Until then every close count reads as zero, which is why nothing
+renders a bare zero: `closerKnown` is a per-record tri-state, the panels count
+what they can't attribute, and every affected card carries a note saying how many
+closes it couldn't see and what to run. A record only counts as attributed if it
+says out loud that it asked — a bulk load over REST cannot ask, so it writes
+`closerKnown: false` rather than staying silent and being mistaken for "closed by
+nobody".
+
+The backfill also got safer while this was going in. It used to accumulate a
+whole repo in memory and write on completion, which on the modpack meant losing
+an hour of fetching to one refused request; it now appends per page and tracks
+which issue numbers are still stale, so a resumed run skips what already landed
+and stops as soon as the repo's stale set is empty.
+
+### By contributor
+
+The issues page has a **By contributor** tab: one row per person, every column
+sortable, covering all four things somebody can do to an issue — file it, answer
+it, close it, or fix it with a pull request. It carries the medians too, so
+"answers quickly" and "answers a lot" are separable.
+
+Two things on that card are worth reading before quoting it:
+
+- **Median reply lag is measured from when the issue was filed**, not from when
+  the person picked it up. Somebody who works through old threads looks slow. It
+  describes the queue as much as the person.
+- **Concentration**: the KPI row reports what share of all triage acts the top
+  five people account for. That's the number an admin acts on — if five people
+  are doing four fifths of it, the queue has a bus problem no median will show.
+
+The table is capped at the 200 busiest people per window and packed positionally
+against `personFields`. The store holds 6,400 distinct issue participants, nearly
+all of them somebody who filed one bug in 2019; a full per-window table of those
+would be most of a megabyte in the file every page loads. Anyone who falls off
+the cap still has a complete record on their own drilldown, which is where you go
+when you want one person rather than a ranking.
 
 ### Labels are a per-repo taxonomy
 
@@ -574,10 +647,46 @@ Deep links carry the subject, so they're shareable:
 #repo/GT5-Unofficial/rBacklog
 ```
 
-The data lives in its own `data/drilldown.json` (~9 MB once the size and title
-fields are populated, roughly 1.5 MB gzipped) rather than in `dashboard.json`. The frontend fetches it the first time you open
-a drilldown page and keeps it for the session, so the other three pages don't
-pay for data they never use.
+The data lives in its own `data/drilldown.json` (~19 MB, 3.4 MB gzipped) rather
+than in `dashboard.json`. The frontend fetches it the first time you open a
+drilldown page and keeps it for the session, so the other four pages don't pay
+for data they never use.
+
+Both stores feed it. Pull requests answer "what did they build"; issues answer
+"what did they sort out", and those are frequently different people. A subject can
+exist because of issue activity alone — a reporter or a triager with no PRs — or
+because of PRs alone, on a repo with the issue tab switched off. Every card
+tolerates the other half being absent and says which case it's in rather than
+rendering a grid of noughts.
+
+#### What it costs, and where that went
+
+Folding in the issue store took the file from 6.3 MB to 19 MB, and the subject
+count from 1,200 to 6,700. Four things bounded that, and they're worth knowing
+because they're the shapes the frontend has to unpack:
+
+- **Issue window records are packed positionally** against
+  `issueWindowFields.contributors` / `.repos` — 12.9 MB down to 2.0 MB. Named
+  objects meant writing `medianResponseLagHours` twenty-one thousand times.
+- **Issue series are sparse month maps**, not padded arrays, and an empty series
+  is `null` rather than 240 nulls in a row. PR series still pad: their subjects
+  are people who open pull requests in consecutive months, and issue subjects are
+  dominated by "one bug report, once".
+- **Backlogs are `null` when empty** and carry bucket counts without their
+  labels, which the payload states once at the top as `backlogBuckets`. Both the
+  PR and issue backlogs work this way now, so both are read through the
+  `backlogOf` / `issueBacklogOf` accessors rather than reached into directly.
+- **Slim records.** The 3,900 people whose entire footprint is one or two bug
+  reports get name, dates, packed windows and their filed rows — no ranked maps,
+  no partner lists, no series. They still get a page, because a ranked list that
+  links to a page that doesn't exist is worse than either; they just don't get
+  eight ranked maps describing a single event. `substantial()` in
+  `src/panels/drilldown.js` is the bar: any PR, any approval, any reply, any
+  close, any assignment, or three issues filed.
+
+Issue-side ranked lists are capped at 200 (`ISSUE_TOP_N`), unlike the PR ones.
+The distributions aren't comparable: the median repo has ten distinct PR authors,
+and the modpack has 5,086 distinct issue reporters.
 
 ### One time control
 
@@ -791,6 +900,73 @@ The ranking lives in `src/panels/grossing.js` rather than in either panel.
 Both own half of it otherwise, and having `analytics.js` import it from
 `drilldown.js` would make a needless import cycle out of forty lines of sorting.
 
+### Issue cards on the drilldowns
+
+The contributor page carries three, after the PR ones rather than interleaved
+with them — they answer a different question about the same person, and reading
+them as a block is how anyone uses them:
+
+- **Issues** — the profile tiles' counterpart. Filed, accepted share, how long
+  their own reports waited, first replies given, how fast they answer, closes
+  split by whose issue it was and by hand versus by a PR, and what's assigned to
+  them. Expanded, the same thirty metrics across all seven windows.
+- **Triage** — where they answer and where they close, as two ranked repo lists,
+  plus who they help and who helps them, plus the full log of everything they
+  closed with a column saying whether their own pull request did it.
+- **Filed issues** — every issue they reported with its outcome, how long it
+  waited for a reply, and its comment count. Expanded, a monthly chart of all four
+  activities at once.
+
+The repo page carries four:
+
+- **Issues** — opened, closed, backlog movement, both latencies, answered and
+  resolved shares, reporters, responders, closers, and the by-hand/by-PR split.
+  Expanded, the all-window table and monthly volume and people charts.
+- **Issue backlog** — open right now, with unanswered, unlabeled and unassigned
+  counts, age and last-activity profiles, and the full open list.
+- **Issue people** — most filed, first to reply, closed the most, whose PRs closed
+  them, and who's assigned.
+- **Labels** — that repo's label mix, grouped by prefix, read straight out of
+  `dashboard.json`. The issues panel already carries every label of every repo
+  with its counts and medians, so the drilldown duplicates none of it; the
+  consequence is that this card needs the issues panel to have built, and says so
+  when it hasn't.
+
+### Head to head
+
+Both drilldowns have a **Head to head** tab. It pins the page's own subject as the
+first column, takes up to four more from its own search box, and lays every
+metric out side by side on whichever period the toolbar is set to.
+
+Five columns is the limit on purpose: a table of ten is not a comparison, it's a
+leaderboard, and the People and Repos pages already are one.
+
+Every metric it shows is one that already exists on the page it's part of. A
+lineup that computed its own numbers would eventually disagree with the profile
+of the same person, and then one of them would be wrong.
+
+The highlighted cell is the one **leading** that row, and on the volume rows that
+is all it means — whoever opened more pull requests is not thereby better at
+anything. Latency rows highlight the lowest, share rows the highest, and rows
+where leading is meaningless (first seen, median PR size, open counts) highlight
+nothing at all. A tie highlights both cells rather than silently picking whoever
+was added first, and a row where everybody scored zero has no leader.
+
+Below the table, each headline metric gets a ranked bar block, and two overlaid
+monthly line charts show PR and issue volume per subject. Each subject keeps one
+colour across the chips, the table headers, the bars and both charts.
+
+The lineup is held per mode (`state.vs.contributor` / `.repo`), so flipping from a
+contributor to a repo doesn't drag four logins along, and coming back finds the
+lineup you left. It isn't in the hash: a five-subject comparison is a thing you
+assemble, not a thing you link to, and encoding four names in a URL would double
+its length for a case nobody shares.
+
+The picker is a second combobox rather than the toolbar's. The toolbar's changes
+which subject the page is *about*; this one adds a column to one card. Sharing the
+widget would have meant one input with two meanings depending on where the caret
+happened to be.
+
 ### "+ N more" counts what was truncated
 
 `renderTable` derives its "+ N more — open the tab for the full list" line from
@@ -871,11 +1047,13 @@ js/format.js           escaping, numbers, durations, dates, entity links
 js/charts.js           hand-rolled SVG chart primitives
 js/table.js            column definitions, sorting, filtering, table markup
 js/data.js             reads dashboard.json: panels, windows, deltas
-js/drilldown-data.js   reads drilldown.json: one subject at a time
+js/drilldown-data.js   reads drilldown.json: one subject's pull requests
+js/issue-data.js       reads drilldown.json: one subject's issues, unpacked
+js/versus-data.js      the head-to-head lineup and its metric catalogue
 js/contributor-data.js the contributor rows shared by the people modules
 js/module-helpers.js   fragments several modules render the same way
 js/dream.js            Dream Panel exclusions and the label picker
-js/pages.js            the five pages and the modules each one shows
+js/pages.js            the six pages and the modules each one shows
 js/modules/            one file per page's modules; index.js composes them
 js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
 js/router.js           hash routing
@@ -896,9 +1074,9 @@ team membership). Most historical metrics *are* reconstructible from
 `created_at`/`merged_at` timestamps and don't need this.
 
 `data/drilldown.json` is the exception, and is **gitignored**. Every byte of it
-comes from `prs.ndjson`, which is already committed, so its history would
-record nothing you couldn't regenerate exactly — it'd be repo growth in
-exchange for nothing. The build writes it on every run and the Pages deploy
+comes from `prs.ndjson` and `issues.ndjson`, both of which are already committed,
+so its history would record nothing you couldn't regenerate exactly — it'd be
+19 MB of repo growth per build in exchange for nothing. The build writes it on every run and the Pages deploy
 copies it off disk, so the hosted site is unaffected.
 
 The practical consequence: a fresh clone has no drilldown data until someone
@@ -987,10 +1165,16 @@ somewhere other than Pages to live.
   PR diffs, so commits pushed straight to a branch are invisible.
   `/repos/{org}/{repo}/stats/contributors` would cover them at one request per
   repo, at the cost of `202`-and-retry handling and a top-100-contributors cap.
-- **Who closed an issue.** The closing actor is in the issue's timeline, which
-  is another paginated connection per issue. Issue Analytics credits the first
-  responder instead and says so.
-- **Issue-to-PR links.** "Fixes #123" would let the dashboard say which PRs are
-  clearing the backlog and which issues are waiting on a specific review. It
-  needs `closedByPullRequestsReferences` on each issue, which is one more
-  connection on a query that already walks every issue in the org.
+- **Cross-referenced PRs that didn't close anything.** `closedVia` catches the
+  pull request that actually closed an issue, which covers "whose fix landed".
+  It doesn't catch a PR that mentions an issue without closing it, or the several
+  PRs that touched one before the last did. That needs
+  `closedByPullRequestsReferences` or the full timeline, and it's a much larger
+  query than one node per issue.
+- **Who applied which label, and when.** Labelling is most of what triage
+  actually is, and the store can only see the labels an issue ended up with — not
+  who put them there or how long it took. Both live in the timeline as
+  `LABELED_EVENT`, which is unbounded per issue rather than one node.
+- **Comment counts per person.** The store knows who replied *first*, which is
+  the number that matters for latency, but not who wrote the other four hundred
+  comments on a long thread. That's a paginated connection per issue.
