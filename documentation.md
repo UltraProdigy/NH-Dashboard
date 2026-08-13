@@ -482,12 +482,25 @@ place. It cleared all 86 repos in a request each and then sat in a 60-second
 penalty every few requests, forever.
 
 So the closer gets a pass of its own instead: `patchClosers` asks only for the
-number and the one timeline node, a hundred issues a page, `states: [CLOSED]`
-because an open issue has nothing to tell you — about 300 nodes a page against
-the full query's 1,550, at half the requests. It merges onto the record already
-on disk rather than rebuilding it, so nothing else is re-fetched to obtain one
-field. Open issues are stamped locally, for free: the answer is known without
-asking.
+number and the one timeline node, and merges it onto the record already on disk
+rather than rebuilding it, so nothing else is re-fetched to obtain one field. Open
+issues are stamped locally, for free — the answer is known without asking.
+
+The first version of that pass took a hundred a page with `states: [CLOSED]`,
+reasoning that a fifth of the nodes at half the requests must be cheaper. It was
+refused anyway. **Filtering a connection is not free**: the server still walks the
+rows and discards, so a filtered page is *more* work than an unfiltered one of the
+same size, not less. It now mirrors the shape that demonstrably works — unfiltered,
+fifty a page, creation order — carrying one timeline node instead of thirty
+assorted others. Matching a proven shape beats reasoning about which shape ought
+to be cheaper.
+
+It walks **newest-first**, the one deliberate difference from the first walk. The
+backfill it replaces went oldest-first and died partway, so on the repos it touched
+the oldest issues are the patched ones and the newest are the gaps: coming down
+from the top reaches them immediately and stops when the set is empty. That is 149
+pages for the modpack instead of 366. Both directions read the creation index
+rather than a secondary one, which is the part that matters for cost.
 
 It is resumable on two axes. The set it works on is "closed records that don't
 know their closer", so anything already patched is excluded next time, *and* the
@@ -496,8 +509,28 @@ repo. That second part is what the version-driven backfill could never do — it
 had no way to record where in a repo it had got to, so a refused request three
 hundred pages into the modpack threw away all three hundred.
 
-Measured against the real store with a stubbed API: 407 pages, every record
+Measured against the real store with a stubbed API: 219 pages, every record
 attributed, nothing else in any record altered.
+
+### When the token is in cooldown
+
+A secondary limit that keeps firing whatever the spacing is isn't a pace problem,
+and no amount of politeness inside one process fixes it. Both patch passes carry a
+breaker: three consecutive failures and the pass stops, says that this is a
+cooldown rather than a pace, and points at running the same command later.
+
+It counts two shapes of failure, because the first version only counted one. A
+throttled page the client retried into success shows up as a bump in its
+rate-limit counter; a page still throttled after all five attempts arrives as a
+thrown 403. Counting only the first meant a cooled-off token failed quietly for
+five minutes a repo, thirty-six times over. A first repo that fails before a
+single record has come back stops the pass immediately — five attempts a repo at a
+minute each means confirming the obvious costs ten minutes.
+
+The important half of that fix is one line in `backfillStale`: a record whose only
+gap is the closer belongs to the patch pass, so the version-driven walk skips it.
+Without it, the breaker stopped the light pass and the heavy query then attacked
+the very same records — the pattern that caused the cooldown in the first place.
 
 Until that pass has run, closes read as unattributed rather than as zero.
 `closerKnown` is a per-record tri-state, the panels count what they can't
