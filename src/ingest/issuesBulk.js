@@ -183,6 +183,14 @@ export function toRecord(repo, it, response, version) {
     // Never unknown here: the comment pass sees every comment in the repo, so
     // an absent first response means silence rather than an exhausted sample.
     responseUnknown: false,
+    // REST returns `closed_by` only when fetching one issue at a time, and the
+    // closing pull request not at all, so a bulk load cannot answer this. Said
+    // out loud rather than left absent: every count derived from it reports how
+    // many issues it couldn't see, instead of quietly reading them as "closed
+    // by nobody". A later `npm run ingest` fills them in over GraphQL.
+    closedBy: null,
+    closedVia: null,
+    closerKnown: false,
   };
 }
 
