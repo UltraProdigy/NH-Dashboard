@@ -63,7 +63,7 @@ const LABELS_FILE = path.join(STORE_DIR, "issue-labels.json");
  * bump would order a full re-walk of the entire store to obtain strictly less
  * data than it already holds.
  */
-const REC_VERSION = 2;
+const REC_VERSION = 3;
 
 /** Matches the PR store — long titles ellipsise in every list that shows one. */
 const MAX_TITLE = 160;
@@ -104,6 +104,37 @@ const REPOS = `
   }
 `;
 
+/**
+ * Who closed the issue, and what closed it.
+ *
+ * The store could already say when an issue closed but not by whose hand, which
+ * left the org's actual triage work invisible: the people whose job is to sort,
+ * answer and close tickets did not appear in any number on the dashboard, while
+ * anyone who opened a PR did. `actor` is the person who pressed the button;
+ * `closer` is the thing that closed it, which for a fix landing through review
+ * is the pull request rather than a person.
+ *
+ * One timeline node per issue, so this is about 2% on top of a page that
+ * already carries fifteen labels and ten comments per issue — nothing like the
+ * cost of the reaction aggregates that had to be abandoned. `last: 1` because
+ * an issue can be closed and reopened several times and only the close that
+ * stuck describes the current state.
+ */
+const CLOSER_FIELDS = `
+  timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
+    nodes {
+      ... on ClosedEvent {
+        createdAt
+        actor { login }
+        closer {
+          __typename
+          ... on PullRequest { number author { login } repository { name } }
+        }
+      }
+    }
+  }
+`;
+
 const ISSUE_FIELDS = `
   number
   title
@@ -119,6 +150,7 @@ const ISSUE_FIELDS = `
     totalCount
     nodes { createdAt author { login } }
   }
+  ${CLOSER_FIELDS}
 `;
 
 /**
@@ -196,8 +228,31 @@ function firstResponse(issue) {
   return { at: null, by: null, unknown: truncated };
 }
 
+/**
+ * The close that stuck, flattened.
+ *
+ * `closedBy` is the login that pressed the button and `closedVia` says what did
+ * the closing — a pull request (with its author, who is usually the person who
+ * actually fixed it), a commit, or nothing, which means somebody closed it by
+ * hand. An issue closed and reopened repeatedly yields only the last close,
+ * which is the one describing the state the record carries.
+ */
+function closure(issue) {
+  const ev = (issue.timelineItems?.nodes ?? []).at(-1);
+  if (!ev) return { by: null, via: null };
+  const c = ev.closer;
+  const via =
+    c?.__typename === "PullRequest"
+      ? { kind: "pr", repo: c.repository?.name ?? null, number: c.number, author: c.author?.login ?? null }
+      : c?.__typename
+        ? { kind: c.__typename === "Commit" ? "commit" : c.__typename.toLowerCase() }
+        : null;
+  return { by: ev.actor?.login ?? null, via };
+}
+
 const toRecord = (repo, issue) => {
   const fr = firstResponse(issue);
+  const cl = closure(issue);
   return {
     v: REC_VERSION,
     repo,
@@ -219,6 +274,12 @@ const toRecord = (repo, issue) => {
     firstResponseAt: fr.at,
     firstResponder: fr.by,
     responseUnknown: fr.unknown,
+    closedBy: cl.by,
+    closedVia: cl.via,
+    // The GraphQL walk always asks, so absent here means "nobody closed it".
+    // The REST bulk path can't ask at all and writes false, which has to read
+    // as "we don't know" rather than "closed by nobody".
+    closerKnown: true,
     // Reactions are deliberately absent. Three aggregate counts per issue is
     // 150 aggregations on a 50-issue page, and on the org's largest tracker
     // that query was refused by GitHub's abuse limit on every single attempt.
@@ -464,47 +525,62 @@ async function backfillStale(labelColors) {
   const stale = (await readStore()).filter((i) => (i.v ?? 0) < REC_VERSION);
   if (!stale.length) return 0;
 
-  const repos = [...new Set(stale.map((i) => i.repo))];
+  const wanted = new Map(); // repo -> Set of issue numbers still at the old version
+  for (const i of stale) {
+    if (!wanted.has(i.repo)) wanted.set(i.repo, new Set());
+    wanted.get(i.repo).add(i.number);
+  }
+
   console.log(
-    `  backfilling ${stale.length} issues across ${repos.length} repos to v${REC_VERSION}`
+    `  backfilling ${stale.length} issues across ${wanted.size} repos to v${REC_VERSION}`
   );
 
   let written = 0;
   let done = 0;
 
-  for (const repo of repos) {
-    const records = [];
+  for (const [repo, numbers] of wanted) {
     const colors = {};
     let cursor = null;
+    // Written a page at a time rather than a repo at a time. The store this
+    // walks is 26,000 issues deep, so a repo can be an hour of fetching — and
+    // when the modpack's walk is refused two thirds of the way through, an
+    // accumulate-then-write loop loses all of it and starts over. Per-page
+    // appends mean the lost work is one page, and the set this run works on is
+    // "records still at the old version", so what already landed is excluded
+    // from the next attempt.
     try {
-      while (true) {
+      while (numbers.size) {
         const data = await graphql(ISSUES_BY_CREATED, { owner: ORG, name: repo, cursor });
         const page = data.repository?.issues;
         if (!page) break;
+
+        const records = [];
         for (const issue of page.nodes) {
+          if (!numbers.delete(issue.number)) continue;
           for (const l of issue.labels?.nodes ?? []) colors[l.name] = l.color;
           records.push(toRecord(repo, issue));
         }
+
+        if (records.length) {
+          await appendFile(
+            STORE_FILE,
+            records.map((r) => JSON.stringify(r)).join("\n") + "\n"
+          );
+          written += records.length;
+        }
+        if (Object.keys(colors).length)
+          labelColors[repo] = { ...labelColors[repo], ...colors };
+        await saveLabelMap(labelColors);
+
         if (!page.pageInfo.hasNextPage) break;
         cursor = page.pageInfo.endCursor;
       }
     } catch (err) {
-      console.warn(`  ${repo}: ${err.message.split("\n")[0]}`);
-      continue;
+      console.warn(`  ${repo}: ${err.message.split("\n")[0]} — resumes next run`);
     }
-
-    if (records.length) {
-      await appendFile(
-        STORE_FILE,
-        records.map((r) => JSON.stringify(r)).join("\n") + "\n"
-      );
-      written += records.length;
-    }
-    if (Object.keys(colors).length)
-      labelColors[repo] = { ...labelColors[repo], ...colors };
 
     if (++done % 25 === 0)
-      console.log(`  ${done}/${repos.length} repos, ${written} records re-fetched`);
+      console.log(`  ${done}/${wanted.size} repos, ${written} records re-fetched`);
   }
 
   clearStoreCache();
