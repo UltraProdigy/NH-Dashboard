@@ -21,6 +21,27 @@ const I = () => panel("issues")?.ok ? panel("issues").data : null;
 const IW = () => I()?.byWindow?.[state.window] ?? null;
 
 /**
+ * The by-contributor issue table for the selected period.
+ *
+ * Shipped as positional rows against `personFields` — thirty metric names per
+ * person per window would have been most of a megabyte of key names in a file
+ * every page loads. Expanded on first use and memoized per window onto the
+ * panel data, which is the same deal the drilldown's packed rows get.
+ */
+function issuePeople() {
+  const d = I();
+  if (!d?.people) return [];
+  const cache = (d._people ??= {});
+  if (cache[state.window]) return cache[state.window];
+  const fields = d.personFields ?? [];
+  return (cache[state.window] = (d.people[state.window] ?? []).map((row) => {
+    const out = { login: row[0] };
+    fields.forEach((f, i) => { out[f] = row[i + 1]; });
+    return out;
+  }));
+}
+
+/**
  * Modules that keep a period of their own, independent of their page's.
  *
  * New Faces is the only one. "Who's new" and "who's busiest" want different
@@ -141,6 +162,7 @@ export {
   activeWindow,
   dayLimitNote,
   delta,
+  issuePeople,
   panel,
   seriesSlice,
   windowDays,

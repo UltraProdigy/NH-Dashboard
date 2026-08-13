@@ -3,6 +3,7 @@ import {
   age,
   bucketLabel,
   contribHref,
+  contribLink,
   dur,
   esc,
   fmt,
@@ -24,6 +25,7 @@ import {
   IW,
   dayLimitNote,
   delta,
+  issuePeople,
   seriesSlice,
   windowLabel,
   windowPhrase,
@@ -92,7 +94,14 @@ const attentionBoxes = (t) => [
 /** Which repo's labels are on screen. Null state means the configured focus. */
 const labelRepo = () => state.issueLabelRepo ?? I()?.labelFocus ?? null;
 
-/** Rows bucketed by prefix, in the order the panel declared. */
+/**
+ * Rows bucketed by prefix, in the order the panel declared.
+ *
+ * Exported alongside groupSection and LABEL_COLS because the repo drilldown
+ * shows one repo's label mix with the same three-part treatment — bars for
+ * what's open, a table for the rest, grouped by prefix. Two copies of that
+ * would drift in a week.
+ */
 function groupLabels(d, rows) {
   const order = d.labelGroupOrder ?? [];
   const by = new Map();
@@ -187,6 +196,8 @@ function trendSection(d, repo) {
     `<div class="hint" style="margin-top:10px">Last five years, monthly. Only labels with ${fmt(d.labelSeriesMin)}+ issues get a trend — the rest are in the tables above.</div>`;
 }
 
+
+export { LABEL_COLS, groupLabels, groupSection, issueTitle, labelChips, TRIAGE_COLS };
 
 export const issueModules = {
   /* ---------------- Issue Analytics ---------------- */
@@ -446,29 +457,119 @@ export const issueModules = {
   },
 
   iReporters: {
-    page: "issues", label: "Who files and who answers", span: 6,
+    page: "issues", label: "Who files, answers and closes", span: 6,
     sub: () => windowPhrase(),
     render(expanded) {
       const w = IW();
       if (!w) return missing();
       const n = expanded ? 12 : 6;
+      const list = (rows, color) =>
+        rows?.length
+          ? hbars(rows.slice(0, n), {
+              label: (r) => r.login, value: (r) => r.count, color,
+              href: contribHref, internal: true,
+            })
+          : `<div class="empty" style="padding:8px 0">Nothing recorded in this period.</div>`;
 
       return `<div class="kpis" style="margin:-14px -14px 14px">
           ${kpi("Reporters", fmt(w.reporters), `${fmt(w.newReporters)} filing their first`)}
           ${kpi("People answering", fmt(w.responders), `${fmt(w.responses)} first replies`)}
-          ${kpi("Answered at all", pctFmt(w.answeredShare), `${fmt(w.neverAnswered)} never were`, w.answeredShare != null && w.answeredShare < 0.5 ? "down" : "")}
+          ${kpi("People closing", fmt(w.closers), `${fmt(w.closedByPR)} closes came from a PR`)}
         </div>` +
         `<h3 style="font-size:13px;margin:0 0 8px">Most issues filed</h3>` +
-        hbars(w.topReporters.slice(0, n), {
-          label: (r) => r.login, value: (r) => r.count,
-          href: contribHref, internal: true,
-        }) +
+        list(w.topReporters, "var(--accent)") +
         `<h3 style="font-size:13px;margin:22px 0 8px">First to reply</h3>` +
-        hbars(w.topResponders.slice(0, n), {
-          label: (r) => r.login, value: (r) => r.count, color: "var(--purple)",
-          href: contribHref, internal: true,
-        }) +
-        `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. It's a rough proxy for triage effort, not for who solved anything — the person who answers first is often not the person who fixes it.</div>`;
+        list(w.topResponders, "var(--purple)") +
+        `<h3 style="font-size:13px;margin:22px 0 8px">Closed the most</h3>` +
+        list(w.topClosers, "var(--good)") +
+        (expanded
+          ? `<h3 style="font-size:13px;margin:22px 0 8px">Assigned the most</h3>` +
+            list(w.topAssignees, "var(--warn)")
+          : "") +
+        `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. Closing credit goes to whoever pressed the button, which is often not who wrote the fix — the by-contributor tab splits those apart.${
+          w.unknownCloser
+            ? ` ${fmt(w.unknownCloser)} closes in this period record no actor at all; run <code>npm run ingest</code> to backfill them.`
+            : ""
+        }</div>`;
+    },
+  },
+
+  /**
+   * The by-contributor breakdown.
+   *
+   * The card next door ranks reporters and first responders, which was the
+   * whole of what this page could say about people — and it left out the two
+   * things that matter most on this org: who closes tickets, and whose pull
+   * requests do the closing. Those are different jobs, done by different
+   * people, and neither of them shows up in a PR count.
+   *
+   * One row per person, every column sortable, so "who is doing the triage" and
+   * "who files the most" are the same table read two ways rather than two cards
+   * that have to be kept in step.
+   */
+  iPeople: {
+    page: "issues", label: "By contributor", span: 12, flush: true,
+    tabControls: ["filter"],
+    sub: () => `filing, answering and closing, ${windowPhrase()}`,
+    render(expanded) {
+      const d = I();
+      if (!d) return missing();
+      const rows = issuePeople();
+      if (!rows.length)
+        return `<div class="empty">Nobody touched an issue in this period.</div>`;
+
+      const w = IW();
+      const closedTotal = rows.reduce((n, r) => n + r.closed, 0);
+      const triageTotal = rows.reduce((n, r) => n + r.triage, 0);
+      const top5 = [...rows].sort((a, b) => b.triage - a.triage).slice(0, 5)
+        .reduce((n, r) => n + r.triage, 0);
+
+      const head = `<div class="kpis" style="margin:-14px -14px 14px">
+        ${kpi("People involved", fmt(rows.length),
+              d.peopleCap && rows.length >= d.peopleCap ? `top ${fmt(d.peopleCap)} of ${fmt(w?.reporters ?? 0)}` : "in this period")}
+        ${kpi("Triage acts", fmt(triageTotal), `${fmt(closedTotal)} closes, the rest first replies`)}
+        ${/* Concentration is the number an admin actually acts on: if five
+              people are doing four fifths of the triage, the queue has a bus
+              problem regardless of how healthy the medians look. */""}
+        ${kpi("Done by the top five", pctFmt(triageTotal ? top5 / triageTotal : null), "of all triage acts",
+              triageTotal && top5 / triageTotal > 0.8 ? "down" : "")}
+        ${kpi("Closes from a PR", fmt(w?.closedByPR), `of ${fmt(w?.closed)} closed`)}
+      </div>`;
+
+      const n = (r, k, cls = "") => `<span class="num ${cls}">${fmt(r[k])}</span>`;
+      const cols = [
+        { key: "login", label: "Contributor", render: (r) => contribLink(r.login) },
+        { key: "filed", label: "Filed", render: (r) => n(r, "filed") },
+        { key: "responses", label: "First replies", render: (r) => n(r, "responses") },
+        { key: "closed", label: "Closed", render: (r) => n(r, "closed") },
+        { key: "closedForOthers", label: "…for others", render: (r) => n(r, "closedForOthers") },
+        { key: "fixed", label: "Closed by their PR", render: (r) => n(r, "fixed") },
+        { key: "triage", label: "Triage acts", render: (r) => `<span class="num" style="font-weight:600">${fmt(r.triage)}</span>` },
+        { key: "medianResponseLagHours", label: "Median reply lag",
+          get: (r) => r.medianResponseLagHours ?? -1,
+          render: (r) => `<span class="num">${dur(r.medianResponseLagHours)}</span>` },
+        { key: "medianCloseLagHours", label: "Median age at close",
+          get: (r) => r.medianCloseLagHours ?? -1,
+          render: (r) => `<span class="num">${dur(r.medianCloseLagHours)}</span>` },
+        { key: "helped", label: "People helped", render: (r) => n(r, "helped") },
+        { key: "assignedOpen", label: "Assigned, open", render: (r) => n(r, "assignedOpen") },
+        { key: "repos", label: "Repos", render: (r) => n(r, "repos") },
+      ];
+
+      const preview = [cols[0], cols[1], cols[2], cols[3], cols[5], cols[6]];
+
+      return head +
+        renderTable(sortRows(applyFilter(rows), expanded ? cols : preview),
+          expanded ? cols : preview,
+          { sortable: expanded, limit: expanded ? null : 10 }) +
+        (expanded
+          ? `<div class="hint" style="margin-top:12px">Ranked by triage acts — first replies plus closes of somebody else's issue — because that's the work this page exists to make visible. "Closed" is whoever pressed the button; "closed by their PR" is whoever wrote the fix, credited from the pull request that closed the issue, so a single close can appear in both columns for two different people. ${
+              d.peopleCap ? `Only the ${fmt(d.peopleCap)} busiest people per period are carried here; everyone else has a complete record on their own drilldown.` : ""}</div>` +
+            `<div class="hint" style="margin-top:6px">Median reply lag is measured from when the issue was filed, not from when they picked it up, so somebody who answers old threads will look slow. It's a property of the queue as much as of the person.</div>` +
+            (d.totals.unknownCloser
+              ? `<div class="hint" style="margin-top:6px">${fmt(d.totals.unknownCloser)} of ${fmt(d.totals.closed)} closed issues in the store don't record who closed them — those records predate the closer field. Run <code>npm run ingest</code> to backfill them; until then read the close columns as a floor rather than a count.</div>`
+              : "")
+          : "");
     },
   },
 
