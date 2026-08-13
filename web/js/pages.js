@@ -14,10 +14,10 @@ const PAGES = [
   {
     id: "issues", label: "Issue Analytics",
     icon: `<path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-.25-6.25v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 1.5 0Z"/>`,
-    // 12 / 8+4 / 6+6 / 6+6 / 12 / 12 — same twelve-column tiling rule as the
-    // other pages: a card that doesn't fit the row's remainder wraps and
+    // 12 / 8+4 / 6+6 / 6+6 / 12 / 12 / 12 — same twelve-column tiling rule as
+    // the other pages: a card that doesn't fit the row's remainder wraps and
     // leaves a hole.
-    modules: ["iPulse", "iVolume", "iTriage", "iResponse", "iLabels", "iRepos", "iReporters", "iOldest", "iDiscussed"],
+    modules: ["iPulse", "iVolume", "iTriage", "iResponse", "iLabels", "iRepos", "iReporters", "iPeople", "iOldest", "iDiscussed"],
   },
   {
     id: "people", label: "Contributor Activity",
