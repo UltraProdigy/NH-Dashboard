@@ -4,6 +4,14 @@ import { saveExclusions, updateExclList } from "./dream.js";
 import { closeCombo, comboOptions, render, updateComboPop } from "./render.js";
 import { drillTo, go, goPage, readHash } from "./router.js";
 import { MODULES } from "./modules/index.js";
+import {
+  addOpponent,
+  clearOpponents,
+  closeVs,
+  removeOpponent,
+  updateVsPop,
+  vsOptions,
+} from "./versus-data.js";
 
 /* ==========================================================================
    Events
@@ -20,6 +28,20 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 
 document.getElementById("view").addEventListener("click", e => {
+  /* ---- head to head ----
+     Its picker lives inside the card rather than the toolbar, so its events
+     arrive here alongside the drilldown links. */
+  const add = e.target.closest(".combo-opt[data-vsadd]");
+  if (add) {
+    addOpponent(add.dataset.vsadd);
+    closeVs();
+    return render();
+  }
+  const del = e.target.closest("button[data-vsdel]");
+  if (del) { removeOpponent(del.dataset.vsdel); return render(); }
+  const clear = e.target.closest("button[data-vsclear]");
+  if (clear) { clearOpponents(); return render(); }
+
   // Contributor names are real anchors to #contributor/<login>, so the browser
   // handles middle-click and cmd-click natively. Plain clicks are intercepted
   // only so they route through go(), which clears the sort and filter the way
@@ -42,6 +64,59 @@ document.getElementById("view").addEventListener("click", e => {
   if (th) {
     state.dir = state.sort === th.dataset.sort ? -state.dir : -1;
     state.sort = th.dataset.sort;
+    render();
+  }
+});
+
+/* Typing in the head-to-head picker repaints only its popup, for the same
+   reason the toolbar's combobox does: render() would redraw every chart on the
+   page and drop the caret on each keystroke. */
+document.getElementById("view").addEventListener("input", e => {
+  if (e.target.id !== "vsInput") return;
+  state.vs.q = e.target.value;
+  state.vs.open = true;
+  state.vs.active = 0;
+  updateVsPop();
+});
+
+document.getElementById("view").addEventListener("focusin", e => {
+  if (e.target.id !== "vsInput") return;
+  state.vs.open = true;
+  state.vs.q = "";
+  e.target.value = "";
+  updateVsPop();
+});
+
+document.getElementById("view").addEventListener("keydown", e => {
+  if (e.target.id !== "vsInput") return;
+
+  if (e.key === "Escape") {
+    closeVs();
+    updateVsPop();
+    e.target.value = "";
+    return;
+  }
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!state.vs.open) {
+      state.vs.open = true;
+      state.vs.active = 0;
+      return updateVsPop();
+    }
+    const n = vsOptions().length;
+    if (!n) return;
+    state.vs.active =
+      (state.vs.active + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+    return updateVsPop();
+  }
+
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const pick = state.vs.open ? vsOptions()[state.vs.active] : null;
+    if (!pick) return;
+    addOpponent(pick.id);
+    closeVs();
     render();
   }
 });
@@ -225,6 +300,16 @@ document.addEventListener("click", e => {
     state.exclOpen = null;
     render();
   }
+  // Same deal for the head-to-head picker, which is a second combobox on the
+  // page and has to close when you click away from it without taking the first
+  // one's handling with it.
+  if (state.vs.open && !e.target.closest("#vsCombo")) {
+    closeVs();
+    updateVsPop();
+    const v = document.getElementById("vsInput");
+    if (v) v.value = "";
+  }
+
   if (!state.combo.open || e.target.closest("#combo")) return;
   closeCombo();
   updateComboPop();

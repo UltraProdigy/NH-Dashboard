@@ -10,6 +10,7 @@ import { contributorModules } from "./contributor.js";
 import { contributorIssueModules } from "./contributor-issues.js";
 import { repoModules } from "./repo.js";
 import { repoIssueModules } from "./repo-issues.js";
+import { versusModules } from "./versus.js";
 
 /**
  * Every module renders into a card on its page's overview grid, and into the
@@ -25,6 +26,7 @@ const MODULES = {
   ...contributorIssueModules,
   ...repoModules,
   ...repoIssueModules,
+  ...versusModules,
 };
 
 /* Generic panel-backed module renderer (Dream Panel tables). */

@@ -16,6 +16,7 @@ import {
   issueBacklogOf,
   issuesOf,
 } from "./issue-data.js";
+import { opponents } from "./versus-data.js";
 import { EXCL_GROUPS, exclPopHtml, isExcludedRow, panelRows, visibleLabels } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { PAGES } from "./pages.js";
@@ -59,6 +60,9 @@ function moduleCount(id) {
   if (id === "rIssueTriage") return subject() ? issueBacklogOf().total : null;
   if (id === "cIssues" || id === "rIssues")
     return subject() && hasIssues() ? issuesOf().totals.filed : null;
+  // The lineup, not counting the subject — "1" on a card comparing nothing is
+  // worse than no badge.
+  if (id === "cVersus" || id === "rVersus") return opponents().length || null;
   return null;
 }
 
