@@ -33,7 +33,7 @@ const PAGES = [
     // reading them as a block is how anyone actually uses them.
     modules: [
       "cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed",
-      "cIssues", "cTriage", "cFiled",
+      "cIssues", "cTriage", "cFiled", "cVersus",
     ],
   },
   {
@@ -45,7 +45,7 @@ const PAGES = [
     // the rows now tile 12 / 8+4 / 6+6 / 12 / 12 / 6+6 / 12 / 12 with no gaps.
     modules: [
       "rProfile", "rActivity", "rBacklog", "rPeople", "rHealth", "rGrossing",
-      "rIssues", "rIssueTriage", "rIssuePeople", "rLabels",
+      "rIssues", "rIssueTriage", "rIssuePeople", "rLabels", "rVersus",
     ],
   },
 ];

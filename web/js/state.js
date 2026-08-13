@@ -51,6 +51,13 @@ const state = {
   // single subject you almost always want their whole history first and then
   // narrow; looking at the org you want the recent picture. Sharing one
   // setting made each page wrong half the time.
+  // ---- head to head ----
+  // Who the current subject is being compared against, per mode, plus the
+  // state of that card's own search box. Kept per mode rather than one list:
+  // flipping from a contributor to a repo shouldn't drag four logins along, and
+  // coming back should find the lineup you left.
+  vs: { contributor: [], repo: [], q: "", open: false, active: 0 },
+
   drillWindow: "all",
   closedState: "all", // Closed PRs tab: all | merged | dropped
   subject: null,      // selected login or repo name; null = nothing picked yet

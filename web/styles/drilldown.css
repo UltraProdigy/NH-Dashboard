@@ -77,6 +77,41 @@
 .card .body.fill .duo-box { min-height: 0; }
 .card .body.fill .duo-box > .scroll { flex: 1; min-height: 0; max-height: none; }
 
+/* ---------- drilldown: head to head ---------- */
+/* The lineup reads as a legend and a set of controls at once: each chip's dot is
+   the colour that subject keeps in every chart on the card, and the × is how you
+   drop it. The first chip is the page's own subject and has no ×. */
+.vs-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.vs-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 8px 5px 9px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--panel-2);
+}
+.vs-chip i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.vs-chip[data-pinned] { border-color: var(--accent); }
+.vs-you { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.vs-x {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 1px;
+}
+.vs-x:hover { color: var(--bad); }
+.vs-add input { min-width: 200px; }
+
+/* A comparison table is read across, not down, so the row label has to stay put
+   while the eye moves along it — hence the sticky first column rather than the
+   usual free-scrolling table. */
+table.vs td:first-child, table.vs th:first-child { position: sticky; left: 0; background: var(--panel); }
+table.vs .vs-group td {
+  padding-top: 16px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); background: var(--panel);
+}
+table.vs .vs-head { display: inline-flex; align-items: center; gap: 6px; }
+table.vs .vs-head i { width: 8px; height: 8px; border-radius: 50%; }
+/* Leading, not winning — see the note under the table. Weight and a tint rather
+   than a colour, because half these rows are volumes where "more" is neither
+   good nor bad. */
+table.vs td.lead { font-weight: 600; color: var(--text); background: var(--panel-2); }
+
 /* ---------- drilldown: every-month axis ---------- */
 /* Rendered as HTML under the chart rather than as SVG <text>. The charts use
    preserveAspectRatio="none", which scales x and y differently — anything
