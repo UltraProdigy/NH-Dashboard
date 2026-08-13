@@ -25,7 +25,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { graphql } from "../github/client.js";
+import { graphql, stats } from "../github/client.js";
 import {
   colorsOf,
   responseFor,
@@ -168,21 +168,30 @@ const ISSUE_FIELDS = `
 /**
  * How many issues the closer patch takes per page.
  *
- * A hundred, where the full walk takes fifty, because each node here carries one
- * timeline item and nothing else: about 300 nodes a page against the full query's
- * 1,550. That's five times less work per issue and half the requests, which is
- * the difference between this pass finishing and it sitting in a 60-second
- * penalty. Drop it first if the secondary limit ever starts biting again.
+ * Fifty, matching the full walk exactly. A hundred with a `states: [CLOSED]`
+ * filter looked obviously cheaper — a fifth of the nodes, half the requests —
+ * and was refused anyway. Filtering a connection is not free: the server still
+ * walks the rows and discards, so a filtered page is *more* work than an
+ * unfiltered one of the same size, not less. Matching the shape that demonstrably
+ * cleared all 86 repos beats reasoning about which shape ought to be cheaper.
  */
-const CLOSER_PAGE = 100;
+const CLOSER_PAGE = 50;
 
 /**
  * Just the closer, for issues already in the store.
  *
- * Only closed issues are asked for — an open one has no closer, so there is
- * nothing to learn and no reason to spend a node on it. Creation order for the
- * same reason the first walk uses it: it runs with the grain of the rows rather
- * than against a secondary index, so page two hundred costs what page one did.
+ * Same connection shape as the first walk — unfiltered, fifty a page, ordered by
+ * creation — carrying one timeline node instead of fifteen labels, ten comments
+ * and five assignees. Open issues come back too and are skipped locally, which
+ * costs a node and saves a filter.
+ *
+ * Newest first, which is the one deliberate difference. The version-driven
+ * backfill this replaces walked oldest-first and died partway, so on the repos it
+ * touched the *oldest* issues are the ones already patched and the newest are the
+ * ones still missing. Walking down from the newest reaches them immediately and
+ * stops as soon as the set is empty, where walking up would page through
+ * thousands of already-patched issues to reach them. Both directions read the
+ * creation index rather than a secondary one, which is the part that matters.
  */
 const CLOSERS_BY_CREATED = `
   query($owner: String!, $name: String!, $cursor: String) {
@@ -190,8 +199,7 @@ const CLOSERS_BY_CREATED = `
       issues(
         first: ${CLOSER_PAGE}
         after: $cursor
-        states: [CLOSED]
-        orderBy: { field: CREATED_AT, direction: ASC }
+        orderBy: { field: CREATED_AT, direction: DESC }
       ) {
         pageInfo { hasNextPage endCursor }
         nodes {
@@ -202,6 +210,43 @@ const CLOSERS_BY_CREATED = `
     }
   }
 `;
+
+/**
+ * How many rate-limited pages in a row before the patch pass gives up.
+ *
+ * A secondary limit that keeps firing whatever the spacing is isn't a pace
+ * problem, it's a token in a cooldown — and no amount of politeness inside this
+ * process fixes that. Grinding through it makes no progress at a minute a page
+ * and looks, from outside, exactly like a hang. The store is resumable, so
+ * stopping and saying come back later is strictly better than continuing.
+ */
+const CLOSER_STRIKES = 3;
+
+/**
+ * Stop after N consecutive failures, whatever shape they arrive in.
+ *
+ * Two shapes, and the first version of this only caught one. A throttled page
+ * that the client eventually retried into success shows up as a bump in its
+ * rate-limit counter; a page that stayed throttled through all five attempts
+ * arrives as a thrown 403. Counting only the first meant a token in cooldown
+ * spent five minutes per repo failing quietly and then moved on to the next one,
+ * thirty-six times — three hours of making no progress, which is precisely what
+ * this exists to prevent.
+ */
+function breaker(n = CLOSER_STRIKES) {
+  let strikes = 0;
+  return {
+    strike: () => ++strikes >= n,
+    clear: () => { strikes = 0; },
+    tripped: () => strikes >= n,
+    count: () => strikes,
+  };
+}
+
+const COOLDOWN_NOTE =
+  "  Stopping here: that is a cooldown on the token, not a pace this run can\n" +
+  "  fix. Everything already fetched is saved. Wait a while — tens of minutes,\n" +
+  "  not seconds — and run the same command again; it resumes where it stopped.";
 
 /**
  * Incremental walk: newest-updated first, so the first already-seen issue
@@ -563,14 +608,6 @@ export async function bulkLoad(repoName, { onProgress } = {}) {
 }
 
 /**
- * Re-walk every repo holding records below REC_VERSION.
- *
- * Self-limiting and resumable for the same reason the PR backfills are: the
- * set it works on is "records at the wrong version", so records rewritten
- * before an interruption are already excluded from the next run's set, and
- * once the store is current this costs one local read and zero requests.
- */
-/**
  * Fill in who closed each issue, without re-reading everything else about it.
  *
  * The store already holds the title, the labels, the comment count and the first
@@ -629,20 +666,32 @@ async function patchClosers(state, { limit = Infinity } = {}) {
   );
 
   let written = open.length;
+  let fetched = 0; // records patched over the wire, as opposed to stamped locally
   let repos = 0;
+  const bad = breaker();
 
   for (const [repo, wanted] of need) {
-    if (repos >= limit) break;
+    if (repos >= limit || bad.tripped()) break;
     repos++;
 
     const st = (state.repos[repo] ??= {});
     let cursor = st.closerCursor ?? null;
     let patched = 0;
     let failed = false;
+    // Only a repo that ran out of work or out of pages is finished. Anything
+    // else keeps its cursor, or the next run starts this repo from the top.
+    let finished = false;
 
     try {
       while (wanted.size) {
+        // The client absorbs a throttle and retries, so a page that cost it a
+        // wait is a strike even though it came back with data.
+        const waitsBefore = stats.rateLimitWaits;
         const data = await graphql(CLOSERS_BY_CREATED, { owner: ORG, name: repo, cursor });
+        if (stats.rateLimitWaits > waitsBefore) {
+          if (bad.strike()) break;
+        } else bad.clear();
+
         const page = data.repository?.issues;
         if (!page) break;
 
@@ -670,6 +719,7 @@ async function patchClosers(state, { limit = Infinity } = {}) {
             records.map((r) => JSON.stringify(r)).join("\n") + "\n"
           );
           written += records.length;
+          fetched += records.length;
           patched += records.length;
         }
 
@@ -677,29 +727,64 @@ async function patchClosers(state, { limit = Infinity } = {}) {
         st.closerCursor = cursor;
         await saveState(state);
 
-        if (!page.pageInfo.hasNextPage) break;
+        if (!page.pageInfo.hasNextPage) {
+          finished = true;
+          break;
+        }
       }
-      delete st.closerCursor;
+      if (!wanted.size) finished = true;
+      if (finished) delete st.closerCursor;
     } catch (err) {
       failed = true;
+      // A throw here is five attempts already spent, so it counts the same as a
+      // run of throttled pages — otherwise the pass works its way through every
+      // remaining repo at five minutes each while achieving nothing.
+      bad.strike();
       console.warn(`  ${repo}: ${err.message.split("\n")[0]}`);
     }
+    if (finished && !failed) bad.clear();
+    // A first repo that fails outright, before a single record has come back over
+    // the wire, is a cooldown and not bad luck. Five attempts a repo at a minute
+    // each means trying two more to confirm it costs ten minutes to learn
+    // something already obvious.
+    if (failed && !fetched) while (!bad.tripped()) bad.strike();
     await saveState(state);
 
     if (patched || failed)
       console.log(
         `  [${repos}/${need.size}] ${repo} — ${patched.toLocaleString()} closers` +
-          (failed ? `, ${wanted.size.toLocaleString()} left for next run` : "")
+          (finished ? "" : `, ${wanted.size.toLocaleString()} left for next run`)
       );
+
+    if (bad.tripped()) console.warn(COOLDOWN_NOTE);
   }
 
   clearStoreCache();
   return written;
 }
 
+/**
+ * Re-walk every repo holding records below REC_VERSION, with the full query.
+ *
+ * Self-limiting and resumable for the same reason the PR backfills are: the set
+ * it works on is "records at the wrong version", so records rewritten before an
+ * interruption are already excluded from the next run's set, and once the store
+ * is current this costs one local read and zero requests.
+ *
+ * The expensive path, and the last resort — see the note on REC_VERSION. Prefer
+ * a targeted pass like patchClosers for any field that can be fetched alone.
+ */
 async function backfillStale(labelColors, { limit = Infinity } = {}) {
   clearStoreCache();
-  const stale = (await readStore()).filter((i) => (i.v ?? 0) < REC_VERSION);
+  // A record below version that hasn't been closer-patched yet is the *patch
+  // pass's* job, not this one's — the closer is the only difference between v2
+  // and v3, and re-reading forty fields to obtain it is the mistake this whole
+  // arrangement exists to avoid. Without this line a token in cooldown gets the
+  // light pass stopped by its breaker and then walks straight into the heavy
+  // query on the very same records, which is how the cooldown started.
+  const stale = (await readStore()).filter(
+    (i) => (i.v ?? 0) < REC_VERSION && i.closerKnown === true
+  );
   if (!stale.length) return 0;
 
   const wanted = new Map(); // repo -> Set of issue numbers still at the old version
@@ -714,9 +799,10 @@ async function backfillStale(labelColors, { limit = Infinity } = {}) {
 
   let written = 0;
   let done = 0;
+  const bad = breaker();
 
   for (const [repo, numbers] of wanted) {
-    if (done >= limit) break;
+    if (done >= limit || bad.tripped()) break;
     const colors = {};
     let cursor = null;
     // Written a page at a time rather than a repo at a time. The store this
@@ -753,8 +839,12 @@ async function backfillStale(labelColors, { limit = Infinity } = {}) {
         if (!page.pageInfo.hasNextPage) break;
         cursor = page.pageInfo.endCursor;
       }
+      bad.clear();
     } catch (err) {
       console.warn(`  ${repo}: ${err.message.split("\n")[0]} — resumes next run`);
+      // Same reasoning as the closer pass: this walk is the expensive one, and
+      // grinding it against a cooldown repo by repo is hours of nothing.
+      if (bad.strike()) console.warn(COOLDOWN_NOTE);
     }
 
     if (++done % 25 === 0)
