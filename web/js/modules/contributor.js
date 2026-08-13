@@ -17,6 +17,7 @@ import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, windowLabel, windowPhrase } from "../data.js";
 import {
   SW,
+  backlogOf,
   biggestRows,
   byLogin,
   byRepo,
@@ -40,7 +41,7 @@ export const contributorModules = {
     controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
-      const s = subject(), w = SW();
+      const s = subject(), w = SW(), b = backlogOf();
       if (!expanded) {
         return `<div class="kpis">
           ${/* Closed in the same period rather than the all-time total: two
@@ -61,8 +62,8 @@ export const contributorModules = {
           ${kpi("Lines changed", kfmt(linesIn(w)),
                 w.sizedPRs ? `median ${kfmt(w.medianPRLines)} per PR` : "no diff data yet")}
           ${kpi("Commits", fmt(w.commits), `across ${fmt(w.sizedPRs)} sized PRs`)}
-          ${kpi("Open PRs", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
-                s.backlog.unreviewed ? "down" : "")}
+          ${kpi("Open PRs", fmt(b.total), `${fmt(b.unreviewed)} never reviewed`,
+                b.unreviewed ? "down" : "")}
           ${kpi("Active since", s.first ? new Date(s.first).getFullYear() : "—",
                 s.last ? `last seen ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
         </div>` + sizeNotice(w);
@@ -166,7 +167,7 @@ export const contributorModules = {
     page: "contributor", label: "Open PRs", span: 6, flush: true, twin: "rBacklog",
     sub: () => "still waiting",
     render(expanded) {
-      const s = subject();
+      const b = backlogOf();
       const cols = [
         { key: "repo",   label: "Repo", render: r => repoLink(r.repo) },
         { key: "number", label: "PR",   render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
@@ -175,8 +176,8 @@ export const contributorModules = {
         { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
         { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
       ];
-      return draftNotice(s.backlog) +
-        renderTable(sortRows(applyFilter(s.backlog.oldest), cols), cols,
+      return draftNotice(b) +
+        renderTable(sortRows(applyFilter(b.oldest), cols), cols,
           { sortable: expanded, limit: expanded ? null : 7 });
     },
   },

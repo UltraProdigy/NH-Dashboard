@@ -27,8 +27,14 @@ const PAGES = [
   {
     id: "contributor", label: "Contributor Drilldown",
     icon: `<path d="M10.56 8.07a6 6 0 0 1 3.43 5.15.75.75 0 1 1-1.5.07 4.5 4.5 0 0 0-8.98 0 .75.75 0 0 1-1.5-.07 6 6 0 0 1 3.43-5.15 4 4 0 1 1 5.12 0ZM10.5 5a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/>`,
-    // Tiles 12 / 8+4 / 6+6 / 12 — see the note on the repo page about gaps.
-    modules: ["cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed"],
+    // Tiles 12 / 8+4 / 6+6 / 12 / 12 / 12 / 6+6 / 12 — see the note on the repo
+    // page about gaps. The issue cards come after the PR ones rather than
+    // interleaved: they answer a different question about the same person, and
+    // reading them as a block is how anyone actually uses them.
+    modules: [
+      "cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed",
+      "cIssues", "cTriage", "cFiled",
+    ],
   },
   {
     id: "repo", label: "Repo Drilldown",
@@ -36,8 +42,11 @@ const PAGES = [
     // Order matters on the overview: the grid is 12 columns and a card that
     // doesn't fit the remainder wraps, leaving a hole. rPeople (6) after
     // rActivity (8) left 4 columns empty; rBacklog (4) fills them exactly, so
-    // the rows now tile 12 / 8+4 / 6+6 with no gaps.
-    modules: ["rProfile", "rActivity", "rBacklog", "rPeople", "rHealth", "rGrossing"],
+    // the rows now tile 12 / 8+4 / 6+6 / 12 / 12 / 6+6 / 12 / 12 with no gaps.
+    modules: [
+      "rProfile", "rActivity", "rBacklog", "rPeople", "rHealth", "rGrossing",
+      "rIssues", "rIssueTriage", "rIssuePeople", "rLabels",
+    ],
   },
 ];
 

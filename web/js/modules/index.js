@@ -7,7 +7,9 @@ import { dreamModules } from "./dream.js";
 import { issueModules } from "./issues.js";
 import { peopleModules } from "./people.js";
 import { contributorModules } from "./contributor.js";
+import { contributorIssueModules } from "./contributor-issues.js";
 import { repoModules } from "./repo.js";
+import { repoIssueModules } from "./repo-issues.js";
 
 /**
  * Every module renders into a card on its page's overview grid, and into the
@@ -20,7 +22,9 @@ const MODULES = {
   ...issueModules,
   ...peopleModules,
   ...contributorModules,
+  ...contributorIssueModules,
   ...repoModules,
+  ...repoIssueModules,
 };
 
 /* Generic panel-backed module renderer (Dream Panel tables). */
