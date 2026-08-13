@@ -13,6 +13,7 @@ import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, windowPhrase } from "../data.js";
 import {
   SW,
+  backlogOf,
   byLogin,
   duo,
   linesIn,
@@ -37,7 +38,7 @@ export const repoModules = {
     controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
-      const s = subject(), w = SW();
+      const s = subject(), w = SW(), bl = backlogOf();
       if (!expanded) {
         return `<div class="kpis">
           ${/* Closed in the same period rather than the all-time total: two
@@ -54,8 +55,8 @@ export const repoModules = {
           ${kpi("Lines changed", kfmt(linesIn(w)),
                 w.sizedPRs ? `median ${kfmt(w.medianPRLines)} per PR` : "no diff data yet")}
           ${kpi("Commits", fmt(w.commits), `across ${fmt(w.sizedPRs)} sized PRs`)}
-          ${kpi("Open backlog", fmt(s.backlog.total), `${fmt(s.backlog.unreviewed)} never reviewed`,
-                s.backlog.unreviewed > s.backlog.total / 2 ? "down" : "")}
+          ${kpi("Open backlog", fmt(bl.total), `${fmt(bl.unreviewed)} never reviewed`,
+                bl.unreviewed > bl.total / 2 ? "down" : "")}
           ${kpi("First PR", s.first ? new Date(s.first).getFullYear() : "—",
                 s.last ? `last ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
         </div>` + sizeNotice(w);
@@ -150,7 +151,8 @@ export const repoModules = {
     page: "repo", label: "Backlog", span: 4, flush: false, twin: "cOpenPRs",
     sub: () => "open PRs, by age",
     render(expanded) {
-      const s = subject(), b = s.backlog;
+      const s = subject(), b = backlogOf();
+      if (!b.total) return `<div class="empty">Nothing open on this repo.</div>`;
       const colors = ["var(--good)", "var(--accent)", "var(--warn)", "#e8823a", "var(--bad)"];
       const max = Math.max(1, ...b.buckets.map(x => x.count));
       const bars = `<div class="hbars">${b.buckets.map((x, i) => `

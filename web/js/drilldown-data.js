@@ -25,6 +25,35 @@ const EMPTY_WINDOW = {
 const SW = () => subject()?.windows?.[activeWindow()] ?? EMPTY_WINDOW;
 
 /**
+ * Bucket labels live once at the top of the payload rather than on every
+ * subject's backlog, so putting them back is the reader's job.
+ */
+const bucketRows = (counts) =>
+  (counts ?? []).map((count, i) => ({
+    label: state.drill?.backlogBuckets?.[i] ?? "",
+    count,
+  }));
+
+/** An empty backlog reads the same as an absent one, which is what null means. */
+const EMPTY_BACKLOG = {
+  total: 0, unreviewed: 0, drafts: 0, draftsKnown: true,
+  buckets: [], oldest: [],
+};
+
+/**
+ * A subject's PR backlog, with the bucket labels restored.
+ *
+ * Absent entirely on subjects with nothing open — most of them, once issue
+ * reporters became subjects too — so every reader goes through here rather than
+ * reaching for `s.backlog.total` and finding null.
+ */
+function backlogOf(s = subject()) {
+  const b = s?.backlog;
+  if (!b) return EMPTY_BACKLOG;
+  return b._rows ? b._rows : (b._rows = { ...b, buckets: bucketRows(b.buckets) });
+}
+
+/**
  * Total lines a window touched, or null if the data isn't there.
  *
  * `w.additions + w.deletions` on a window built before these fields existed is
@@ -41,22 +70,7 @@ const linesIn = (w) => (w?.additions == null ? null : w.additions + (w.deletions
  * series is re-read on every render, and re-expanding 24 rows each time for a
  * page that also draws three charts adds up.
  */
-function subjectSeries() {
-  const s = subject();
-  if (!s?.series?.from) return [];
-  if (s._series) return s._series;
-
-  const fields = state.drill.seriesFields;
-  const [y, m] = s.series.from.split("-").map(Number);
-  s._series = s.series.v.map((row, i) => {
-    const d = new Date(Date.UTC(y, m - 1 + i, 1));
-    const out = { b: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}` };
-    // null rows are months the subject existed through but did nothing in.
-    fields.forEach((f, j) => { out[f] = row ? row[j] : 0; });
-    return out;
-  });
-  return s._series;
-}
+const subjectSeries = () => seriesOf(subject());
 
 /**
  * The contributor's merged and closed PRs, newest first.
@@ -67,6 +81,8 @@ function subjectSeries() {
  */
 function resolvedAll() {
   const s = subject();
+  // Null on the slim records the build emits for people whose whole footprint
+  // is a bug report or two — they have no pull requests to resolve.
   if (!s?.resolved) return [];
   if (s._resolved) return s._resolved;
   const { repos, rows } = s.resolved;
@@ -138,11 +154,37 @@ function resolvedRows() {
  * pickers on one toolbar answering slightly different questions. Now the
  * window scopes the charts and the numbers together.
  */
-function subjectSlice() {
-  const all = subjectSeries();
+/**
+ * Trim any monthly series to the selected window. Split out from subjectSlice
+ * so head-to-head can do the same to four other subjects' series.
+ */
+function sliceMonths(all) {
   const days = (state.drill?.windows ?? []).find(w => w.id === activeWindow())?.days;
   // Monthly buckets, so a 1-month window is a single bar. Honest, if sparse.
   return days == null ? all : all.slice(-Math.max(1, Math.ceil(days / 30.4)));
+}
+
+function subjectSlice() {
+  return sliceMonths(subjectSeries());
+}
+
+/** Any subject's PR window, not just the selected one — for head-to-head. */
+const windowOf = (s) => s?.windows?.[activeWindow()] ?? EMPTY_WINDOW;
+
+/** Any subject's expanded monthly PR series. Memoized onto the record. */
+function seriesOf(s) {
+  if (!s?.series?.from) return [];
+  if (s._series) return s._series;
+
+  const fields = state.drill.seriesFields;
+  const [y, m] = s.series.from.split("-").map(Number);
+  s._series = s.series.v.map((row, i) => {
+    const d = new Date(Date.UTC(y, m - 1 + i, 1));
+    const out = { b: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}` };
+    fields.forEach((f, j) => { out[f] = row ? row[j] : 0; });
+    return out;
+  });
+  return s._series;
 }
 
 /**
@@ -191,16 +233,24 @@ function windowTable(rows) {
 }
 
 export {
+  EMPTY_WINDOW,
   SW,
+  backlogOf,
   biggestRows,
+  bucketRows,
   byLogin,
   byRepo,
+  drillKey,
   duo,
   linesIn,
   resolvedRows,
+  seriesOf,
+  sliceMonths,
   subject,
   subjectList,
+  subjectSeries,
   subjectSlice,
+  windowOf,
   subjectUrl,
   windowTable,
 };

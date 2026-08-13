@@ -1,13 +1,21 @@
 import { CLOSED_LABEL, GRANS, isDrill, state } from "./state.js";
 import { age, agoText, daysSince, esc, fmt } from "./format.js";
-import { A, I, activeWindow, panel, windowList } from "./data.js";
+import { A, I, activeWindow, issuePeople, panel, windowList } from "./data.js";
 import {
+  backlogOf,
   biggestRows,
   resolvedRows,
   subject,
   subjectList,
   subjectUrl,
 } from "./drilldown-data.js";
+import {
+  closedRows,
+  filedRows,
+  hasIssues,
+  issueBacklogOf,
+  issuesOf,
+} from "./issue-data.js";
 import { EXCL_GROUPS, exclPopHtml, isExcludedRow, panelRows, visibleLabels } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { PAGES } from "./pages.js";
@@ -32,12 +40,25 @@ function moduleCount(id) {
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
   if (id === "iTriage") return I()?.triage?.open ?? null;
-  if (id === "iLabels") return I()?.labels?.filter(l => l.open).length ?? null;
+  // labelsByRepo, not labels — the panel keys labels by repo, because a label
+  // taxonomy belongs to one tracker. This counted an array that never existed
+  // and quietly showed no badge at all.
+  if (id === "iLabels") {
+    const d = I();
+    const rows = d?.labelsByRepo?.[state.issueLabelRepo ?? d?.labelFocus] ?? null;
+    return rows ? rows.filter(l => l.open).length : null;
+  }
   if (id === "iRepos") return I()?.repos?.filter(r => r.open).length ?? null;
+  if (id === "iPeople") return issuePeople().length || null;
   // Null until a subject is picked, which is also when the tabs mean anything.
-  if (id === "cOpenPRs" || id === "rBacklog") return subject()?.backlog?.total ?? null;
+  if (id === "cOpenPRs" || id === "rBacklog") return subject() ? backlogOf().total : null;
   if (id === "cClosed") return subject() ? resolvedRows().length : null;
   if (id === "cBiggest") return subject() ? biggestRows().length : null;
+  if (id === "cFiled") return subject() ? filedRows().length : null;
+  if (id === "cTriage") return subject() ? closedRows().length : null;
+  if (id === "rIssueTriage") return subject() ? issueBacklogOf().total : null;
+  if (id === "cIssues" || id === "rIssues")
+    return subject() && hasIssues() ? issuesOf().totals.filed : null;
   return null;
 }
 
@@ -321,12 +342,24 @@ function renderDrill(view) {
   }
 
   const s = subject();
+  // Built from what the subject actually has rather than a fixed sentence: with
+  // issue reporters and triagers among the subjects, "0 PRs authored" was the
+  // first thing the page said about a good number of people.
+  const iss = issuesOf(s)?.totals;
+  const what = state.page === "contributor";
+  const bits = [];
+  if (s.totalPRs) bits.push(`${fmt(s.totalPRs)} PRs${what ? " authored" : ""}`);
+  if (iss?.filed) bits.push(`${fmt(iss.filed)} issues${what ? " filed" : ""}`);
+  if (what && iss?.closed) bits.push(`${fmt(iss.closed)} closed`);
+  if (what && iss?.responses) bits.push(`${fmt(iss.responses)} first replies`);
+  if (!bits.length) bits.push("nothing in the store");
+  bits.push(`first ${s.first ? esc(s.first.slice(0, 10)) : "—"}`);
+  bits.push(`last active ${age(daysSince(s.last))}`);
+
   const head = `<div class="subject">
     <h2>${esc(state.subject)}</h2>
     <a class="ghost" href="${subjectUrl(state.subject)}" target="_blank" rel="noopener">View on GitHub ↗</a>
-    <span class="dates">${fmt(s.totalPRs)} PRs${
-      state.page === "contributor" ? " authored" : ""} · first ${
-      s.first ? esc(s.first.slice(0, 10)) : "—"} · last active ${age(daysSince(s.last))}</span>
+    <span class="dates">${bits.join(" · ")}</span>
   </div>`;
 
   view.innerHTML = head + pageBody();
