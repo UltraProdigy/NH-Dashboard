@@ -12,23 +12,58 @@
  * fetches it lazily on first visit and the pages people actually live on stay
  * as fast as they are today.
  *
- * Ranked lists are emitted in full rather than truncated. That was measured,
- * not assumed: capping at 10 gave 2.54 MB, capping at 100 gave 3.11 MB, and
- * uncapped gives 3.18 MB — 0.36 MB over the wire once Pages gzips it. The
- * distributions are steep (median repo has 10 distinct authors, p90 has 45),
- * so the cap was only ever truncating the handful of subjects where the long
- * tail is the interesting part.
+ * PR-side ranked lists are emitted in full rather than truncated. That was
+ * measured, not assumed: capping at 10 gave 2.54 MB, capping at 100 gave 3.11
+ * MB, and uncapped gives 3.18 MB — 0.36 MB over the wire once Pages gzips it.
+ * The distributions are steep (median repo has 10 distinct authors, p90 has
+ * 45), so the cap was only ever truncating the handful of subjects where the
+ * long tail is the interesting part. Issue-side lists are capped, because their
+ * distribution is not remotely the same shape — see ISSUE_TOP_N.
+ *
+ * Adding the issue store took the file from 6.3 MB to 19 MB, which was worth
+ * bounding rather than shrugging at. Four things did most of that:
+ *
+ *   - Issue window records are packed positionally (12.9 MB → 2.0 MB). Named
+ *     objects meant `medianResponseLagHours` written 21,000 times.
+ *   - Issue series are sparse month maps rather than padded arrays, and an
+ *     empty series is null rather than 240 nulls in a row.
+ *   - Backlogs are null when empty and carry bucket counts without their
+ *     labels, which the payload states once at the top.
+ *   - The 3,900 people whose entire footprint is one or two bug reports get a
+ *     slim record — see `substantial`.
+ *
+ * 19 MB is 3.4 MB gzipped, on a file two of six pages fetch once per session.
  *
  * Contributor repo breakdowns are still per-window like everything else; the
  * earlier two-window compromise existed to bound exactly the cost that turned
  * out not to matter.
+ *
+ * Both stores feed this. Pull requests answer "what did they build"; issues
+ * answer "what did they sort out", and on this org those are frequently
+ * different people — several contributors' entire contribution is triage, and
+ * before the issue store was folded in here they showed up on their own
+ * drilldown as someone who does nothing. A subject can therefore exist because
+ * of issue activity alone, with an empty PR side, and vice versa.
  */
 
 import { readStore } from "../ingest/pullRequests.js";
-import { BOT_PATTERN } from "../config.js";
+import { readStore as readIssueStore } from "../ingest/issues.js";
+import { BOT_PATTERN, ISSUE_STALE_DAYS } from "../config.js";
 import { WINDOWS } from "./contributors.js";
 import { BACKLOG_BUCKETS } from "./analytics.js";
 import { grossingLists, hasEngagement } from "./grossing.js";
+import {
+  blankPersonPeriod,
+  blankTrackerPeriod,
+  closerOf,
+  closerUnknown,
+  fixerOf,
+  foldPerson,
+  foldTracker,
+  isUnanswered,
+  summarizePersonPeriod,
+  summarizeTrackerPeriod,
+} from "./issueMetrics.js";
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -50,6 +85,15 @@ const SERIES_MONTHS = 240;
  * the arithmetic.
  */
 const TOP_N = Infinity;
+
+/**
+ * Issue-side ranked lists *are* capped, because the distribution is nothing
+ * like the PR one. The median repo has ten distinct PR authors; the modpack has
+ * 5,086 distinct issue reporters, nearly all of them one bug each. Uncapped,
+ * that single repo's reporter lists were 400 KB of people who filed one thing
+ * in 2019 — and no reader scrolls to rank 3,000.
+ */
+const ISSUE_TOP_N = 200;
 
 const isBot = (login) => !login || BOT_PATTERN.test(login);
 
@@ -221,19 +265,53 @@ const topN = (map, key, n = TOP_N) =>
     .slice(0, n)
     .map(([k, count]) => ({ [key]: k, count }));
 
+/**
+ * The window-keyed ranked lists, with empty windows left out.
+ *
+ * Every one of these maps used to carry all seven windows whether or not the
+ * subject did anything in them, and there are now thousands of subjects who did
+ * something once in 2019 — seven keys and six empty arrays each, repeated
+ * across nine maps per subject, was megabytes of punctuation. The frontend
+ * already reads these as `map[window] ?? []`, so absent and empty are the same
+ * statement to it.
+ */
+const rankedWindows = (counts, kind, key, n = TOP_N) => {
+  const out = {};
+  for (const w of WINDOWS) {
+    const rows = rankedFor(counts, `${w.id}\n${kind}`, key, n);
+    if (rows.length) out[w.id] = rows;
+  }
+  return out;
+};
+
 
 /* ==========================================================================
    Subject scaffolding
    ========================================================================== */
 
-function blankSubject(id, idKey) {
+function blankSubject(id, idKey, kind) {
   return {
     [idKey]: id,
+    kind,
     first: null,
     last: null,
     total: 0,
     _w: Object.fromEntries(WINDOWS.map((w) => [w.id, blankWindow()])),
     _months: new Map(),
+    // Issue accumulators, in the shape that suits the subject: a repo is a
+    // tracker things happen to, a person is somebody doing things to trackers.
+    _iw: Object.fromEntries(
+      WINDOWS.map((w) => [
+        w.id,
+        kind === "repo" ? blankTrackerPeriod() : blankPersonPeriod(),
+      ])
+    ),
+    _imonths: new Map(),
+    _ipartners: new Map(), // contributor only: helped / helped by
+    _iopen: [],   // open issues: filed by this person, or living in this repo
+    _ifiled: [],  // contributor only: every issue they filed
+    _iclosed: [], // contributor only: every issue they closed or fixed
+    _itotals: { filed: 0, responses: 0, closed: 0, fixed: 0 },
     // Windowed ranked lists, keyed `${windowId}\n${kind}\n${name}`. The kind
     // segment is what lets one map carry several independent rankings — a
     // repo's authors and reviewers, a contributor's authored and reviewed
@@ -276,6 +354,108 @@ function monthBucket(subject, key, field, by = 1) {
 }
 
 /**
+ * The issue series, as a sparse month map rather than a padded array.
+ *
+ * The PR series pads because its subjects are people who have opened pull
+ * requests, and they tend to have done so across many consecutive months. Issue
+ * subjects are dominated by the opposite case — one bug report, once — and for
+ * those a `from` plus sixty nulls costs ten times what the data does. The
+ * frontend fills the gaps when it draws, which it has to do either way.
+ */
+function sparseSeries(months, row) {
+  if (!months.size) return null;
+  const out = {};
+  for (const key of [...months.keys()].sort()) {
+    const cells = row(months.get(key));
+    if (cells.some(Boolean)) out[key] = cells;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** The issue equivalent. `field` is one of the subject's ISSUE_SERIES_FIELDS. */
+function issueMonth(subject, key, field, by = 1) {
+  let b = subject._imonths.get(key);
+  if (!b) {
+    b = { b: key, filed: 0, opened: 0, closed: 0, responses: 0, fixed: 0, _people: new Set() };
+    subject._imonths.set(key, b);
+  }
+  if (field) b[field] += by;
+  return b;
+}
+
+/**
+ * Pack a list of issue rows, interning the repo name.
+ *
+ * Same reasoning as packResolved next door: there are 26,000 issues in the
+ * store and a person's log of them repeats one of a handful of repo names on
+ * every row. Positional rows against an exported field list, newest first, so
+ * the frontend renders in the tab's default order without re-sorting.
+ */
+function packIssueRows(list, fields) {
+  const repos = [];
+  const seen = new Map();
+  const rows = list
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((r) => {
+      let i = seen.get(r.repo);
+      if (i === undefined) {
+        i = repos.length;
+        seen.set(r.repo, i);
+        repos.push(r.repo);
+      }
+      return fields.map((f) => (f === "repo" ? i : r[f] ?? null));
+    });
+  return { repos, rows };
+}
+
+/**
+ * Column order for the packed issue window records, per subject type.
+ *
+ * Named objects here were 12.9 MB of the 40 MB this file first came out at —
+ * thirty-odd key names like `medianResponseLagHours` repeated for every window
+ * of every one of six thousand subjects. Positional arrays against these lists
+ * cost about a seventh of that, and the frontend expands them once per subject
+ * on first read, the same as it already does for the series and the resolved PR
+ * rows. Append to these lists, never reorder them.
+ */
+export const ISSUE_WINDOW_FIELDS = {
+  contributors: [
+    "filed", "filedOpen", "filedClosed", "filedCompleted", "filedUnresolved",
+    "acceptedShare", "filedAnswered", "filedUnanswered", "answeredShare",
+    "commentsReceived", "medianWaitHours", "p90WaitHours",
+    "responses", "medianResponseLagHours", "p90ResponseLagHours",
+    "closed", "closedCompleted", "closedUnresolved", "closedOwn",
+    "closedForOthers", "closedByTheirPR", "closedByHand",
+    "medianCloseLagHours", "p90CloseLagHours",
+    "fixed", "assigned", "assignedOpen",
+    "triage", "involvement", "repos", "filedRepos", "helped",
+  ],
+  repos: [
+    "opened", "closed", "completed", "notPlanned", "duplicate", "unresolved",
+    "net", "completedShare", "medianCloseHours", "p90CloseHours",
+    "medianFirstResponseHours", "p90FirstResponseHours",
+    "labeledShare", "unlabeled", "answeredShare", "neverAnswered",
+    "reporters", "newReporters", "responders", "responses",
+    "closers", "closedByPR", "closedByHand", "unknownCloser",
+    "assignees", "comments", "closedN", "respondedN",
+  ],
+};
+
+/** Shares are drawn as whole percentages, so full float precision is noise. */
+const SHARE = /Share$/;
+
+const packWindow = (kind, s) =>
+  ISSUE_WINDOW_FIELDS[kind].map((f) =>
+    SHARE.test(f) ? round3(s[f]) : (s[f] ?? null)
+  );
+
+export const FILED_FIELDS =
+  ["repo", "number", "at", "open", "outcome", "comments", "waitDays", "title"];
+
+export const CLOSED_FIELDS =
+  ["repo", "number", "at", "outcome", "viaPR", "own", "title"];
+
+/**
  * Trim to the last N months, filling gaps so charts don't lie about pauses.
  *
  * Emitted as `{ from, v: [[opened, merged, closed, approvals, people], …] }`
@@ -287,7 +467,30 @@ function monthBucket(subject, key, field, by = 1) {
  */
 export const SERIES_FIELDS = ["opened", "merged", "closed", "approvals", "people"];
 
-function finishSeries(months, oldestKey) {
+/**
+ * The issue side of the same idea. Two shapes, because the four things a person
+ * does to issues and the four things that happen to a tracker are not the same
+ * four things — a repo has no "fixed by a PR of mine" and a person has no
+ * "distinct reporters".
+ */
+export const ISSUE_SERIES_FIELDS = {
+  contributors: ["filed", "closed", "responses", "fixed"],
+  repos: ["opened", "closed", "responses", "people"],
+};
+
+/** Close reasons, as the index the packed rows carry. */
+export const ISSUE_OUTCOMES = ["completed", "notPlanned", "duplicate"];
+
+const outcomeOf = (i) =>
+  i.stateReason === "NOT_PLANNED" ? 1 : i.stateReason === "DUPLICATE" ? 2 : 0;
+
+function finishSeries(months, oldestKey, row) {
+  // Nothing to chart. Emitted as null rather than 240 nulls in a row: with
+  // issue reporters now among the subjects there are thousands of people with
+  // no pull request history at all, and an empty chart's worth of padding each
+  // was the single largest thing in this file.
+  if (!months.size) return null;
+
   const now = new Date();
   const v = [];
   let from = null;
@@ -301,25 +504,23 @@ function finishSeries(months, oldestKey) {
     if (!from) from = key;
 
     const b = months.get(key);
-    const row = b
-      ? [b.opened, b.merged, b.closed, b.approvals, b._people.size]
-      : null;
+    const cells = b ? row(b) : null;
     // A month the subject existed through but did nothing in is still a real
     // zero, not a gap — null here means "no record", and rehydrates to zeroes.
-    v.push(row && row.some(Boolean) ? row : null);
+    v.push(cells && cells.some(Boolean) ? cells : null);
   }
 
   return { from, v };
 }
 
 /** Pull the ranked lists for one window back out of the flat count map. */
-function rankedFor(counts, windowId, key) {
+function rankedFor(counts, windowId, key, n = TOP_N) {
   const prefix = `${windowId}\n`;
   const slice = new Map();
   for (const [k, v] of counts) {
     if (k.startsWith(prefix)) slice.set(k.slice(prefix.length), v);
   }
-  return topN(slice, key);
+  return topN(slice, key, n);
 }
 
 /* ==========================================================================
@@ -340,9 +541,12 @@ export async function drilldown() {
 
   // Precomputed window bounds. Recomputing `now - days * DAY` inside the PR
   // loop would be 28k x 5 pointless subtractions.
+  // `to` is only read by the issue folds, which take a period rather than a
+  // lower bound — the drilldown has no "previous period" to be the upper one.
   const bounds = WINDOWS.map((w) => ({
     id: w.id,
     from: w.days == null ? -Infinity : now - w.days * DAY,
+    to: Infinity,
   }));
   const inWindow = (from, ts) => ts != null && new Date(ts).getTime() >= from;
 
@@ -351,11 +555,11 @@ export async function drilldown() {
 
   const person = (login) => {
     if (!contributors.has(login))
-      contributors.set(login, blankSubject(login, "login"));
+      contributors.set(login, blankSubject(login, "login", "person"));
     return contributors.get(login);
   };
   const repository = (name) => {
-    if (!repos.has(name)) repos.set(name, blankSubject(name, "repo"));
+    if (!repos.has(name)) repos.set(name, blankSubject(name, "repo", "repo"));
     return repos.get(name);
   };
 
@@ -531,6 +735,203 @@ export async function drilldown() {
     }
   }
 
+  /* ==========================================================================
+     Issues
+
+     A second pass over a second store, folded onto the same subjects. Repos
+     that only have a tracker and people who only ever triage get created here,
+     which is the point: the PR store cannot see them at all.
+
+     Every credit is dated by its own event — filed at creation, answered at the
+     reply, closed at the close — so a person's window says what they did during
+     it rather than what happened to things they touched once.
+     ========================================================================== */
+
+  const issueRecords = await readIssueStore();
+  const hasIssueData = issueRecords.length > 0;
+
+  /**
+   * How much of the store can say who closed an issue.
+   *
+   * The person-shaped windows can't carry this themselves — "closes nobody was
+   * credited for" is a fact about the store, not about a contributor — so it
+   * lives at the top of the payload and every card that shows a close count
+   * reads it. Without it, a triage board full of zeroes looks like a team that
+   * does nothing rather than a store awaiting a re-walk.
+   */
+  const closerCoverage = { closed: 0, unknown: 0 };
+
+  // Earliest issue per reporter, so a repo can count first-time reporters the
+  // same way the org panel does.
+  const firstIssueBy = new Map();
+  for (const i of issueRecords) {
+    if (isBot(i.author) || !i.createdAt) continue;
+    const prev = firstIssueBy.get(i.author);
+    if (!prev || i.createdAt < prev) firstIssueBy.set(i.author, i.createdAt);
+  }
+
+  for (const i of issueRecords) {
+    if (!i.createdAt) continue;
+
+    const created = new Date(i.createdAt);
+    const authorIsBot = isBot(i.author);
+    const labels = i.labels ?? [];
+    const open = i.state === "OPEN";
+    const closeHours = i.closedAt ? (new Date(i.closedAt) - created) / HOUR : null;
+    const responseHours = i.firstResponseAt
+      ? (new Date(i.firstResponseAt) - created) / HOUR
+      : null;
+    const closedBy = closerOf(i);
+    const fixer = fixerOf(i);
+    const staleDays = i.updatedAt
+      ? Math.floor((now - new Date(i.updatedAt)) / DAY)
+      : null;
+    const ctx = {
+      open,
+      labels,
+      closeHours,
+      responseHours,
+      isFirstEver: !authorIsBot && firstIssueBy.get(i.author) === i.createdAt,
+      bot: authorIsBot,
+      closedBy,
+      fixer,
+    };
+
+    const cKey = monthKey(created);
+    const closedKey = i.closedAt ? monthKey(new Date(i.closedAt)) : null;
+    const respKey = i.firstResponseAt ? monthKey(new Date(i.firstResponseAt)) : null;
+    const outcome = i.closedAt ? outcomeOf(i) : null;
+
+    if (i.closedAt) {
+      closerCoverage.closed++;
+      if (closerUnknown(i)) closerCoverage.unknown++;
+    }
+    const openEntry = {
+      number: i.number,
+      title: i.title ?? "",
+      ageDays: Math.floor((now - created) / DAY),
+      staleDays,
+      answered: !isUnanswered(i),
+      assigned: (i.assignees ?? []).length > 0,
+      comments: i.comments ?? 0,
+      stale: (staleDays ?? 0) >= ISSUE_STALE_DAYS,
+    };
+
+    /* ---- the tracker ---- */
+    const repo = repository(i.repo);
+    touch(repo, i.createdAt);
+    touch(repo, i.closedAt);
+    repo._itotals.filed++;
+    if (i.closedAt) repo._itotals.closed++;
+    if (i.firstResponseAt) repo._itotals.responses++;
+
+    issueMonth(repo, cKey, "opened");
+    if (!authorIsBot) issueMonth(repo, cKey, null)._people.add(i.author);
+    if (closedKey) issueMonth(repo, closedKey, "closed");
+    if (respKey) issueMonth(repo, respKey, "responses");
+
+    for (const p of bounds) {
+      foldTracker(repo._iw[p.id], i, p, ctx);
+      if (!authorIsBot && inWindow(p.from, i.createdAt))
+        bumpMap(repo._counts, `${p.id}\nireporter\n${i.author}`);
+      if (i.firstResponder && !isBot(i.firstResponder) && inWindow(p.from, i.firstResponseAt))
+        bumpMap(repo._counts, `${p.id}\niresponder\n${i.firstResponder}`);
+      if (closedBy && inWindow(p.from, i.closedAt))
+        bumpMap(repo._counts, `${p.id}\nicloser\n${closedBy}`);
+      if (fixer && inWindow(p.from, i.closedAt))
+        bumpMap(repo._counts, `${p.id}\nifixer\n${fixer}`);
+      if (inWindow(p.from, i.createdAt))
+        for (const a of i.assignees ?? [])
+          if (!isBot(a)) bumpMap(repo._counts, `${p.id}\niassignee\n${a}`);
+    }
+
+    if (open) {
+      repo._iopen.push({ ...openEntry, author: authorIsBot ? null : i.author, labels });
+    }
+
+    /* ---- the people ---- */
+    // Everyone who touched it in one of the ways that count. Usually one or two.
+    const involved = new Set();
+    if (!authorIsBot) involved.add(i.author);
+    if (i.firstResponder && !isBot(i.firstResponder)) involved.add(i.firstResponder);
+    if (closedBy) involved.add(closedBy);
+    if (fixer) involved.add(fixer);
+    for (const a of i.assignees ?? []) if (!isBot(a)) involved.add(a);
+
+    for (const login of involved) {
+      const s = person(login);
+      const mine = i.author === login;
+      const answered = i.firstResponder === login;
+      const shut = closedBy === login;
+      const fixed = fixer === login;
+
+      if (mine) touch(s, i.createdAt);
+      if (answered) touch(s, i.firstResponseAt);
+      if (shut || fixed) touch(s, i.closedAt);
+
+      for (const p of bounds) foldPerson(s._iw[p.id], i, p, login, ctx);
+
+      if (mine) {
+        s._itotals.filed++;
+        issueMonth(s, cKey, "filed");
+        s._ifiled.push({
+          repo: i.repo,
+          number: i.number,
+          at: i.createdAt.slice(0, 10),
+          open: open ? 1 : 0,
+          outcome,
+          comments: i.comments ?? 0,
+          waitDays: responseHours == null ? null : Math.round(responseHours / 24),
+          title: i.title ?? "",
+        });
+        if (open) s._iopen.push({ ...openEntry, repo: i.repo });
+      }
+
+      if (answered) {
+        s._itotals.responses++;
+        if (respKey) issueMonth(s, respKey, "responses");
+      }
+
+      if (shut || fixed) {
+        if (shut) s._itotals.closed++;
+        if (fixed) s._itotals.fixed++;
+        if (closedKey) {
+          if (shut) issueMonth(s, closedKey, "closed");
+          if (fixed) issueMonth(s, closedKey, "fixed");
+        }
+        // One row whether they pressed the button, wrote the pull request that
+        // did, or both — the row says which, and two rows for one close would
+        // double-count the log against the counts beside it.
+        s._iclosed.push({
+          repo: i.repo,
+          number: i.number,
+          at: (i.closedAt ?? i.updatedAt ?? i.createdAt).slice(0, 10),
+          outcome,
+          viaPR: fixed ? 1 : 0,
+          own: mine ? 1 : 0,
+          title: i.title ?? "",
+        });
+      }
+
+      for (const p of bounds) {
+        if (mine && inWindow(p.from, i.createdAt))
+          bumpMap(s._counts, `${p.id}\nifiled\n${i.repo}`);
+        if (answered && inWindow(p.from, i.firstResponseAt))
+          bumpMap(s._counts, `${p.id}\niresponded\n${i.repo}`);
+        if ((shut || fixed) && inWindow(p.from, i.closedAt))
+          bumpMap(s._counts, `${p.id}\niclosed\n${i.repo}`);
+      }
+
+      // Who helps whom, all time — a relationship, so slicing it by window
+      // mostly produces noise. Answering and closing count as the same kind of
+      // help, because from the reporter's side they are.
+      if (!mine && !authorIsBot && (answered || shut || fixed)) {
+        bumpMap(s._ipartners, `ifor\n${i.author}`);
+        bumpMap(person(i.author)._ipartners, `iby\n${login}`);
+      }
+    }
+  }
+
   /* ---- flatten ---- */
 
   /**
@@ -549,11 +950,70 @@ export async function drilldown() {
     return out;
   };
 
+  /**
+   * The same omit-the-empty rule for issue windows. `involvement` on a person
+   * and `opened + closed` on a tracker cover every way either can be non-empty,
+   * so a window that fails both really did contain nothing.
+   */
+  const issueWindowsOut = (s) => {
+    const kind = s.kind === "repo" ? "repos" : "contributors";
+    const out = {};
+    for (const w of WINDOWS) {
+      const a = s._iw[w.id];
+      const sum = s.kind === "repo" ? summarizeTrackerPeriod(a) : summarizePersonPeriod(a);
+      if (s.kind === "repo") {
+        if (!sum.opened && !sum.closed && !sum.responses) continue;
+      } else if (!sum.involvement && !sum.assigned) continue;
+      out[w.id] = packWindow(kind, sum);
+    }
+    return out;
+  };
+
+  /**
+   * The open-issue side of backlogOf. Same buckets as the PR backlog so the two
+   * cards on a repo page can be read against each other, plus the three things
+   * that make an open issue somebody's job: nobody has answered it, nobody has
+   * labelled it, nobody owns it.
+   */
+  const issueBacklogOf = (open) => {
+    // Null, not an object of noughts. Two thirds of the subjects in this file
+    // have no open issues, and the bucket labels alone were 220 bytes each.
+    if (!open.length) return null;
+    const buckets = BACKLOG_BUCKETS.map(() => 0);
+    const stale = BACKLOG_BUCKETS.map(() => 0);
+    for (const it of open) {
+      const a = BACKLOG_BUCKETS.findIndex((b) => it.ageDays < b.max);
+      buckets[a === -1 ? BACKLOG_BUCKETS.length - 1 : a]++;
+      if (it.staleDays != null) {
+        const q = BACKLOG_BUCKETS.findIndex((b) => it.staleDays < b.max);
+        stale[q === -1 ? BACKLOG_BUCKETS.length - 1 : q]++;
+      }
+    }
+    return {
+      total: open.length,
+      unanswered: open.filter((i) => !i.answered).length,
+      unlabeled: open.filter((i) => !(i.labels?.length ?? 0)).length,
+      unassigned: open.filter((i) => !i.assigned).length,
+      stale: open.filter((i) => i.stale).length,
+      staleDays: ISSUE_STALE_DAYS,
+      buckets,
+      staleBuckets: stale,
+      // Full list, oldest first — same reasoning as the PR backlog: truncating
+      // it makes the tab's own filter lie about what it searched.
+      oldest: [...open].sort((a, b) => b.ageDays - a.ageDays),
+    };
+  };
+
+  // Null when there's nothing open, and bucket counts without their labels —
+  // same two economies as the issue backlog beside it, for the same reason:
+  // most subjects in this file have an empty one and were each paying 220 bytes
+  // to say so. The frontend's `backlogOf` accessor puts the labels back.
   const backlogOf = (open) => {
-    const buckets = BACKLOG_BUCKETS.map((b) => ({ label: b.label, count: 0 }));
+    if (!open.length) return null;
+    const buckets = BACKLOG_BUCKETS.map(() => 0);
     for (const pr of open) {
       const i = BACKLOG_BUCKETS.findIndex((b) => pr.ageDays < b.max);
-      buckets[i === -1 ? BACKLOG_BUCKETS.length - 1 : i].count++;
+      buckets[i === -1 ? BACKLOG_BUCKETS.length - 1 : i]++;
     }
     return {
       total: open.length,
@@ -568,15 +1028,82 @@ export async function drilldown() {
     };
   };
 
+  const prRow = (b) => [b.opened, b.merged, b.closed, b.approvals, b._people.size];
+  const contribIssueRow = (b) => [b.filed, b.closed, b.responses, b.fixed];
+  const repoIssueRow = (b) => [b.opened, b.closed, b.responses, b._people.size];
+
+  /**
+   * The subject's own first month, so a padded series starts where they do.
+   * Read from the buckets rather than from `first`, which now takes issue dates
+   * into account as well and would prepend years of empty PR months to anyone
+   * who filed a bug before they wrote one.
+   */
+  const firstMonth = (months) => [...months.keys()].sort()[0] ?? null;
+
+  const partnersOf = (map, kind, n = TOP_N) => {
+    const slice = new Map();
+    for (const [k, v] of map) {
+      if (k.startsWith(`${kind}\n`)) slice.set(k.slice(kind.length + 1), v);
+    }
+    return topN(slice, "login", n);
+  };
+
+  /**
+   * Does this person warrant a full record?
+   *
+   * Folding the issue store in took the subject count from 1,200 to 6,700,
+   * because five and a half thousand people have filed one bug report and done
+   * nothing else. They are still counted in every aggregate — a repo's reporter
+   * list, the org's tables — and they still get a page, because a ranked list
+   * that links to a page that doesn't exist is worse than either. But the page
+   * for someone with one bug report to their name needs their name, their dates
+   * and that one row: the ranked-repo maps, the partner lists and the monthly
+   * series all describe a single event, at eight times the cost of describing
+   * it. Anyone who has written code, reviewed it, answered anybody, closed
+   * anything, been assigned anything, or filed enough to have a pattern gets
+   * the full treatment.
+   */
+  const substantial = (s) =>
+    s.total > 0 ||
+    s._w.all.approvals > 0 ||
+    s.open.length > 0 ||
+    s._itotals.responses > 0 ||
+    s._itotals.closed > 0 ||
+    s._itotals.fixed > 0 ||
+    s._iw.all.assigned > 0 ||
+    s._itotals.filed >= 3;
+
   const contributorsOut = {};
   for (const [login, s] of contributors) {
-    const partners = (kind) => {
-      const slice = new Map();
-      for (const [k, v] of s._partners) {
-        if (k.startsWith(`${kind}\n`)) slice.set(k.slice(kind.length + 1), v);
-      }
-      return topN(slice, "login");
-    };
+    const iw = issueWindowsOut(s);
+    const touchedIssues = s._itotals.filed || s._itotals.responses ||
+      s._itotals.closed || s._itotals.fixed || s._iopen.length;
+
+    if (!substantial(s)) {
+      contributorsOut[login] = {
+        login,
+        first: s.first,
+        last: s.last,
+        totalPRs: 0,
+        slim: true,
+        windows: {},
+        series: null,
+        topRepos: {},
+        reviewRepos: {},
+        reviewedBy: [],
+        reviewsFor: [],
+        backlog: null,
+        resolved: null,
+        issues: {
+          totals: s._itotals,
+          windows: iw,
+          series: null,
+          backlog: issueBacklogOf(s._iopen),
+          filed: s._ifiled.length ? packIssueRows(s._ifiled, FILED_FIELDS) : null,
+        },
+      };
+      continue;
+    }
 
     contributorsOut[login] = {
       login,
@@ -584,43 +1111,64 @@ export async function drilldown() {
       last: s.last,
       totalPRs: s.total,
       windows: windowsOut(s),
-      series: finishSeries(s._months, s.first),
-      topRepos: Object.fromEntries(
-        WINDOWS.map((w) => [w.id, rankedFor(s._counts, `${w.id}\nopened`, "repo")])
-      ),
-      reviewRepos: Object.fromEntries(
-        WINDOWS.map((w) => [w.id, rankedFor(s._counts, `${w.id}\nreviewed`, "repo")])
-      ),
-      reviewedBy: partners("by"),
-      reviewsFor: partners("for"),
+      series: finishSeries(s._months, firstMonth(s._months), prRow),
+      topRepos: rankedWindows(s._counts, "opened", "repo"),
+      reviewRepos: rankedWindows(s._counts, "reviewed", "repo"),
+      reviewedBy: partnersOf(s._partners, "by"),
+      reviewsFor: partnersOf(s._partners, "for"),
       backlog: backlogOf(s.open),
       resolved: packResolved(s.resolved),
+      // Null rather than an object of zeroes for someone who has never touched
+      // an issue: the frontend says "nothing here" instead of drawing eight
+      // tiles of nought.
+      issues: touchedIssues
+        ? {
+            totals: s._itotals,
+            windows: iw,
+            series: sparseSeries(s._imonths, contribIssueRow),
+            filedRepos: rankedWindows(s._counts, "ifiled", "repo", ISSUE_TOP_N),
+            answeredRepos: rankedWindows(s._counts, "iresponded", "repo", ISSUE_TOP_N),
+            closedRepos: rankedWindows(s._counts, "iclosed", "repo", ISSUE_TOP_N),
+            helpedBy: partnersOf(s._ipartners, "iby", ISSUE_TOP_N),
+            helped: partnersOf(s._ipartners, "ifor", ISSUE_TOP_N),
+            backlog: issueBacklogOf(s._iopen),
+            filed: s._ifiled.length ? packIssueRows(s._ifiled, FILED_FIELDS) : null,
+            closed: s._iclosed.length ? packIssueRows(s._iclosed, CLOSED_FIELDS) : null,
+          }
+        : null,
     };
   }
 
   const reposOut = {};
   for (const [name, s] of repos) {
+    const iw = issueWindowsOut(s);
+
     reposOut[name] = {
       repo: name,
       first: s.first,
       last: s.last,
       totalPRs: s.total,
       windows: windowsOut(s),
-      series: finishSeries(s._months, s.first),
-      topAuthors: Object.fromEntries(
-        WINDOWS.map((w) => [
-          w.id,
-          rankedFor(s._counts, `${w.id}\nauthor`, "login"),
-        ])
-      ),
-      topReviewers: Object.fromEntries(
-        WINDOWS.map((w) => [
-          w.id,
-          rankedFor(s._counts, `${w.id}\nreviewer`, "login"),
-        ])
-      ),
+      series: finishSeries(s._months, firstMonth(s._months), prRow),
+      topAuthors: rankedWindows(s._counts, "author", "login"),
+      topReviewers: rankedWindows(s._counts, "reviewer", "login"),
       grossing: grossingLists(s._gross),
       backlog: backlogOf(s.open),
+      // Absent on the repos in the store with no tracker at all, which is a
+      // different statement from a tracker with nothing in it.
+      issues: s._itotals.filed
+        ? {
+            totals: s._itotals,
+            windows: iw,
+            series: sparseSeries(s._imonths, repoIssueRow),
+            topReporters: rankedWindows(s._counts, "ireporter", "login", ISSUE_TOP_N),
+            topResponders: rankedWindows(s._counts, "iresponder", "login", ISSUE_TOP_N),
+            topClosers: rankedWindows(s._counts, "icloser", "login", ISSUE_TOP_N),
+            topFixers: rankedWindows(s._counts, "ifixer", "login", ISSUE_TOP_N),
+            topAssignees: rankedWindows(s._counts, "iassignee", "login", ISSUE_TOP_N),
+            backlog: issueBacklogOf(s._iopen),
+          }
+        : null,
     };
   }
 
@@ -629,24 +1177,51 @@ export async function drilldown() {
    * a 1,500-entry array of four-key objects rather than walking the full
    * multi-megabyte structure on every keystroke.
    */
+  // `i` is issue involvement, and it's in the ranking rather than beside it for
+  // a reason: a full-time triager has no PRs and no approvals, so ranking on
+  // those two buried the people doing the most visible work in the org below
+  // everyone who ever opened a one-line fix.
+  const involvementOf = (s) =>
+    s._itotals.filed + s._itotals.responses + s._itotals.closed + s._itotals.fixed;
+
   const index = {
     contributors: [...contributors.values()]
       .map((s) => ({
         id: s.login,
         n: s.total,
         a: s._w.all.approvals,
+        i: involvementOf(s),
         last: s.last,
       }))
-      .sort((a, b) => b.n + b.a - (a.n + a.a)),
+      .sort((a, b) => b.n + b.a + b.i - (a.n + a.a + a.i)),
     repos: [...repos.values()]
-      .map((s) => ({ id: s.repo, n: s.total, open: s.open.length, last: s.last }))
-      .sort((a, b) => b.n - a.n),
+      .map((s) => ({
+        id: s.repo,
+        n: s.total,
+        open: s.open.length,
+        i: s._itotals.filed,
+        iOpen: s._iopen.length,
+        last: s.last,
+      }))
+      .sort((a, b) => b.n + b.i - (a.n + a.i)),
   };
 
   return {
     windows: WINDOWS,
     seriesFields: SERIES_FIELDS,
     resolvedFields: RESOLVED_FIELDS,
+    issueSeriesFields: ISSUE_SERIES_FIELDS,
+    issueWindowFields: ISSUE_WINDOW_FIELDS,
+    // The issue backlogs carry bucket counts only; the labels live here once
+    // rather than on every subject.
+    backlogBuckets: BACKLOG_BUCKETS.map((b) => b.label),
+    filedFields: FILED_FIELDS,
+    closedFields: CLOSED_FIELDS,
+    issueOutcomes: ISSUE_OUTCOMES,
+    // False when the issue store is missing entirely, which is a different
+    // message from "this subject has no issue activity" and gets a different one.
+    issueData: hasIssueData,
+    closerCoverage,
     generatedAt: new Date().toISOString(),
     index,
     contributors: contributorsOut,
