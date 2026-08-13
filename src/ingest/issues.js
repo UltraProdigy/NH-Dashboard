@@ -62,6 +62,18 @@ const LABELS_FILE = path.join(STORE_DIR, "issue-labels.json");
  * nothing reads any more, which costs a few bytes and breaks nothing — where a
  * bump would order a full re-walk of the entire store to obtain strictly less
  * data than it already holds.
+ *
+ * **A bump is the expensive option, and it is not always the right one.** The
+ * re-walk uses the full query — fifteen labels, ten comments and five assignees
+ * per issue, fifty to a page — which is the exact shape GitHub's abuse limit
+ * refuses on the org's largest tracker. That is why `--bulk` exists, and a
+ * version bump walks straight back into it: bumping this to 3 for the closer
+ * fields put the walk into a 60-second penalty every few requests after clearing
+ * all 86 repos in one pass each.
+ *
+ * So when a new field can be fetched *on its own*, fetch it on its own and patch
+ * the records in place — see `patchClosers`. Reserve the bump for changes that
+ * genuinely need every field re-read.
  */
 const REC_VERSION = 3;
 
@@ -151,6 +163,44 @@ const ISSUE_FIELDS = `
     nodes { createdAt author { login } }
   }
   ${CLOSER_FIELDS}
+`;
+
+/**
+ * How many issues the closer patch takes per page.
+ *
+ * A hundred, where the full walk takes fifty, because each node here carries one
+ * timeline item and nothing else: about 300 nodes a page against the full query's
+ * 1,550. That's five times less work per issue and half the requests, which is
+ * the difference between this pass finishing and it sitting in a 60-second
+ * penalty. Drop it first if the secondary limit ever starts biting again.
+ */
+const CLOSER_PAGE = 100;
+
+/**
+ * Just the closer, for issues already in the store.
+ *
+ * Only closed issues are asked for — an open one has no closer, so there is
+ * nothing to learn and no reason to spend a node on it. Creation order for the
+ * same reason the first walk uses it: it runs with the grain of the rows rather
+ * than against a secondary index, so page two hundred costs what page one did.
+ */
+const CLOSERS_BY_CREATED = `
+  query($owner: String!, $name: String!, $cursor: String) {
+    repository(owner: $owner, name: $name) {
+      issues(
+        first: ${CLOSER_PAGE}
+        after: $cursor
+        states: [CLOSED]
+        orderBy: { field: CREATED_AT, direction: ASC }
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          number
+          ${CLOSER_FIELDS}
+        }
+      }
+    }
+  }
 `;
 
 /**
@@ -520,7 +570,134 @@ export async function bulkLoad(repoName, { onProgress } = {}) {
  * before an interruption are already excluded from the next run's set, and
  * once the store is current this costs one local read and zero requests.
  */
-async function backfillStale(labelColors) {
+/**
+ * Fill in who closed each issue, without re-reading everything else about it.
+ *
+ * The store already holds the title, the labels, the comment count and the first
+ * response for all 26,000 issues. The only thing missing on an older record is
+ * the closer, and re-fetching the other forty fields to obtain it is what put the
+ * heavy backfill into a rate-limit penalty loop. This asks for the one thing it
+ * needs and merges it onto the record that's already on disk.
+ *
+ * Self-limiting and resumable, like every other pass here, but on two axes: the
+ * set it works on is "closed records that don't know their closer", so anything
+ * already patched is excluded from the next run, *and* the page cursor is saved
+ * per page, so an interruption costs one page rather than a repo. That second
+ * part is what the version-driven backfill couldn't do — it had no way to say
+ * where in a repo it had got to, so a refused request at page 300 of the modpack
+ * threw away 299 pages of pacing.
+ */
+async function patchClosers(state, { limit = Infinity } = {}) {
+  clearStoreCache();
+
+  const need = new Map(); // repo -> Map(number -> the record to patch)
+  const open = [];        // nothing closed these, so no request is needed
+  for (const i of await readStore()) {
+    if (i.closerKnown === true) continue;
+    if (i.closedAt) {
+      if (!need.has(i.repo)) need.set(i.repo, new Map());
+      need.get(i.repo).set(i.number, i);
+    } else {
+      open.push(i);
+    }
+  }
+
+  // Stamped locally and for free. An open issue has no closer, so the answer is
+  // known without asking — and saying so is what keeps these records from
+  // looking stale to the version-driven backfill, which would then re-read every
+  // field of a seven-year-old open issue to learn something already certain.
+  if (open.length) {
+    await appendFile(
+      STORE_FILE,
+      open
+        .map((r) =>
+          JSON.stringify({ ...r, v: REC_VERSION, closedBy: null, closedVia: null, closerKnown: true })
+        )
+        .join("\n") + "\n"
+    );
+    console.log(`  ${open.length.toLocaleString()} open issues need no closer — stamped locally`);
+  }
+
+  if (!need.size) {
+    clearStoreCache();
+    return open.length;
+  }
+
+  const total = [...need.values()].reduce((n, m) => n + m.size, 0);
+  console.log(
+    `  filling in the closer for ${total.toLocaleString()} closed issues across ${need.size} repos`
+  );
+
+  let written = open.length;
+  let repos = 0;
+
+  for (const [repo, wanted] of need) {
+    if (repos >= limit) break;
+    repos++;
+
+    const st = (state.repos[repo] ??= {});
+    let cursor = st.closerCursor ?? null;
+    let patched = 0;
+    let failed = false;
+
+    try {
+      while (wanted.size) {
+        const data = await graphql(CLOSERS_BY_CREATED, { owner: ORG, name: repo, cursor });
+        const page = data.repository?.issues;
+        if (!page) break;
+
+        const records = [];
+        for (const node of page.nodes) {
+          const rec = wanted.get(node.number);
+          if (!rec) continue;
+          wanted.delete(node.number);
+          const cl = closure(node);
+          // Spread over the stored record rather than rebuilt from the response:
+          // the response deliberately doesn't contain the other fields, and
+          // rebuilding would blank every one of them.
+          records.push({
+            ...rec,
+            v: REC_VERSION,
+            closedBy: cl.by,
+            closedVia: cl.via,
+            closerKnown: true,
+          });
+        }
+
+        if (records.length) {
+          await appendFile(
+            STORE_FILE,
+            records.map((r) => JSON.stringify(r)).join("\n") + "\n"
+          );
+          written += records.length;
+          patched += records.length;
+        }
+
+        cursor = page.pageInfo.endCursor;
+        st.closerCursor = cursor;
+        await saveState(state);
+
+        if (!page.pageInfo.hasNextPage) break;
+      }
+      delete st.closerCursor;
+    } catch (err) {
+      failed = true;
+      console.warn(`  ${repo}: ${err.message.split("\n")[0]}`);
+    }
+    await saveState(state);
+
+    if (patched || failed)
+      console.log(
+        `  [${repos}/${need.size}] ${repo} — ${patched.toLocaleString()} closers` +
+          (failed ? `, ${wanted.size.toLocaleString()} left for next run` : "")
+      );
+  }
+
+  clearStoreCache();
+  return written;
+}
+
+async function backfillStale(labelColors, { limit = Infinity } = {}) {
   clearStoreCache();
   const stale = (await readStore()).filter((i) => (i.v ?? 0) < REC_VERSION);
   if (!stale.length) return 0;
@@ -539,6 +716,7 @@ async function backfillStale(labelColors) {
   let done = 0;
 
   for (const [repo, numbers] of wanted) {
+    if (done >= limit) break;
     const colors = {};
     let cursor = null;
     // Written a page at a time rather than a repo at a time. The store this
@@ -680,17 +858,22 @@ export async function ingest({ limit = Infinity } = {}) {
   await saveState(state);
   await saveLabelMap(labelColors);
 
-  const backfilled = await backfillStale(labelColors);
+  // Before the version-driven backfill, deliberately: it patches the closer
+  // fields cheaply, which is most of what would otherwise make a record look
+  // stale enough to warrant re-reading all of it.
+  const patched = await patchClosers(state, { limit });
+  const backfilled = await backfillStale(labelColors, { limit });
   await saveLabelMap(labelColors);
   const { before, after } = await compactStore();
 
   console.log(
     `  done: ${processed} repos, ${written} new/updated issue records` +
+      (patched ? `, ${patched} closers filled in` : "") +
       (backfilled ? `, ${backfilled} backfilled` : "") +
       (before !== after ? `, compacted ${before} → ${after} lines` : "")
   );
 
-  return { processed, written, backfilled };
+  return { processed, written, patched, backfilled };
 }
 
 /** Rewrite the store deduplicated and sorted — see the PR store's version. */
