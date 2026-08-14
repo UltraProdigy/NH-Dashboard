@@ -1,7 +1,13 @@
 import { state } from "./state.js";
 import { windowKey } from "./data.js";
-import { saveExclusions, updateExclList } from "./dream.js";
-import { closeCombo, comboOptions, render, updateComboPop } from "./render.js";
+import { clearExclusions, toggleExclusion, updateExclList } from "./dream.js";
+import {
+  closeCombo,
+  comboOptions,
+  positionExclPop,
+  render,
+  updateComboPop,
+} from "./render.js";
 import { drillTo, go, goPage, readHash } from "./router.js";
 import { MODULES } from "./modules/index.js";
 import {
@@ -28,6 +34,20 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 
 document.getElementById("view").addEventListener("click", e => {
+  /* ---- card filters ----
+     Stopped here rather than left to bubble: the document-level
+     close-on-outside-click handler would otherwise see this same click *after*
+     render() has torn the button out of the DOM, and decide it landed outside
+     the popup it just opened. */
+  const eb = e.target.closest("button[data-exclbtn]");
+  if (eb) {
+    e.stopPropagation();
+    // Opening one closes the other — there's one popup, and it belongs to
+    // whichever button was asked for it last.
+    state.exclOpen = state.exclOpen === eb.dataset.exclbtn ? null : eb.dataset.exclbtn;
+    return render();
+  }
+
   /* ---- head to head ----
      Its picker lives inside the card rather than the toolbar, so its events
      arrive here alongside the drilldown links. */
@@ -153,12 +173,6 @@ document.getElementById("toolbar").addEventListener("input", e => {
     state.combo.active = 0;
     return updateComboPop();
   }
-  // Typing in an exclusion search repaints only that list, for the same reason
-  // the combobox does: render() would rebuild the toolbar and drop the caret.
-  if (t.dataset?.exclq) {
-    state.exclQ[t.dataset.exclq] = t.value;
-    return updateExclList(t.dataset.exclq);
-  }
   if (t.id === "filter") state.filter = t.value.trim();
   else if (t.id === "minActivity") {
     const v = Number(t.value);
@@ -200,51 +214,61 @@ document.getElementById("toolbar").addEventListener("click", e => {
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }
+});
 
-  /* ---- exclusions ---- */
-  const eb = e.target.closest("button[data-exclbtn]");
-  if (eb) {
-    // Stopped here rather than left to bubble: the document-level
-    // close-on-outside-click handler would otherwise see this same click
-    // *after* render() has torn the button out of the DOM, and decide it
-    // landed outside the popup it just opened.
-    e.stopPropagation();
-    // Opening one closes the other. Two popups side by side would overlap, and
-    // there's no reason to consult both at once.
-    state.exclOpen = state.exclOpen === eb.dataset.exclbtn ? null : eb.dataset.exclbtn;
-    return render();
-  }
+/* ==========================================================================
+   The exclusion popup
+   --------------------------------------------------------------------------
+   It lives in its own layer at the end of <body> rather than inside the card
+   that opened it, so its events arrive here rather than with the card's.
+   ========================================================================== */
+
+const popLayer = document.getElementById("popLayer");
+
+// Typing in the search repaints only the list, for the same reason the
+// combobox does: render() would rebuild the popup and drop the caret.
+popLayer.addEventListener("input", e => {
+  const key = e.target.dataset?.exclq;
+  if (!key) return;
+  state.exclQ[key] = e.target.value;
+  updateExclList(key);
+});
+
+popLayer.addEventListener("click", e => {
   const ec = e.target.closest("button[data-exclclear]");
-  if (ec) {
-    // Scoped to its own group: "Clear" inside the Repos popup should not
-    // silently un-hide every label as well.
-    state.dreamExcl[ec.dataset.exclclear] = [];
-    saveExclusions();
-    return render();
-  }
+  if (!ec) return;
+  // Stopped so the document handler doesn't then read the click as landing
+  // outside a popup render() has already replaced.
+  e.stopPropagation();
+  // Scoped to its own button: "Clear" under Repos should not silently un-hide
+  // every label as well, nor touch the card next to it.
+  clearExclusions(ec.dataset.exclclear);
+  render();
 });
 
 /**
- * Ticking a box repaints the whole page — every card on Dream reads the
- * exclusions — but the popup has to stay open, since the point of a
- * multi-select is picking several without reopening it each time.
+ * Ticking a box repaints the page — the card, its tab badge and the By-label
+ * picker all read the exclusions — but the popup stays open, since the point
+ * of a multi-select is picking several without reopening it each time.
  */
-document.getElementById("toolbar").addEventListener("change", e => {
+popLayer.addEventListener("change", e => {
   const box = e.target.closest("input[data-excl]");
   if (!box) return;
-  const list = state.dreamExcl[box.dataset.excl];
-  const i = list.indexOf(box.value);
-  if (box.checked) { if (i === -1) list.push(box.value); }
-  else if (i !== -1) list.splice(i, 1);
-  saveExclusions();
+  toggleExclusion(box.dataset.excl, box.value, box.checked);
   // render() rebuilds the popup from scratch; put the list's scroll position
   // back so ticking the fortieth repo doesn't fling you to the top.
-  const kind = box.dataset.excl;
-  const top = document.getElementById(`exclList-${kind}`)?.scrollTop ?? 0;
+  const top = document.getElementById("exclList")?.scrollTop ?? 0;
   render();
-  const fresh = document.getElementById(`exclList-${kind}`);
+  const fresh = document.getElementById("exclList");
   if (fresh) fresh.scrollTop = top;
 });
+
+/* Anchored to a button in the page, so it has to follow it. Repositioned
+   rather than closed: scrolling the list scrolls the page underneath once the
+   list hits its end, and a popup that vanished when that happened would be
+   unusable with a trackpad. */
+addEventListener("scroll", () => { if (state.exclOpen) positionExclPop(); }, true);
+addEventListener("resize", () => { if (state.exclOpen) positionExclPop(); });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
    because render() replaces the input element wholesale. */
@@ -293,10 +317,10 @@ document.getElementById("toolbar").addEventListener("focusin", e => {
 /* Close on an outside click rather than on blur: blur fires before click, so a
    blur handler would tear the popup down before the option got selected. */
 document.addEventListener("click", e => {
-  // Closes when the click lands outside *the open group's* wrapper — clicking
-  // the other exclusion button counts as outside, and its own handler opens it.
-  if (state.exclOpen &&
-      e.target.closest(".excl-wrap")?.dataset.exclgroup !== state.exclOpen) {
+  // Closes when the click lands outside the popup. The buttons stop their own
+  // clicks before they get here, so opening one while another is open still
+  // reads as a toggle rather than a close followed by an open.
+  if (state.exclOpen && !e.target.closest("#popLayer")) {
     state.exclOpen = null;
     render();
   }

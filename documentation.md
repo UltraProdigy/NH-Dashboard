@@ -76,66 +76,95 @@ Approved-not-merged, Needs a release, Changes requested, By label.
 
 ### Exclusions
 
-Two buttons on the toolbar — **Repos** and **Labels** — each opening a
-searchable checklist that hides its entries from **every** card on the page.
-They default to the **⚠️ AUTHOR MERGE ONLY** label and the **Angelica** repo,
-and the choice is remembered in `localStorage`; the same handful shouldn't have
-to be dismissed every morning.
+Each card carries its own filters, as buttons in its own header:
 
-The page's whole job is a short list of things somebody should act on. A label
-that means "this is not yours to merge" is noise on it permanently, not just on
-its own tab, so the filter applies to the rows themselves rather than to the
+| Card | Buttons |
+| --- | --- |
+| Approved, not merged | Repos, Labels |
+| By label | Repos, Labels |
+| Needs a release | Repos |
+| Changes requested | Repos |
+
+Each opens a searchable checklist of things to hide **from that card only**.
+Needs a release is repo-level data with no labels on it, and Changes requested
+is a list you want to read whole — the only thing worth hiding there is a repo
+that isn't yours.
+
+**Per card rather than per page.** The four cards ask different questions, and
+the same repo can be noise in one and the point of another: nobody here cuts
+DreamAssemblerXXL's releases, but a PR sitting approved in it still wants
+looking at. One shared list forced those two answers to be the same. It also put
+the buttons on the page toolbar, above a grid of four cards — which is where a
+control that changes the whole page belongs, and reads that way whether it is
+one or not.
+
+Within a card the filter still applies to the rows themselves rather than to the
 By-label selection: a PR carrying an excluded label disappears from
-Approved-not-merged too. Tab counts follow the exclusions, because a badge that
-disagrees with the list under it is worse than no badge.
+Approved-not-merged whichever label it was found under. Tab counts follow the
+exclusions, because a badge that disagrees with the list under it is worse than
+no badge.
+
+Defaults live in `DREAM_EXCL_DEFAULT` in `state.js`, one entry per card, and are
+applied to any card with nothing saved. Choices are written to `localStorage`
+under `nh:dreamExcl:v2` the moment a box is ticked — the same handful shouldn't
+have to be dismissed every morning. A card with an empty *saved* list keeps it:
+unticking everything is a decision, and only a card that has never been touched
+falls back to its defaults. The key is versioned because the saved shape changed
+from one list per page to one per card, and a half-read old value would have
+silently applied the old page-wide list to one card and nothing to the rest.
 
 Repo names arrive in two spellings — the search-backed panels carry
 `GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica` — so
 everything is compared bare.
+
+#### What a list offers
+
+Two groups: **On this card**, then **Elsewhere in the org** (every repo the CI
+sweep walked, every label the page has seen plus the tracked ones). The second
+group is what makes the filter usable before the fact — several of the repos
+worth hiding from Approved have no PR open in them today, and a list that only
+offers what's currently on screen can't be told about them until the morning
+they turn up.
 
 They're checkbox lists rather than native `<select multiple>` boxes. The native
 control is a fixed-height scrolling box that can't show which of eighty repos
 are ticked without scrolling, and ctrl-clicking to deselect one entry is a
 well-known way to lose the other nine.
 
-**Anything currently hidden is pinned to the top of its list**, above an
-"Everything else" divider, and stays there while you search — with nineteen
-labels and eighty repos, "what am I hiding right now" is the first question the
-list has to answer, and it shouldn't require scrolling an alphabetical list to
-audit. The full name is on each row's `title`, since the visible one ellipsises.
+**Anything currently hidden is pinned to the top**, above both group dividers,
+and stays there while you search — with 250 repos in the list, "what am I hiding
+right now" is the first question it has to answer, and it shouldn't require
+scrolling an alphabetical list to audit. The full name is on each row's `title`,
+since the visible one ellipsises. **Clear** is scoped to the button you opened,
+so clearing Approved's repos can't silently un-hide its labels or touch the card
+next to it.
 
-#### Why two buttons rather than one popup
+#### The popup is drawn outside the card
 
-This started as a single **Exclusions ▾** button opening a two-column popup,
-and every problem it had came from that one decision:
+One popup exists at a time, rendered into `#popLayer` at the end of `<body>` and
+positioned by script against the button that opened it. It can't live inside the
+card header where its button is: a card is `overflow: hidden` so its table can
+have rounded corners, and it's a `container-type: inline-size` query container so
+its KPI strips size against the card rather than the viewport. Between them, a
+popup drawn in the header is clipped at the header's bottom edge *and* positioned
+against the card, and no rule inside the card can undo either.
 
-- The row layout had to work at half the popup's width, which is what kept
-  putting the checkboxes somewhere other than where they belonged.
-- The search inputs needed a `.excl-pop`-qualified rule to win a specificity
-  fight with the global `input[type="search"]` 260px floor — right for the
-  toolbar, twice too wide for half a popup.
-- The toolbar showed one count, which was the sum of two unrelated numbers. Six
-  hidden things told you nothing about whether any of them were repos.
+It's repositioned on scroll and resize rather than closed, because scrolling the
+list scrolls the page underneath it once the list hits its end.
 
-Hiding a repo and hiding a label are unrelated decisions and there's no reason
-to make them at the same moment. One list per popup costs one more slot on a
-toolbar that has room, and all three problems stop existing rather than being
-worked around. Opening one closes the other; **Clear** is scoped to the group
-you're looking at, so clearing repo exclusions can't silently un-hide every
-label as well.
+#### The option row
 
-Rows are a flex line with an explicitly non-shrinking checkbox (`flex: none`)
-rather than a grid with a fixed first track. The two look equivalent, but a
-fixed grid track only has to be handed one contradictory width — from a browser's
-own form defaults, a zoom level, a stylesheet that arrives later — to put the
-box somewhere unintended. `flex: none` can't be talked out of its size.
+Absolutely positioned checkbox, ordinary block for the name. Flex and grid have
+both been tried here and both failed the same way — the box ended up adrift in
+the middle of the row with the name crushed against the right edge, because each
+has free space to hand out and each managed to hand it to the wrong place. This
+construction has no free space to distribute, so there is nothing left to
+distribute wrongly.
 
 ### The label picker
 
 It lives in the **By label** card's header, in the slot where every other card
-puts its caption, rather than in the page toolbar. That card is the only thing
-on the page it changes, and a control sitting above a grid of four cards reads
-as a page-wide filter — which the exclusions now genuinely are.
+puts its caption. It's the only thing that says what the rows underneath are.
 
 Excluded labels drop out of the picker, and the selection falls back to the
 first visible one rather than showing an empty table for a label that's been
@@ -887,6 +916,11 @@ The toggle only appears on the tab, not on the overview: the overview gathers
 every module's controls into one toolbar, and a three-way filter for one card
 down the page is clutter up there. That's what a module's `tabControls` are, as
 against `controls`.
+
+The third option is `controlsHtml()`, which puts a control in the card's own
+header instead of the toolbar — where the Dream Panel's filters live. Use it
+when the control belongs to one card on both the overview and its tab, and
+`tabControls` when it only makes sense with the card expanded.
 
 There are 25,660 of these org-wide, and the obvious
 `{repo, number, at, merged}` shape cost ~1.9 MB in repeated key names and

@@ -17,7 +17,7 @@ import {
   issuesOf,
 } from "./issue-data.js";
 import { opponents } from "./versus-data.js";
-import { EXCL_GROUPS, exclPopHtml, isExcludedRow, panelRows, visibleLabels } from "./dream.js";
+import { byLabelCount, exclPopHtml, panelRows } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { PAGES } from "./pages.js";
 import { MODULES } from "./modules/index.js";
@@ -33,10 +33,7 @@ function moduleCount(id) {
     if (!p?.ok) return "!";
     // Counts follow the exclusions — a tab badge that disagrees with the list
     // underneath it is worse than no badge.
-    return m.panelId === "byLabel"
-      ? visibleLabels().reduce(
-          (n, k) => n + (p.data[k] ?? []).filter(r => !isExcludedRow(r)).length, 0)
-      : panelRows(m.panelId).length;
+    return m.panelId === "byLabel" ? byLabelCount() : panelRows(m.panelId).length;
   }
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
@@ -179,9 +176,6 @@ function renderToolbar() {
   if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
   if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed", "cBiggest", "actions"].includes(state.module) ||
       page.id === "dream") wanted.add("filter");
-  // Page-wide on Dream: it hides rows from every card, so it belongs up here
-  // rather than on any one of them.
-  if (page.id === "dream") wanted.add("excl");
   // The subject picker is the whole point of a drilldown page, so it's always
   // there — including before anything is selected, which is when it's needed.
   if (isDrill(page.id)) wanted.add("subject");
@@ -234,23 +228,6 @@ function renderToolbar() {
       <span class="seg" id="granSeg">${GRANS.map(g =>
         `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
-  // One button per kind. "Exclusions ▾" hid two unrelated decisions behind one
-  // control and gave no clue from the toolbar whether what was hidden was a
-  // repo or a label — the count was the sum of both.
-  if (wanted.has("excl")) {
-    for (const g of EXCL_GROUPS) {
-      const open = state.exclOpen === g.kind;
-      const n = state.dreamExcl[g.kind].length;
-      bits.push(`<span class="combo excl-wrap" data-exclgroup="${g.kind}">
-        <button class="ghost excl-btn" data-exclbtn="${g.kind}" aria-expanded="${open}">
-          ${esc(g.label)}${n ? ` <span class="count">${n}</span>` : ""} ▾
-        </button>
-        <div class="combo-pop excl-pop"${open ? "" : " hidden"}>${
-          open ? exclPopHtml(g.kind) : ""}</div>
-      </span>`);
-    }
-  }
-
   if (wanted.has("closedState"))
     bits.push(`<span class="seg" id="closedSeg">${
       Object.entries(CLOSED_LABEL).map(([id, label]) =>
@@ -280,6 +257,9 @@ function renderToolbar() {
 const cardSub = (m) =>
   m.subHtml ? m.subHtml() : `<span class="sub">${esc(m.sub ? m.sub() : "")}</span>`;
 
+/** Controls that belong to one card rather than the page — the Dream filters. */
+const cardControls = (m) => (m.controlsHtml ? m.controlsHtml() : "");
+
 function card(id) {
   const m = MODULES[id];
   let body;
@@ -293,6 +273,7 @@ function card(id) {
     <header>
       <h2>${esc(m.label)}</h2>
       ${cardSub(m)}
+      ${cardControls(m)}
       <button class="expand" data-open="${id}">Expand ↗</button>
     </header>
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}">${body}</div>
@@ -309,9 +290,57 @@ function pageBody() {
   try { body = m.render(true); }
   catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
   return `<section class="card" style="--span:12">
-    <header><h2>${esc(m.label)}</h2>${cardSub(m)}</header>
+    <header><h2>${esc(m.label)}</h2>${cardSub(m)}${cardControls(m)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
+}
+
+/* ---- the exclusion popup ------------------------------------------------
+   Rendered into a layer at the end of <body> rather than inside the card whose
+   button opened it. A card is `overflow: hidden` so its table can have rounded
+   corners, and it's a query container so its KPI strips can size against it —
+   between them a popup drawn inside the header is both clipped at the header's
+   bottom edge and positioned against the card. Neither is fixable from inside;
+   the popup has to be somewhere else in the tree and pointed at the button. */
+
+function renderExclPop() {
+  const layer = document.getElementById("popLayer");
+  const key = state.exclOpen;
+  const btn = key
+    ? document.querySelector(`button[data-exclbtn="${CSS.escape(key)}"]`)
+    : null;
+
+  // Open, but its button isn't on screen any more — a tab changed underneath
+  // it. Nothing to anchor to, so nothing to show.
+  if (!key || !btn) {
+    layer.innerHTML = "";
+    state.exclOpen = null;
+    return;
+  }
+
+  layer.innerHTML = `<div class="excl-pop" id="exclPop">${exclPopHtml(key)}</div>`;
+  positionExclPop();
+}
+
+/** Under the button, nudged back on screen at either edge, flipped up if it won't fit below. */
+function positionExclPop() {
+  const pop = document.getElementById("exclPop");
+  const key = state.exclOpen;
+  const btn = key && document.querySelector(`button[data-exclbtn="${CSS.escape(key)}"]`);
+  if (!pop || !btn) return;
+
+  const r = btn.getBoundingClientRect();
+  const { offsetWidth: w, offsetHeight: h } = pop;
+  const gap = 4, edge = 8;
+
+  const left = Math.max(edge, Math.min(r.left, window.innerWidth - w - edge));
+  const below = r.bottom + gap;
+  const top = below + h > window.innerHeight - edge && r.top - gap - h > edge
+    ? r.top - gap - h
+    : below;
+
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
 }
 
 /** Nothing selected yet — offer the busiest subjects as a starting point. */
@@ -377,8 +406,12 @@ function render() {
   const view = document.getElementById("view");
   if (!state.data) return;
 
-  if (isDrill(state.page)) return renderDrill(view);
-  view.innerHTML = pageBody();
+  if (isDrill(state.page)) renderDrill(view);
+  else view.innerHTML = pageBody();
+
+  // After the view, never before: the popup is positioned against a button
+  // that only exists once the cards have been written out.
+  renderExclPop();
 }
 
 /* ==========================================================================
@@ -410,4 +443,4 @@ async function ensureDrilldown() {
   render();
 }
 
-export { closeCombo, comboOptions, render, updateComboPop };
+export { closeCombo, comboOptions, positionExclPop, render, updateComboPop };
