@@ -7,27 +7,34 @@ select.inline-sel {
 }
 select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 
-/* ---------- dream panel: exclusion popups ----------
-   One button and one popup per kind — repos and labels are two unrelated
-   decisions, and pairing them in a two-column popup meant every rule in here
-   had to work at half width. That constraint is what produced the row layout
-   that kept collapsing; a single column removes it entirely.
+/* ---------- dream panel: exclusion filters ----------
+   One button per kind, in the header of the card it filters. Repos and labels
+   are two unrelated decisions, and pairing them in a two-column popup meant
+   every rule in here had to work at half width. */
+.card-filters { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+/* Both this and .expand would otherwise claim the header's slack and split it,
+   leaving the filters stranded mid-header. */
+.card-filters ~ .expand { margin-left: 6px; }
+.excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; font-size: 11px; }
+/* The tab badge's own left margin, on top of the button's gap, reads as a space. */
+.excl-btn .count { margin-left: 0; }
+.excl-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
 
-   The row is a flex line with an explicitly non-shrinking checkbox. A grid
-   with a fixed first track looked equivalent and wasn't: the box only has to
-   be handed one contradictory width — from a stylesheet, a zoom level, a
-   browser's own form defaults — to end up somewhere other than the left edge.
-   `flex: none` can't be talked out of its size. */
-.excl-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; }
+/* Positioned by script against the button that opened it, and drawn from a
+   layer at the end of <body>. A card clips its overflow so its table can have
+   rounded corners, and is a query container so its KPI strips size against it
+   — a popup inside the header is cut off at the header's bottom edge either
+   way, and no rule inside the card can undo that. */
 .excl-pop {
-  /* Overrides combo-pop's min-width/max-height/overflow: the list scrolls
-     here, not the popup, so the search box stays put while you scroll. */
-  width: min(340px, calc(100vw - 60px));
-  min-width: 0;
+  position: fixed; z-index: 60; left: 0; top: 0;
+  width: min(340px, calc(100vw - 24px));
   max-height: min(440px, 70vh);
-  padding: 0; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  overflow: hidden;
   display: flex; flex-direction: column;
 }
+:root[data-theme="light"] .excl-pop { box-shadow: 0 8px 24px rgba(31,35,40,.12); }
 .excl-head {
   flex: none;
   display: flex; align-items: center; gap: 10px;
@@ -47,18 +54,29 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 .excl-search { flex: none; padding: 9px 12px; border-bottom: 1px solid var(--border); }
 .excl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px 0 8px; }
 
+/* The row pins its checkbox with absolute positioning and leaves the name an
+   ordinary block. Flex and grid both looked right and weren't: each has free
+   space to hand out, and each managed to hand it to the wrong place — the box
+   ended up adrift in the middle of the row with the name crushed against the
+   right edge. There is no free space here to distribute, so there is nothing
+   left to distribute wrongly. */
 .excl-opt {
-  display: flex; align-items: center; gap: 9px;
-  padding: 5px 12px; cursor: pointer;
+  display: block; position: relative;
+  padding: 5px 12px 5px 37px;
+  cursor: pointer;
   font-size: 12px; color: var(--text);
+  text-align: left;
 }
 .excl-opt:hover { background: var(--panel-2); }
-.excl-opt input[type="checkbox"] {
-  flex: none;
-  width: 15px; height: 15px; margin: 0; accent-color: var(--accent);
+.excl-opt > input[type="checkbox"] {
+  position: absolute; left: 12px; top: 50%;
+  /* Half the height, rather than a translate: one fewer thing between the
+     declared position and where the box lands. */
+  width: 15px; height: 15px; margin: -7px 0 0 0;
+  accent-color: var(--accent);
 }
-.excl-opt .nm {
-  flex: 1; min-width: 0;
+.excl-opt > .nm {
+  display: block;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text);
 }
@@ -69,6 +87,9 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
   border-top: 1px solid var(--border);
   color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
 }
+/* A rule under the search box and above the first group draws a second line
+   4px below the one the search box already has. */
+.excl-list > .excl-sep:first-child { border-top: none; margin-top: 0; padding-top: 2px; }
 
 .picker { padding: 40px 0; text-align: center; }
 .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }

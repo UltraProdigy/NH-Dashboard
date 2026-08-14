@@ -26,17 +26,16 @@ const state = {
   dir: -1,
 
   // ---- Dream Panel ----
-  // Repos and labels to hide from every card on that page. Some labels mean
-  // "this is not yours to merge" and some repos are somebody else's problem;
-  // either way they're noise on a page whose whole job is a short actionable
-  // list. Held as arrays rather than Sets so they serialize to localStorage.
-  dreamExcl: { repos: [], labels: [] },
-  // Which exclusion popup is open, if any: null | "repos" | "labels". They're
-  // two buttons rather than one popup with two columns — hiding a repo and
-  // hiding a label are unrelated decisions, and pairing them meant every rule
-  // in that popup had to survive at half width.
+  // Repos and labels to hide, per card. Per card rather than per page because
+  // the four cards ask different questions: a repo whose releases somebody else
+  // cuts is noise on Needs a release and perfectly relevant on Approved, and one
+  // shared list forced those two answers to be the same.
+  // Filled in by loadExclusions(); shape is panel id -> { repos, labels }, held
+  // as arrays rather than Sets so they serialize to localStorage.
+  dreamExcl: {},
+  // Which exclusion popup is open, if any: null, or "<panelId>:<kind>".
   exclOpen: null,
-  exclQ: { repos: "", labels: "" },   // search text, per group
+  exclQ: {},          // search text, keyed the same way
 
   // ---- Issue Analytics ----
   // Which repo's labels the Label mix tab is showing, and which label the
@@ -89,10 +88,47 @@ const GRANS = [
   { id: "month", label: "by month", bucketDays: 30.4 },
 ];
 
-/** Defaults for the Dream Panel exclusions, applied on a first visit. */
-const DREAM_EXCL_DEFAULT = {
-  repos: ["Angelica"],
-  labels: ["⚠️ AUTHOR MERGE ONLY"],
+/**
+ * Which kinds of exclusion each Dream card offers, in the order the buttons
+ * appear in its header. Needs a release is repo-level data with no labels on
+ * it, and Changes requested is a list you want to read whole — the only thing
+ * worth hiding there is a repo that isn't yours.
+ */
+const DREAM_EXCL_KINDS = {
+  approvedUnmerged: ["repos", "labels"],
+  changesRequested: ["repos"],
+  needsRelease: ["repos"],
+  byLabel: ["repos", "labels"],
 };
 
-export { CLOSED_LABEL, DREAM_EXCL_DEFAULT, DRILL, GRANS, isDrill, state };
+/**
+ * Defaults, applied on a first visit and whenever a card has nothing saved.
+ * Repo names are bare — the PR panels carry `owner/name` and the release panel
+ * carries the name alone, and `bareRepo` is what reconciles them.
+ */
+const DREAM_EXCL_DEFAULT = {
+  approvedUnmerged: {
+    repos: ["Angelica", "Galaxia", "UtilitiesInExcess", "Horizon-QA", "lwjgl3ify"],
+    labels: ["⚠️ AUTHOR MERGE ONLY"],
+  },
+  changesRequested: { repos: [], labels: [] },
+  needsRelease: {
+    repos: [
+      "DreamAssemblerXXL", "TC4Tweaks", "GTNewHorizons.github.io", "StargateNH",
+      "UtilitiesInExcess", "MergeMasterXXL-TestRepo", "GTNH-Web-Map",
+      "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MaterialLib", "MergePreMaster",
+    ],
+    labels: [],
+  },
+  byLabel: { repos: [], labels: [] },
+};
+
+export {
+  CLOSED_LABEL,
+  DREAM_EXCL_DEFAULT,
+  DREAM_EXCL_KINDS,
+  DRILL,
+  GRANS,
+  isDrill,
+  state,
+};
