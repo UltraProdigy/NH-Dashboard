@@ -1,6 +1,11 @@
 import { state } from "./state.js";
 import { windowKey } from "./data.js";
-import { clearExclusions, toggleExclusion, updateExclList } from "./dream.js";
+import {
+  clearExclusions,
+  resetExclusions,
+  toggleExclusion,
+  updateExclList,
+} from "./dream.js";
 import {
   closeCombo,
   comboOptions,
@@ -234,16 +239,23 @@ popLayer.addEventListener("input", e => {
   updateExclList(key);
 });
 
+/* Both are scoped to the button they sit under: "Clear" beneath Repos should
+   not silently un-hide every label as well, nor touch the card next to it.
+   Each stops its click so the document handler doesn't then read it as landing
+   outside a popup render() has already replaced. */
 popLayer.addEventListener("click", e => {
   const ec = e.target.closest("button[data-exclclear]");
-  if (!ec) return;
-  // Stopped so the document handler doesn't then read the click as landing
-  // outside a popup render() has already replaced.
-  e.stopPropagation();
-  // Scoped to its own button: "Clear" under Repos should not silently un-hide
-  // every label as well, nor touch the card next to it.
-  clearExclusions(ec.dataset.exclclear);
-  render();
+  if (ec) {
+    e.stopPropagation();
+    clearExclusions(ec.dataset.exclclear);
+    return render();
+  }
+  const er = e.target.closest("button[data-exclreset]");
+  if (er) {
+    e.stopPropagation();
+    resetExclusions(er.dataset.exclreset);
+    return render();
+  }
 });
 
 /**

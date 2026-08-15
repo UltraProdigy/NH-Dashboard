@@ -135,9 +135,14 @@ well-known way to lose the other nine.
 and stays there while you search — with 250 repos in the list, "what am I hiding
 right now" is the first question it has to answer, and it shouldn't require
 scrolling an alphabetical list to audit. The full name is on each row's `title`,
-since the visible one ellipsises. **Clear** is scoped to the button you opened,
-so clearing Approved's repos can't silently un-hide its labels or touch the card
-next to it.
+since the visible one ellipsises.
+
+**Clear** empties the list; **Reset** puts back the one the card ships with, and
+greys itself out when that's already what you're looking at. Both are scoped to
+the button you opened, so clearing Approved's repos can't silently un-hide its
+labels or touch the card next to it. Reset is what makes the defaults worth
+having beyond the first visit — otherwise a list is only ever one stray tick
+away from being something you have to rebuild by hand.
 
 #### The popup is drawn outside the card
 

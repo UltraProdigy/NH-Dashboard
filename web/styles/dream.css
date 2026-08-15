@@ -37,12 +37,17 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 :root[data-theme="light"] .excl-pop { box-shadow: 0 8px 24px rgba(31,35,40,.12); }
 .excl-head {
   flex: none;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px;
   padding: 10px 12px; border-bottom: 1px solid var(--border);
   color: var(--muted); font-size: 12px;
 }
-.excl-head .ghost { margin-left: auto; flex: none; }
+/* Two buttons and a sentence in 340px: the sentence is the part that gives. */
+.excl-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.excl-head .ghost { flex: none; padding: 4px 9px; font-size: 11px; }
+/* Only the first of the two takes the slack, so they stay a pair. */
+.excl-head > button:first-of-type { margin-left: auto; }
 .excl-head .ghost[disabled] { opacity: .45; cursor: default; }
+.excl-head .ghost[disabled]:hover { border-color: var(--border); }
 
 /* The global `input[type="search"]` rule sets a 260px floor, which is right
    for the toolbar and too wide for this popup. Qualified with .excl-pop so it
