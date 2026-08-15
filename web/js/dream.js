@@ -214,6 +214,8 @@ function exclPopHtml(key) {
   const n = exclOf(panelId)[kind].length;
   return `<div class="excl-head">
       <span>${n ? `${n} hidden from this card` : "Hide from this card"}</span>
+      <button class="ghost" data-exclreset="${esc(key)}"${
+        isDefault(key) ? " disabled" : ""} title="Back to the list this card ships with">Reset</button>
       <button class="ghost" data-exclclear="${esc(key)}"${n ? "" : " disabled"}>Clear</button>
     </div>
     <div class="excl-search">
@@ -242,6 +244,25 @@ function toggleExclusion(key, name, on) {
 function clearExclusions(key) {
   const [panelId, kind] = splitKey(key);
   exclOf(panelId)[kind] = [];
+  saveExclusions();
+}
+
+/** The list this card ships with. */
+const defaultFor = (panelId, kind) => DREAM_EXCL_DEFAULT[panelId]?.[kind] ?? [];
+
+/** Whether a list is already the default, which is what greys Reset out. */
+function isDefault(key) {
+  const [panelId, kind] = splitKey(key);
+  const cur = exclOf(panelId)[kind];
+  const def = defaultFor(panelId, kind);
+  if (cur.length !== def.length) return false;
+  const have = new Set(cur);
+  return def.every(o => have.has(o));
+}
+
+function resetExclusions(key) {
+  const [panelId, kind] = splitKey(key);
+  exclOf(panelId)[kind] = [...defaultFor(panelId, kind)];
   saveExclusions();
 }
 
@@ -286,6 +307,7 @@ export {
   labelPickerHtml,
   loadExclusions,
   panelRows,
+  resetExclusions,
   toggleExclusion,
   updateExclList,
   visibleLabels,
