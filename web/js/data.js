@@ -61,7 +61,7 @@ const OWN_WINDOW = { newcomers: "newFacesWindow" };
  * one, otherwise the page's — and the drilldowns keep theirs separate from the
  * org pages, so looking at a person doesn't reset what Analytics was showing.
  */
-const windowKey = (mod = state.module) =>
+const windowKey = (mod = state.tab) =>
   OWN_WINDOW[mod] ?? (isDrill(state.page) ? "drillWindow" : "window");
 
 const activeWindow = (mod) => state[windowKey(mod)];

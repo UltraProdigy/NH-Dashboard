@@ -742,10 +742,16 @@ nothing to add and every time window is equally cheap. No extra API calls.
 Deep links carry the subject, so they're shareable:
 
 ```
-#contributor/Dream-Master          overview
-#contributor/Dream-Master/cActivity  a specific tab
-#repo/GT5-Unofficial/rBacklog
+#contributor/Dream-Master           overview
+#contributor/Dream-Master/@activity a tab
+#contributor/Dream-Master/cProfile  a tab that's a single card
+#repo/GT5-Unofficial/@prs
 ```
+
+A segment starting with `@` is a group tab; anything else is a single module.
+Links made before the tabs were consolidated still work — `cActivity` resolves
+to `@activity` and the address bar is rewritten to match. See **Tabs and
+groups**.
 
 The data lives in its own `data/drilldown.json` (~19 MB, 3.4 MB gzipped) rather
 than in `dashboard.json`. The frontend fetches it the first time you open a
@@ -917,10 +923,13 @@ Merged / Closed. It respects the time control like everything else, so all-time
 by default. Full width on the overview, since a half-width table of four
 columns looked stranded.
 
-The toggle only appears on the tab, not on the overview: the overview gathers
-every module's controls into one toolbar, and a three-way filter for one card
-down the page is clutter up there. That's what a module's `tabControls` are, as
-against `controls`.
+The toggle never sits in a toolbar above cards it doesn't affect. On the
+overview that means it isn't there at all — the overview gathers every module's
+controls into one toolbar, and a three-way filter for one card down the page is
+clutter up there. That's what a module's `tabControls` are, as against
+`controls`. On the Pull requests tab, where this card is stacked with two
+others, it renders in this card's own header for the same reason. It reaches the
+toolbar only when a module has a tab to itself. See **Controls have two homes**.
 
 The third option is `controlsHtml()`, which puts a control in the card's own
 header instead of the toolbar — where the Dream Panel's filters live. Use it
@@ -968,9 +977,10 @@ has, and the same ones Closed PRs and Open PRs already window by, so the three
 cards agree about what "last 6 months" contains.
 
 It reads `resolvedAll()` rather than `resolvedRows()`, deliberately: the latter
-also applies the Closed PRs tab's merged/dropped toggle, which isn't shown on
-this card. Reusing it would let a setting made two tabs ago quietly halve the
-list.
+also applies the Closed PRs merged/dropped toggle, which isn't shown on this
+card. Reusing it would let a setting made on the card above quietly halve the
+list — and now that both are stacked into the Pull requests tab, "above" is
+literal.
 
 ### Most grossing
 
@@ -1126,6 +1136,99 @@ This is in-memory for the session. The hash stays the source of truth, so a
 reload or a shared link lands exactly where the URL says — the memory only
 fills in what a navigation didn't specify.
 
+## Tabs and groups
+
+Every card on an overview grid has a tab that opens it full-width. That 1:1 rule
+is why the dashboard is easy to reason about, and it's still the default — but
+two things bend it, because taken literally it produced 52 tabs across six
+pages, and a tab bar that long is a worse index than the grid it's indexing.
+
+**A group is several cards under one tab, stacked.** Contributor Drilldown had
+Open PRs, Closed PRs and Biggest PRs as three tabs; they're three views of one
+question and nobody opens one without wanting the others. Groups are declared in
+`pages.js`:
+
+```js
+groups: [
+  { id: "prs", label: "Pull requests", twin: "@prs", count: "cOpenPRs",
+    modules: ["cOpenPRs", "cClosed", "cBiggest"] },
+]
+```
+
+`page.modules` is untouched — it's still the overview grid, same order, same
+spans, same twelve-column tiling. A group only affects the tab bar, and it
+appears there at the position of its first member, so there's no second ordering
+to drift out of sync with the layout. Its own `modules` list is the *stacking*
+order, which is deliberately not always the grid's: the grid puts Biggest PRs
+before Closed PRs to fill a row, but stacked they read best as open, then
+closed, then biggest.
+
+`count` names the one member whose badge the group borrows. Summing members
+would double-count — Biggest PRs overlaps both Open and Closed — and a badge
+that disagrees with the lists underneath it is worse than no badge, so a group
+without a `count` simply doesn't get one.
+
+**A card can decline a tab** with `tab: false`. `topAuthors` and `topReviewers`
+are `contributorRows()` ranked by one column the Leaderboard already has, so
+expanding either gives you 25 bars where that tab gives you every column,
+sortable. They're worth a glance on the grid and nothing as a tab, so they keep
+the card and lose the Expand button.
+
+The result is 33 tabs. Dream Panel is untouched: four separate queues, each a
+list you act on independently.
+
+### The drilldown groups are the twin map
+
+Each drilldown card names its opposite number with `twin:`, which is what the
+contributor/repo toggle follows. Grouping the two pages had to preserve that,
+and it turned out the twin map already *was* the grouping — every pair lands in
+the same-named group on both sides, and no pair is split across two:
+
+| Contributor | Repo | Group |
+| --- | --- | --- |
+| `cActivity` | `rActivity` | Activity |
+| `cRepos` | `rPeople` | Activity |
+| `cCollab` | `rHealth` | Activity |
+| `cOpenPRs` | `rBacklog` | Pull requests |
+| `cBiggest` | `rGrossing` | Pull requests |
+| `cClosed` | — | Pull requests |
+| `cIssues` | `rIssues` | Issues |
+| `cFiled` | `rIssueTriage` | Issues |
+| `cTriage` | `rIssuePeople` | Issues |
+| — | `rLabels` | Issues |
+
+Groups carry their own `twin`, so the mode toggle works the same on a group tab
+as on a single card. The two pages have to move together for that reason — if
+one grouped and the other didn't, the toggle would drop you on Overview half the
+time.
+
+### Sort is per card
+
+`state.sort` is a map of module id to `{ key, dir }`, not one key for the page.
+It used to be one key, which worked only because exactly one table was ever
+sortable at a time — the overview grid renders every card with
+`sortable: false`. A group breaks that: three stacked tables that all have a
+`repo` column would have re-sorted together on one click.
+
+Rather than thread an owner argument through the thirty-odd `renderTable` and
+`sortRows` calls, `render.js` names the module it's about to call — it's the
+only thing that ever calls one — and `table.js` reads it from a render-scoped
+variable, cleared in a `finally` so a module that throws can't leave its name
+behind. `renderTable` writes that name into its wrapper as `data-sortowner`,
+which is how the click handler knows whose sort to change.
+
+### Controls have two homes
+
+A module's `controls` reach the page toolbar whenever it's on screen. Its
+`tabControls` are ones that would be clutter above a grid of cards they affect
+one of — the Closed PRs three-way filter is the only one today.
+
+Grouping reintroduces that problem one level down: a filter in the toolbar doing
+nothing to two of the three tables under it reads as page-wide and isn't. So
+`tabControls` go in the toolbar when the module has its tab to itself, and in
+that card's own header when it's sharing. `controlHtml()` in
+`module-helpers.js` builds the markup for either home.
+
 ## Layout
 
 ```
@@ -1158,8 +1261,9 @@ js/versus-data.js      the head-to-head lineup and its metric catalogue
 js/contributor-data.js the contributor rows shared by the people modules
 js/module-helpers.js   fragments several modules render the same way
 js/dream.js            Dream Panel exclusions and the label picker
-js/pages.js            the six pages and the modules each one shows
+js/pages.js            the six pages, the modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
+                       and derives the tab bar from pages.js
 js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
 js/router.js           hash routing
 js/events.js           every delegated listener

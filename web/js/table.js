@@ -5,6 +5,29 @@ import { age, esc, fmt, repoLink } from "./format.js";
    Shared table rendering
    ========================================================================== */
 
+/* ---- who owns the sort --------------------------------------------------
+   Sort used to be one key on `state` for the whole page, which worked only
+   because exactly one table was ever sortable at a time: the overview grid
+   renders every card with `sortable: false`. A group tab stacks several
+   sortable tables in one view, and three of them share a `repo` column, so one
+   global key would have made a click on one table silently re-sort the others.
+
+   Sort is therefore per module. Rather than thread an owner argument through
+   thirty-odd renderTable and sortRows calls, render.js names the module it is
+   about to call — it is the only thing that ever calls one — and the two read
+   it from here. Always cleared in a finally, so a module that throws can't
+   leave its name behind for the next one. */
+
+let owner = null;
+
+function withOwner(id, fn) {
+  owner = id;
+  try { return fn(); }
+  finally { owner = null; }
+}
+
+const sortOf = () => state.sort[owner] ?? { key: null, dir: -1 };
+
 const COLUMNS = {
   pr: [
     { key: "repo",      label: "Repo",   render: r => repoLink(r.repo) },
@@ -41,9 +64,10 @@ const preview = cols => cols.filter(c => ["repo", "title", "tagName", "commitsAh
 function renderTable(rows, cols, { sortable = false, limit = null } = {}) {
   if (!rows.length) return `<div class="empty">Nothing here. That's usually good news.</div>`;
   const shown = limit ? rows.slice(0, limit) : rows;
+  const { key, dir } = sortOf();
   const head = cols.map(c =>
     `<th ${sortable && c.sortable !== false ? `data-sort="${c.key}"` : ""}>${c.label}${
-      sortable && state.sort === c.key ? (state.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
+      sortable && key === c.key ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("");
   const body = shown.map(r => `<tr>${cols.map(c => `<td>${c.render(r)}</td>`).join("")}</tr>`).join("");
   const rest = rows.length - shown.length;
   // The table is wrapped rather than emitted bare because .num cells are
@@ -52,19 +76,20 @@ function renderTable(rows, cols, { sortable = false, limit = null } = {}) {
   // to clip the border radius — silently cut the rest off with no way to reach
   // it. The wrapper scrolls instead of clipping. The "+ N more" line stays
   // outside it so it doesn't slide out of view when you scroll across.
-  return `<div class="tscroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
+  return `<div class="tscroll" data-sortowner="${esc(owner ?? "")}"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>` +
     (rest > 0 ? `<div class="more">+ ${fmt(rest)} more — open the tab for the full list.</div>` : "");
 }
 
 function sortRows(rows, cols) {
-  if (!state.sort) return rows;
-  const col = cols.find(c => c.key === state.sort);
-  const val = col?.get ?? (r => r[state.sort]);
+  const { key, dir } = sortOf();
+  if (!key) return rows;
+  const col = cols.find(c => c.key === key);
+  const val = col?.get ?? (r => r[key]);
   return [...rows].sort((a, b) => {
     const x = val(a), y = val(b);
     const cmp = typeof x === "number" && typeof y === "number"
       ? x - y : String(x ?? "").localeCompare(String(y ?? ""));
-    return cmp * state.dir;
+    return cmp * dir;
   });
 }
 
@@ -75,4 +100,4 @@ function applyFilter(rows) {
     [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q)));
 }
 
-export { COLUMNS, applyFilter, preview, renderTable, sortRows };
+export { COLUMNS, applyFilter, preview, renderTable, sortRows, withOwner };

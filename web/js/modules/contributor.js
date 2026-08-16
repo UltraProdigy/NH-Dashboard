@@ -165,6 +165,7 @@ export const contributorModules = {
 
   cOpenPRs: {
     page: "contributor", label: "Open PRs", span: 6, flush: true, twin: "rBacklog",
+    controls: ["filter"],
     sub: () => "still waiting",
     render(expanded) {
       const b = backlogOf();
@@ -184,7 +185,7 @@ export const contributorModules = {
 
   cClosed: {
     page: "contributor", label: "Closed PRs", span: 12, flush: true,
-    controls: ["window"],
+    controls: ["window", "filter"],
     // tabControls, not controls: the overview gathers every module's controls
     // into one toolbar, and a three-way filter for one card down the page is
     // noise up there. It appears when this tab is the thing you're looking at.
@@ -222,7 +223,7 @@ export const contributorModules = {
    */
   cBiggest: {
     page: "contributor", label: "Biggest PRs", span: 12, flush: true,
-    controls: ["window"], twin: "rGrossing",
+    controls: ["window", "filter"], twin: "rGrossing",
     sub: () => `by lines changed, ${windowPhrase()}`,
     render(expanded) {
       const rows = biggestRows();

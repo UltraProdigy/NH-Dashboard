@@ -486,7 +486,7 @@ export const issueModules = {
           ? `<h3 style="font-size:13px;margin:22px 0 8px">Assigned the most</h3>` +
             list(w.topAssignees, "var(--warn)")
           : "") +
-        `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. Closing credit goes to whoever pressed the button, which is often not who wrote the fix — the by-contributor tab splits those apart.${
+        `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. Closing credit goes to whoever pressed the button, which is often not who wrote the fix — the table below splits those apart.${
           w.unknownCloser
             ? ` ${fmt(w.unknownCloser)} closes in this period record no actor at all; run <code>npm run ingest</code> to backfill them.`
             : ""

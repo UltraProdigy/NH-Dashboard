@@ -131,7 +131,7 @@ export const analyticsModules = {
   },
 
   backlog: {
-    page: "analytics", label: "Open backlog", span: 4,
+    page: "analytics", label: "Open backlog", span: 4, controls: ["filter"],
     sub: () => "PRs still open, by age",
     render(expanded) {
       const a = A();
@@ -306,7 +306,7 @@ export const analyticsModules = {
    * activity.
    */
   actions: {
-    page: "analytics", label: "Actions load", span: 12,
+    page: "analytics", label: "Actions load", span: 12, controls: ["filter"],
     sub: () => "estimated org-wide, projected from sampled runs",
     render(expanded) {
       const p = panel("ciHealth");

@@ -1,26 +1,20 @@
-import { CLOSED_LABEL, GRANS, isDrill, state } from "./state.js";
+import { GRANS, isDrill, state } from "./state.js";
+import { controlHtml } from "./module-helpers.js";
 import { age, agoText, daysSince, esc, fmt } from "./format.js";
 import { A, I, activeWindow, issuePeople, panel, windowList } from "./data.js";
 import {
   backlogOf,
-  biggestRows,
-  resolvedRows,
   subject,
   subjectList,
   subjectUrl,
 } from "./drilldown-data.js";
-import {
-  closedRows,
-  filedRows,
-  hasIssues,
-  issueBacklogOf,
-  issuesOf,
-} from "./issue-data.js";
+import { hasIssues, issuesOf } from "./issue-data.js";
 import { opponents } from "./versus-data.js";
 import { byLabelCount, exclPopHtml, panelRows } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { PAGES } from "./pages.js";
-import { MODULES } from "./modules/index.js";
+import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
+import { withOwner } from "./table.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -49,12 +43,10 @@ function moduleCount(id) {
   if (id === "iRepos") return I()?.repos?.filter(r => r.open).length ?? null;
   if (id === "iPeople") return issuePeople().length || null;
   // Null until a subject is picked, which is also when the tabs mean anything.
+  // Only the four the drilldown groups borrow a badge from are here — Closed,
+  // Biggest, Filed and Triage no longer name a tab, and a count nothing
+  // displays is just a query someone will later wonder about.
   if (id === "cOpenPRs" || id === "rBacklog") return subject() ? backlogOf().total : null;
-  if (id === "cClosed") return subject() ? resolvedRows().length : null;
-  if (id === "cBiggest") return subject() ? biggestRows().length : null;
-  if (id === "cFiled") return subject() ? filedRows().length : null;
-  if (id === "cTriage") return subject() ? closedRows().length : null;
-  if (id === "rIssueTriage") return subject() ? issueBacklogOf().total : null;
   if (id === "cIssues" || id === "rIssues")
     return subject() && hasIssues() ? issuesOf().totals.filed : null;
   // The lineup, not counting the subject — "1" on a card comparing nothing is
@@ -77,14 +69,24 @@ function renderSidebar() {
     </button>`).join("");
 }
 
+/**
+ * A group's badge is one member's count, named by the group. Summing them
+ * would double-count — Biggest PRs overlaps both Open and Closed — and a badge
+ * that disagrees with the lists underneath it is worse than no badge.
+ */
+function tabCount(pageId, tab) {
+  const id = tabCountId(pageId, tab);
+  return id ? moduleCount(id) : null;
+}
+
 function renderTabs() {
   const page = currentPage();
   document.getElementById("pageTitle").textContent = page.label;
   document.getElementById("tabs").innerHTML =
-    `<button data-module="" aria-selected="${state.module === null}">Overview</button>` +
-    page.modules.map(id => {
-      const c = moduleCount(id);
-      return `<button data-module="${id}" aria-selected="${state.module === id}">${esc(MODULES[id].label)}${
+    `<button data-module="" aria-selected="${state.tab === null}">Overview</button>` +
+    tabsFor(page.id).map(t => {
+      const c = tabCount(page.id, t.id);
+      return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}">${esc(t.label)}${
         c == null ? "" : `<span class="count">${typeof c === "number" ? fmt(c) : c}</span>`}</button>`;
     }).join("");
 }
@@ -160,22 +162,34 @@ function closeCombo() {
  */
 function renderToolbar() {
   const page = currentPage();
-  const mod = state.module ? MODULES[state.module] : null;
-  // On a module's own tab it gets everything it asks for. On the overview only
+  const ids = state.tab ? tabMembers(page.id, state.tab) : null;
+  // Alone in its tab a module gets everything it asks for. On the overview only
   // `controls` are gathered — `tabControls` are ones that would be clutter
   // floating above a grid of cards they only affect one of.
+  //
+  // A group is the overview's problem again at a smaller scale: a three-way
+  // filter in the toolbar that does nothing to two of the three tables under it
+  // reads as page-wide and isn't. So `tabControls` only reach the toolbar when
+  // there's one card in the tab; grouped, they render in that card's own
+  // header instead. See cardControls.
+  const alone = ids?.length === 1;
   const wanted = new Set(
-    mod
-      ? [...(mod.controls ?? []), ...(mod.tabControls ?? [])]
+    ids
+      ? ids.flatMap(id => [
+          ...(MODULES[id].controls ?? []),
+          ...(alone ? MODULES[id].tabControls ?? [] : []),
+        ])
       : page.modules.flatMap(id => MODULES[id].controls ?? [])
   );
   // Window applies to nearly everything on the org pages. The drilldowns
   // instead let each module declare it, so a tab that ignores the window —
   // all-time Collaboration, the open-PR list — doesn't display a control that
   // changes nothing when you touch it.
+  // Filter used to be a hardcoded list of module ids right here, which meant
+  // the renderer had to be edited whenever a module changed its mind about
+  // filtering — and a grouped tab would have had to test every member against
+  // it. It's a `controls` entry like everything else now.
   if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
-  if (mod?.panelId || ["leaderboard", "newcomers", "lapsed", "backlog", "cOpenPRs", "rBacklog", "cClosed", "cBiggest", "actions"].includes(state.module) ||
-      page.id === "dream") wanted.add("filter");
   // The subject picker is the whole point of a drilldown page, so it's always
   // there — including before anything is selected, which is when it's needed.
   if (isDrill(page.id)) wanted.add("subject");
@@ -228,11 +242,7 @@ function renderToolbar() {
       <span class="seg" id="granSeg">${GRANS.map(g =>
         `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
-  if (wanted.has("closedState"))
-    bits.push(`<span class="seg" id="closedSeg">${
-      Object.entries(CLOSED_LABEL).map(([id, label]) =>
-        `<button data-closed="${id}" aria-pressed="${state.closedState === id}">${esc(label)}</button>`
-      ).join("")}</span>`);
+  if (wanted.has("closedState")) bits.push(controlHtml("closedState"));
 
   if (wanted.has("minActivity"))
     bits.push(`<label class="minlabel">min activity <input type="number" id="minActivity" min="0" step="1" value="${state.minActivity}"></label>`);
@@ -257,42 +267,60 @@ function renderToolbar() {
 const cardSub = (m) =>
   m.subHtml ? m.subHtml() : `<span class="sub">${esc(m.sub ? m.sub() : "")}</span>`;
 
-/** Controls that belong to one card rather than the page — the Dream filters. */
-const cardControls = (m) => (m.controlsHtml ? m.controlsHtml() : "");
+/**
+ * Controls that belong to one card rather than the page — the Dream filters,
+ * and any `tabControls` of a module sharing its tab with others.
+ */
+const cardControls = (m, grouped = false) =>
+  (m.controlsHtml ? m.controlsHtml() : "") +
+  (grouped ? (m.tabControls ?? []).map(controlHtml).join("") : "");
+
+/** Renders a module, telling table.js whose sort state to read. */
+function bodyOf(m, id, expanded) {
+  try { return withOwner(id, () => m.render(expanded)); }
+  catch (err) { return `<div class="error">${esc(err.message)}</div>`; }
+}
 
 function card(id) {
   const m = MODULES[id];
-  let body;
-  try { body = m.render(false); }
-  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+  const body = bodyOf(m, id, false);
   // `fill` only on the overview: here the card is stretched by its row and the
   // list should take up the slack. In the expanded view the card stands alone,
   // so an unbounded list would just make the page metres long — there the
   // module's own max-height applies.
+  //
+  // No Expand button on a `tab: false` card: there is nowhere for it to go.
   return `<section class="card" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
       ${cardSub(m)}
       ${cardControls(m)}
-      <button class="expand" data-open="${id}">Expand ↗</button>
+      ${m.tab === false ? "" : `<button class="expand" data-open="${id}">Expand ↗</button>`}
     </header>
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}">${body}</div>
   </section>`;
 }
 
-/** Overview grid, or the one selected module full-width. */
-function pageBody() {
-  if (state.module === null)
-    return `<div class="grid">${currentPage().modules.map(card).join("")}</div>`;
-
-  const m = MODULES[state.module];
-  let body;
-  try { body = m.render(true); }
-  catch (err) { body = `<div class="error">${esc(err.message)}</div>`; }
+/** One card of an opened tab, full width. */
+function expandedCard(id, grouped) {
+  const m = MODULES[id];
+  const body = bodyOf(m, id, true);
   return `<section class="card" style="--span:12">
-    <header><h2>${esc(m.label)}</h2>${cardSub(m)}${cardControls(m)}</header>
+    <header><h2>${esc(m.label)}</h2>${cardSub(m)}${cardControls(m, grouped)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
+}
+
+/** Overview grid, or the selected tab's cards stacked full-width. */
+function pageBody() {
+  const page = currentPage();
+  if (state.tab === null)
+    return `<div class="grid">${page.modules.map(card).join("")}</div>`;
+
+  const ids = tabMembers(page.id, state.tab);
+  const grouped = ids.length > 1;
+  const cards = ids.map(id => expandedCard(id, grouped)).join("");
+  return grouped ? `<div class="stack">${cards}</div>` : cards;
 }
 
 /* ---- the exclusion popup ------------------------------------------------

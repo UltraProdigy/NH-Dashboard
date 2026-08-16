@@ -14,7 +14,7 @@ import {
   updateComboPop,
 } from "./render.js";
 import { drillTo, go, goPage, readHash } from "./router.js";
-import { MODULES } from "./modules/index.js";
+import { tabTwin } from "./modules/index.js";
 import {
   addOpponent,
   clearOpponents,
@@ -85,10 +85,18 @@ document.getElementById("view").addEventListener("click", e => {
   const open = e.target.closest("button[data-open]");
   if (open) return go(state.page, open.dataset.open);
 
+  // A grouped tab renders its members' tabControls in their own card headers
+  // rather than the toolbar, so those clicks arrive here instead of there.
+  const cs = e.target.closest("button[data-closed]");
+  if (cs) { state.closedState = cs.dataset.closed; return render(); }
+
   const th = e.target.closest("th[data-sort]");
   if (th) {
-    state.dir = state.sort === th.dataset.sort ? -state.dir : -1;
-    state.sort = th.dataset.sort;
+    const id = th.closest("[data-sortowner]")?.dataset.sortowner;
+    if (!id) return;
+    const key = th.dataset.sort;
+    const cur = state.sort[id];
+    state.sort[id] = { key, dir: cur?.key === key ? -cur.dir : -1 };
     render();
   }
 });
@@ -151,7 +159,7 @@ document.getElementById("view").addEventListener("keydown", e => {
 document.getElementById("view").addEventListener("change", e => {
   if (e.target.id === "labelPicker") {
     state.label = e.target.value;
-    state.sort = null;
+    state.sort = {};
     return render();
   }
   // Issue Analytics label view. Changing repo clears the label pick, since a
@@ -159,7 +167,7 @@ document.getElementById("view").addEventListener("change", e => {
   if (e.target.id === "issueLabelRepo") {
     state.issueLabelRepo = e.target.value;
     state.issueLabel = null;
-    state.sort = null;
+    state.sort = {};
     return render();
   }
   if (e.target.id === "issueLabelPick") {
@@ -201,8 +209,7 @@ document.getElementById("toolbar").addEventListener("click", e => {
     // Resume the other mode where you left it. Only if you've never been
     // there does it fall back to the equivalent tab, so flipping between a
     // repo and a person doesn't bounce you to Overview either way.
-    const twin = state.module ? MODULES[state.module].twin ?? null : null;
-    return goPage(mode.dataset.mode, twin);
+    return goPage(mode.dataset.mode, tabTwin(state.page, state.tab));
   }
 
   // One control, several homes for its value: the drilldowns keep their own

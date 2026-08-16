@@ -1,5 +1,8 @@
 /* ---------- module grid ---------- */
 .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+/* Several cards under one tab. Same gap as the grid, so a group reads as a
+   short page rather than one enormous card. */
+.stack { display: grid; gap: 16px; }
 .card {
   grid-column: span var(--span, 6);
   background: var(--panel);
