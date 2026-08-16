@@ -1,7 +1,7 @@
 import { isDrill, state } from "./state.js";
 import { PAGES } from "./pages.js";
 import { closeCombo, render } from "./render.js";
-import { MODULES } from "./modules/index.js";
+import { resolveTab } from "./modules/index.js";
 
 /* ==========================================================================
    Routing — hash keeps deep links shareable and survives a reload
@@ -35,8 +35,17 @@ const NO_SUBJECT = "_";
 const lastPlace = Object.create(null);
 
 const remember = () => {
-  lastPlace[state.page] = { module: state.module, subject: state.subject };
+  lastPlace[state.page] = { tab: state.tab, subject: state.subject };
 };
+
+function hashFor(page, tab, subject) {
+  if (!isDrill(page)) return tab ? `${page}/${tab}` : page;
+  const seg = [page];
+  if (subject) seg.push(encodeURIComponent(subject));
+  else if (tab) seg.push(NO_SUBJECT);
+  if (tab) seg.push(tab);
+  return seg.join("/");
+}
 
 function readHash() {
   const parts = location.hash.replace(/^#/, "").split("/");
@@ -47,8 +56,15 @@ function readHash() {
   state.subject =
     drill && parts[1] && parts[1] !== NO_SUBJECT ? decodeURIComponent(parts[1]) : null;
 
-  const mod = parts[drill ? 2 : 1];
-  state.module = mod && MODULES[mod]?.page === state.page ? mod : null;
+  // resolveTab also redirects: a link made before the tab consolidation names a
+  // card that is now one of several under a group tab, and lands on the group.
+  const raw = parts[drill ? 2 : 1];
+  state.tab = resolveTab(state.page, raw);
+  // Rewritten rather than left alone so the address bar isn't still advertising
+  // a tab that no longer exists. `replace`, so the stale URL doesn't become a
+  // history entry you can press Back into.
+  if (raw && raw !== state.tab)
+    location.replace(`#${hashFor(state.page, state.tab, state.subject)}`);
   remember();
 }
 
@@ -57,28 +73,20 @@ function readHash() {
  * drilldown page (switching tabs), drop it otherwise — a login is not a repo
  * name, so carrying one across a mode switch would only ever 404.
  */
-function go(page, mod = null, subject) {
+function go(page, tab = null, subject) {
   const drill = isDrill(page);
   if (subject === undefined)
     subject = drill && page === state.page ? state.subject : null;
 
   state.page = page;
-  state.module = mod;
+  state.tab = resolveTab(page, tab);
   state.subject = drill ? subject : null;
-  state.sort = null;
+  state.sort = {};
   state.filter = "";
   closeCombo();
   remember();
 
-  if (drill) {
-    const seg = [page];
-    if (subject) seg.push(encodeURIComponent(subject));
-    else if (mod) seg.push(NO_SUBJECT);
-    if (mod) seg.push(mod);
-    location.hash = seg.join("/");
-  } else {
-    location.hash = mod ? `${page}/${mod}` : page;
-  }
+  location.hash = hashFor(page, state.tab, subject);
   render();
 }
 
@@ -88,9 +96,9 @@ function drillTo(page, id) {
 }
 
 /** Sidebar and mode-toggle navigation: resume rather than reset. */
-function goPage(page, fallbackModule = null) {
+function goPage(page, fallbackTab = null) {
   const last = lastPlace[page];
-  go(page, last?.module ?? fallbackModule, last?.subject ?? null);
+  go(page, last?.tab ?? fallbackTab, last?.subject ?? null);
 }
 
 export { drillTo, go, goPage, readHash };

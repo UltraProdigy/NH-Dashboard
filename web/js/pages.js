@@ -1,3 +1,17 @@
+/**
+ * `modules` is the overview grid, in order, and nothing below changes it.
+ *
+ * `groups` is the tab bar only: several cards under one tab that stacks them.
+ * A group appears in the bar where its first member sits in `modules`, so
+ * there's no second ordering to drift out of sync with the layout — but its own
+ * `modules` list is the stacking order, which is not always the grid's. The
+ * grid puts Biggest PRs before Closed PRs to fill a twelve-column row; stacked,
+ * open-then-closed-then-biggest is how anyone reads them.
+ *
+ * `count` names the member whose badge the group borrows. Summing members would
+ * double-count — Biggest PRs overlaps both Open and Closed — and no badge beats
+ * a wrong one. `twin` is the other drilldown mode's equivalent group.
+ */
 const PAGES = [
   {
     id: "analytics", label: "General Analytics",
@@ -5,6 +19,14 @@ const PAGES = [
     // 12 / 8+4 / 6+6 / 6+6 / 6+6 / 12 / 12 — every row fills its twelve columns,
     // so nothing wraps and leaves a hole. See the note on the repo page.
     modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap", "grossing", "actions"],
+    groups: [
+      // Volume and the hour/day heatmap are both "when do PRs arrive". Backlog
+      // stays out: "how many are open right now" is the number people come to
+      // this page for, and it isn't a question about time at all.
+      { id: "volume", label: "Volume", modules: ["volume", "heatmap"] },
+      { id: "review", label: "Review", modules: ["latency", "reviewload"] },
+      { id: "repos",  label: "Repos",  modules: ["repos", "grossing"] },
+    ],
   },
   {
     id: "dream", label: "Dream Panel",
@@ -18,6 +40,15 @@ const PAGES = [
     // the other pages: a card that doesn't fit the row's remainder wraps and
     // leaves a hole.
     modules: ["iPulse", "iVolume", "iTriage", "iResponse", "iLabels", "iRepos", "iReporters", "iPeople", "iOldest", "iDiscussed"],
+    groups: [
+      // iReporters is the ranked-bar reading of iPeople's table, and the two
+      // were already cross-referencing each other in prose. Grouped rather than
+      // given `tab: false` like the People page previews, because its expanded
+      // view has a fourth list the collapsed card doesn't show.
+      { id: "people", label: "By contributor", count: "iPeople",
+        modules: ["iReporters", "iPeople"] },
+      { id: "attention", label: "Needs attention", modules: ["iOldest", "iDiscussed"] },
+    ],
   },
   {
     id: "people", label: "Contributor Activity",
@@ -35,6 +66,18 @@ const PAGES = [
       "cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed",
       "cIssues", "cTriage", "cFiled", "cVersus",
     ],
+    // The twin map is what these were derived from: every `twin:` pair lands in
+    // the same-named group on both drilldown pages, and no pair is split. The
+    // grouping isn't a new opinion about the data, it's that map read as a
+    // partition — which is also why the two pages have to move together.
+    groups: [
+      { id: "activity", label: "Activity", twin: "@activity",
+        modules: ["cActivity", "cRepos", "cCollab"] },
+      { id: "prs", label: "Pull requests", twin: "@prs", count: "cOpenPRs",
+        modules: ["cOpenPRs", "cClosed", "cBiggest"] },
+      { id: "issues", label: "Issues", twin: "@issues", count: "cIssues",
+        modules: ["cIssues", "cTriage", "cFiled"] },
+    ],
   },
   {
     id: "repo", label: "Repo Drilldown",
@@ -46,6 +89,14 @@ const PAGES = [
     modules: [
       "rProfile", "rActivity", "rBacklog", "rPeople", "rHealth", "rGrossing",
       "rIssues", "rIssueTriage", "rIssuePeople", "rLabels", "rVersus",
+    ],
+    groups: [
+      { id: "activity", label: "Activity", twin: "@activity",
+        modules: ["rActivity", "rPeople", "rHealth"] },
+      { id: "prs", label: "Pull requests", twin: "@prs", count: "rBacklog",
+        modules: ["rBacklog", "rGrossing"] },
+      { id: "issues", label: "Issues", twin: "@issues", count: "rIssues",
+        modules: ["rIssues", "rIssueTriage", "rIssuePeople", "rLabels"] },
     ],
   },
 ];

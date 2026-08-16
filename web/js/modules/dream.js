@@ -10,25 +10,25 @@ export const dreamModules = {
 
   approvedUnmerged: {
     page: "dream", label: "Approved, not merged", span: 6, flush: true,
-    panelId: "approvedUnmerged", cols: () => COLUMNS.pr,
+    panelId: "approvedUnmerged", cols: () => COLUMNS.pr, controls: ["filter"],
     sub: () => "green light, still sitting",
     controlsHtml: () => exclControlsHtml("approvedUnmerged"),
   },
   changesRequested: {
     page: "dream", label: "Changes requested", span: 6, flush: true,
-    panelId: "changesRequested", cols: () => COLUMNS.pr,
+    panelId: "changesRequested", cols: () => COLUMNS.pr, controls: ["filter"],
     sub: () => "waiting on the author",
     controlsHtml: () => exclControlsHtml("changesRequested"),
   },
   needsRelease: {
     page: "dream", label: "Needs a release", span: 6, flush: true,
-    panelId: "needsRelease", cols: () => COLUMNS.release,
+    panelId: "needsRelease", cols: () => COLUMNS.release, controls: ["filter"],
     sub: () => "merged but unreleased",
     controlsHtml: () => exclControlsHtml("needsRelease"),
   },
   byLabel: {
     page: "dream", label: "By label", span: 6, flush: true,
-    panelId: "byLabel", cols: () => COLUMNS.pr,
+    panelId: "byLabel", cols: () => COLUMNS.pr, controls: ["filter"],
     // The label picker is this card's caption — it's the only thing that says
     // what the rows underneath are.
     subHtml: () => labelPickerHtml(),

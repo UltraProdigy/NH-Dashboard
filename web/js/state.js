@@ -5,7 +5,9 @@
 const state = {
   data: null,
   page: "analytics",
-  module: null,       // null = the page's overview grid
+  // A module id, or "@<group>" for a tab holding several cards. Null = the
+  // page's overview grid.
+  tab: null,
   // One period control per page, in the same shape the drilldowns use: it
   // scopes the KPI tiles and the charts together. There used to be two — a
   // window dropdown for the aggregates and a separate range picker for the
@@ -22,8 +24,9 @@ const state = {
   filter: "",
   label: null,
   minActivity: 3,
-  sort: null,
-  dir: -1,
+  // Module id -> { key, dir }. Per module rather than per page because a group
+  // tab stacks several sortable tables that share column keys — see table.js.
+  sort: {},
 
   // ---- Dream Panel ----
   // Repos and labels to hide, per card. Per card rather than per page because

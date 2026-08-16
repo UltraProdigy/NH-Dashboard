@@ -1,6 +1,22 @@
 import { diff, dur, esc, fmt, pctFmt } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel } from "./data.js";
+import { CLOSED_LABEL, state } from "./state.js";
+
+/* ---- controls that have two homes ---------------------------------------
+   A `tabControls` entry sits in the page toolbar when its module has a tab to
+   itself, and in the card's own header when the module is one of several
+   stacked into a group tab. Same markup either way, so it lives here rather
+   than inside the toolbar renderer. */
+
+const CONTROL_HTML = {
+  closedState: () => `<span class="seg" id="closedSeg">${
+    Object.entries(CLOSED_LABEL).map(([id, label]) =>
+      `<button data-closed="${id}" aria-pressed="${state.closedState === id}">${esc(label)}</button>`
+    ).join("")}</span>`,
+};
+
+const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
 
 /* ---- draft status -------------------------------------------------------
    Tri-state. Records ingested before `isDraft` was added to the query carry
@@ -100,6 +116,7 @@ const missingIngest = () =>
 export {
   ciDur,
   ciSection,
+  controlHtml,
   draftNotice,
   draftOrder,
   draftPill,

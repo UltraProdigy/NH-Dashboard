@@ -10,7 +10,7 @@ export const peopleModules = {
 
   leaderboard: {
     page: "people", label: "Leaderboard", span: 12, flush: true,
-    controls: ["window", "minActivity"],
+    controls: ["window", "minActivity", "filter"],
     sub: () => `by activity, ${windowPhrase()}`,
     render(expanded) {
       const p = panel("contributors");
@@ -25,8 +25,12 @@ export const peopleModules = {
     },
   },
 
+  /* No tab of their own. Both are `contributorRows()` ranked by one column the
+     Leaderboard already has, so expanding either gives you 25 bars where that
+     tab gives you every column, sortable. They earn their place on the grid as
+     a glance and earn nothing by being openable. */
   topAuthors: {
-    page: "people", label: "Most PRs opened", span: 6,
+    page: "people", label: "Most PRs opened", span: 6, tab: false,
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()
@@ -40,7 +44,7 @@ export const peopleModules = {
   },
 
   topReviewers: {
-    page: "people", label: "Most approvals given", span: 6,
+    page: "people", label: "Most approvals given", span: 6, tab: false,
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()
@@ -54,7 +58,7 @@ export const peopleModules = {
   },
 
   newcomers: {
-    page: "people", label: "New faces", span: 6, flush: true,
+    page: "people", label: "New faces", span: 6, flush: true, controls: ["filter"],
     // Names its own period explicitly. This card doesn't follow the toolbar
     // control above it on the overview grid, so the caption has to say what it
     // is showing rather than leaving you to assume it matches its neighbours.
@@ -77,7 +81,7 @@ export const peopleModules = {
   },
 
   lapsed: {
-    page: "people", label: "Gone quiet", span: 6, flush: true,
+    page: "people", label: "Gone quiet", span: 6, flush: true, controls: ["filter"],
     sub: () => "regulars with no activity in 6 months",
     render(expanded) {
       const rows = contributorAll()
