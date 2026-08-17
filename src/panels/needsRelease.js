@@ -1,7 +1,7 @@
 /**
  * "Repos with commits since their last release."
  *
- * Two-stage to keep it cheap across 1400+ repos:
+ * Three-stage to keep it cheap across 1400+ repos:
  *
  *   1. One GraphQL sweep pulls every repo's default-branch HEAD SHA and its
  *      most recent release's tag SHA, 50 repos per request (~30 requests total
@@ -11,6 +11,12 @@
  *   2. Only where those two SHAs differ do we spend a REST `compare` call to
  *      get the exact commit count. That's the expensive part, and it only runs
  *      on genuine candidates.
+ *
+ *   3. Being ahead isn't enough on its own. Buildscript bumps, workflow edits
+ *      and other housekeeping go straight to the default branch here, and
+ *      nobody is waiting on a release for those — anything that does want one
+ *      arrives as a PR. So a candidate only survives if at least one commit in
+ *      the range has a pull request attached.
  */
 
 import { graphql, rest } from "../github/client.js";
@@ -59,6 +65,40 @@ const SWEEP = `
     }
   }
 `;
+
+/**
+ * Commits probed for a pull request per request, newest first.
+ *
+ * Chunked with an early exit rather than asked all at once: a repo that just
+ * merged something costs one small query, and only a repo with nothing but
+ * direct pushes since its tag pays for the whole range.
+ */
+const PR_PROBE_CHUNK = 25;
+
+async function hasPullRequestCommit(repo, shas) {
+  for (let i = 0; i < shas.length; i += PR_PROBE_CHUNK) {
+    const chunk = shas.slice(i, i + PR_PROBE_CHUNK);
+    const fields = chunk
+      .map(
+        (sha, j) =>
+          `c${j}: object(oid: "${sha}") { ... on Commit { associatedPullRequests(first: 1) { totalCount } } }`
+      )
+      .join("\n");
+
+    const data = await graphql(
+      `query($org: String!, $repo: String!) {
+         repository(owner: $org, name: $repo) { ${fields} }
+       }`,
+      { org: ORG, repo }
+    );
+
+    const found = data.repository ?? {};
+    if (chunk.some((_, j) => (found[`c${j}`]?.associatedPullRequests?.totalCount ?? 0) > 0)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export async function needsRelease() {
   const cutoff =
@@ -131,13 +171,16 @@ export async function needsRelease() {
 
   // Stage 2 — exact commit counts for candidates only.
   const results = [];
+  let noPr = 0;
   for (const c of candidates) {
     let ahead = null;
+    let shas = [];
     try {
       const cmp = await rest(
         `/repos/${ORG}/${c.repo}/compare/${c.tagSha}...${c.headSha}`
       );
       ahead = cmp.ahead_by;
+      shas = (cmp.commits ?? []).map((x) => x.sha).reverse();
     } catch (err) {
       // A force-push or deleted tag can orphan the base commit. Keep the repo
       // in the list flagged rather than dropping it silently.
@@ -146,11 +189,22 @@ export async function needsRelease() {
 
     if (ahead !== null && ahead < RELEASE_COMMIT_THRESHOLD) continue;
 
+    // Stage 3. No commit list means the compare failed, and a repo we couldn't
+    // read stays flagged rather than being filtered out on a guess.
+    if (shas.length && !(await hasPullRequestCommit(c.repo, shas))) {
+      noPr++;
+      continue;
+    }
+
     results.push({
       ...c,
       commitsAhead: ahead,
       daysSinceRelease: Math.floor((Date.now() - new Date(c.releasedAt)) / DAY),
     });
+  }
+
+  if (noPr) {
+    console.log(`  ${noPr} dropped — ahead, but nothing in the range came from a PR`);
   }
 
   return results.sort((a, b) => (b.commitsAhead ?? 0) - (a.commitsAhead ?? 0));
