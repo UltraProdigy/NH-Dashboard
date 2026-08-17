@@ -120,6 +120,7 @@ const DREAM_EXCL_DEFAULT = {
       "DreamAssemblerXXL", "TC4Tweaks", "GTNewHorizons.github.io", "StargateNH",
       "UtilitiesInExcess", "MergeMasterXXL-TestRepo", "GTNH-Web-Map",
       "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MaterialLib", "MergePreMaster",
+      "Bugtorch", "TinkersGregworks", "GTNH-Translations",
     ],
     labels: [],
   },

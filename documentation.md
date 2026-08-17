@@ -61,7 +61,7 @@ development needs one of the three options above rather than reusing the secret.
 | Approved, not merged | 1 search | `review:approved` is *current* state, so anything since un-approved drops out automatically |
 | Changes requested | 1 search | Same — already excludes anything since approved |
 | PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
-| Needs release | ~30 GraphQL + 1 REST per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ |
+| Needs release | ~30 GraphQL + 1 REST and ≥1 GraphQL per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ, then keeps the ones whose new commits came from a PR |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
@@ -73,6 +73,23 @@ development needs one of the three options above rather than reusing the secret.
 
 Four cards, ordered by how close each one is to "somebody press the button":
 Approved-not-merged, Needs a release, Changes requested, By label.
+
+### What counts as needing a release
+
+Being ahead of the last tag is necessary but not sufficient. Buildscript bumps,
+workflow edits and other housekeeping go straight to the default branch in this
+org and nobody is waiting on a release for them, while anything that *does* want
+one arrives as a PR. So after the compare, each commit in the range is checked
+for an attached pull request, newest first, and a repo whose entire range is
+direct pushes drops off the card.
+
+The check is chunked 25 commits to a query and stops at the first hit, so a repo
+that just merged something costs one small query and only a repo with nothing
+but direct pushes pays for its whole range. Two edges are deliberate: a repo
+whose compare call failed stays on the card, because a repo we couldn't read
+shouldn't be filtered out on a guess, and a range longer than 250 commits is
+only checked over the 250 the compare endpoint returns — a repo that far ahead
+has a PR in it somewhere regardless.
 
 ### Exclusions
 
