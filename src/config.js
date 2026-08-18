@@ -94,6 +94,48 @@ export function isReleaseExcluded(repoName) {
 }
 
 /**
+ * "Dep updates" tuning.
+ *
+ * The panel estimates how long it's been since a repo's dependencies were
+ * touched by finding the newest commit on its default branch that did *not*
+ * arrive through a pull request. In this org almost nothing else is ever
+ * pushed straight to the branch, and dependency bumps almost always are — so
+ * "last direct commit" and "last dep update" are close enough to be useful and
+ * far cheaper than reading every commit's file list, which GraphQL won't give
+ * us without a REST call per commit.
+ *
+ * A year is the horizon: past that the answer stops being a number anybody
+ * acts on, and every repo that ran out of history reads the same "≥ 1 yr"
+ * rather than a floor that means something different per repo.
+ */
+export const DEP_UPDATE_LOOKBACK_DAYS = 365;
+
+/**
+ * Pages of 100 commits one repo may cost before we stop looking and report a
+ * floor. Only bites on a repo whose last thousand commits all came from PRs.
+ */
+export const DEP_UPDATE_MAX_PAGES = 10;
+
+/**
+ * Skip direct commits made by bots when deciding what the last one was.
+ *
+ * Some repos have a workflow pushing generated files — translation syncs,
+ * regenerated assets — straight to the default branch every night. Counting
+ * those makes the repo read as freshly updated forever, which is the one
+ * answer the panel exists to avoid. Off means any direct commit counts.
+ */
+export const DEP_UPDATE_IGNORE_BOTS = true;
+
+/**
+ * Drop repos whose last direct commit is newer than this many days.
+ *
+ * Zero keeps everything and lets the sort do the work — the card is ordered
+ * oldest first, so recent repos are already at the bottom where nobody reads
+ * them. Raise it only if the payload gets uncomfortable.
+ */
+export const DEP_UPDATE_MIN_DAYS = 0;
+
+/**
  * How long an open issue has to sit untouched before Issue Analytics calls it
  * stale.
  *

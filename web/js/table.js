@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { age, esc, fmt, repoLink } from "./format.js";
+import { age, agoText, esc, fmt, repoLink } from "./format.js";
 
 /* ==========================================================================
    Shared table rendering
@@ -44,10 +44,30 @@ const COLUMNS = {
     { key: "daysSinceRelease", label: "Released",      render: r => age(r.daysSinceRelease) },
     { key: "defaultBranch",    label: "Branch",        render: r => `<span class="repo">${esc(r.defaultBranch)}</span>` },
   ],
+  depUpdate: [
+    { key: "repo", label: "Repo", render: r => repoLink(r.repo) },
+    // The age carries the link, because the commit is the thing that justifies
+    // the number and checking it is the first thing anyone will want to do.
+    // `approx` rows have no commit to point at — they're a floor, not a date.
+    {
+      key: "daysSinceDirect", label: "Last direct",
+      render: r => (r.approx
+        ? `<span class="num age-ancient" title="Nothing was pushed directly in the history we read — this is a floor, not a date">≥ ${
+            esc(agoText(r.daysSinceDirect).replace(/ ago$/, ""))}</span>`
+        : `<a href="${r.commitUrl}" target="_blank" rel="noopener">${age(r.daysSinceDirect)}</a>`),
+    },
+    {
+      key: "message", label: "Commit", sortable: false,
+      render: r => (r.message
+        ? `<span title="${esc(r.message)}">${esc(r.message)}</span>`
+        : `<span class="sub">— none in the last year</span>`),
+    },
+    { key: "author", label: "By", render: r => (r.author ? esc(r.author) : "—") },
+  ],
 };
 
 /** Compact column subset for overview previews — six columns don't fit a card. */
-const preview = cols => cols.filter(c => ["repo", "title", "tagName", "commitsAhead", "ageDays", "login"].includes(c.key));
+const preview = cols => cols.filter(c => ["repo", "title", "tagName", "commitsAhead", "ageDays", "daysSinceDirect", "login"].includes(c.key));
 
 /**
  * `rows` is whatever the caller decided should be in this table — already

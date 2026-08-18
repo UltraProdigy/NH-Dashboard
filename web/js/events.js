@@ -1,8 +1,12 @@
 import { state } from "./state.js";
 import { windowKey } from "./data.js";
 import {
+  addLabelColumn,
   clearExclusions,
+  removeLabelColumn,
   resetExclusions,
+  resetLabelCard,
+  setLabelColumn,
   toggleExclusion,
   updateExclList,
 } from "./dream.js";
@@ -52,6 +56,14 @@ document.getElementById("view").addEventListener("click", e => {
     state.exclOpen = state.exclOpen === eb.dataset.exclbtn ? null : eb.dataset.exclbtn;
     return render();
   }
+
+  /* ---- By label's columns ----
+     Add, remove and reset all sit in that card's header, so their clicks
+     arrive here rather than with the popup's. */
+  if (e.target.closest("button[data-labeladd]")) { addLabelColumn(); return render(); }
+  const ldel = e.target.closest("button[data-labeldel]");
+  if (ldel) { removeLabelColumn(Number(ldel.dataset.labeldel)); return render(); }
+  if (e.target.closest("button[data-labelreset]")) { resetLabelCard(); return render(); }
 
   /* ---- head to head ----
      Its picker lives inside the card rather than the toolbar, so its events
@@ -154,12 +166,12 @@ document.getElementById("view").addEventListener("keydown", e => {
   }
 });
 
-/* The By-label picker lives in that card's header rather than the toolbar, so
-   its events arrive here. */
+/* The By-label pickers live in that card's own headers rather than the
+   toolbar, so their events arrive here. */
 document.getElementById("view").addEventListener("change", e => {
-  if (e.target.id === "labelPicker") {
-    state.label = e.target.value;
-    state.sort = {};
+  const col = e.target.closest("select[data-labelcol]");
+  if (col) {
+    setLabelColumn(Number(col.dataset.labelcol), col.value);
     return render();
   }
   // Issue Analytics label view. Changing repo clears the label pick, since a

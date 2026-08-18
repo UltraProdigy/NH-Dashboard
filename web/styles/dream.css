@@ -19,6 +19,8 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 /* The tab badge's own left margin, on top of the button's gap, reads as a space. */
 .excl-btn .count { margin-left: 0; }
 .excl-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.excl-btn[disabled] { opacity: .45; cursor: default; }
+.excl-btn[disabled]:hover { border-color: var(--border); }
 
 /* Positioned by script against the button that opened it, and drawn from a
    layer at the end of <body>. A card clips its overflow so its table can have
@@ -95,6 +97,54 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 /* A rule under the search box and above the first group draws a second line
    4px below the one the search box already has. */
 .excl-list > .excl-sep:first-child { border-top: none; margin-top: 0; padding-top: 2px; }
+
+/* ---------- dream panel: by label, one column per label ----------
+   auto-fit rather than a column count pinned to how many labels are up: the
+   card is full width on the overview and full width again in its own tab, but
+   the sidebar collapses under both, so the width available isn't something the
+   label count can predict. Below the floor they wrap to a second row, which is
+   also what six labels do on a laptop. */
+.bl-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1px; background: var(--border);
+}
+.bl-col { background: var(--panel); min-width: 0; display: flex; flex-direction: column; }
+.bl-col > header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+/* The select is the column's title, so it takes the slack and ellipsises —
+   "Ongoing Freeze - Do NOT Merge" is not going to fit in 240px whatever we do. */
+.bl-col > header .inline-sel { flex: 1; min-width: 0; max-width: none; }
+.bl-col > header .count { flex: none; margin-left: 0; }
+.bl-del {
+  flex: none; padding: 2px 7px; font-size: 13px; line-height: 1.2;
+}
+.bl-del:hover { color: var(--bad); border-color: var(--bad); }
+
+.bl-list { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+/* A cap on the overview only. In the card's own tab the whole point is to read
+   the lists, and there the column grows to whatever it holds. */
+.grid .bl-list { max-height: 300px; }
+
+.bl-row { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.bl-row:last-child { border-bottom: none; }
+.bl-row:hover { background: var(--panel-2); }
+.bl-row .t {
+  display: block; font-size: 12px; color: var(--text); text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bl-row .t:hover { color: var(--accent); text-decoration: underline; }
+.bl-row .m {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 2px; font-size: 11px; color: var(--muted); min-width: 0;
+}
+/* The repo is the part worth truncating — the age beside it is four characters
+   and losing it costs more than losing the tail of a repo name. */
+.bl-row .m > .repo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bl-row .m .sep { opacity: .5; }
+.bl-col .empty, .bl-col .more { padding: 12px 10px; font-size: 11px; }
 
 .picker { padding: 40px 0; text-align: center; }
 .picker h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }

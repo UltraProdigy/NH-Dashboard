@@ -35,7 +35,11 @@ for (const m of Object.values(MODULES)) {
   if (!m.panelId || m.render) continue;
   m.render = function (expanded) {
     const p = panel(this.panelId);
-    if (!p?.ok) return `<div class="error">This panel failed to build:<br>${esc(p?.error)}</div>`;
+    // Absent and failed are different problems: a panel added since the data
+    // was last built isn't in the file at all, and "failed: undefined" sends
+    // whoever reads it looking for a build error that never happened.
+    if (!p) return `<div class="empty">Not in this build yet — run <code>npm run build</code>.</div>`;
+    if (!p.ok) return `<div class="error">This panel failed to build:<br>${esc(p.error)}</div>`;
     const cols = this.cols();
     const rows = sortRows(applyFilter(panelRows(this.panelId)), cols);
     return renderTable(rows, expanded ? cols : preview(cols), {

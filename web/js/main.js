@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { loadExclusions } from "./dream.js";
+import { loadExclusions, loadLabels } from "./dream.js";
 import { render } from "./render.js";
 import { readHash } from "./router.js";
 import { applyTheme } from "./theme.js";
@@ -39,8 +39,8 @@ try {
     ? `https://github.com/${repo}/actions/workflows/build.yml`
     : "https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml";
 
-  state.label = Object.keys(state.data.panels.byLabel?.data ?? {})[0] ?? null;
   loadExclusions();
+  loadLabels();
   readHash();
   render();
 } catch (err) {

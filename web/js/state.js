@@ -22,7 +22,6 @@ const state = {
   newFacesWindow: "m3",
   gran: "month",      // x-axis granularity: day | week | month
   filter: "",
-  label: null,
   minActivity: 3,
   // Module id -> { key, dir }. Per module rather than per page because a group
   // tab stacks several sortable tables that share column keys — see table.js.
@@ -30,7 +29,7 @@ const state = {
 
   // ---- Dream Panel ----
   // Repos and labels to hide, per card. Per card rather than per page because
-  // the four cards ask different questions: a repo whose releases somebody else
+  // the cards ask different questions: a repo whose releases somebody else
   // cuts is noise on Needs a release and perfectly relevant on Approved, and one
   // shared list forced those two answers to be the same.
   // Filled in by loadExclusions(); shape is panel id -> { repos, labels }, held
@@ -39,6 +38,9 @@ const state = {
   // Which exclusion popup is open, if any: null, or "<panelId>:<kind>".
   exclOpen: null,
   exclQ: {},          // search text, keyed the same way
+  // Which labels By label is showing, one column each, in the order they
+  // appear. Filled in by loadLabels(); see DREAM_LABELS_DEFAULT.
+  dreamLabels: [],
 
   // ---- Issue Analytics ----
   // Which repo's labels the Label mix tab is showing, and which label the
@@ -101,6 +103,7 @@ const DREAM_EXCL_KINDS = {
   approvedUnmerged: ["repos", "labels"],
   changesRequested: ["repos"],
   needsRelease: ["repos"],
+  depUpdates: ["repos"],
   byLabel: ["repos", "labels"],
 };
 
@@ -124,13 +127,39 @@ const DREAM_EXCL_DEFAULT = {
     ],
     labels: [],
   },
+  depUpdates: { repos: [], labels: [] },
   byLabel: { repos: [], labels: [] },
 };
+
+/**
+ * The labels By label opens on, one column each.
+ *
+ * These three are the ones an admin is actually gating on: what's on Zeta,
+ * what changes the game's balance, and what can't move without somebody with
+ * the rights to move it. Every column is swappable and the card remembers what
+ * you left it on — this is only what it ships with, and what Reset goes back
+ * to. Names must match Label-Sync-GTNH exactly, emoji shortcodes and all; a
+ * name the org no longer carries just leaves that column empty.
+ */
+const DREAM_LABELS_DEFAULT = [
+  ":construction: Testing on Zeta",
+  "Affects Balance",
+  "Requires Admin",
+];
+
+/**
+ * Ceiling on columns. Six 260px columns is already two rows on a laptop, and
+ * past that the card stops being something you take in at a glance — which is
+ * the only reason to show several labels side by side rather than one at a time.
+ */
+const DREAM_LABELS_MAX = 6;
 
 export {
   CLOSED_LABEL,
   DREAM_EXCL_DEFAULT,
   DREAM_EXCL_KINDS,
+  DREAM_LABELS_DEFAULT,
+  DREAM_LABELS_MAX,
   DRILL,
   GRANS,
   isDrill,
