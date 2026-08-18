@@ -31,7 +31,9 @@ const PAGES = [
   {
     id: "dream", label: "Dream Panel",
     icon: `<path d="M8 1.5 2 4.2v4.1c0 3.4 2.4 6 6 6.2 3.6-.2 6-2.8 6-6.2V4.2L8 1.5Zm2.8 4.9-3.3 4a.7.7 0 0 1-1 .05L4.9 8.9a.7.7 0 1 1 .95-1l1 .95 2.8-3.4a.7.7 0 1 1 1.1.9Z"/>`,
-    modules: ["approvedUnmerged", "needsRelease", "changesRequested", "byLabel"],
+    // 6+6 / 6+6 / 12. By label is the full width because it draws a column per
+    // label and three of them in half a row is three columns of nothing.
+    modules: ["approvedUnmerged", "needsRelease", "changesRequested", "depUpdates", "byLabel"],
   },
   {
     id: "issues", label: "Issue Analytics",

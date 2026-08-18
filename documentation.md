@@ -62,6 +62,7 @@ development needs one of the three options above rather than reusing the secret.
 | Changes requested | 1 search | Same — already excludes anything since approved |
 | PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
 | Needs release | ~30 GraphQL + 1 REST and ≥1 GraphQL per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ, then keeps the ones whose new commits came from a PR |
+| Dep updates | ~1 GraphQL per 10 active repos, plus 1 per repo that needs a deeper walk | Finds each repo's newest default-branch commit with no pull request attached, as a stand-in for the last dependency bump |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
@@ -71,8 +72,13 @@ development needs one of the three options above rather than reusing the secret.
 
 ## Dream Panel
 
-Four cards, ordered by how close each one is to "somebody press the button":
-Approved-not-merged, Needs a release, Changes requested, By label.
+Five cards, ordered by how close each one is to "somebody press the button":
+Approved-not-merged, Needs a release, Changes requested, Dep updates, and then
+By label across the full width.
+
+The first four are half-width and tile two to a row. By label is the odd one
+out because it isn't one list — it draws a column per label — and three columns
+squeezed into half a row is three columns of nothing.
 
 ### What counts as needing a release
 
@@ -91,6 +97,56 @@ shouldn't be filtered out on a guess, and a range longer than 250 commits is
 only checked over the 250 the compare endpoint returns — a repo that far ahead
 has a PR in it somewhere regardless.
 
+### Estimating the last dependency update
+
+There is no cheap way to ask GitHub what a commit changed. GraphQL returns a
+changed-file *count* and no names, so actually checking whether a commit touched
+`dependencies.gradle` costs one REST call per commit — thousands of requests
+across an org this size. The card takes a proxy instead.
+
+Practically everything in this org arrives as a pull request. The things that
+don't are almost always a maintainer bumping a dependency or a buildscript
+straight on the default branch. So **the newest commit with no pull request
+attached** stands in for the newest dep update. It is an estimate and the card's
+caption says so: a repo where somebody pushed a typo fix directly reads younger
+than it is.
+
+Three things keep it honest.
+
+**A year, and only a year.** Each repo's history is read back one year
+(`DEP_UPDATE_LOOKBACK_DAYS`). Past that the number stops being one anybody acts
+on, and a uniform horizon means every repo that ran out of history reads the
+same `≥ 1 yr` rather than a floor that quietly means something different per
+repo. Those rows carry no commit link, because a floor isn't a date.
+
+**Bots don't count.** Some repos have a workflow pushing generated files —
+translation syncs, regenerated assets — directly to the default branch every
+night. Counting those makes the repo read as freshly updated forever, which is
+the one answer the card exists to avoid, so commits whose author matches
+`BOT_PATTERN` are skipped and the walk continues. Set
+`DEP_UPDATE_IGNORE_BOTS` to `false` to count them.
+
+**The commit is on the row.** The message headline and the author are shown, and
+the age links to the commit. Every estimate is one click from the thing it was
+estimated from, which is the difference between a soft number you can check and
+a soft number you have to trust.
+
+Cost is one sweep request per ten repos — ten rather than the fifty the release
+sweep uses, because each node here drags a hundred commits and their pull
+request connections behind it, and a query that asks too much at once gets
+timed out rather than rate-limited, which backing off doesn't fix. A repo whose
+whole first page came from PRs pays for its own deeper walk, capped at
+`DEP_UPDATE_MAX_PAGES`. Most repos never need one.
+
+The panel is `optional` in the build for the same reason CI health is: it's a
+deep walk over a lot of repos, and one timed-out query shouldn't take the whole
+build red. The card explains its own absence.
+
+Repos dormant longer than `STALE_REPO_CUTOFF_DAYS` never enter the sweep, which
+means the most overdue repos in the org are the ones this card can't see. That's
+deliberate — "nobody has updated this in two years" is not news about a repo
+nobody has touched in two years.
+
 ### Exclusions
 
 Each card carries its own filters, as buttons in its own header:
@@ -101,17 +157,18 @@ Each card carries its own filters, as buttons in its own header:
 | By label | Repos, Labels |
 | Needs a release | Repos |
 | Changes requested | Repos |
+| Dep updates | Repos |
 
 Each opens a searchable checklist of things to hide **from that card only**.
 Needs a release is repo-level data with no labels on it, and Changes requested
 is a list you want to read whole — the only thing worth hiding there is a repo
 that isn't yours.
 
-**Per card rather than per page.** The four cards ask different questions, and
+**Per card rather than per page.** The cards ask different questions, and
 the same repo can be noise in one and the point of another: nobody here cuts
 DreamAssemblerXXL's releases, but a PR sitting approved in it still wants
 looking at. One shared list forced those two answers to be the same. It also put
-the buttons on the page toolbar, above a grid of four cards — which is where a
+the buttons on the page toolbar, above a grid of cards — which is where a
 control that changes the whole page belongs, and reads that way whether it is
 one or not.
 
@@ -183,14 +240,50 @@ has free space to hand out and each managed to hand it to the wrong place. This
 construction has no free space to distribute, so there is nothing left to
 distribute wrongly.
 
-### The label picker
+### By label is several labels at once
 
-It lives in the **By label** card's header, in the slot where every other card
-puts its caption. It's the only thing that says what the rows underneath are.
+One label at a time behind a dropdown made the card answer a question nobody
+was asking — "what's tagged X" — when the actual question is which of the
+handful of labels that gate a merge has something under it this morning.
+Answering that meant reopening the picker once per label, and holding the
+previous answer in your head while you did.
 
-Excluded labels drop out of the picker, and the selection falls back to the
-first visible one rather than showing an empty table for a label that's been
-hidden.
+So the card is the width of the page and every label it watches gets a column.
+It opens on **Testing on Zeta**, **Affects Balance** and **Requires Admin** —
+what's in test, what moves the game's numbers, and what needs somebody with the
+rights to move it — and nothing about those three is fixed:
+
+- Each column's header is a `<select>`. Changing it swaps that column and
+  leaves the others alone.
+- **+ Label** adds a column, up to six. It seeds the new one with the first
+  label nothing is showing; the select changes it from there.
+- **×** on a column removes it.
+- **Reset** puts the whole card back: the three default labels *and* both
+  exclusion lists. The two popups keep their own narrower Resets for when only
+  one list has moved.
+
+A label already up doesn't appear in another column's options, so the same list
+can't be drawn twice. Excluded labels drop out of every option list and any
+column set to one stops being drawn — the entry survives in the saved list, so
+un-hiding the label brings its column back where it was.
+
+The columns save under `nh:dreamLabels:v1`, separately from the exclusions:
+different shape, different question, and an empty list is a decision — you
+removed every column — rather than "never set".
+
+**Two lines per PR, not a table row.** A column is around 260px and six table
+columns don't fit in that. The title is what you're reading; the repo and the
+age underneath are what tell you whether it's yours and whether it's been
+sitting. Six per column on the overview, all of them in the card's own tab.
+
+**The tab badge counts distinct PRs.** A PR tagged both Affects Balance and
+Requires Admin is one thing to deal with, and a badge that counted it twice
+would disagree with the card underneath it.
+
+The columns are `repeat(auto-fit, minmax(240px, 1fr))` rather than a count
+pinned to how many labels are up. The card is full width in both views, but the
+sidebar collapses under both, so how many columns fit isn't something the label
+count can predict.
 
 ## One period control per page
 
@@ -1277,7 +1370,7 @@ js/issue-data.js       reads drilldown.json: one subject's issues, unpacked
 js/versus-data.js      the head-to-head lineup and its metric catalogue
 js/contributor-data.js the contributor rows shared by the people modules
 js/module-helpers.js   fragments several modules render the same way
-js/dream.js            Dream Panel exclusions and the label picker
+js/dream.js            Dream Panel exclusions and By label's columns
 js/pages.js            the six pages, the modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
                        and derives the tab bar from pages.js
@@ -1318,6 +1411,10 @@ Everything worth adjusting lives in `src/config.js`:
 - `RELEASE_COMMIT_THRESHOLD` — raise it if repos that auto-release on merge are noisy
 - `RELEASE_EXCLUDED_REPOS` — repos that never want a release, hidden from that panel
 - `STALE_REPO_CUTOFF_DAYS` — skips dormant repos in org-wide sweeps; the main cost lever
+- `DEP_UPDATE_LOOKBACK_DAYS` — how far back Dep updates reads before reporting a floor
+- `DEP_UPDATE_IGNORE_BOTS` — whether a bot pushing generated files counts as a dep update
+- `DEP_UPDATE_MAX_PAGES` — commits-per-repo ceiling on the deeper walk, in pages of 100
+- `DEP_UPDATE_MIN_DAYS` — drops repos updated more recently than this; 0 keeps everything
 - `ISSUE_STALE_DAYS` — how long an open issue sits untouched before Triage state calls it stale
 - `ISSUE_LABEL_REPO` — which tracker the Label mix card opens on, and the only one with per-label trends
 - `CACHE_TTL_MINUTES` — local API response cache
@@ -1388,7 +1485,8 @@ somewhere other than Pages to live.
   no per-repo breakdown. It would be worth adding as a single calibration tile
   next to the projection if the estimate ever needs defending.
 - **True commit and line counts.** Everything on the dashboard is derived from
-  PR diffs, so commits pushed straight to a branch are invisible.
+  PR diffs, so commits pushed straight to a branch are invisible — Dep updates
+  is the one exception, and it only reads their dates, not what they changed.
   `/repos/{org}/{repo}/stats/contributors` would cover them at one request per
   repo, at the cost of `202`-and-retry handling and a top-100-contributors cap.
 - **Cross-referenced PRs that didn't close anything.** `closedVia` catches the

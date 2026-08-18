@@ -13,6 +13,7 @@ import { ORG } from "./config.js";
 import { rateLimit, stats } from "./github/client.js";
 import { approvedUnmerged, byLabel, changesRequested } from "./panels/pullRequests.js";
 import { needsRelease } from "./panels/needsRelease.js";
+import { depUpdates } from "./panels/depUpdates.js";
 import { contributors } from "./panels/contributors.js";
 import { analytics } from "./panels/analytics.js";
 import { issues } from "./panels/issues.js";
@@ -59,6 +60,10 @@ async function main() {
     changesRequested: await run("Changes requested", changesRequested),
     byLabel: await run("PRs by label", byLabel, { empty: {} }),
     needsRelease: await run("Needs a release", needsRelease),
+    // Optional for the same reason ciHealth is, though for a different cause:
+    // it's a deep walk over a lot of repos, and a timeout on one query
+    // shouldn't cost the whole build. The card explains its own absence.
+    depUpdates: await run("Dep updates", depUpdates, { optional: true }),
     // Optional: reading Actions runs needs a token scope the other panels
     // don't, so a token that works everywhere else can still fail here. That
     // shouldn't turn the build red or block the Pages deploy.
