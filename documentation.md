@@ -62,7 +62,7 @@ development needs one of the three options above rather than reusing the secret.
 | Changes requested | 1 search | Same — already excludes anything since approved |
 | PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
 | Needs release | ~30 GraphQL + 1 REST and ≥1 GraphQL per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ, then keeps the ones whose new commits came from a PR |
-| Dep updates | ~1 GraphQL per 10 active repos, plus 1 per repo that needs a deeper walk | Finds each repo's newest default-branch commit with no pull request attached, as a stand-in for the last dependency bump |
+| Time since last update | ~1 GraphQL per 10 active repos, plus 1 per repo that needs a deeper walk | Finds each repo's newest default-branch commit with no pull request attached, as a stand-in for the last dependency bump |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
@@ -73,12 +73,23 @@ development needs one of the three options above rather than reusing the secret.
 ## Dream Panel
 
 Five cards, ordered by how close each one is to "somebody press the button":
-Approved-not-merged, Needs a release, Changes requested, Dep updates, and then
-By label across the full width.
+Approved-not-merged, Needs a release, Changes requested, Time since last
+update, and then By label across the full width.
 
 The first four are half-width and tile two to a row. By label is the odd one
 out because it isn't one list — it draws a column per label — and three columns
 squeezed into half a row is three columns of nothing.
+
+**A list that reaches the bottom of its card.** On the overview a card is
+stretched to its row's height, and the row is as tall as whichever card in it
+has the most to say. A table just ends where its rows end, so Time since last
+update — whose rows are one line each — sat beside Changes requested, whose
+titles wrap to two, and left a slab of empty card below it. A module can set
+`fillList` to hand its scroller the leftover height instead, and raises
+`previewLimit` alongside it, because filling the space is only an improvement
+if there are rows to fill it with. The flex basis is `0` rather than `auto`
+there, or the card's natural height would count all twenty-five rows and it
+would set the row height rather than answer to it.
 
 ### What counts as needing a release
 
@@ -157,7 +168,7 @@ Each card carries its own filters, as buttons in its own header:
 | By label | Repos, Labels |
 | Needs a release | Repos |
 | Changes requested | Repos |
-| Dep updates | Repos |
+| Time since last update | Repos |
 
 Each opens a searchable checklist of things to hide **from that card only**.
 Needs a release is repo-level data with no labels on it, and Changes requested
@@ -255,9 +266,15 @@ rights to move it — and nothing about those three is fixed:
 
 - Each column's header is a `<select>`. Changing it swaps that column and
   leaves the others alone.
-- **+ Label** adds a column, up to six. It seeds the new one with the first
+- **+ Label** adds a column. It seeds the new one with the first
   label nothing is showing; the select changes it from there.
 - **×** on a column removes it.
+- **How many** depends on where you're looking: **four** on the overview,
+  **twelve** in the card's own tab. Four 240px columns is about what a laptop
+  fits without the row wrapping, and a card that wraps to two rows of columns
+  has stopped being something you take in at a glance — which is the only
+  reason to put labels side by side at all. The tab has the whole page and
+  nothing to be glanced past, so it goes wider.
 - **Reset** puts the whole card back: the three default labels *and* both
   exclusion lists. The two popups keep their own narrower Resets for when only
   one list has moved.
@@ -267,11 +284,18 @@ can't be drawn twice. Excluded labels drop out of every option list and any
 column set to one stops being drawn — the entry survives in the saved list, so
 un-hiding the label brings its column back where it was.
 
+Columns past the overview's four are held back rather than dropped: they stay
+configured, stay saved, and are drawn in full in the tab. The overview says how
+many it's holding, and **+ Label** greys out there with a title saying where the
+rest of the room is rather than looking broken. Which limit applies is read off
+`state.tab` in one place, so the button, the grid and the held-back count can't
+disagree about it.
+
 The columns save under `nh:dreamLabels:v1`, separately from the exclusions:
 different shape, different question, and an empty list is a decision — you
 removed every column — rather than "never set".
 
-**Two lines per PR, not a table row.** A column is around 260px and six table
+**Two lines per PR, not a table row.** A column is around 240px and six table
 columns don't fit in that. The title is what you're reading; the repo and the
 age underneath are what tell you whether it's yours and whether it's been
 sitting. Six per column on the overview, all of them in the card's own tab.
@@ -1411,7 +1435,7 @@ Everything worth adjusting lives in `src/config.js`:
 - `RELEASE_COMMIT_THRESHOLD` — raise it if repos that auto-release on merge are noisy
 - `RELEASE_EXCLUDED_REPOS` — repos that never want a release, hidden from that panel
 - `STALE_REPO_CUTOFF_DAYS` — skips dormant repos in org-wide sweeps; the main cost lever
-- `DEP_UPDATE_LOOKBACK_DAYS` — how far back Dep updates reads before reporting a floor
+- `DEP_UPDATE_LOOKBACK_DAYS` — how far back Time since last update reads before reporting a floor
 - `DEP_UPDATE_IGNORE_BOTS` — whether a bot pushing generated files counts as a dep update
 - `DEP_UPDATE_MAX_PAGES` — commits-per-repo ceiling on the deeper walk, in pages of 100
 - `DEP_UPDATE_MIN_DAYS` — drops repos updated more recently than this; 0 keeps everything
@@ -1485,8 +1509,8 @@ somewhere other than Pages to live.
   no per-repo breakdown. It would be worth adding as a single calibration tile
   next to the projection if the estimate ever needs defending.
 - **True commit and line counts.** Everything on the dashboard is derived from
-  PR diffs, so commits pushed straight to a branch are invisible — Dep updates
-  is the one exception, and it only reads their dates, not what they changed.
+  PR diffs, so commits pushed straight to a branch are invisible — Time since
+  last update is the one exception, and it only reads their dates, not what they changed.
   `/repos/{org}/{repo}/stats/contributors` would cover them at one request per
   repo, at the cost of `202`-and-retry handling and a top-100-contributors cap.
 - **Cross-referenced PRs that didn't close anything.** `closedVia` catches the

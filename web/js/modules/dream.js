@@ -31,12 +31,16 @@ export const dreamModules = {
     controlsHtml: () => exclControlsHtml("needsRelease"),
   },
   depUpdates: {
-    page: "dream", label: "Dep updates", span: 6, flush: true,
+    page: "dream", label: "Time since last update", span: 6, flush: true,
     panelId: "depUpdates", cols: () => COLUMNS.depUpdate, controls: ["filter"],
     // "Estimated" in the caption rather than buried in the docs: every number
     // on this card is a proxy, and the one place somebody will read that is
     // right next to the numbers.
     sub: () => "estimated — oldest first",
+    // Enough rows to overflow whatever height the row it sits in ends up
+    // being, so the list reaches the bottom of the card and scrolls rather
+    // than stopping short of it. See `fillList`.
+    previewLimit: 25, fillList: true,
     controlsHtml: () => exclControlsHtml("depUpdates"),
   },
   byLabel: {

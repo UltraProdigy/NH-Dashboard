@@ -148,11 +148,19 @@ const DREAM_LABELS_DEFAULT = [
 ];
 
 /**
- * Ceiling on columns. Six 260px columns is already two rows on a laptop, and
- * past that the card stops being something you take in at a glance — which is
- * the only reason to show several labels side by side rather than one at a time.
+ * Ceilings on columns — the overview's is lower than the card's own tab's.
+ *
+ * On the overview the card is one of five and shares the page; four 240px
+ * columns is about what a laptop shows without the row wrapping, and a card
+ * that wraps to two rows of columns stops being something you take in at a
+ * glance, which is the only reason to show labels side by side at all.
+ *
+ * Its own tab has the whole page and nothing to be glanced past, so it goes to
+ * twelve. Columns over the overview's limit stay configured and stay saved;
+ * they're just not drawn there, and the card says how many it's holding back.
  */
-const DREAM_LABELS_MAX = 6;
+const DREAM_LABELS_MAX = 12;
+const DREAM_LABELS_OVERVIEW = 4;
 
 export {
   CLOSED_LABEL,
@@ -160,6 +168,7 @@ export {
   DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,
   DREAM_LABELS_MAX,
+  DREAM_LABELS_OVERVIEW,
   DRILL,
   GRANS,
   isDrill,

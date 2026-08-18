@@ -98,6 +98,25 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
    4px below the one the search box already has. */
 .excl-list > .excl-sep:first-child { border-top: none; margin-top: 0; padding-top: 2px; }
 
+/* ---------- a list that takes the slack ----------
+   On the overview a card is stretched to its row's height, and its row is as
+   tall as whichever card in it has the most to say. A table just ends where
+   its rows end, so a card whose rows are single-line sitting beside one whose
+   titles wrap left a slab of empty card underneath it.
+
+   The scroller takes the leftover height instead and keeps scrolling, which is
+   why the module that opts in also raises its preview row count: filling the
+   space is only an improvement if there are rows to fill it with.
+
+   `flex-basis: 0` rather than auto, or the card's natural height would include
+   all twenty-five rows and this card would set the row height instead of
+   answering to it. The floor is what stops a card from collapsing to its
+   header when nothing beside it is taller. */
+.grid .card > .body.fill-list { display: flex; flex-direction: column; }
+.grid .card > .body.fill-list > .tscroll {
+  flex: 1 1 0; min-height: 200px; max-height: none;
+}
+
 /* ---------- dream panel: by label, one column per label ----------
    auto-fit rather than a column count pinned to how many labels are up: the
    card is full width on the overview and full width again in its own tab, but
