@@ -297,7 +297,8 @@ function card(id) {
       ${cardControls(m)}
       ${m.tab === false ? "" : `<button class="expand" data-open="${id}">Expand ↗</button>`}
     </header>
-    <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}">${body}</div>
+    <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}${
+      m.fillList ? " fill-list" : ""}">${body}</div>
   </section>`;
 }
 

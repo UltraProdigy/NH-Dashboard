@@ -43,7 +43,7 @@ for (const m of Object.values(MODULES)) {
     const cols = this.cols();
     const rows = sortRows(applyFilter(panelRows(this.panelId)), cols);
     return renderTable(rows, expanded ? cols : preview(cols), {
-      sortable: expanded, limit: expanded ? null : 5,
+      sortable: expanded, limit: expanded ? null : this.previewLimit ?? 5,
     });
   };
 }

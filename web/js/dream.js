@@ -3,6 +3,7 @@ import {
   DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,
   DREAM_LABELS_MAX,
+  DREAM_LABELS_OVERVIEW,
   state,
 } from "./state.js";
 import { age, bareRepo, esc, fmt, repoHref } from "./format.js";
@@ -179,6 +180,15 @@ const nextFreeLabel = () => {
   return visibleLabels().find(l => !taken.has(l)) ?? null;
 };
 
+/**
+ * How many columns this view will draw, read off the tab rather than threaded
+ * through as an argument: the card is only ever rendered on the overview or in
+ * its own tab, and `state.tab` already says which. One reading of it keeps the
+ * button, the grid and the held-back count from disagreeing.
+ */
+const labelMax = () =>
+  (state.tab === "byLabel" ? DREAM_LABELS_MAX : DREAM_LABELS_OVERVIEW);
+
 function setLabelColumn(i, name) {
   if (i < 0 || i >= state.dreamLabels.length) return;
   state.dreamLabels[i] = name;
@@ -187,7 +197,7 @@ function setLabelColumn(i, name) {
 
 function addLabelColumn() {
   const next = nextFreeLabel();
-  if (!next || state.dreamLabels.length >= DREAM_LABELS_MAX) return;
+  if (!next || state.dreamLabels.length >= labelMax()) return;
   state.dreamLabels.push(next);
   saveLabels();
 }
@@ -219,9 +229,17 @@ function resetLabelCard() {
 
 /** Add and Reset, which sit alongside this card's two exclusion buttons. */
 function labelCardControlsHtml() {
-  const full = state.dreamLabels.length >= DREAM_LABELS_MAX || !nextFreeLabel();
+  const max = labelMax();
+  const atMax = state.dreamLabels.length >= max;
+  const noneLeft = !nextFreeLabel();
+  // Two different reasons to be greyed out, and they want different answers:
+  // one is "there's nothing left to add", the other is "not here — open the
+  // tab", which is only useful if the button says so.
+  const why = noneLeft ? "Every tracked label is already up"
+    : atMax ? `The overview draws ${max}. Open the tab to go up to ${DREAM_LABELS_MAX}.`
+    : "Watch another label";
   return `<button class="ghost excl-btn" data-labeladd
-      ${full ? "disabled" : ""} title="${full ? "Every tracked label is already up" : "Watch another label"}">+ Label</button>
+      ${atMax || noneLeft ? "disabled" : ""} title="${esc(why)}">+ Label</button>
     <button class="ghost excl-btn" data-labelreset
       ${labelCardIsDefault() ? "disabled" : ""} title="Back to the labels and filters this card ships with">Reset</button>`;
 }
@@ -271,12 +289,20 @@ function byLabelHtml(expanded) {
   if (!p) return `<div class="empty">Not in this build yet — run <code>npm run build</code>.</div>`;
   if (!p.ok) return `<div class="error">This panel failed to build:<br>${esc(p.error)}</div>`;
 
-  const cols = selectedColumns();
-  if (!cols.length)
+  const all = selectedColumns();
+  if (!all.length)
     return `<div class="empty">No labels selected. Add one from this card's header.</div>`;
 
+  // Held back rather than dropped: a column configured past the overview's
+  // limit is still saved and still drawn in the tab, so the card has to say
+  // it's holding some rather than quietly showing fewer than you set up.
+  const cols = all.slice(0, labelMax());
+  const held = all.length - cols.length;
+
   return `<div class="bl-cols">${
-    cols.map(c => labelColumnHtml(c.label, c.i, expanded ? null : 6)).join("")}</div>`;
+    cols.map(c => labelColumnHtml(c.label, c.i, expanded ? null : 6)).join("")}</div>` +
+    (held ? `<div class="more">+ ${fmt(held)} more label${held === 1 ? "" : "s"} — open the tab to see ${
+      held === 1 ? "it" : "them"}.</div>` : "");
 }
 
 /* ---- the controls in a card header --------------------------------------
