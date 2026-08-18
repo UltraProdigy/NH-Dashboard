@@ -1,3 +1,17 @@
+/* ---------- drilldown: back to where you came from ---------- */
+/* Sits left of the search box, at the size of an icon rather than a control —
+   it's a way out of the page, not one of the things the page is set to. */
+.backbtn {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.backbtn svg { width: 15px; height: 15px; }
+.backbtn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.backbtn:disabled { opacity: .38; cursor: default; }
+
 /* ---------- drilldown: search-and-select ---------- */
 /* Hand-rolled rather than a <datalist>: 1,200 options make the native popup
    sluggish, it can't show the activity counts that make the right person

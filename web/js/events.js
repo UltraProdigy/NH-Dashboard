@@ -17,7 +17,7 @@ import {
   render,
   updateComboPop,
 } from "./render.js";
-import { drillTo, go, goPage, readHash } from "./router.js";
+import { drillFromHere, drillTo, go, goBack, goPage, readHash } from "./router.js";
 import { tabTwin } from "./modules/index.js";
 import {
   addOpponent,
@@ -88,7 +88,7 @@ document.getElementById("view").addEventListener("click", e => {
   if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
     e.preventDefault();
     const [page, subj] = link.getAttribute("href").slice(1).split("/");
-    return drillTo(page, decodeURIComponent(subj));
+    return drillFromHere(page, decodeURIComponent(subj));
   }
 
   const pick = e.target.closest("[data-pick]");
@@ -213,6 +213,8 @@ document.getElementById("toolbar").addEventListener("input", e => {
 });
 
 document.getElementById("toolbar").addEventListener("click", e => {
+  if (e.target.closest("#backBtn")) return goBack();
+
   const opt = e.target.closest(".combo-opt[data-pick]");
   if (opt) return drillTo(state.page, opt.dataset.pick);
 

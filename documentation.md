@@ -1270,6 +1270,40 @@ This is in-memory for the session. The hash stays the source of truth, so a
 reload or a shared link lands exactly where the URL says — the memory only
 fills in what a navigation didn't specify.
 
+### Getting back
+
+Because every repo and contributor name is a link into a drilldown, most visits
+to one start somewhere else — halfway down a sorted table, three tabs into the
+Dream Panel. The browser's Back is a poor way home from there: on a hash-routed
+page it unwinds every tab and period you touched after arriving, one press at a
+time, and it can't restore a sort or a scroll position that were never in the
+URL to begin with.
+
+So the drilldowns carry **a back button, left of the search box** — a small
+circular arrow that returns you to the exact spot the link was clicked, with
+that page's tab, sort, filter and scroll position as you left them. Arrive under
+your own steam — the search box, the picker chips, the sidebar — and it's greyed
+out, because there's nowhere it would honestly take you.
+
+It's one trail of origins in `router.js`, pushed by `drillFromHere` and popped by
+`goBack`, so a chain of hops back out in order: Analytics → a repo → one of its
+contributors → back, back.
+
+Two rules keep it from offering something stale:
+
+- Only a followed link pushes. The search box and the sidebar clear the trail
+  outright, since an offer to return somewhere you left ten minutes ago is worse
+  than no offer.
+- Each entry records the drilldown it was pushed *for*, and `backFrom` checks it
+  against where you actually are. Switching tabs on the drilldown keeps the
+  offer — you're still on the page you were sent to — while the browser's own
+  Back and Forward move the hash out from under the trail, and an entry that no
+  longer describes where you are simply stops applying.
+
+The button is disabled rather than hidden in that case. It sits at the head of a
+toolbar full of controls, and one that appears and disappears would shift all of
+them sideways every time you followed a link.
+
 ## Tabs and groups
 
 Every card on an overview grid has a tab that opens it full-width. That 1:1 rule
@@ -1399,7 +1433,7 @@ js/pages.js            the six pages, the modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
                        and derives the tab bar from pages.js
 js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
-js/router.js           hash routing
+js/router.js           hash routing, and the back trail behind the drilldowns
 js/events.js           every delegated listener
 js/theme.js            dark/light toggle
 js/main.js             entry point: boot, load dashboard.json, first render
