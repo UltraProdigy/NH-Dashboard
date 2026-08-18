@@ -72,8 +72,11 @@ function readHash() {
  * `subject` left off means "decide for me": keep it when staying on the same
  * drilldown page (switching tabs), drop it otherwise — a login is not a repo
  * name, so carrying one across a mode switch would only ever 404.
+ *
+ * `restore` is a trail entry being replayed — see goBack. Without one the sort
+ * and filter reset, which is what every ordinary navigation wants.
  */
-function go(page, tab = null, subject) {
+function go(page, tab = null, subject, restore = null) {
   const drill = isDrill(page);
   if (subject === undefined)
     subject = drill && page === state.page ? state.subject : null;
@@ -81,24 +84,82 @@ function go(page, tab = null, subject) {
   state.page = page;
   state.tab = resolveTab(page, tab);
   state.subject = drill ? subject : null;
-  state.sort = {};
-  state.filter = "";
+  state.sort = restore ? { ...restore.sort } : {};
+  state.filter = restore ? restore.filter : "";
   closeCombo();
   remember();
 
   location.hash = hashFor(page, state.tab, subject);
   render();
+  // Next frame, not now: setting the hash above queues a hashchange that
+  // re-renders the view, and a scroll set before that lands gets clamped away
+  // while the page is briefly empty.
+  if (restore) requestAnimationFrame(() => scrollTo({ top: restore.scrollY }));
 }
 
-/** Jump into a drilldown from anywhere, including the other drilldown page. */
-function drillTo(page, id) {
+/* ==========================================================================
+   Where you came from
+   --------------------------------------------------------------------------
+   Repo and contributor names are links into a drilldown nearly everywhere on
+   the dashboard, and the only way back to the table you clicked one from was
+   the browser's Back — which on a hash-routed page also unwinds every tab and
+   period you touched after arriving. This is a trail of the places those links
+   were followed *from*, so the drilldown can offer exactly one step back, to
+   the card, sort and scroll position you left.
+   ========================================================================== */
+
+const trail = [];
+
+/**
+ * Where the back button on the current drilldown would take you, or null if
+ * you arrived under your own steam.
+ *
+ * The entry's destination is checked rather than trusted: the browser's own
+ * Back and Forward move the hash out from under the trail, and an entry that
+ * no longer describes where you are is not somewhere to return *from*.
+ */
+function backFrom() {
+  const top = trail[trail.length - 1];
+  if (!top) return null;
+  return top.to.page === state.page && top.to.subject === state.subject ? top.from : null;
+}
+
+function goBack() {
+  const from = backFrom();
+  if (!from) return;
+  trail.pop();
+  go(from.page, from.tab, from.subject, from);
+}
+
+/**
+ * Jump into a drilldown. Called without an origin — the picker, the search box
+ * — it's you navigating yourself, which is the case the trail has to forget:
+ * an offer to go back somewhere you left ten minutes ago is worse than none.
+ */
+function drillTo(page, id, from = null) {
+  if (from) trail.push({ from, to: { page, subject: id } });
+  else trail.length = 0;
   go(page, null, id);
+}
+
+/** Following a repo or contributor link in the page, remembering the spot. */
+function drillFromHere(page, id) {
+  if (page === state.page && id === state.subject) return drillTo(page, id);
+  drillTo(page, id, {
+    page: state.page,
+    tab: state.tab,
+    subject: state.subject,
+    sort: { ...state.sort },
+    filter: state.filter,
+    scrollY: window.scrollY,
+  });
 }
 
 /** Sidebar and mode-toggle navigation: resume rather than reset. */
 function goPage(page, fallbackTab = null) {
+  trail.length = 0;
   const last = lastPlace[page];
   go(page, last?.tab ?? fallbackTab, last?.subject ?? null);
 }
 
-export { drillTo, go, goPage, readHash };
+export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readHash };

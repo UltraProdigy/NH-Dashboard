@@ -15,6 +15,7 @@ import { contributorRows } from "./contributor-data.js";
 import { PAGES } from "./pages.js";
 import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
 import { withOwner } from "./table.js";
+import { backFrom } from "./router.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -156,6 +157,33 @@ function closeCombo() {
   state.combo.active = 0;
 }
 
+/* ---- back to wherever the link was clicked ------------------------------ */
+
+/** "Repo Drilldown · GT5-Unofficial · Activity" — the place, as a person reads it. */
+function placeLabel(p) {
+  const bits = [PAGES.find(x => x.id === p.page)?.label ?? p.page];
+  if (p.subject) bits.push(p.subject);
+  const tab = p.tab ? tabsFor(p.page).find(t => t.id === p.tab)?.label : null;
+  if (tab) bits.push(tab);
+  return bits.join(" · ");
+}
+
+/**
+ * Disabled rather than hidden when there's nothing to return to: a control that
+ * appears and disappears beside the search box shifts everything next to it,
+ * and on these two pages that's most of the toolbar.
+ */
+function backButtonHtml() {
+  const from = backFrom();
+  const arrow = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3.4 6.2h6.3a3.4 3.4 0 0 1 0 6.8H6.1"/><path d="M6.2 3.1 3.1 6.2l3.1 3.1"/></svg>`;
+  return `<button class="backbtn" id="backBtn" aria-label="Back"${
+    from ? ` title="Back to ${esc(placeLabel(from))}"`
+         : ` disabled title="Nothing to go back to — you opened this page directly"`
+  }>${arrow}</button>`;
+}
+
 /**
  * Toolbar is per-view: the overview shows whatever its page needs globally,
  * a module tab shows only the controls that module declares.
@@ -197,6 +225,7 @@ function renderToolbar() {
   const bits = [];
 
   if (wanted.has("subject")) {
+    bits.push(backButtonHtml());
     const what = state.page === "contributor" ? "contributors" : "repos";
     bits.push(`<span class="combo" id="combo">
       <input type="search" id="comboInput" role="combobox" aria-expanded="${state.combo.open}"
