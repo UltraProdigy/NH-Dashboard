@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { esc, fmt } from "../format.js";
+import { avatar, esc, fmt } from "../format.js";
 import { legend, lineChart } from "../charts.js";
 import { windowPhrase } from "../data.js";
 import {
@@ -35,9 +35,13 @@ function leaders(row, readings) {
   return out;
 }
 
+/* Only the contributor page — the repo side compares repos, which have no
+   face of their own beyond the org's. */
+const face = (id) => (state.page === "contributor" ? avatar(id, 16) : "");
+
 const chips = (entries) => `<div class="vs-chips">${
   entries.map((e) => `<span class="vs-chip"${e.pinned ? ' data-pinned="1"' : ""}>
-      <i style="background:${e.color}"></i>${esc(e.id)}${
+      <i style="background:${e.color}"></i>${face(e.id)}${esc(e.id)}${
         e.pinned
           ? `<span class="vs-you">this page</span>`
           : `<button class="vs-x" data-vsdel="${esc(e.id)}" title="Remove">×</button>`}
@@ -62,7 +66,7 @@ const chips = (entries) => `<div class="vs-chips">${
 function table(entries, readings) {
   const head = `<thead><tr><th style="cursor:default">Metric</th>${
     entries.map((e) => `<th style="cursor:default" class="num">
-      <span class="vs-head"><i style="background:${e.color}"></i>${esc(e.id)}</span></th>`).join("")
+      <span class="vs-head"><i style="background:${e.color}"></i>${face(e.id)}${esc(e.id)}</span></th>`).join("")
   }</tr></thead>`;
 
   const body = metricGroups().map((g) => {

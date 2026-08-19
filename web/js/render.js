@@ -1,6 +1,6 @@
 import { GRANS, isDrill, state } from "./state.js";
 import { controlHtml } from "./module-helpers.js";
-import { age, agoText, daysSince, esc, fmt } from "./format.js";
+import { age, agoText, avatar, daysSince, esc, fmt } from "./format.js";
 import { A, I, activeWindow, issuePeople, panel, windowList } from "./data.js";
 import {
   backlogOf,
@@ -132,8 +132,12 @@ function comboPopHtml() {
     // The list is still ranked by total activity — when you type "dre" you
     // want Dream-Master first, not whoever pushed most recently.
     const meta = `Active: ${esc(agoText(daysSince(o.last)))}`;
+    // Lazy, and only on the contributor list: this popup holds 60 rows and
+    // repaints on every keystroke, so the images have to stay off the wire
+    // until they scroll into view.
+    const face = state.page === "contributor" ? avatar(o.id, 18) : "";
     return `<div class="combo-opt" role="option" data-pick="${esc(o.id)}"
-      aria-selected="${i === state.combo.active}"><span class="n">${name}</span><span class="c">${meta}</span></div>`;
+      aria-selected="${i === state.combo.active}">${face}<span class="n">${name}</span><span class="c">${meta}</span></div>`;
   }).join("");
 }
 
@@ -410,7 +414,8 @@ function pickerHtml() {
     <h3>Pick a ${what}</h3>
     <p>Search above, or jump straight to one of the busiest.</p>
     <div class="chips">${subjectList().slice(0, 24).map(o =>
-      `<button data-pick="${esc(o.id)}">${esc(o.id)}</button>`).join("")}</div>
+      `<button data-pick="${esc(o.id)}">${
+        state.page === "contributor" ? avatar(o.id, 18) : ""}${esc(o.id)}</button>`).join("")}</div>
   </div>`;
 }
 
@@ -447,10 +452,20 @@ function renderDrill(view) {
   bits.push(`first ${s.first ? esc(s.first.slice(0, 10)) : "—"}`);
   bits.push(`last active ${age(daysSince(s.last))}`);
 
+  // A repo has no face of its own, so it borrows the org's — one mark that
+  // says "GTNewHorizons" once, at the top, instead of on every row below.
+  // Squared off, the way GitHub renders org avatars against round user ones.
+  const face = what
+    ? avatar(state.subject, 44)
+    : avatar(state.data.org, 44, "sq");
+
   const head = `<div class="subject">
-    <h2>${esc(state.subject)}</h2>
+    ${face}
+    <div class="idcard">
+      <h2>${esc(state.subject)}</h2>
+      <span class="dates">${bits.join(" · ")}</span>
+    </div>
     <a class="ghost" href="${subjectUrl(state.subject)}" target="_blank" rel="noopener">View on GitHub ↗</a>
-    <span class="dates">${bits.join(" · ")}</span>
   </div>`;
 
   view.innerHTML = head + pageBody();

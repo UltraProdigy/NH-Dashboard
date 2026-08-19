@@ -5,6 +5,23 @@
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
 /**
+ * A GitHub avatar, by login.
+ *
+ * Costs nothing to have: `github.com/<login>.png` is a public unauthenticated
+ * redirect to the avatar CDN, so the browser fetches it directly and neither
+ * the ingest nor `drilldown.json` has to carry a URL that would only go stale.
+ * Requested at 2× the rendered box so it stays sharp on a retina display.
+ *
+ * Deleted and renamed accounts 404. The <img> takes itself out when that
+ * happens and `data-ini` shows through, so a missing face degrades to an
+ * initial rather than a broken-image glyph.
+ */
+function avatar(id, size = 16, cls = "") {
+  const s = String(id ?? "");
+  return `<span class="pfp${cls ? ` ${cls}` : ""}" style="--pfp:${size}px" data-ini="${esc((s[0] ?? "?").toUpperCase())}"><img src="https://github.com/${encodeURIComponent(s)}.png?size=${size * 2}" alt="" loading="lazy" decoding="async" onerror="this.remove()"></span>`;
+}
+
+/**
  * A contributor's name, linking to their drilldown rather than to GitHub.
  *
  * The drilldown carries more of what you're after when you click a name in
@@ -17,8 +34,24 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&l
  * `byLogin` reference it at initialization time.
  */
 const contribHref = (r) => `#contributor/${encodeURIComponent(r.login)}`;
-const contribLink = (login) =>
-  `<a href="${contribHref({ login })}" data-drilllink>${esc(login)}</a>`;
+const contribLink = (login, { pfp = true } = {}) =>
+  `<a class="namelink" href="${contribHref({ login })}" data-drilllink>${
+    pfp ? avatar(login, 16) : ""}<span>${esc(login)}</span></a>`;
+
+/**
+ * The same face-plus-name, without the link.
+ *
+ * Author and reporter columns come from the search-backed panels, which see
+ * people the ingest store has never heard of — bots, and anyone whose only
+ * activity is outside the window that was walked. Linking those lands you on a
+ * drilldown that can only say it has nothing, so they get the avatar and stay
+ * plain text. The class is shared with contribLink so the two line up wherever
+ * both appear in one table.
+ */
+const contribName = (login, fallback = "—") =>
+  login
+    ? `<span class="namelink">${avatar(login, 16)}<span>${esc(login)}</span></span>`
+    : fallback;
 
 /**
  * Repo names arrive in two shapes: the search-backed panels carry the full
@@ -113,11 +146,13 @@ export {
   MONTHS,
   age,
   agoText,
+  avatar,
   bareRepo,
   bucketLabel,
   bucketParts,
   contribHref,
   contribLink,
+  contribName,
   daysSince,
   diff,
   dur,

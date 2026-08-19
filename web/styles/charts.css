@@ -1,3 +1,33 @@
+/* ---------- avatars ---------- */
+/* Sized by a custom property rather than a class per size: the box, the
+   fallback initial and the requested image all scale off the one number, so
+   there is no combination that can be half-applied. */
+.pfp {
+  position: relative; display: inline-block; vertical-align: middle; flex: none;
+  width: var(--pfp, 16px); height: var(--pfp, 16px);
+  border-radius: 50%; overflow: hidden;
+  /* Held before the image lands, so nothing reflows when it does. An inset
+     ring rather than a border — a border would eat into the box. */
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+/* Org and repo marks are square everywhere on GitHub; matching that is what
+   keeps "this is a project" and "this is a person" readable at a glance. */
+.pfp.sq { border-radius: calc(var(--pfp, 16px) * .18); }
+.pfp img { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; }
+/* Only ever seen once the <img> has removed itself — deleted and renamed
+   accounts 404, and an initial reads better than a broken-image glyph. */
+.pfp::after {
+  content: attr(data-ini); position: absolute; inset: 0;
+  display: grid; place-items: center; line-height: 1;
+  font-size: calc(var(--pfp, 16px) * .48); font-weight: 600; color: var(--muted);
+}
+
+/* A name that carries a face. inline-flex so the two stay on one line and
+   share a baseline; the inner span is what ellipsises when space runs out. */
+.namelink { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; }
+.namelink > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- charts ---------- */
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
@@ -14,6 +44,9 @@ svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparen
 .hbar .track { background: var(--panel-2); border-radius: 3px; height: 9px; overflow: hidden; }
 .hbar .fill { height: 100%; border-radius: 3px; }
 .hbar .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Inline-block inside the nowrap label, so the name still ellipsises past it
+   instead of the avatar pushing the row wide. */
+.hbar .lab .pfp { margin-right: 7px; }
 /* Right-aligned and tabular so 9 and 10 line up on their last digit rather
    than the list developing a kink at every power of ten. */
 .hbar .rk {
@@ -50,6 +83,9 @@ svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparen
 .prrow .rk { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.4em; text-align: right; font-size: 11px; }
 .prrow .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prrow .ttl .who { color: var(--muted); }
+/* The byline is one running line — "#412 · Dream-Master" — so the face sits
+   inline in it rather than being promoted to its own column. */
+.prrow .ttl .who .pfp { margin-right: 4px; }
 .prrow .ct { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Diff size. Green added / red removed, side by side, so a 4,000-line PR

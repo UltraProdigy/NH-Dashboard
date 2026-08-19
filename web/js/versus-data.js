@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { age, daysSince, dur, esc, fmt, kfmt, pctFmt } from "./format.js";
+import { age, avatar, daysSince, dur, esc, fmt, kfmt, pctFmt } from "./format.js";
 import {
   backlogOf,
   drillKey,
@@ -279,7 +279,8 @@ function vsPopHtml() {
       : esc(o.id.slice(0, at)) + `<mark>${esc(o.id.slice(at, at + q.length))}</mark>` +
         esc(o.id.slice(at + q.length));
     return `<div class="combo-opt" role="option" data-vsadd="${esc(o.id)}"
-      aria-selected="${i === state.vs.active}"><span class="n">${name}</span><span class="c">${
+      aria-selected="${i === state.vs.active}">${
+        state.page === "contributor" ? avatar(o.id, 18) : ""}<span class="n">${name}</span><span class="c">${
         fmt((o.n ?? 0) + (o.i ?? 0))} events</span></div>`;
   }).join("");
 }

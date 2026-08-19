@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, contribHref, contribLink, daysSince, esc, fmt } from "../format.js";
+import { age, avatar, contribHref, contribLink, daysSince, esc, fmt } from "../format.js";
 import { hbars } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, panel, windowDays, windowPhrase } from "../data.js";
@@ -38,7 +38,7 @@ export const peopleModules = {
         .filter(r => r.count).sort((a, b) => b.count - a.count);
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count,
-        href: contribHref, internal: true,
+        href: contribHref, internal: true, icon: r => avatar(r.login, 16),
       });
     },
   },
@@ -52,7 +52,7 @@ export const peopleModules = {
         .filter(r => r.count).sort((a, b) => b.count - a.count);
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count, color: "var(--purple)",
-        href: contribHref, internal: true,
+        href: contribHref, internal: true, icon: r => avatar(r.login, 16),
       });
     },
   },

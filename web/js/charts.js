@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { bareRepo, bucketLabel, bucketParts, diff, esc, fmt } from "./format.js";
+import { avatar, bareRepo, bucketLabel, bucketParts, diff, esc, fmt } from "./format.js";
 
 /* ==========================================================================
    Chart primitives — hand-rolled SVG, so the page stays dependency-free
@@ -46,15 +46,44 @@ function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6, every
  * Inset to match the plot area so label i sits under bar i. The percentages
  * come from the same geometry plotFrame uses, so the two can't drift.
  */
+const MAX_LABELS = 12;
+
+/* Strides that read as something — every 6th month is "twice a year", every
+   5th is noise. One list per bucket size, since a good stride for months is a
+   bad one for weeks. */
+const STRIDES = {
+  M: [1, 2, 3, 6, 12, 24],
+  W: [1, 2, 4, 8, 13, 26, 52],
+  D: [1, 2, 7, 14, 28, 91, 182, 364],
+};
+
+function labelStride(buckets) {
+  const k = buckets[0].b;
+  const list = STRIDES[k.includes("W") ? "W" : k.split("-").length > 2 ? "D" : "M"];
+  let s = list.find(c => buckets.length / c <= MAX_LABELS);
+  if (!s) { s = list.at(-1); while (buckets.length / s > MAX_LABELS) s *= 2; }
+  return s;
+}
+
 function xAxis(buckets, { padL = 38, W = 1000, padR = 6 } = {}) {
   if (!buckets.length) return "";
   const left = (padL / W) * 100;
   const width = ((W - padR - padL) / W) * 100;
-  return `<div class="xaxis" style="margin-left:${left}%;width:${width}%;grid-template-columns:repeat(${buckets.length},1fr)">${
-    buckets.map(b => {
-      const { period, year } = bucketParts(b.b);
-      return `<span>${esc(period)}<span class="yr">${esc(year)}</span></span>`;
-    }).join("")}</div>`;
+  const stride = labelStride(buckets);
+  let lastYear = null;
+  const cells = buckets.map((b, i) => {
+    // Anchored on the newest bucket so the right-hand edge is always dated,
+    // the same way plotFrame's thinned SVG ticks are. Skipped buckets still
+    // get an empty cell, or the grid stops lining up with the bars.
+    if ((buckets.length - 1 - i) % stride) return `<span></span>`;
+    const { period, year } = bucketParts(b.b);
+    // Only when it changes: on an all-time axis the year is the same for
+    // twelve labels running, and repeating it is what made the row unreadable.
+    const yr = year === lastYear ? "" : `<span class="yr">${esc(year)}</span>`;
+    lastYear = year;
+    return `<span>${esc(period)}${yr}</span>`;
+  }).join("");
+  return `<div class="xaxis" style="margin-left:${left}%;width:${width}%;grid-template-columns:repeat(${buckets.length},1fr)">${cells}</div>`;
 }
 
 /** Grouped vertical bars. `series` = [{ key, label, color }]. */
@@ -125,7 +154,7 @@ function legend(series) {
  * total beside its count — on a per-repo breakdown of someone's PRs, "48 in
  * GT5-Unofficial" means something quite different at 12% than at 80%.
  */
-function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt, rank = true, share = false } = {}) {
+function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt, rank = true, share = false, icon = null } = {}) {
   if (!rows.length) return `<div class="empty">Nothing to show.</div>`;
   const max = Math.max(...rows.map(value));
   // Of the list, not of the subject's grand total: these breakdowns are
@@ -141,7 +170,10 @@ function hbars(rows, { label, value, color = "var(--accent)", href = null, inter
     const v = value(r);
     return `<div class="hbar">
       ${rank ? `<span class="rk">${i + 1}</span>` : `<span></span>`}
-      <span class="lab" title="${text}">${href ? `<a href="${href(r)}"${attrs}>${text}</a>` : text}</span>
+      ${/* Inside .lab rather than as a fifth grid track, so the name keeps the
+            ellipsis it needs when a long login meets a narrow duo box. */""}
+      <span class="lab" title="${text}">${icon ? icon(r) : ""}${
+        href ? `<a href="${href(r)}"${attrs}>${text}</a>` : text}</span>
       <span class="track"><span class="fill" style="width:${(v / max) * 100}%;background:${color}"></span></span>
       <span class="val">${fmtV(v)}${
         share && total ? `<span class="sh">${Math.round((v / total) * 100)}%</span>` : ""}</span>
@@ -173,7 +205,8 @@ function prList(rows, { unit = "", repo = null, kind = "pull" } = {}) {
       <span class="ttl" title="${esc(r.title || id)}">
         <a href="https://github.com/${org}/${encodeURIComponent(where)}/${kind}/${r.number}"
            target="_blank" rel="noopener">${text}</a>
-        <span class="who">${esc(id)}${r.author ? ` · ${esc(r.author)}` : ""}</span>
+        <span class="who">${esc(id)}${
+          r.author ? ` · ${avatar(r.author, 14)}${esc(r.author)}` : ""}</span>
       </span>
       <span class="ct">${fmt(r.count)}${unit ? ` ${unit}` : ""}</span>
     </div>`;

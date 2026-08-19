@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, contribHref, dur, esc, fmt, pctFmt } from "../format.js";
+import { age, avatar, contribHref, contribName, dur, esc, fmt, pctFmt } from "../format.js";
 import { barChart, hbars, kpi, legend, lineChart } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { I, activeWindow, windowPhrase } from "../data.js";
@@ -144,7 +144,7 @@ export const repoIssueModules = {
 
       const cols = [
         { key: "number", label: "Issue", render: (r) => issueLink(r, subject().repo) },
-        { key: "author", label: "Reporter", render: (r) => esc(r.author ?? "ghost") },
+        { key: "author", label: "Reporter", render: (r) => contribName(r.author ?? "ghost") },
         { key: "labels", label: "Labels", sortable: false, render: (r) => labelChips(r.labels) },
         { key: "ageDays", label: "Opened", render: (r) => age(r.ageDays) },
         { key: "staleDays", label: "Updated", render: (r) => age(r.staleDays) },
@@ -201,8 +201,8 @@ export const repoIssueModules = {
         `<h3 style="font-size:13px;margin:26px 0 8px">Closing</h3>` + closing +
         `<h3 style="font-size:13px;margin:26px 0 8px">Assigned</h3>` +
         (assignees.length
-          ? hbars(assignees, { label: (r) => r.login, value: (r) => r.count,
-                               color: "var(--warn)", href: contribHref, internal: true })
+          ? hbars(assignees, { label: (r) => r.login, value: (r) => r.count, color: "var(--warn)",
+                               href: contribHref, internal: true, icon: (r) => avatar(r.login, 16) })
           : `<div class="empty" style="padding:8px 0">Nobody is assigned anything here.</div>`) +
         `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. "Closed the most" is whoever pressed the button; "whose PRs closed them" is whoever wrote the fix. Both are counted because on this org they're usually different people.</div>` +
         closerNotice(iw);

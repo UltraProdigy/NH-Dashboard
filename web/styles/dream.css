@@ -170,8 +170,13 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 .picker p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
 .picker .chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; max-width: 720px; margin: 0 auto; }
 .picker .chips button {
+  display: inline-flex; align-items: center; gap: 7px;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 20px;
-  color: var(--text); padding: 5px 13px; font: inherit; font-size: 12px; cursor: pointer;
+  color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
 }
+/* Tighter on the left when there's a face: the avatar's own round edge is
+   already doing the work the padding would. */
+.picker .chips button { padding: 5px 13px; }
+.picker .chips button:has(.pfp) { padding: 3px 13px 3px 4px; }
 .picker .chips button:hover { border-color: var(--accent); color: var(--accent); }
 .loading { color: var(--muted); padding: 40px 0; text-align: center; font-size: 13px; }

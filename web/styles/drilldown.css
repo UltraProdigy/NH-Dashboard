@@ -28,8 +28,8 @@
 :root[data-theme="light"] .combo-pop { box-shadow: 0 8px 24px rgba(31,35,40,.12); }
 .combo-pop[hidden] { display: none; }
 .combo-opt {
-  display: flex; align-items: baseline; gap: 8px;
-  padding: 7px 11px; cursor: pointer; white-space: nowrap;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 11px; cursor: pointer; white-space: nowrap;
 }
 .combo-opt .n { overflow: hidden; text-overflow: ellipsis; }
 .combo-opt .c { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -38,9 +38,18 @@
 .combo-none { padding: 12px; color: var(--muted); font-size: 12px; }
 
 /* ---------- drilldown: subject header ---------- */
-.subject { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-.subject h2 { margin: 0; font-size: 20px; font-weight: 600; }
+/* Avatar, then name over meta, then the GitHub link pushed to the far edge.
+   The name and the dates were siblings of the button before, which put the
+   two halves of one sentence on either side of an unrelated control. */
+.subject { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
+.subject .idcard { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.subject h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
 .subject .dates { color: var(--muted); font-size: 12px; }
+.subject .ghost { margin-left: auto; flex: none; align-self: center; }
+@media (max-width: 640px) {
+  .subject { flex-wrap: wrap; }
+  .subject .ghost { margin-left: 0; }
+}
 /* ---------- drilldown: paired stat boxes ---------- */
 /* Two related rankings read as a comparison when they're side by side and as
    a sequence when they're stacked. These are comparisons. */
@@ -102,6 +111,9 @@
   border: 1px solid var(--border); border-radius: 999px; background: var(--panel-2);
 }
 .vs-chip i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+/* The dot and the face are both leading markers; without this they sit a full
+   gap apart and the chip reads as three things instead of one name. */
+.vs-chip:has(.pfp) { gap: 6px; padding-left: 7px; }
 .vs-chip[data-pinned] { border-color: var(--accent); }
 .vs-you { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
 .vs-x {
@@ -126,7 +138,7 @@ table.vs .vs-head i { width: 8px; height: 8px; border-radius: 50%; }
    good nor bad. */
 table.vs td.lead { font-weight: 600; color: var(--text); background: var(--panel-2); }
 
-/* ---------- drilldown: every-month axis ---------- */
+/* ---------- drilldown: per-bucket axis ---------- */
 /* Rendered as HTML under the chart rather than as SVG <text>. The charts use
    preserveAspectRatio="none", which scales x and y differently — anything
    drawn inside gets squashed horizontally as the card narrows, which is
@@ -134,11 +146,12 @@ table.vs td.lead { font-weight: 600; color: var(--text); background: var(--panel
 /* Two horizontal lines rather than one rotated one. At 24 buckets a single
    line of "Aug '26" doesn't fit the slot, and rotating it makes the axis
    hard to read; stacking the month over the year keeps every label upright
-   and halves the width it needs. */
-.xaxis { display: grid; margin-top: 6px; }
+   and halves the width it needs. There is still one grid column per bucket —
+   xAxis() blanks the ones it thins out, so the labels stay under their bars. */
+.xaxis { display: grid; margin-top: 6px; align-items: start; }
 .xaxis span {
-  font-size: 9px; line-height: 1.2; color: var(--muted);
+  font-size: 10px; line-height: 1.25; color: var(--muted);
   justify-self: center; text-align: center; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.xaxis .yr { display: block; opacity: .7; }
+.xaxis .yr { display: block; opacity: .6; }

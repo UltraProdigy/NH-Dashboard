@@ -2,8 +2,10 @@ import { state } from "../state.js";
 import {
   MONTHS,
   age,
+  avatar,
   bucketLabel,
   contribHref,
+  contribName,
   dur,
   esc,
   fmt,
@@ -156,7 +158,7 @@ export const analyticsModules = {
       const cols = [
         { key: "repo",   label: "Repo",   render: r => repoLink(r.repo) },
         { key: "number", label: "PR",     render: r => `<a href="${r.url}" target="_blank" rel="noopener">#${r.number}</a>` },
-        { key: "author", label: "Author", render: r => esc(r.author) },
+        { key: "author", label: "Author", render: r => contribName(r.author) },
         { key: "ageDays",  label: "Opened",  render: r => age(r.ageDays) },
         { key: "staleDays",label: "Updated", render: r => age(r.staleDays) },
         { key: "reviewed", label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
@@ -235,7 +237,7 @@ export const analyticsModules = {
         </div>` +
         hbars(w.topReviewers.slice(0, n), {
           label: r => r.login, value: r => r.count, color: "var(--purple)",
-          href: contribHref, internal: true,
+          href: contribHref, internal: true, icon: r => avatar(r.login, 16),
         }) +
         (conc > 0.6 ? `<div class="hint" style="margin-top:12px">Five people are carrying most of the review load — worth watching for burnout.</div>` : "");
     },
