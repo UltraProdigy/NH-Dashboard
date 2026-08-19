@@ -1,9 +1,11 @@
 import { state } from "../state.js";
 import {
   age,
+  avatar,
   bucketLabel,
   contribHref,
   contribLink,
+  contribName,
   dur,
   esc,
   fmt,
@@ -57,7 +59,7 @@ const labelChips = (names) =>
 const TRIAGE_COLS = [
   { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
   { key: "title", label: "Issue", render: issueTitle },
-  { key: "author", label: "Reporter", render: (r) => esc(r.author ?? "ghost") },
+  { key: "author", label: "Reporter", render: (r) => contribName(r.author ?? "ghost") },
   { key: "labels", label: "Labels", sortable: false, render: (r) => labelChips(r.labels) },
   { key: "ageDays", label: "Opened", render: (r) => age(r.ageDays) },
   { key: "staleDays", label: "Updated", render: (r) => age(r.staleDays) },
@@ -467,7 +469,7 @@ export const issueModules = {
         rows?.length
           ? hbars(rows.slice(0, n), {
               label: (r) => r.login, value: (r) => r.count, color,
-              href: contribHref, internal: true,
+              href: contribHref, internal: true, icon: (r) => avatar(r.login, 16),
             })
           : `<div class="empty" style="padding:8px 0">Nothing recorded in this period.</div>`;
 
@@ -600,7 +602,7 @@ export const issueModules = {
       const cols = [
         { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
         { key: "title", label: "Issue", render: issueTitle },
-        { key: "author", label: "Reporter", render: (r) => esc(r.author ?? "ghost") },
+        { key: "author", label: "Reporter", render: (r) => contribName(r.author ?? "ghost") },
         { key: "comments", label: "Comments", render: (r) => `<span class="num">${fmt(r.comments)}</span>` },
         { key: "ageDays", label: "Opened", render: (r) => age(r.ageDays) },
         {

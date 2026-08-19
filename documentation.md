@@ -986,6 +986,43 @@ was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
 handful of subjects where the long tail is the interesting part. Long lists
 scroll inside their box rather than stretching the page.
 
+### Avatars
+
+People get their GitHub avatar wherever a person is named. That's the drilldown
+header, every ranked `hbars` list, the Contributor / Author / Reporter / By
+columns of every table, the "most grossing" bylines, the search popup, the
+subject picker, and the head-to-head chips and column headers.
+
+Two renderers, because not every name is a link. `contribLink` is the anchored
+one, used where the name routes to a drilldown. `contribName` is the plain one,
+used for Author and Reporter columns: those come from the search-backed panels,
+which see people the ingest store has never heard of — bots, and anyone whose
+only activity falls outside the window that was walked. Linking those lands you
+on a drilldown that can only tell you it has nothing. They share a class, so the
+face and the name line up whether or not the cell is clickable.
+
+It costs nothing to have. `https://github.com/<login>.png?size=N` is a public
+unauthenticated redirect to the avatar CDN, so the browser fetches it directly
+and neither the ingest nor `drilldown.json` carries a URL. The alternative —
+pulling `avatarUrl` off the GraphQL `User` — would add a field to the store and
+a few bytes per contributor in exchange for a URL that can only go stale.
+
+Requested at 2× the rendered box so it stays sharp on a retina display, and
+lazily in the search popup, which holds sixty rows and repaints on every
+keystroke.
+
+Deleted and renamed accounts 404. The `<img>` removes itself when that happens
+and the initial underneath shows through, so a missing face degrades to a
+letter rather than a broken-image glyph. That fallback is also what you see
+with no network — the local dashboard works offline apart from the pictures.
+
+**Repos don't get one.** A repo has no avatar of its own, only the org's, and a
+column of twenty identical GTNH marks is twenty copies of a fact the page has
+already established. The one place it earns its keep is the repo drilldown
+header, where a single mark anchors the same layout the contributor header
+uses; there it's squared off, the way GitHub renders org avatars against round
+user ones.
+
 ### Numbered rows and shares
 
 Every `hbars` list ranks by exactly one metric, so each row carries its
@@ -1033,9 +1070,25 @@ It sums exactly to that window's approval count, which is the cheap check that
 the two haven't drifted. It costs about 0.6 MB on `drilldown.json`, which is
 gitignored and regenerated on every build.
 
-Activity charts label **every** month, upright, with the month stacked over its
+Activity charts label their months upright, with the month stacked over its
 year on two lines — at 24 buckets a single line of "Aug '26" doesn't fit the
 slot, and rotating it makes the axis hard to read.
+
+Up to twelve buckets every one is labelled. Past that the labels thin to a
+stride picked from a per-granularity list — every 2nd, 3rd, 6th or 12th month,
+never every 5th, because a stride only reads if it means something. All time is
+57 months and lands on 6, which is "twice a year". The stride is anchored on the
+*newest* bucket, so the right-hand edge is always dated; the leftmost bucket may
+not be. There is still one grid column per bucket — the thinned ones render an
+empty cell — so a label always sits under its own bar.
+
+The year prints only when it changes. Repeating "2022" under twelve consecutive
+months is what made the all-time axis unreadable: at that density the years ran
+together into a solid bar of digits, and they were the least informative thing
+on the row.
+
+None of this loses anything. Every bucket keeps its hover zone, so the exact
+month and its counts are one pointer away.
 
 Those labels are HTML beneath the plot rather than SVG `<text>`, because the
 charts use `preserveAspectRatio="none"` — anything drawn inside gets squashed

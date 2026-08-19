@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { age, agoText, esc, fmt, repoLink } from "./format.js";
+import { age, agoText, contribName, esc, fmt, repoLink } from "./format.js";
 
 /* ==========================================================================
    Shared table rendering
@@ -32,7 +32,7 @@ const COLUMNS = {
   pr: [
     { key: "repo",      label: "Repo",   render: r => repoLink(r.repo) },
     { key: "title",     label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
-    { key: "author",    label: "Author", render: r => esc(r.author) },
+    { key: "author",    label: "Author", render: r => contribName(r.author) },
     { key: "labels",    label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
     { key: "ageDays",   label: "Opened", render: r => age(r.ageDays) },
     { key: "staleDays", label: "Updated",render: r => age(r.staleDays) },
@@ -62,7 +62,7 @@ const COLUMNS = {
         ? `<span title="${esc(r.message)}">${esc(r.message)}</span>`
         : `<span class="sub">— none in the last year</span>`),
     },
-    { key: "author", label: "By", render: r => (r.author ? esc(r.author) : "—") },
+    { key: "author", label: "By", render: r => contribName(r.author) },
   ],
 };
 

@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, bucketLabel, daysSince, dur, esc, fmt, kfmt, pctFmt } from "../format.js";
+import { age, bucketLabel, contribName, daysSince, dur, esc, fmt, kfmt, pctFmt } from "../format.js";
 import {
   barChart,
   grossingBoxes,
@@ -173,7 +173,7 @@ export const repoModules = {
 
       const cols = [
         { key: "number", label: "PR",     render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(s.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
-        { key: "author", label: "Author", render: r => esc(r.author ?? "—") },
+        { key: "author", label: "Author", render: r => contribName(r.author) },
         { key: "draft",  label: "State",  get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
         { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
         { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },

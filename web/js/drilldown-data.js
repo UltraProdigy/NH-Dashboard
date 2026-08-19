@@ -1,5 +1,5 @@
 import { DRILL, state } from "./state.js";
-import { contribHref, esc, fmt, linesOf, repoHref } from "./format.js";
+import { avatar, contribHref, esc, fmt, linesOf, repoHref } from "./format.js";
 import { hbars } from "./charts.js";
 import { activeWindow, windowDays } from "./data.js";
 
@@ -206,9 +206,11 @@ function duo(left, right, { height = "tall", stacked = false, share = false } = 
 }
 
 const byLogin = { label: r => r.login, value: r => r.count,
-  href: contribHref, internal: true };
+  href: contribHref, internal: true, icon: r => avatar(r.login, 16) };
 
-/** The repo-side equivalent, now that repo names route to their drilldown. */
+/* No icon here on purpose. Every repo in the org shares one avatar, so a
+   column of identical GTNH marks would be twenty copies of a fact the page
+   already establishes — noise where the contributor lists get signal. */
 const byRepo = { label: r => r.repo, value: r => r.count,
   href: r => repoHref(r.repo), internal: true };
 
