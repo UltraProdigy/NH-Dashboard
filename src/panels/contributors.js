@@ -88,23 +88,31 @@ export async function contributors() {
   }
 
   /**
-   * How much of their own run they were actually working.
+   * Distinct days each person did something, per window, with the number of
+   * days in the period beside it.
    *
-   * Both numbers come from the shared index rather than from the counters
-   * above, and deliberately: this panel only reads the PR store, so a triager's
-   * span computed here would end the day they stopped opening pull requests
-   * even though they answered issues for another two years. It would also
-   * disagree with the same person's drilldown, which is the failure that
-   * matters most — two pages, one person, two percentages, no way to tell which
-   * is wrong from either.
+   * From the shared index rather than counted here, and deliberately: this
+   * panel only reads the PR store, so a triager's days computed locally would
+   * stop the moment they stopped opening pull requests even though they
+   * answered issues for another two years — and it would disagree with the same
+   * person's drilldown, which is the failure that matters most.
+   *
+   * Both halves land inside the per-window records beside `prs` and
+   * `approvals`, which is what makes the Leaderboard column follow the time
+   * control for free and what stops the browser inventing its own denominator.
    */
-  const active = await activeDayIndex();
+  const active = await activeDayIndex(WINDOWS);
 
   const rows = [...people.values()]
     .filter((p) => p.all.prs + p.all.approvals >= CONTRIBUTOR_MIN_ACTIVITY)
     .map((p) => {
       const a = active.get(p.login);
-      return { ...p, activeDays: a?.days ?? 0, activeSpan: a?.span ?? 0 };
+      const out = { ...p };
+      for (const w of WINDOWS) {
+        const d = a?.windows[w.id];
+        out[w.id] = { ...p[w.id], activeDays: d?.days ?? 0, activeDenom: d?.denom ?? 0 };
+      }
+      return out;
     })
     .sort((a, b) => b.all.prs + b.all.approvals - (a.all.prs + a.all.approvals));
 

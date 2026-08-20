@@ -11,7 +11,7 @@ import {
   pctFmt,
 } from "./format.js";
 import { renderTable } from "./table.js";
-import { panel } from "./data.js";
+import { panel, windowDays } from "./data.js";
 
 const contributorAll = () => panel("contributors")?.ok ? (panel("contributors").data.rows ?? []) : [];
 
@@ -28,18 +28,24 @@ function contributorColumns() {
     { key: `${w}.prs`,       label: "PRs opened",      get: r => r[w].prs,       render: r => `<span class="num">${fmt(r[w].prs)}</span>` },
     { key: `${w}.merged`,    label: "Merged",          get: r => r[w].merged,    render: r => `<span class="num">${fmt(r[w].merged)}</span>` },
     { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals, render: r => `<span class="num">${fmt(r[w].approvals)}</span>` },
-    // All-time, like Last active beside it and unlike the three columns before
-    // it. A windowed version would be answering a different question — "were
-    // they busy lately" is what the PR counts already say, and this one is
-    // about the shape of somebody's whole run. Sorts missing data to the
-    // bottom rather than treating an old build as zero.
-    { key: "activeDays", label: "Active days", get: r => activeShare(r) ?? -1,
+    // Windowed like the three columns before it, over a period that ends
+    // **today** rather than on the person's last active day. That distinction
+    // is the whole column. Dividing by `last - first` froze the clock the day
+    // somebody stopped, so their absence never entered the arithmetic: a
+    // contributor who did one afternoon in 2023 scored a flat 100% and
+    // outranked ten years of work, and 3,864 people were in that state.
+    // Counting to today puts the silence in the denominator, where it grows
+    // for every day they stay away.
+    { key: `${w}.activeDays`, label: "Active days",
+      get: r => activeShare(r[w]) ?? -1,
       render: r => {
-        const share = activeShare(r);
-        return share == null
-          ? `<span class="sub">—</span>`
-          : `<span class="num" title="${fmt(r.activeDays)} of ${fmt(r.activeSpan)} days between their first and last activity">${
-              pctFmt(share)}</span>`;
+        const share = activeShare(r[w]);
+        if (share == null) return `<span class="sub">—</span>`;
+        const period = windowDays() == null
+          ? `the ${fmt(r[w].activeDenom)} days since their first activity`
+          : `the last ${fmt(r[w].activeDenom)} days`;
+        return `<span class="num" title="${esc(
+          `active on ${fmt(r[w].activeDays)} of ${period}`)}">${pctFmt(share)}</span>`;
       } },
     { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
   ];
