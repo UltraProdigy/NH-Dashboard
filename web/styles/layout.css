@@ -60,6 +60,10 @@ input[type="number"] { width: 72px; }
 .seg button + button { border-left: 1px solid var(--border); }
 .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
 .seg button:hover { color: var(--text); }
+/* For a card header rather than the toolbar, where a full-size control would
+   set the header's height and tower over the title beside it. Matched to
+   .excl-btn, since the two sit in the same slot on different pages. */
+.seg.mini button { padding: 4px 9px; font-size: 11px; }
 .ghost {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   padding: 5px 11px; font-size: 12px; color: var(--text);

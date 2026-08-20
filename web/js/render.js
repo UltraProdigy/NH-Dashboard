@@ -279,8 +279,15 @@ function renderToolbar() {
       <span class="seg" id="granSeg">${GRANS.map(g =>
         `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
-  for (const seg of ["prState", "reviewKind"])
-    if (wanted.has(seg)) bits.push(controlHtml(seg));
+  // Any declared control that CONTROL_HTML knows how to draw. Generic rather
+  // than a list of names, because these toggles move between homes — a module
+  // can decide its filter belongs in its own header instead, and that decision
+  // shouldn't also require deleting a line here. `controlHtml` returns "" for
+  // the ones handled above, so they can't render twice.
+  for (const name of wanted) {
+    const html = controlHtml(name);
+    if (html) bits.push(html);
+  }
 
   if (wanted.has("minActivity"))
     bits.push(`<label class="minlabel">min activity <input type="number" id="minActivity" min="0" step="1" value="${state.minActivity}"></label>`);

@@ -13,7 +13,7 @@ import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "./state.js";
    writes — so a new toggle is a line in this map rather than a line here and
    another in the event handler. Attribute names are lowercased because that's
    what the DOM does to them on the way into `dataset` anyway. */
-const seg = (key, labels) => `<span class="seg" id="${key}Seg">${
+const seg = (key, labels) => `<span class="seg mini" id="${key}Seg">${
   Object.entries(labels).map(([id, label]) =>
     `<button data-seg="${key.toLowerCase()}" data-val="${id}" aria-pressed="${
       state[key] === id}">${esc(label)}</button>`).join("")}</span>`;
@@ -26,6 +26,17 @@ const CONTROL_HTML = {
 };
 
 const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
+
+/**
+ * The same toggle, in the header of the card it filters rather than the page
+ * toolbar — the `.card-filters` slot the Dream Panel's exclusion buttons use.
+ *
+ * This is the right home for a filter that belongs to exactly one card and is
+ * worth reaching for without opening a tab first. In the toolbar it reads as
+ * page-wide and isn't; as a `tabControls` entry it disappears from the overview
+ * entirely, which is where you most want to flip it.
+ */
+const cardSeg = (name) => `<span class="card-filters">${controlHtml(name)}</span>`;
 
 /* ---- draft status -------------------------------------------------------
    Tri-state. Records ingested before `isDraft` was added to the query carry
@@ -124,6 +135,7 @@ const missingIngest = () =>
 
 export {
   SEG_KEY,
+  cardSeg,
   ciDur,
   ciSection,
   controlHtml,

@@ -1259,17 +1259,18 @@ The two halves are windowed by the only date each has — open PRs by when they
 were opened, resolved ones by when they ended. That's exactly what the two old
 cards each did on their own, so no row changes which window it lands in.
 
-This toggle and the Reviews one are `controls` rather than `tabControls`, so
-they sit in the page toolbar on the overview as well as on the tab. Both were
-`tabControls` first, on the reasoning that a filter for one card down the page
-is clutter above a grid — but these two are the ones you actually want to flip
-while scanning the overview, and making you open a tab to change them cost more
-than the clutter saved. See **Controls have two homes** for the general rule and
-the cases that still follow it.
+This toggle and the Reviews one live in **their own card's header**, via
+`controlsHtml()` — the same `.card-filters` slot the Dream Panel's exclusion
+buttons use, rendered at a smaller size with `.seg.mini` so a four-way control
+doesn't set the header's height.
 
-The third option is `controlsHtml()`, which puts a control in the card's own
-header — where the Dream Panel's filters live. Use it when the control belongs
-to one card and would be misread as page-wide anywhere else.
+They went through the other two homes first, and neither worked. As
+`tabControls` they vanished from the overview entirely, which is exactly where
+you want to flip them while scanning. Moved to `controls` they appeared in the
+page toolbar, which put a filter for one card above a grid of eleven and read as
+page-wide — and on the grouped Pull requests tab it sat above three cards while
+affecting one. On the card itself it's unambiguous in both views: the control is
+attached to the thing it controls. See **Controls have two homes**.
 
 There are 25,660 of these org-wide, and the obvious
 `{repo, number, at, merged}` shape cost ~1.9 MB in repeated key names and
@@ -1668,12 +1669,23 @@ nothing to two of the three tables under it reads as page-wide and isn't. So
 that card's own header when it's sharing. `controlHtml()` in
 `module-helpers.js` builds the markup for either home.
 
-Nine cards still use it, all of them for `filter` — the issue tables, whose
-search box only makes sense once you're looking at the whole list rather than a
-seven-row preview. The two segmented toggles that used it, Pull requests state
-and Reviews kind, moved to `controls`: those are worth flipping while scanning
-the overview, and making somebody open a tab to change them cost more than the
-tidiness was worth.
+Nine cards use it, all of them for `filter` — the issue tables, whose search box
+only makes sense once you're looking at the whole list rather than a seven-row
+preview.
+
+**`controlsHtml()` is the third home**, and the right one for a control that
+belongs to a single card in *both* views: it renders in that card's header on
+the overview and on its tab, so it's never somewhere it could be mistaken for
+page-wide and never absent when you want it. The Dream Panel's exclusion buttons
+were the original case; the Pull requests and Reviews toggles are the newer ones.
+
+The rule of thumb between the three:
+
+| Where it belongs | Use |
+| --- | --- |
+| Affects the whole page | `controls` |
+| Affects one card, and only makes sense expanded | `tabControls` |
+| Affects one card, wanted everywhere that card is | `controlsHtml()` |
 
 Both toggles render from one `seg()` helper and carry the state key they write
 in a `data-seg` attribute, so a single `segClick` handler in `events.js` serves
