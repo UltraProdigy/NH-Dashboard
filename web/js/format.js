@@ -119,16 +119,27 @@ function age(days) {
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
 
 /**
- * The share of their own run somebody was actually working, or null when the
- * build predates the numbers.
+ * The share of a period somebody was active, or null when the build predates
+ * the numbers.
  *
- * Both halves come from the payload rather than being derived here. The
- * drilldown and the Leaderboard read this same function over records built by
- * two different panels, so the moment either one started computing its own
- * denominator the two pages would quietly disagree about the same person.
+ * Both halves come from the payload rather than being derived here — that's the
+ * point of the function existing. The drilldown and the Leaderboard read it
+ * over records built by two different panels, and the moment either started
+ * working out its own denominator the two pages would quietly disagree about
+ * the same person. Which they did: the first version divided by the gap between
+ * somebody's first and last activity, which stops the clock the day they leave,
+ * so a contributor with one active afternoon behind them scored 100%. The
+ * period now always ends today, and the builder ships its length.
+ *
+ * `activeSpan` on a drilldown record, `activeDenom` on a leaderboard window.
+ * Two names because they're built by two panels and neither should have to know
+ * the other's field list; one meaning, which is the number of days in the
+ * period the count was taken over.
  */
-const activeShare = (r) =>
-  r?.activeDays == null || !r.activeSpan ? null : r.activeDays / r.activeSpan;
+const activeShare = (r) => {
+  const denom = r?.activeSpan ?? r?.activeDenom;
+  return r?.activeDays == null || !denom ? null : r.activeDays / denom;
+};
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 

@@ -653,7 +653,7 @@ export async function drilldown() {
    * drilldown subjects. Read here by the subjects that exist for their own
    * reasons; the rest is thrown away.
    */
-  const activeDays = await activeDayIndex();
+  const activeDays = await activeDayIndex(WINDOWS);
 
   for (const pr of prs) {
     if (!pr.createdAt) continue;
@@ -1236,8 +1236,8 @@ export async function drilldown() {
         first: s.first,
         last: s.last,
         totalPRs: 0,
-        activeDays: activeDays.get(login)?.days ?? 0,
-        activeSpan: activeDays.get(login)?.span ?? 0,
+        activeDays: activeDays.get(login)?.windows.all.days ?? 0,
+        activeSpan: activeDays.get(login)?.windows.all.denom ?? 0,
         slim: true,
         windows: {},
         series: null,
@@ -1265,13 +1265,13 @@ export async function drilldown() {
       first: s.first,
       last: s.last,
       totalPRs: s.total,
-      // Distinct days they did something, and the span those days cover. Both
-      // come from the shared index rather than being divided against `first`
-      // and `last` up there, so this page and the Leaderboard show the same
-      // percentage for the same person — and so the share can't exceed 100%,
-      // which dividing by a span derived somewhere else would eventually allow.
-      activeDays: activeDays.get(login)?.days ?? 0,
-      activeSpan: activeDays.get(login)?.span ?? 0,
+      // Distinct days they did something, over the days since their first —
+      // counting up to today, not to their last. The gap since somebody
+      // stopped belongs in the denominator; leaving out to their final commit
+      // gave a one-afternoon contributor a perfect score. Both halves come
+      // from the shared index so this page and the Leaderboard can't drift.
+      activeDays: activeDays.get(login)?.windows.all.days ?? 0,
+      activeSpan: activeDays.get(login)?.windows.all.denom ?? 0,
       windows: windowsOut(s),
       series: finishSeries(s._months, firstMonth(s._months), prRow),
       topRepos: rankedWindows(s._counts, "opened", "repo"),

@@ -397,17 +397,34 @@ can't clobber real data.
 
 ### Active days
 
-The Leaderboard and every contributor drilldown show what share of somebody's
-own run they were actually working — *3,173 of 4,272 days · 74%*. A day counts
-if they opened a pull request, submitted a review of any verdict, filed an
-issue, was first to reply to one, closed one, or wrote the pull request that
-closed one. Their own PR being merged by somebody else does not: that's a day
-they had, not a day they worked, and counting it would credit people for other
-people's Tuesdays.
+The Leaderboard and every contributor drilldown show what share of a period
+somebody was actually working — *3,173 of 4,274 days · 74%*.
+
+**An "activity" is one timestamped event attributed to one person.** Six kinds,
+and nothing else counts:
+
+| Event | Timestamp | Credited to |
+| --- | --- | --- |
+| Opened a pull request | `pr.createdAt` | `pr.author` |
+| Submitted a review, any verdict | `r.submittedAt` | `r.author` |
+| Filed an issue | `i.createdAt` | `i.author` |
+| First to reply on an issue | `i.firstResponseAt` | `i.firstResponder` |
+| Closed an issue | `i.closedAt` | `closerOf(i)` |
+| Wrote the PR that closed an issue | `i.closedAt` | `fixerOf(i)` |
+
+**An "active day" is that timestamp truncated to a UTC calendar date**, put in a
+`Set` per person. So it's a date on which at least one activity happened, and the
+Set dedupes: forty pull requests in one afternoon is **one** active day, not
+forty. `activeDays` is the size of that set, and `first` and `last` are its
+earliest and latest members — not when somebody joined GitHub, not today.
 
 Reviews count whatever the verdict was, not just approvals. A day spent reading
 a diff and asking for changes is a day worked, and on this org the people who do
 most of that reading approve comparatively little of it.
+
+Their own pull request being merged by somebody else is **not** on the list.
+That's a day they had, not a day they worked, and counting it would credit
+people for other people's Tuesdays.
 
 **It lives in `src/panels/activeDays.js` rather than in whichever panel wanted
 it first**, because two of them want it and they read different stores. The
@@ -418,24 +435,54 @@ either page. Both now take their numerator *and* their denominator from the one
 index, and the frontend's `activeShare()` just divides two numbers it was
 handed.
 
-The span is derived from the day set itself — first day acted to last day acted
-— rather than from either panel's own idea of when somebody started. That's what
-makes `days <= span` true by construction, so the percentage cannot exceed 100
-however much the two stores disagree about when a person first appeared. It also
-matters for triagers specifically: a span computed from the PR store alone would
-end the day somebody stopped opening pull requests, even if they answered issues
-for another two years.
+#### The period always ends today
 
-The denominator is their own first-to-last span, not the org's history. Somebody
-who did six months of solid work in 2019 was not idle for the seven years since,
-they left, and a percentage that counted the leaving would say more about the
-calendar than about them.
+This is the part that matters, and the first version got it wrong.
 
-On the Leaderboard the column is all-time, like Last active beside it and unlike
-the three PR counts before it. A windowed version would answer a different
-question — "were they busy lately" is what the PR counts already say, and this
-one is about the shape of a whole run. It sorts missing data to the bottom
-rather than reading an old build as zero.
+The share is `active days ÷ days in the period`, and the period runs to **today**
+— never to the person's own last active day. Those sound equivalent and aren't.
+
+Dividing by `last − first` freezes the clock the day somebody stops, so leaving
+is invisible to the arithmetic. Somebody who opened four pull requests in one
+afternoon of 2023 and never came back had a span of *one day*, was active on
+*one day*, and scored a flat 100% — sorting above ten years of work. That wasn't
+an edge case: 3,727 of the 6,789 people in the store have exactly one active day,
+3,864 of them scored 100%, and every single one had a span under a month. A row
+could read `100%` and `last active 2 yr ago` side by side without contradicting
+itself, which is a fair sign the number was answering a question nobody asked.
+
+Running the denominator to today fixes it at the root rather than by threshold,
+because the gap since somebody's last commit is now *inside* the denominator and
+grows every day they stay away. Nobody in the store scores 100% under it, and
+nobody scores 90%.
+
+```
+                     last − first            today − first
+Oleksey-Korolenko    1 /     1 = 100%        1 / 1,080 =   0.1%
+chavalitp            5 /     7 =  71%        5 / 1,828 =   0.3%
+Dream-Master     3,173 / 4,272 =  74%    3,173 / 4,274 =  74.2%
+```
+
+Dream-Master barely moves, because he was active yesterday. That's the property
+worth having: the figure only rewards people who are *still here*.
+
+Two flavours of period, one rule:
+
+| Period | Runs from | Denominator | Shared? |
+| --- | --- | --- | --- |
+| A fixed window (1m … 5y) | `today − N` | N days, for everybody | yes — sortable against each other |
+| All time | their first active day | their own tenure | no — people started at different times |
+
+The Leaderboard column follows whichever window the toolbar is on; the drilldown
+tile shows the all-time reading, which is the "how much of your run have you been
+working" number and the one the tile's own **Active since** date sets up.
+
+The denominator ships alongside the count — `activeDenom` in the leaderboard's
+per-window records, `activeSpan` on a drilldown record — rather than being
+recomputed in the browser. Two pages divide these numbers, and a second
+implementation of "how long is the period" is precisely how they would come to
+disagree. `activeShare()` in `format.js` is the only thing that divides them, and
+it reads both field names for that reason.
 
 ### What each record carries
 
@@ -1050,8 +1097,9 @@ fetching.
 **Active since** is a full date, not a year. "2021" is true of twelve months and
 tells you which of them only by accident, on a tile sitting next to nine others
 carrying real numbers. Underneath it is the density behind the span: *active
-3,173 of 4,272 days · 74%*, the same figure the Leaderboard carries as a column
-— see **Active days** for what counts and why it's computed once for both.
+3,173 of 4,272 days · 74%*. See **Active days** for what counts as a day worked,
+why it's computed once for both pages, and why the Leaderboard shows a windowed
+count rather than this share.
 
 The day index is a map beside the subjects rather than another `Set` on each
 one, and that's not just about sharing it. The only complete source of review
@@ -1211,18 +1259,17 @@ The two halves are windowed by the only date each has — open PRs by when they
 were opened, resolved ones by when they ended. That's exactly what the two old
 cards each did on their own, so no row changes which window it lands in.
 
-The toggle never sits in a toolbar above cards it doesn't affect. On the
-overview that means it isn't there at all — the overview gathers every module's
-controls into one toolbar, and a four-way filter for one card down the page is
-clutter up there. That's what a module's `tabControls` are, as against
-`controls`. On the Pull requests tab, where this card is stacked with two
-others, it renders in this card's own header for the same reason. It reaches the
-toolbar only when a module has a tab to itself. See **Controls have two homes**.
+This toggle and the Reviews one are `controls` rather than `tabControls`, so
+they sit in the page toolbar on the overview as well as on the tab. Both were
+`tabControls` first, on the reasoning that a filter for one card down the page
+is clutter above a grid — but these two are the ones you actually want to flip
+while scanning the overview, and making you open a tab to change them cost more
+than the clutter saved. See **Controls have two homes** for the general rule and
+the cases that still follow it.
 
 The third option is `controlsHtml()`, which puts a control in the card's own
-header instead of the toolbar — where the Dream Panel's filters live. Use it
-when the control belongs to one card on both the overview and its tab, and
-`tabControls` when it only makes sense with the card expanded.
+header — where the Dream Panel's filters live. Use it when the control belongs
+to one card and would be misread as page-wide anywhere else.
 
 There are 25,660 of these org-wide, and the obvious
 `{repo, number, at, merged}` shape cost ~1.9 MB in repeated key names and
@@ -1613,14 +1660,20 @@ which is how the click handler knows whose sort to change.
 
 A module's `controls` reach the page toolbar whenever it's on screen. Its
 `tabControls` are ones that would be clutter above a grid of cards they affect
-one of — the Pull requests state filter and the Reviews kind filter are the two
-today.
+one of.
 
 Grouping reintroduces that problem one level down: a filter in the toolbar doing
 nothing to two of the three tables under it reads as page-wide and isn't. So
 `tabControls` go in the toolbar when the module has its tab to itself, and in
 that card's own header when it's sharing. `controlHtml()` in
 `module-helpers.js` builds the markup for either home.
+
+Nine cards still use it, all of them for `filter` — the issue tables, whose
+search box only makes sense once you're looking at the whole list rather than a
+seven-row preview. The two segmented toggles that used it, Pull requests state
+and Reviews kind, moved to `controls`: those are worth flipping while scanning
+the overview, and making somebody open a tab to change them cost more than the
+tidiness was worth.
 
 Both toggles render from one `seg()` helper and carry the state key they write
 in a `data-seg` attribute, so a single `segClick` handler in `events.js` serves

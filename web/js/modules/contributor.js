@@ -234,8 +234,10 @@ export const contributorModules = {
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
-    controls: ["filter"],
-    tabControls: ["reviewKind"],
+    // `controls`, not `tabControls`: this one is worth adjusting from the
+    // overview without opening the tab first, so it stays in the toolbar
+    // wherever the card is.
+    controls: ["filter", "reviewKind"],
     sub: () => `${REVIEW_KIND_LABEL[state.reviewKind].toLowerCase()}, on their plate`,
     render(expanded) {
       const q = queueCounts();
@@ -306,11 +308,7 @@ export const contributorModules = {
    */
   cPRs: {
     page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
-    controls: ["window", "filter"],
-    // tabControls, not controls: the overview gathers every module's controls
-    // into one toolbar, and a four-way filter for one card down the page is
-    // noise up there. It appears when this tab is the thing you're looking at.
-    tabControls: ["prState"],
+    controls: ["window", "filter", "prState"],
     sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
       const rows = prRows();
