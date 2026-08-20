@@ -1156,18 +1156,23 @@ user ones.
 ### Team badges
 
 The contributor drilldown header carries a strip of gear badges between the
-name block and the GitHub link, one per org team the person belongs to. Six
-teams have a badge, and they always paint in this order regardless of how the
-person joined them:
+name block and the GitHub link, one per org team the person belongs to. Seven
+roles have a badge, and they always paint in this order regardless of how the
+person came by them:
 
-| Badge  | Team             |
-| ------ | ---------------- |
-| Red    | GitHub Admin     |
-| Orange | GTNH Contributor |
-| Yellow | GTNH Developer   |
-| Green  | Scala Developer  |
-| Blue   | Triage Team      |
-| Purple | Balance Review   |
+| Badge      | Role             |
+| ---------- | ---------------- |
+| Red        | Owner            |
+| Orange     | GitHub Admin     |
+| Yellow     | GTNH Developer   |
+| Green      | GTNH Contributor |
+| Light blue | Triage Team      |
+| Blue       | Scala Developer  |
+| Purple     | Balance Review   |
+
+Owner is the odd one out: it's org ownership rather than team membership, so it
+has no team to read from and stays hardcoded even once the others are hydrated
+from the API.
 
 The order is the declaration order of `TEAMS` in `web/js/teams.js`, and the
 lookup walks that array rather than the roster, so a badge can never appear out
@@ -1874,7 +1879,7 @@ members as the tooltip, since "the whole team was asked" and "you personally
 were asked" are different amounts of obligation.
 
 **Team badges want it as well.** `ROSTER` in `web/js/teams.js` is a hand-typed
-snapshot of six teams' membership. Org read turns it into
+snapshot of six teams' membership, plus the owner list. Org read turns it into
 `organization { teams { nodes { slug members { nodes { login } } } } }` — one
 paged query for the whole org — written into the build output and fetched
 alongside the rest of the data. Only `ROSTER` changes: `TEAMS` keeps the badge

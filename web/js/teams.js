@@ -12,15 +12,21 @@
    ========================================================================== */
 
 const TEAMS = [
+  { id: "owner",       name: "Owner",            img: "assets/teams/owner.png" },
   { id: "admin",       name: "GitHub Admin",     img: "assets/teams/admin.png" },
-  { id: "contributor", name: "GTNH Contributor", img: "assets/teams/contributor.png" },
   { id: "developer",   name: "GTNH Developer",   img: "assets/teams/developer.png" },
-  { id: "scala",       name: "Scala Developer",  img: "assets/teams/scala.png" },
+  { id: "contributor", name: "GTNH Contributor", img: "assets/teams/contributor.png" },
   { id: "triage",      name: "Triage Team",      img: "assets/teams/triage.png" },
+  { id: "scala",       name: "Scala Developer",  img: "assets/teams/scala.png" },
   { id: "balance",     name: "Balance Review",   img: "assets/teams/balance.png" },
 ];
 
 const ROSTER = {
+  // Not a GitHub team — org ownership is a role, so this one stays hardcoded
+  // even after the rest of the rosters start arriving from the API.
+  owner: [
+    "Dream-Master", "boubou19", "Namikon",
+  ],
   admin: [
     "boubou19", "Connor-Colenso", "Dream-Master", "eigenraven", "Glease",
     "glowredman", "GregtechNewHorizons", "GTNH-Colen", "mitchej123",
