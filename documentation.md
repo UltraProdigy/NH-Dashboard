@@ -1160,15 +1160,15 @@ name block and the GitHub link, one per org team the person belongs to. Seven
 roles have a badge, and they always paint in this order regardless of how the
 person came by them:
 
-| Badge      | Role             |
-| ---------- | ---------------- |
-| Red        | Owner            |
-| Orange     | GitHub Admin     |
-| Yellow     | GTNH Developer   |
-| Green      | GTNH Contributor |
-| Light blue | Triage Team      |
-| Blue       | Scala Developer  |
-| Purple     | Balance Review   |
+| Badge  | Role             |
+| ------ | ---------------- |
+| Red    | Owner            |
+| Orange | GitHub Admin     |
+| Yellow | GTNH Developer   |
+| Green  | GTNH Contributor |
+| Cyan   | Triage Team      |
+| Blue   | Scala Developer  |
+| Purple | Balance Review   |
 
 Owner is the odd one out: it's org ownership rather than team membership, so it
 has no team to read from and stays hardcoded even once the others are hydrated
