@@ -35,7 +35,7 @@ import {
   subjectSlice,
   windowTable,
 } from "../drilldown-data.js";
-import { draftNotice, draftPill, sizeNotice } from "../module-helpers.js";
+import { cardSeg, draftNotice, draftPill, sizeNotice } from "../module-helpers.js";
 
 const prUrl = (r) =>
   `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}`;
@@ -234,10 +234,11 @@ export const contributorModules = {
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
-    // `controls`, not `tabControls`: this one is worth adjusting from the
-    // overview without opening the tab first, so it stays in the toolbar
-    // wherever the card is.
-    controls: ["filter", "reviewKind"],
+    controls: ["filter"],
+    // In this card's own header rather than the page toolbar. It filters one
+    // card, so it sits on that card — and unlike `tabControls` it's there on
+    // the overview too, which is where you most want to flip it.
+    controlsHtml: () => cardSeg("reviewKind"),
     sub: () => `${REVIEW_KIND_LABEL[state.reviewKind].toLowerCase()}, on their plate`,
     render(expanded) {
       const q = queueCounts();
@@ -308,7 +309,8 @@ export const contributorModules = {
    */
   cPRs: {
     page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
-    controls: ["window", "filter", "prState"],
+    controls: ["window", "filter"],
+    controlsHtml: () => cardSeg("prState"),
     sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
       const rows = prRows();
