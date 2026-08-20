@@ -395,24 +395,75 @@ running anything locally.
 Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
 can't clobber real data.
 
+### Active days
+
+The Leaderboard and every contributor drilldown show what share of somebody's
+own run they were actually working — *3,173 of 4,272 days · 74%*. A day counts
+if they opened a pull request, submitted a review of any verdict, filed an
+issue, was first to reply to one, closed one, or wrote the pull request that
+closed one. Their own PR being merged by somebody else does not: that's a day
+they had, not a day they worked, and counting it would credit people for other
+people's Tuesdays.
+
+Reviews count whatever the verdict was, not just approvals. A day spent reading
+a diff and asking for changes is a day worked, and on this org the people who do
+most of that reading approve comparatively little of it.
+
+**It lives in `src/panels/activeDays.js` rather than in whichever panel wanted
+it first**, because two of them want it and they read different stores. The
+drilldown reads pull requests and issues; the contributors panel reads pull
+requests alone. Two implementations would mean the Leaderboard saying 62% and
+that same person's profile saying 74%, with no way to tell which was wrong from
+either page. Both now take their numerator *and* their denominator from the one
+index, and the frontend's `activeShare()` just divides two numbers it was
+handed.
+
+The span is derived from the day set itself — first day acted to last day acted
+— rather than from either panel's own idea of when somebody started. That's what
+makes `days <= span` true by construction, so the percentage cannot exceed 100
+however much the two stores disagree about when a person first appeared. It also
+matters for triagers specifically: a span computed from the PR store alone would
+end the day somebody stopped opening pull requests, even if they answered issues
+for another two years.
+
+The denominator is their own first-to-last span, not the org's history. Somebody
+who did six months of solid work in 2019 was not idle for the seven years since,
+they left, and a percentage that counted the leaving would say more about the
+calendar than about them.
+
+On the Leaderboard the column is all-time, like Last active beside it and unlike
+the three PR counts before it. A windowed version would answer a different
+question — "were they busy lately" is what the PR counts already say, and this
+one is about the shape of a whole run. It sorts missing data to the bottom
+rather than reading an old build as zero.
+
 ### What each record carries
 
 Beyond the identity and timing fields, every PR record holds:
 
 | Field | Feeds |
 |---|---|
-| `title` | Most grossing, Biggest PRs, Closed PRs |
+| `title` | Most grossing, Biggest PRs, Pull requests |
 | `additions`, `deletions`, `changedFiles` | lines-changed metrics everywhere, Biggest PRs |
 | `commits` | commit counts per repo and per contributor |
 | `comments` | Most commented, engagement totals |
 | `reactions`, `thumbsUp`, `thumbsDown` | Most 👍 / Most 👎 |
-| `reviewCount`, `reviews[]` | approvals, review latency, Collaboration |
-| `isDraft` | Open PRs / Backlog state column |
+| `reviewCount`, `reviews[]` | approvals, review latency, Collaboration, ongoing reviews, active days |
+| `isDraft` | Pull requests / Backlog state column |
+| `assignees[]` | Reviews card, assignment log |
+| `reviewRequests[]` | Reviews card, pending requests |
 
-All of them are scalars or `totalCount`-only connections on the PR itself, so
-they cost nothing against the GraphQL node budget — 50 PRs × 50 reviews is
-still 2,500 nodes a page. The expensive part was never the fields; it was the
+Most of them are scalars or `totalCount`-only connections on the PR itself, so
+they cost nothing against the GraphQL node budget. `assignees` and
+`reviewRequests` do have nodes, which takes a page from 2,500 to 4,000 — still
+nowhere near the limit. The expensive part was never the fields; it was the
 one-time re-walk to populate the records that predate them.
+
+`reviewRequests` only ever holds *pending* requests, because that's all GitHub
+keeps: the request is deleted when the review lands. On a closed PR it's an
+empty list, and that's the truth rather than a gap — nobody is waiting on a
+merged PR. `assignees` behaves the opposite way and is meaningful on every
+record, which is why the two have very differently priced backfills.
 
 Titles are clipped to 160 characters on the way in. They're the single largest
 field in the store, a ranked-list row ellipsises long before that, and only a
@@ -426,19 +477,27 @@ already in the store keeps its old shape indefinitely.
 
 `backfillField` closes that gap. It takes a predicate for "records that still
 need this" and a query to re-walk the repos holding them with, and runs after
-the main pass so anything that pass already refreshed is skipped. Two are wired
-up in `BACKFILLS`:
+the main pass so anything that pass already refreshed is skipped. Four are wired
+up in `BACKFILLS`, in this order:
 
 | Pass | Predicate | Query | Cost |
 |---|---|---|---|
 | Draft status | open records missing `isDraft` | `OPEN_PRS` | ~118 requests |
+| Review requests | open records missing `reviewRequests` | `OPEN_PRS` | ~118 requests |
 | Diff size, comments, reactions, titles | any record missing `additions` | `PRS` | ~570 requests, once |
+| Assignees | any record missing `assignees` | `PRS` | ~570 requests, once |
 
-The second one *is* a full re-walk — every record in the store predates those
-fields, so "the repos holding a record that needs it" is every repo. There's no
-cheaper option: diff size is meaningful on merged PRs, so it can't be scoped to
-open ones the way draft status could. It's paid once, and 570 requests against
-a 5,000/hour budget is an inconvenience rather than a problem.
+The order is the point. The two `OPEN_PRS` passes are cheap and go first,
+because the expensive ones may well be interrupted. Of the two full re-walks,
+`assignees` goes last so that a store needing both pays for one: the diff-size
+pass re-fetches with the same query, which now carries `assignees`, and fills
+the field on its way through — leaving the fourth pass with nothing stale to
+find.
+
+A full re-walk is unavoidable for those two. Diff size is meaningful on merged
+PRs and assignment outlives the close, so neither can be scoped to open records
+the way draft status and review requests can. It's paid once, and 570 requests
+against a 5,000/hour budget is an inconvenience rather than a problem.
 
 Every pass is **self-limiting** — once the field is populated it costs one local
 store read and zero requests — so both can stay in place permanently. They're
@@ -456,6 +515,15 @@ an un-backfilled store would be a list ordered by nothing.
 Draft state is the same deal: the drilldowns show `unknown` rather than
 guessing, because rendering "ready" for a PR we've never asked about would be a
 quiet lie.
+
+The Reviews card reports the same way, and separately for each of its two
+fields. `prFieldCoverage` in the drilldown payload counts how many open PRs
+carry `reviewRequests` and how many records of any state carry `assignees`, and
+an empty list says which of "nobody has asked you anything" and "the ingest has
+never asked GitHub" it means — the second one is a command the reader can run,
+so it prints the command. Ongoing reviews are derived from `reviews[]`, which
+has been in the store from the start, so that column is right on an
+un-backfilled store.
 
 ## Issue analytics
 
@@ -936,8 +1004,8 @@ Every other page now works the same way — see "One period control per page"
 above; the drilldowns just got there first.
 
 Each drilldown module declares which controls it actually uses, so Collaboration
-(all-time by nature) and Open PRs show no time control at all rather than one
-that does nothing when you touch it.
+(all-time by nature) and Reviews (a queue, which is about now) show no time
+control at all rather than one that does nothing when you touch it.
 
 The setting is per-page: changing it here doesn't touch Analytics or
 Contributor Activity, which keep their own. Looking at one subject you
@@ -978,6 +1046,20 @@ counts per contributor — but it's computed asynchronously (a `202` on the firs
 call, needing retry logic) and caps at each repo's top 100 contributors. Not
 built; the PR-derived numbers came free with data the ingest was already
 fetching.
+
+**Active since** is a full date, not a year. "2021" is true of twelve months and
+tells you which of them only by accident, on a tile sitting next to nine others
+carrying real numbers. Underneath it is the density behind the span: *active
+3,173 of 4,272 days · 74%*, the same figure the Leaderboard carries as a column
+— see **Active days** for what counts and why it's computed once for both.
+
+The day index is a map beside the subjects rather than another `Set` on each
+one, and that's not just about sharing it. The only complete source of review
+dates is every review on every PR, and the `person()` helper creates a subject
+as a side effect — so marking days through it would promote several thousand
+people whose entire trace is one drive-by review comment into full drilldown
+subjects. The index is read at flatten time by the subjects that exist for their
+own reasons, and the rest of it is thrown away; only the two counts ship.
 
 Ranked lists — top repos, top authors, review partners — are **uncapped**. That
 was measured rather than assumed: capping at 10 produced 2.54 MB, at 100 it was
@@ -1102,17 +1184,36 @@ of empty panel below. In the expanded tab view they take their own max-height
 instead — the card stands alone there, so an uncapped list would just make the
 page metres long.
 
-### Closed PRs
+### Pull requests
 
-The contributor drilldown carries every PR of theirs that reached a terminal
-state — merged or closed unmerged — newest first, with a toggle for All /
-Merged / Closed. It respects the time control like everything else, so all-time
-by default. Full width on the overview, since a half-width table of four
-columns looked stranded.
+The contributor drilldown carries every PR of theirs in one table, with a
+toggle for All / Opened / Merged / Closed. It respects the time control like
+everything else, so all-time by default. Full width on the overview, since a
+half-width table of six columns looked cramped.
+
+This was two cards — Open PRs and Closed PRs — and the split was arbitrary in a
+way that showed. An open PR and a merged one are the same object at different
+points in its life; the two tables shared five of six columns; and answering
+"what has this person got going in GT5-Unofficial" meant reading one table,
+scrolling, and reading the other. **All** is also a thing the old pair could not
+express at all, since neither card knew about the other's rows.
+
+The State column carries both halves of that question. An open PR shows its
+draft status (`draft` / `ready` / `unknown`, the last meaning the ingest hasn't
+backfilled it yet) and a resolved one shows its outcome (`merged` / `closed`) —
+the same question, "where is this", asked at different points. Opened and
+Resolved are separate columns because an open row has no resolution date, and
+Reviewed? is blank on resolved rows rather than guessing: the flag records
+whether anyone other than the author had reviewed an open PR, which isn't a
+claim the store can make retrospectively.
+
+The two halves are windowed by the only date each has — open PRs by when they
+were opened, resolved ones by when they ended. That's exactly what the two old
+cards each did on their own, so no row changes which window it lands in.
 
 The toggle never sits in a toolbar above cards it doesn't affect. On the
 overview that means it isn't there at all — the overview gathers every module's
-controls into one toolbar, and a three-way filter for one card down the page is
+controls into one toolbar, and a four-way filter for one card down the page is
 clutter up there. That's what a module's `tabControls` are, as against
 `controls`. On the Pull requests tab, where this card is stacked with two
 others, it renders in this card's own header for the same reason. It reaches the
@@ -1132,22 +1233,78 @@ they have hundreds of PRs. The frontend expands them on first use like the
 series, destructuring positionally against `RESOLVED_FIELDS`:
 
 ```
-[repo, number, at, merged, additions, deletions, commits, comments, title]
+[repo, number, at, merged, additions, deletions, commits, comments, title, ageDays]
 ```
 
 Timestamps are stored as plain dates. The list sorts by recency and renders
 "3 days ago"; the time of day was 25,660 records' worth of bytes nobody reads.
+`ageDays` was appended when the two cards merged — open rows have carried it
+since the backlog existed, and the combined table needs both halves able to say
+how old they are.
 
 Diff size, commits and comments ride along on these rows rather than living in
 a separate "biggest PRs" list. A precomputed top-15 per contributor would have
 been barely smaller — 17,835 rows against 25,660 — and could only ever answer
-one question. Carrying the numbers here means Biggest PRs, the Closed PRs table
-and the merged/dropped toggle all read the same array, and every one of them
+one question. Carrying the numbers here means Biggest PRs, the Pull requests
+table and its state toggle all read the same array, and every one of them
 follows the period control for free.
 
 Rows written before those columns existed are four long, so the tail
 destructures to `undefined` and is normalised to `null` — "we haven't asked" and
-"this PR changed nothing" have to render differently.
+"this PR changed nothing" have to render differently. Append to
+`RESOLVED_FIELDS`, never reorder it.
+
+### Reviews
+
+The card in the six columns Open PRs used to hold, answering a question the old
+one didn't: what is somebody waiting on this person for. Three counts across the
+top — **review requests**, **ongoing reviews**, **assigned PRs** — over one
+table with an All / Requested / Reviewing / Assigned toggle.
+
+- **Requested** is a pending review request on a live PR. GitHub deletes the
+  request the moment the review lands, so this is genuinely "still waiting",
+  never a history of who was once asked.
+- **Reviewing** is a PR they have already said something about that hasn't
+  merged. The verdict shown is their *newest* one, which is the only one still
+  true: someone who requested changes and then approved is not blocking
+  anything, and the reverse very much is. An approval sitting on an unmerged PR
+  is as much an open loop as a request for changes — just somebody else's.
+- **Assigned** is every PR they were put down as owning, open or closed.
+  Assignment outlives the close, and "what did I own last quarter" is as fair a
+  question as "what do I owe now". It's the only one of the three that keeps
+  resolved rows.
+
+A PR can carry more than one reason and often does — being re-requested after a
+round of changes puts it in both review lists, and being assigned something
+you're also asked to review is normal. It's one row either way, with every
+reason on it as a pill, so the card can't read as three times the work it is.
+
+**Individual reviewers only.** A team review request resolves to a `Team`, which
+has a name rather than a login, and attributing one to its members needs org
+read the ingest token doesn't have. The query selects `... on User { login }`
+and a team request drops out rather than landing as a null in somebody's queue,
+so a PR whose only outstanding request is to a team is absent here. That's a
+known gap, not a silent one — see **Moving into the org**.
+
+Two of the three need fields the PR store didn't originally carry, and the card
+distinguishes "nobody has asked you anything" from "the ingest has never asked
+GitHub" — the second is a command the reader can run, so it says the command.
+`prFieldCoverage` in the payload head is what it reads: how many open PRs carry
+`reviewRequests`, and how many records of any state carry `assignees`. Ongoing
+reviews need neither and worked the day the card shipped, since review lists
+have been in the store from the start.
+
+The two backfills have very different price tags, which is why they're separate
+entries in `BACKFILLS`:
+
+| field | population | query | cost |
+| --- | --- | --- | --- |
+| `reviewRequests` | open PRs only | `OPEN_PRS` | ~118 requests |
+| `assignees` | every PR | `PRS` | the full re-walk, ~570 requests |
+
+`assignees` runs last on purpose. A store that needs both it and the diff-size
+pass pays for one, because that pass re-fetches with the same query and fills
+this field on its way through. See **Backfilling a newly-added field**.
 
 ### Biggest PRs
 
@@ -1160,14 +1317,13 @@ Open PRs are included alongside resolved ones. A 6,000-line PR that has been
 sitting open for a year is exactly what this card should surface, and excluding
 it for not having landed would be perverse. Resolved PRs are windowed by when
 they ended and open ones by when they were opened — the only dates each half
-has, and the same ones Closed PRs and Open PRs already window by, so the three
-cards agree about what "last 6 months" contains.
+has, and the same ones the Pull requests card windows by, so the two agree about
+what "last 6 months" contains.
 
-It reads `resolvedAll()` rather than `resolvedRows()`, deliberately: the latter
-also applies the Closed PRs merged/dropped toggle, which isn't shown on this
-card. Reusing it would let a setting made on the card above quietly halve the
-list — and now that both are stacked into the Pull requests tab, "above" is
-literal.
+It reads `resolvedAll()` rather than `prRows()`, deliberately: the latter also
+applies the Pull requests state toggle, which isn't shown on this card. Reusing
+it would let a setting made on the card above quietly halve the list — and now
+that both are stacked into the Pull requests tab, "above" is literal.
 
 ### Most grossing
 
@@ -1269,6 +1425,21 @@ which subject the page is *about*; this one adds a column to one card. Sharing t
 widget would have meant one input with two meanings depending on where the caret
 happened to be.
 
+### The search popup highlights two different things
+
+Both comboboxes share `.combo-opt`, so the contributor search, the repo search
+and the head-to-head picker are one component with one set of rules.
+
+Rows highlight on hover. They didn't for a long time, which made a list of sixty
+clickable rows look like a list of sixty labels — the cursor was already a
+pointer, but nothing under it moved.
+
+The keyboard cursor needs to stay distinguishable from that, because both can be
+true at once: arrow-key down four rows, then rest the mouse somewhere else, and
+two rows are lit. Hover gets the background alone; `aria-selected` gets the
+background *and* an inset accent bar down its left edge, so the row Enter will
+pick is always the one with the bar.
+
 ### "+ N more" counts what was truncated
 
 `renderTable` derives its "+ N more — open the tab for the full list" line from
@@ -1365,14 +1536,14 @@ two things bend it, because taken literally it produced 52 tabs across six
 pages, and a tab bar that long is a worse index than the grid it's indexing.
 
 **A group is several cards under one tab, stacked.** Contributor Drilldown had
-Open PRs, Closed PRs and Biggest PRs as three tabs; they're three views of one
+Open PRs, Closed PRs and Biggest PRs as three tabs; they're views of one
 question and nobody opens one without wanting the others. Groups are declared in
 `pages.js`:
 
 ```js
 groups: [
-  { id: "prs", label: "Pull requests", twin: "@prs", count: "cOpenPRs",
-    modules: ["cOpenPRs", "cClosed", "cBiggest"] },
+  { id: "prs", label: "Pull requests", twin: "@prs", count: "cPRs",
+    modules: ["cReviews", "cPRs", "cBiggest"] },
 ]
 ```
 
@@ -1381,12 +1552,12 @@ spans, same twelve-column tiling. A group only affects the tab bar, and it
 appears there at the position of its first member, so there's no second ordering
 to drift out of sync with the layout. Its own `modules` list is the *stacking*
 order, which is deliberately not always the grid's: the grid puts Biggest PRs
-before Closed PRs to fill a row, but stacked they read best as open, then
-closed, then biggest.
+before Pull requests to fill a row, but stacked they read best as queue, then
+the full list, then the ranking.
 
 `count` names the one member whose badge the group borrows. Summing members
-would double-count — Biggest PRs overlaps both Open and Closed — and a badge
-that disagrees with the lists underneath it is worse than no badge, so a group
+would double-count — Biggest PRs overlaps everything else — and a badge that
+disagrees with the lists underneath it is worse than no badge, so a group
 without a `count` simply doesn't get one.
 
 **A card can decline a tab** with `tab: false`. `topAuthors` and `topReviewers`
@@ -1410,9 +1581,9 @@ the same-named group on both sides, and no pair is split across two:
 | `cActivity` | `rActivity` | Activity |
 | `cRepos` | `rPeople` | Activity |
 | `cCollab` | `rHealth` | Activity |
-| `cOpenPRs` | `rBacklog` | Pull requests |
+| `cPRs` | `rBacklog` | Pull requests |
 | `cBiggest` | `rGrossing` | Pull requests |
-| `cClosed` | — | Pull requests |
+| `cReviews` | — | Pull requests |
 | `cIssues` | `rIssues` | Issues |
 | `cFiled` | `rIssueTriage` | Issues |
 | `cTriage` | `rIssuePeople` | Issues |
@@ -1442,13 +1613,19 @@ which is how the click handler knows whose sort to change.
 
 A module's `controls` reach the page toolbar whenever it's on screen. Its
 `tabControls` are ones that would be clutter above a grid of cards they affect
-one of — the Closed PRs three-way filter is the only one today.
+one of — the Pull requests state filter and the Reviews kind filter are the two
+today.
 
 Grouping reintroduces that problem one level down: a filter in the toolbar doing
 nothing to two of the three tables under it reads as page-wide and isn't. So
 `tabControls` go in the toolbar when the module has its tab to itself, and in
 that card's own header when it's sharing. `controlHtml()` in
 `module-helpers.js` builds the markup for either home.
+
+Both toggles render from one `seg()` helper and carry the state key they write
+in a `data-seg` attribute, so a single `segClick` handler in `events.js` serves
+both homes and a third toggle costs a line in `CONTROL_HTML` and a line in
+`SEG_KEY` rather than an identical `if` in two listeners.
 
 ## Layout
 
@@ -1577,6 +1754,15 @@ from `src/config.js`. To cover private repos, swap in a token with full `repo`
 scope — no panel code changes. Note that GitHub Pages access control is
 Enterprise Cloud only, so if this ends up serving private-repo data it needs
 somewhere other than Pages to live.
+
+**Team review requests need this too.** The Reviews card tracks individual
+reviewers only: a team request resolves to a `Team`, which carries a name rather
+than a login, and expanding one into its members needs org read the current
+token doesn't have. Once that's available, `PR_FIELDS` gains
+`... on Team { name }` alongside the `User` fragment, and the queue can credit a
+request to everyone on the team — or, better, show the team as the row and the
+members as the tooltip, since "the whole team was asked" and "you personally
+were asked" are different amounts of obligation.
 
 ## Not built yet
 

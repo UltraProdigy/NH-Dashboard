@@ -118,7 +118,30 @@ function age(days) {
 
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso)) / 86400000) : null);
 
+/**
+ * The share of their own run somebody was actually working, or null when the
+ * build predates the numbers.
+ *
+ * Both halves come from the payload rather than being derived here. The
+ * drilldown and the Leaderboard read this same function over records built by
+ * two different panels, so the moment either one started computing its own
+ * denominator the two pages would quietly disagree about the same person.
+ */
+const activeShare = (r) =>
+  r?.activeDays == null || !r.activeSpan ? null : r.activeDays / r.activeSpan;
+
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+/**
+ * A date somebody can read. UTC throughout, because every timestamp in the
+ * store is and rendering one in local time would slide half the org's dates a
+ * day either way depending on who's looking.
+ */
+function dateFmt(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
 
 /**
  * Bucket keys are 2026-08 / 2026-W32 / 2026-08-10; none reads well on an axis
@@ -144,6 +167,7 @@ function bucketLabel(b) {
 
 export {
   MONTHS,
+  activeShare,
   age,
   agoText,
   avatar,
@@ -153,6 +177,7 @@ export {
   contribHref,
   contribLink,
   contribName,
+  dateFmt,
   daysSince,
   diff,
   dur,

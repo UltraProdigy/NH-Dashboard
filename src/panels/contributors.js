@@ -7,6 +7,7 @@
  */
 
 import { readStore } from "../ingest/pullRequests.js";
+import { activeDayIndex } from "./activeDays.js";
 import { BOT_PATTERN, CONTRIBUTOR_MIN_ACTIVITY } from "../config.js";
 
 const DAY = 86_400_000;
@@ -86,8 +87,25 @@ export async function contributors() {
     }
   }
 
+  /**
+   * How much of their own run they were actually working.
+   *
+   * Both numbers come from the shared index rather than from the counters
+   * above, and deliberately: this panel only reads the PR store, so a triager's
+   * span computed here would end the day they stopped opening pull requests
+   * even though they answered issues for another two years. It would also
+   * disagree with the same person's drilldown, which is the failure that
+   * matters most — two pages, one person, two percentages, no way to tell which
+   * is wrong from either.
+   */
+  const active = await activeDayIndex();
+
   const rows = [...people.values()]
     .filter((p) => p.all.prs + p.all.approvals >= CONTRIBUTOR_MIN_ACTIVITY)
+    .map((p) => {
+      const a = active.get(p.login);
+      return { ...p, activeDays: a?.days ?? 0, activeSpan: a?.span ?? 0 };
+    })
     .sort((a, b) => b.all.prs + b.all.approvals - (a.all.prs + a.all.approvals));
 
   if (truncated) {

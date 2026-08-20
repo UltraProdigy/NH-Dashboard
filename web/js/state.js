@@ -63,7 +63,12 @@ const state = {
   vs: { contributor: [], repo: [], q: "", open: false, active: 0 },
 
   drillWindow: "all",
-  closedState: "all", // Closed PRs tab: all | merged | dropped
+  // Pull requests card: all | open | merged | dropped. Open and resolved PRs
+  // used to be two cards, which meant the same question — "what has this person
+  // got in this repo" — was answered in two places with two different tables
+  // and no way to read them against each other.
+  prState: "all",
+  reviewKind: "all", // Reviews card: all | requested | reviewing | assigned
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
   drillState: "idle", // idle | loading | ready | error
@@ -80,8 +85,18 @@ const DRILL = { contributor: "contributors", repo: "repos" };
 const isDrill = (page) => Object.hasOwn(DRILL, page);
 const otherMode = (page) => (page === "contributor" ? "repo" : "contributor");
 
-/** Closed PRs toggle. Key order is the order the buttons appear in. */
-const CLOSED_LABEL = { all: "All", merged: "Merged", dropped: "Closed" };
+/** Pull requests toggle. Key order is the order the buttons appear in. */
+const PR_STATE_LABEL = { all: "All", open: "Opened", merged: "Merged", dropped: "Closed" };
+
+/**
+ * Reviews toggle. "Requested" is what somebody asked them to look at,
+ * "Reviewing" is what they've already said something about and hasn't landed,
+ * and a PR can honestly be both — a re-request after a round of changes is
+ * exactly that. All shows one row per PR with every reason it's there.
+ */
+const REVIEW_KIND_LABEL = {
+  all: "All", requested: "Requested", reviewing: "Reviewing", assigned: "Assigned",
+};
 
 /**
  * x-axis granularity. `bucketDays` is what turns a period in days into a bucket
@@ -163,7 +178,8 @@ const DREAM_LABELS_MAX = 12;
 const DREAM_LABELS_OVERVIEW = 4;
 
 export {
-  CLOSED_LABEL,
+  PR_STATE_LABEL,
+  REVIEW_KIND_LABEL,
   DREAM_EXCL_DEFAULT,
   DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,

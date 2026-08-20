@@ -50,6 +50,7 @@ import { readStore } from "../ingest/pullRequests.js";
 import { readStore as readIssueStore } from "../ingest/issues.js";
 import { BOT_PATTERN, ISSUE_STALE_DAYS } from "../config.js";
 import { WINDOWS } from "./contributors.js";
+import { activeDayIndex } from "./activeDays.js";
 import { BACKLOG_BUCKETS } from "./analytics.js";
 import { grossingLists, hasEngagement } from "./grossing.js";
 import {
@@ -123,6 +124,25 @@ function firstReviewAt(pr) {
     if (!best || r.submittedAt < best) best = r.submittedAt;
   }
   return best;
+}
+
+/**
+ * The last thing each reviewer said on a PR, and when.
+ *
+ * approversOf next door takes the *earliest* approval because it's counting an
+ * act that happened. This is answering a different question — "where does this
+ * review stand" — and there the newest verdict is the only one that's still
+ * true: someone who requested changes and then approved is not blocking
+ * anything, and the reverse very much is.
+ */
+function latestReviewsOf(pr) {
+  const out = new Map();
+  for (const r of pr.reviews ?? []) {
+    if (!r.submittedAt || isBot(r.author) || r.author === pr.author) continue;
+    const prev = out.get(r.author);
+    if (!prev || r.submittedAt > prev.at) out.set(r.author, { at: r.submittedAt, state: r.state });
+  }
+  return out;
 }
 
 /**
@@ -232,7 +252,8 @@ function summarize(a) {
  * asked" and "this PR changed nothing" have to render differently.
  */
 export const RESOLVED_FIELDS =
-  ["repo", "number", "at", "merged", "additions", "deletions", "commits", "comments", "title"];
+  ["repo", "number", "at", "merged", "additions", "deletions", "commits",
+   "comments", "title", "ageDays"];
 
 const orNull = (v) => (typeof v === "number" ? v : null);
 
@@ -253,6 +274,11 @@ function packResolved(list) {
         orNull(r.additions), orNull(r.deletions),
         orNull(r.commits), orNull(r.comments),
         r.title ?? "",
+        // Appended for the merged Pull requests card, which shows resolved and
+        // open PRs in one table and needs both halves to be able to say how
+        // old they are. Open rows have carried ageDays since the backlog
+        // existed; this is the resolved half catching up.
+        r.ageDays,
       ];
     });
   return { repos, rows };
@@ -319,6 +345,12 @@ function blankSubject(id, idKey, kind) {
     _counts: new Map(),
     _partners: new Map(), // contributor only: reviewedBy / reviewsFor
     _gross: [],   // repo only: PRs that drew comments or reactions
+    // Contributor only, and all three about PRs somebody else usually wrote:
+    // open PRs awaiting their review, open PRs they've already reviewed, and
+    // every PR they were assigned whatever became of it.
+    _requested: [],
+    _reviewing: [],
+    _assigned: [],
     open: [],
     resolved: [], // contributor only: their merged and closed-unmerged PRs
   };
@@ -384,18 +416,22 @@ function issueMonth(subject, key, field, by = 1) {
 }
 
 /**
- * Pack a list of issue rows, interning the repo name.
+ * Pack a list of rows against a field list, interning the repo name.
  *
  * Same reasoning as packResolved next door: there are 26,000 issues in the
  * store and a person's log of them repeats one of a handful of repo names on
  * every row. Positional rows against an exported field list, newest first, so
  * the frontend renders in the tab's default order without re-sorting.
+ *
+ * `sortBy` exists for the assignment log, whose `at` is a resolution date and
+ * so is null on everything still open. Descending on the empty string puts
+ * those first, which is the order that list wants anyway.
  */
-function packIssueRows(list, fields) {
+function packRows(list, fields, sortBy = (r) => r.at ?? "") {
   const repos = [];
   const seen = new Map();
   const rows = list
-    .sort((a, b) => b.at.localeCompare(a.at))
+    .sort((a, b) => String(sortBy(b)).localeCompare(String(sortBy(a))))
     .map((r) => {
       let i = seen.get(r.repo);
       if (i === undefined) {
@@ -454,6 +490,41 @@ export const FILED_FIELDS =
 
 export const CLOSED_FIELDS =
   ["repo", "number", "at", "outcome", "viaPR", "own", "title"];
+
+/**
+ * A person's review queue: PRs somebody is waiting on them for.
+ *
+ * One shape for both halves of it, because the two are the same row asked at
+ * different points — "you've been asked" and "you've started" — and the card
+ * shows them in one table. `at` is the request's PR open date on one side and
+ * the date of their last review on the other, which is in both cases the date
+ * that orders the list usefully. `state` is null on a request precisely because
+ * they haven't said anything yet.
+ *
+ * Only open, unmerged PRs are in here. A review on something already merged
+ * isn't ongoing, it's history, and history is what the Pull requests card is.
+ */
+export const REVIEW_FIELDS =
+  ["repo", "number", "at", "author", "ageDays", "staleDays", "state", "draft", "title"];
+
+/** Review verdicts, as the index the packed rows carry. */
+export const REVIEW_STATES =
+  ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING"];
+
+/**
+ * PRs assigned to a person, open and resolved alike.
+ *
+ * Unlike the review queue this keeps closed rows: assignment is a record of
+ * who owned a piece of work, and "what did I own last quarter" is as reasonable
+ * a question as "what do I owe now". `at` is the resolution date, so it's null
+ * on anything still open — which is also how the packer knows to sort those to
+ * the top.
+ */
+export const ASSIGNED_FIELDS =
+  ["repo", "number", "at", "outcome", "author", "ageDays", "staleDays", "draft", "title"];
+
+/** How an assigned PR ended, as the index the packed rows carry. */
+export const PR_OUTCOMES = ["open", "merged", "closed"];
 
 /**
  * Trim to the last N months, filling gaps so charts don't lie about pauses.
@@ -569,6 +640,21 @@ export async function drilldown() {
     if (!s.last || when > s.last) s.last = when;
   };
 
+  /**
+   * Distinct days each person did something, for the Active since tile.
+   *
+   * Computed in its own module and shared with the contributors panel, because
+   * the Leaderboard shows the same percentage and the two disagreeing about one
+   * person would be worse than neither showing it. It's also a map beside the
+   * subjects rather than a Set on each of them: the only complete source of
+   * review dates is every review on every PR, and `person()` creates a subject
+   * as a side effect, so marking days through it would promote several thousand
+   * people whose entire trace is one drive-by review comment into full
+   * drilldown subjects. Read here by the subjects that exist for their own
+   * reasons; the rest is thrown away.
+   */
+  const activeDays = await activeDayIndex();
+
   for (const pr of prs) {
     if (!pr.createdAt) continue;
 
@@ -582,6 +668,11 @@ export async function drilldown() {
     const approvers = approversOf(pr);
     const closedUnmerged = !pr.mergedAt && pr.state === "CLOSED";
     const endedAt = pr.mergedAt ?? (closedUnmerged ? pr.updatedAt : null);
+    const openNow = pr.state === "OPEN" && !pr.mergedAt;
+    const ageDays = Math.floor((now - created) / DAY);
+    const staleDays = pr.updatedAt
+      ? Math.floor((now - new Date(pr.updatedAt)) / DAY)
+      : null;
 
     // Absent on records ingested before diff data was queried. Kept as null so
     // the window rollups can tell "no data yet" from a genuinely empty PR.
@@ -607,6 +698,7 @@ export async function drilldown() {
       author.total++;
       touch(author, pr.createdAt);
     }
+
 
     /* ---- monthly series ---- */
     const repoMonth = monthBucket(repo, cKey, "opened");
@@ -706,11 +798,12 @@ export async function drilldown() {
         deletions: pr.deletions,
         commits: pr.commits,
         comments: pr.comments,
+        ageDays,
       });
     }
 
     /* ---- open backlog ---- */
-    if (pr.state === "OPEN" && !pr.mergedAt) {
+    if (openNow) {
       const entry = {
         number: pr.number,
         title: pr.title ?? "",
@@ -720,10 +813,8 @@ export async function drilldown() {
         deletions: orNull(pr.deletions),
         commits: orNull(pr.commits),
         comments: orNull(pr.comments),
-        ageDays: Math.floor((now - created) / DAY),
-        staleDays: pr.updatedAt
-          ? Math.floor((now - new Date(pr.updatedAt)) / DAY)
-          : null,
+        ageDays,
+        staleDays,
         reviewed: fr != null,
         // null, not false, for records ingested before isDraft was queried.
         // "not a draft" and "we don't know yet" have to render differently or
@@ -732,6 +823,60 @@ export async function drilldown() {
       };
       repo.open.push({ ...entry, author: pr.author });
       if (author) author.open.push({ ...entry, repo: pr.repo });
+    }
+
+    /* ---- the review queue ----
+       Only while the PR is live. Both halves are things somebody is still
+       waiting on, and nobody waits on a merged PR. */
+    if (openNow) {
+      const queueRow = {
+        repo: pr.repo,
+        number: pr.number,
+        author: authorIsBot ? null : pr.author,
+        ageDays,
+        staleDays,
+        draft: pr.isDraft == null ? null : pr.isDraft ? 1 : 0,
+        title: pr.title ?? "",
+      };
+
+      for (const login of pr.reviewRequests ?? []) {
+        if (isBot(login)) continue;
+        person(login)._requested.push({
+          ...queueRow,
+          // The PR's own open date. A request has no date of its own in the
+          // API, and how long the PR has been sitting there is the number
+          // anyone reading this list actually wants.
+          at: pr.createdAt.slice(0, 10),
+          state: null,
+        });
+      }
+
+      for (const [login, r] of latestReviewsOf(pr)) {
+        person(login)._reviewing.push({
+          ...queueRow,
+          at: r.at.slice(0, 10),
+          state: REVIEW_STATES.indexOf(r.state),
+        });
+      }
+    }
+
+    /* ---- assignments, whatever became of them ---- */
+    for (const login of pr.assignees ?? []) {
+      if (isBot(login)) continue;
+      person(login)._assigned.push({
+        repo: pr.repo,
+        number: pr.number,
+        at: endedAt ? endedAt.slice(0, 10) : null,
+        outcome: openNow ? 0 : pr.mergedAt ? 1 : 2,
+        author: authorIsBot ? null : pr.author,
+        ageDays,
+        staleDays,
+        // Only meaningful while it's open, and the card only reads it then —
+        // but carrying it means an assigned open PR shows the same state as it
+        // does on the Pull requests card rather than falling back to "unknown".
+        draft: pr.isDraft == null ? null : pr.isDraft ? 1 : 0,
+        title: pr.title ?? "",
+      });
     }
   }
 
@@ -1071,7 +1216,13 @@ export async function drilldown() {
     s._itotals.closed > 0 ||
     s._itotals.fixed > 0 ||
     s._iw.all.assigned > 0 ||
-    s._itotals.filed >= 3;
+    s._itotals.filed >= 3 ||
+    // Anything on their plate right now. A slim record has no room for a
+    // queue, and a page that can't show somebody the review they were asked
+    // for is the one case where slimming costs more than it saves.
+    s._requested.length > 0 ||
+    s._reviewing.length > 0 ||
+    s._assigned.length > 0;
 
   const contributorsOut = {};
   for (const [login, s] of contributors) {
@@ -1085,6 +1236,8 @@ export async function drilldown() {
         first: s.first,
         last: s.last,
         totalPRs: 0,
+        activeDays: activeDays.get(login)?.days ?? 0,
+        activeSpan: activeDays.get(login)?.span ?? 0,
         slim: true,
         windows: {},
         series: null,
@@ -1094,12 +1247,14 @@ export async function drilldown() {
         reviewsFor: [],
         backlog: null,
         resolved: null,
+        reviewQueue: null,
+        assigned: null,
         issues: {
           totals: s._itotals,
           windows: iw,
           series: null,
           backlog: issueBacklogOf(s._iopen),
-          filed: s._ifiled.length ? packIssueRows(s._ifiled, FILED_FIELDS) : null,
+          filed: s._ifiled.length ? packRows(s._ifiled, FILED_FIELDS) : null,
         },
       };
       continue;
@@ -1110,6 +1265,13 @@ export async function drilldown() {
       first: s.first,
       last: s.last,
       totalPRs: s.total,
+      // Distinct days they did something, and the span those days cover. Both
+      // come from the shared index rather than being divided against `first`
+      // and `last` up there, so this page and the Leaderboard show the same
+      // percentage for the same person — and so the share can't exceed 100%,
+      // which dividing by a span derived somewhere else would eventually allow.
+      activeDays: activeDays.get(login)?.days ?? 0,
+      activeSpan: activeDays.get(login)?.span ?? 0,
       windows: windowsOut(s),
       series: finishSeries(s._months, firstMonth(s._months), prRow),
       topRepos: rankedWindows(s._counts, "opened", "repo"),
@@ -1118,6 +1280,15 @@ export async function drilldown() {
       reviewsFor: partnersOf(s._partners, "for"),
       backlog: backlogOf(s.open),
       resolved: packResolved(s.resolved),
+      // Null when nobody is waiting on them for anything, which is the normal
+      // case and the one the card says "nothing on your plate" to.
+      reviewQueue: s._requested.length || s._reviewing.length
+        ? {
+            requested: packRows(s._requested, REVIEW_FIELDS),
+            reviewing: packRows(s._reviewing, REVIEW_FIELDS),
+          }
+        : null,
+      assigned: s._assigned.length ? packRows(s._assigned, ASSIGNED_FIELDS) : null,
       // Null rather than an object of zeroes for someone who has never touched
       // an issue: the frontend says "nothing here" instead of drawing eight
       // tiles of nought.
@@ -1132,8 +1303,8 @@ export async function drilldown() {
             helpedBy: partnersOf(s._ipartners, "iby", ISSUE_TOP_N),
             helped: partnersOf(s._ipartners, "ifor", ISSUE_TOP_N),
             backlog: issueBacklogOf(s._iopen),
-            filed: s._ifiled.length ? packIssueRows(s._ifiled, FILED_FIELDS) : null,
-            closed: s._iclosed.length ? packIssueRows(s._iclosed, CLOSED_FIELDS) : null,
+            filed: s._ifiled.length ? packRows(s._ifiled, FILED_FIELDS) : null,
+            closed: s._iclosed.length ? packRows(s._iclosed, CLOSED_FIELDS) : null,
           }
         : null,
     };
@@ -1206,6 +1377,14 @@ export async function drilldown() {
       .sort((a, b) => b.n + b.i - (a.n + a.i)),
   };
 
+  let openTotal = 0, reviewRequestsKnown = 0, assigneesKnown = 0;
+  for (const pr of prs) {
+    if (pr.assignees !== undefined) assigneesKnown++;
+    if (pr.state !== "OPEN" || pr.mergedAt) continue;
+    openTotal++;
+    if (pr.reviewRequests !== undefined) reviewRequestsKnown++;
+  }
+
   return {
     windows: WINDOWS,
     seriesFields: SERIES_FIELDS,
@@ -1218,6 +1397,26 @@ export async function drilldown() {
     filedFields: FILED_FIELDS,
     closedFields: CLOSED_FIELDS,
     issueOutcomes: ISSUE_OUTCOMES,
+    reviewFields: REVIEW_FIELDS,
+    reviewStates: REVIEW_STATES,
+    assignedFields: ASSIGNED_FIELDS,
+    prOutcomes: PR_OUTCOMES,
+    /**
+     * How much of the store carries the two fields the review queue is built
+     * from, so an empty card can say which of the two things it means.
+     *
+     * "Nobody has asked you to review anything" and "the ingest has never
+     * asked GitHub who was asked" are wildly different messages to put in front
+     * of an admin, and the second one is a command they can run. Counted
+     * against the population each field is meaningful over: requests only exist
+     * on live PRs, assignment outlives the close.
+     */
+    prFieldCoverage: {
+      openPRs: openTotal,
+      reviewRequests: reviewRequestsKnown,
+      total: prs.length,
+      assignees: assigneesKnown,
+    },
     // False when the issue store is missing entirely, which is a different
     // message from "this subject has no issue activity" and gets a different one.
     issueData: hasIssueData,

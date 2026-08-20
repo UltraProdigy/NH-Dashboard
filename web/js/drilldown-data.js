@@ -90,16 +90,133 @@ function resolvedAll() {
   // before the size columns existed are four long, so the tail destructures to
   // undefined — normalised to null here, which is what "not ingested yet" means
   // everywhere else and renders as an em dash rather than a zero.
-  s._resolved = rows.map(([r, number, at, merged, additions, deletions, commits, comments, title]) => ({
+  s._resolved = rows.map(([r, number, at, merged, additions, deletions, commits, comments, title, ageDays]) => ({
     repo: repos[r], number, at, merged: merged === 1,
     additions: additions ?? null,
     deletions: deletions ?? null,
     commits: commits ?? null,
     comments: comments ?? null,
     title: title ?? "",
+    ageDays: ageDays ?? null,
+    open: false,
   }));
   return s._resolved;
 }
+
+/**
+ * Expand one of the packed lists the build emits, restoring the repo names.
+ *
+ * The review queue and the assignment log are both `{ repos, rows }` against a
+ * field list in the payload head, the same as the issue logs, so one reader
+ * does all of them. Memoized onto the record under a key of its own — the card
+ * re-reads three lists on every render and re-expanding them each time is work
+ * for nothing.
+ */
+function packedRows(s, key, list, fields) {
+  if (!list) return [];
+  const memo = s._packed ?? (s._packed = {});
+  if (memo[key]) return memo[key];
+  const names = state.drill?.[fields] ?? [];
+  return (memo[key] = list.rows.map((row) => {
+    const out = {};
+    names.forEach((f, i) => { out[f] = f === "repo" ? list.repos[row[i]] : row[i] ?? null; });
+    return out;
+  }));
+}
+
+/**
+ * The review queue and the assignment log, as one deduplicated list.
+ *
+ * A PR can be in more than one of them at once and frequently is — you get
+ * assigned something and asked to review it, or you review it and then get
+ * re-requested after another round. Three rows for one PR would make the card
+ * read as three times the work, so they're merged into one row per PR carrying
+ * every reason it's there. `why` is what the card draws pills from and what the
+ * filter matches against.
+ */
+function reviewRows() {
+  const s = subject();
+  if (!s) return [];
+  const q = s.reviewQueue;
+  const by = new Map();
+  const add = (r, why) => {
+    const k = `${r.repo}#${r.number}`;
+    const prev = by.get(k);
+    if (prev) { prev.why.push(why); return prev; }
+    by.set(k, { ...r, why: [why] });
+    return by.get(k);
+  };
+
+  for (const r of packedRows(s, "requested", q?.requested, "reviewFields"))
+    add(r, "requested");
+  for (const r of packedRows(s, "reviewing", q?.reviewing, "reviewFields")) {
+    // The verdict rides on the merged row rather than replacing it: a PR
+    // that's both requested and reviewed still wants to say which way the
+    // review went.
+    const row = add(r, "reviewing");
+    row.reviewState = state.drill?.reviewStates?.[r.state] ?? null;
+    row.at = r.at;
+  }
+  for (const r of packedRows(s, "assigned", s.assigned, "assignedFields"))
+    add({ ...r, outcome: r.outcome ?? 0 }, "assigned");
+
+  const rows = [...by.values()].map((r) => ({
+    ...r,
+    // Everything in the two review lists is open by construction; the
+    // assignment log is the only half that carries resolved PRs.
+    outcome: r.outcome ?? 0,
+    // Packed as 1/0/null to keep the rows small. Back to the tri-state
+    // boolean the rest of the app means by "draft", where null is "the ingest
+    // hasn't told us" and has to render differently from "not a draft".
+    draft: r.draft == null ? null : r.draft === 1,
+  }));
+
+  const kind = state.reviewKind;
+  const wanted = kind === "all" ? rows : rows.filter((r) => r.why.includes(kind));
+  // Live PRs first, then oldest first within each half — the order in which
+  // this is a queue rather than a log.
+  return [...wanted].sort((a, b) =>
+    (a.outcome === 0 ? 0 : 1) - (b.outcome === 0 ? 0 : 1) || (b.ageDays ?? 0) - (a.ageDays ?? 0));
+}
+
+const EMPTY_QUEUE = { requested: 0, reviewing: 0, assigned: 0, assignedOpen: 0, waiting: 0 };
+
+/** Headline counts for the Reviews card, independent of its filter. */
+function queueCounts() {
+  const s = subject();
+  if (!s) return EMPTY_QUEUE;
+  const q = s.reviewQueue;
+  const requested = packedRows(s, "requested", q?.requested, "reviewFields");
+  const reviewing = packedRows(s, "reviewing", q?.reviewing, "reviewFields");
+  const assigned = packedRows(s, "assigned", s.assigned, "assignedFields");
+  return {
+    requested: requested.length,
+    reviewing: reviewing.length,
+    assigned: assigned.length,
+    assignedOpen: assigned.filter((r) => (r.outcome ?? 0) === 0).length,
+    // What the tab badge shows: the two lists that mean somebody is waiting.
+    // Deduplicated, since a re-request lands a PR in both.
+    waiting: new Set(
+      [...requested, ...reviewing].map((r) => `${r.repo}#${r.number}`)
+    ).size,
+  };
+}
+
+/**
+ * True when the ingest has never been asked for these fields at all.
+ *
+ * Each is checked against the population it's meaningful over, and only when
+ * that population is non-empty: an org with no open pull requests would
+ * otherwise be told forever that its review-request backfill hadn't run.
+ */
+const queueDataMissing = () => {
+  const c = state.drill?.prFieldCoverage;
+  if (!c) return { requests: true, assignees: true };
+  return {
+    requests: c.openPRs > 0 && !c.reviewRequests,
+    assignees: c.total > 0 && !c.assignees,
+  };
+};
 
 /**
  * Every PR of theirs that carries a diff size, resolved and open together,
@@ -124,9 +241,9 @@ function biggestRows() {
     .filter(r => days == null || r.ageDays <= days)
     .map(r => ({ ...r, open: true }));
 
-  // resolvedAll(), not resolvedRows(): the latter also applies the Closed PRs
-  // tab's merged/dropped toggle, which isn't shown on this card. Reusing it
-  // would let a setting made two tabs ago quietly halve this list.
+  // resolvedAll(), not prRows(): the latter also applies the Pull requests
+  // card's state toggle, which isn't shown here. Reusing it would let a setting
+  // made two tabs ago quietly halve this list.
   const resolved = resolvedAll().filter(
     r => cutoff == null || new Date(r.at).getTime() >= cutoff
   );
@@ -136,16 +253,51 @@ function biggestRows() {
     .sort((a, b) => linesOf(b) - linesOf(a));
 }
 
-/** Filtered by the merged/closed toggle and the window picker. */
-function resolvedRows() {
-  const days = (state.drill?.windows ?? []).find(w => w.id === activeWindow())?.days;
+/**
+ * Every PR of theirs the current filter admits — open and resolved in one list.
+ *
+ * These were two cards, and the split was arbitrary in a way that showed: an
+ * open PR and a merged one are the same object at different points, the two
+ * tables shared five of six columns, and answering "what have they got going in
+ * GT5-Unofficial" meant reading one table, scrolling, and reading the other.
+ * One table with a four-way state filter says the same thing in one place, and
+ * "All" is a thing you couldn't previously ask for at all.
+ *
+ * The two halves are windowed by the only date each has — open PRs by when they
+ * were opened, resolved ones by when they ended. That's what the Backlog and
+ * Closed cards each did separately, so no row changes which window it lands in.
+ */
+function prRows() {
+  const days = windowDays();
   const cutoff = days == null ? null : Date.now() - days * 86400000;
-  return resolvedAll().filter(r => {
-    if (state.closedState === "merged" && !r.merged) return false;
-    if (state.closedState === "dropped" && r.merged) return false;
-    return cutoff == null || new Date(r.at).getTime() >= cutoff;
-  });
+  const st = state.prState;
+  const out = [];
+
+  if (st === "all" || st === "open") {
+    for (const r of backlogOf().oldest) {
+      if (days != null && r.ageDays > days) continue;
+      out.push({ ...r, open: true, merged: false, at: null });
+    }
+  }
+
+  if (st !== "open") {
+    for (const r of resolvedAll()) {
+      if (st === "merged" && !r.merged) continue;
+      if (st === "dropped" && r.merged) continue;
+      if (cutoff != null && new Date(r.at).getTime() < cutoff) continue;
+      out.push(r);
+    }
+  }
+
+  // Open first, oldest first within them; then resolved, newest first — which
+  // is the order both halves already arrived in, so this costs one pass and no
+  // comparisons in the common case.
+  return out;
 }
+
+/** Sort order for the merged State column: draft, ready, unknown, merged, closed. */
+const prStateOrder = (r) =>
+  r.open ? (r.draft === true ? 0 : r.draft === false ? 1 : 2) : r.merged ? 3 : 4;
 
 /**
  * Series trimmed to the selected window.
@@ -245,7 +397,11 @@ export {
   drillKey,
   duo,
   linesIn,
-  resolvedRows,
+  prRows,
+  prStateOrder,
+  queueCounts,
+  queueDataMissing,
+  reviewRows,
   seriesOf,
   sliceMonths,
   subject,

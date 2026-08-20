@@ -1,4 +1,5 @@
 import { state } from "./state.js";
+import { SEG_KEY } from "./module-helpers.js";
 import { windowKey } from "./data.js";
 import {
   addLabelColumn,
@@ -31,6 +32,24 @@ import {
 /* ==========================================================================
    Events
    ========================================================================== */
+
+/**
+ * The card-level segmented toggles, which have two homes.
+ *
+ * A `tabControls` entry sits in the page toolbar when its module has a tab to
+ * itself and in the card's own header when it's one of several stacked into a
+ * group, so the click can arrive at either listener. One handler for both, and
+ * one that reads the state key off the button rather than being told which
+ * toggle it is — otherwise every new toggle costs an identical `if` in two
+ * places. Returns whether it handled the click.
+ */
+function segClick(e) {
+  const b = e.target.closest("button[data-seg]");
+  const key = b && SEG_KEY[b.dataset.seg];
+  if (!key) return false;
+  state[key] = b.dataset.val;
+  return true;
+}
 
 document.getElementById("pages").addEventListener("click", e => {
   const b = e.target.closest("button[data-page]");
@@ -99,8 +118,7 @@ document.getElementById("view").addEventListener("click", e => {
 
   // A grouped tab renders its members' tabControls in their own card headers
   // rather than the toolbar, so those clicks arrive here instead of there.
-  const cs = e.target.closest("button[data-closed]");
-  if (cs) { state.closedState = cs.dataset.closed; return render(); }
+  if (segClick(e)) return render();
 
   const th = e.target.closest("th[data-sort]");
   if (th) {
@@ -235,8 +253,7 @@ document.getElementById("toolbar").addEventListener("click", e => {
     return render();
   }
 
-  const cs = e.target.closest("button[data-closed]");
-  if (cs) { state.closedState = cs.dataset.closed; return render(); }
+  if (segClick(e)) return render();
 
   const g = e.target.closest("button[data-gran]");
   if (g) { state.gran = g.dataset.gran; return render(); }

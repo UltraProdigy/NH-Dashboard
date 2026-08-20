@@ -1,7 +1,7 @@
 import { diff, dur, esc, fmt, pctFmt } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel } from "./data.js";
-import { CLOSED_LABEL, state } from "./state.js";
+import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "./state.js";
 
 /* ---- controls that have two homes ---------------------------------------
    A `tabControls` entry sits in the page toolbar when its module has a tab to
@@ -9,11 +9,20 @@ import { CLOSED_LABEL, state } from "./state.js";
    stacked into a group tab. Same markup either way, so it lives here rather
    than inside the toolbar renderer. */
 
+/* One shape for all of them, and the data attribute names the state key it
+   writes — so a new toggle is a line in this map rather than a line here and
+   another in the event handler. Attribute names are lowercased because that's
+   what the DOM does to them on the way into `dataset` anyway. */
+const seg = (key, labels) => `<span class="seg" id="${key}Seg">${
+  Object.entries(labels).map(([id, label]) =>
+    `<button data-seg="${key.toLowerCase()}" data-val="${id}" aria-pressed="${
+      state[key] === id}">${esc(label)}</button>`).join("")}</span>`;
+
+const SEG_KEY = { prstate: "prState", reviewkind: "reviewKind" };
+
 const CONTROL_HTML = {
-  closedState: () => `<span class="seg" id="closedSeg">${
-    Object.entries(CLOSED_LABEL).map(([id, label]) =>
-      `<button data-closed="${id}" aria-pressed="${state.closedState === id}">${esc(label)}</button>`
-    ).join("")}</span>`,
+  prState: () => seg("prState", PR_STATE_LABEL),
+  reviewKind: () => seg("reviewKind", REVIEW_KIND_LABEL),
 };
 
 const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
@@ -114,6 +123,7 @@ const missingIngest = () =>
   `<div class="error">Analytics needs the local PR store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
 
 export {
+  SEG_KEY,
   ciDur,
   ciSection,
   controlHtml,
