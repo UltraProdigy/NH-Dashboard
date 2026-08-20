@@ -54,9 +54,46 @@
 .subject h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
 .subject .dates { color: var(--muted); font-size: 12px; }
 .subject .ghost { margin-left: auto; flex: none; align-self: center; }
+
+/* The team strip travels with the GitHub link rather than trailing the name:
+   the `auto` margin moves to whichever of the two comes first, so the pair
+   sits together at the far edge whether or not there are any badges. */
+.subject .teams {
+  margin-left: auto; flex: none;
+  display: flex; align-items: center; gap: 7px;
+}
+.subject .teams + .ghost { margin-left: 0; }
+
+/* A span rather than the <img> itself, because the tooltip is a pseudo-element
+   and images can't have those. */
+.teambadge { position: relative; display: block; width: 30px; height: 30px; }
+.teambadge img {
+  display: block; width: 100%; height: 100%;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / .28));
+}
+.teambadge::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 7px); left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  font-size: 11px; line-height: 1.4; white-space: nowrap;
+  box-shadow: 0 4px 12px rgb(0 0 0 / .3);
+}
+.teambadge::before {
+  content: ""; position: absolute; bottom: calc(100% + 2px); left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--border);
+}
+.teambadge::after, .teambadge::before {
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+  z-index: 5;
+}
+.teambadge:hover::after, .teambadge:hover::before { opacity: 1; }
 @media (max-width: 640px) {
   .subject { flex-wrap: wrap; }
-  .subject .ghost { margin-left: 0; }
+  .subject .teams { margin-left: 0; }
+  .subject .teams + .ghost { margin-left: 0; }
 }
 /* ---------- drilldown: paired stat boxes ---------- */
 /* Two related rankings read as a comparison when they're side by side and as

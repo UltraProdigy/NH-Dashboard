@@ -1153,6 +1153,50 @@ header, where a single mark anchors the same layout the contributor header
 uses; there it's squared off, the way GitHub renders org avatars against round
 user ones.
 
+### Team badges
+
+The contributor drilldown header carries a strip of gear badges between the
+name block and the GitHub link, one per org team the person belongs to. Six
+teams have a badge, and they always paint in this order regardless of how the
+person joined them:
+
+| Badge  | Team             |
+| ------ | ---------------- |
+| Red    | GitHub Admin     |
+| Orange | GTNH Contributor |
+| Yellow | GTNH Developer   |
+| Green  | Scala Developer  |
+| Blue   | Triage Team      |
+| Purple | Balance Review   |
+
+The order is the declaration order of `TEAMS` in `web/js/teams.js`, and the
+lookup walks that array rather than the roster, so a badge can never appear out
+of sequence. The images live in `web/assets/teams/`, cut from one source sheet
+at 128 px and drawn at 30 px, which is 2× for a retina display and matches the
+avatar's optical weight without competing with it.
+
+Each badge names its team on hover. The tooltip is a pseudo-element rather than
+a `title` attribute — `title` waits a second before it appears, can't be styled
+to match the rest of the page, and on a row of six identical-shaped marks the
+whole point is a fast answer to "which one is that". That's also why the badge
+is a `<span>` wrapping the `<img>`: images can't carry pseudo-elements.
+
+`teamsOf(login)` folds the login to lowercase before looking it up. GitHub
+logins are case-insensitive, and these rosters were typed in by hand, so
+matching on exact casing would have silently dropped anyone whose capitalization
+didn't survive the trip. Anyone unlisted gets an empty array, the strip isn't
+emitted at all, and the button keeps the right edge to itself — which is the
+common case, since the header also serves issue reporters and triagers who
+aren't on any team.
+
+**Repos don't get them.** A repo isn't a member of anything, so the repo
+drilldown reuses the same header markup with the strip omitted.
+
+**The rosters are hand-maintained.** The dashboard isn't installed in the org
+yet, so the team API is out of reach and `ROSTER` was transcribed from the Teams
+page. It will go stale — someone joins Triage and the header doesn't know. See
+*Moving into the org* for what replaces it.
+
 ### Numbered rows and shares
 
 Every `hbars` list ranks by exactly one metric, so each row carries its
@@ -1828,6 +1872,15 @@ token doesn't have. Once that's available, `PR_FIELDS` gains
 request to everyone on the team — or, better, show the team as the row and the
 members as the tooltip, since "the whole team was asked" and "you personally
 were asked" are different amounts of obligation.
+
+**Team badges want it as well.** `ROSTER` in `web/js/teams.js` is a hand-typed
+snapshot of six teams' membership. Org read turns it into
+`organization { teams { nodes { slug members { nodes { login } } } } }` — one
+paged query for the whole org — written into the build output and fetched
+alongside the rest of the data. Only `ROSTER` changes: `TEAMS` keeps the badge
+order and the id-to-image mapping, `teamsOf` keeps its signature, and nothing
+in `render.js` moves. Worth keeping the file's shape in mind when editing it by
+hand in the meantime.
 
 ## Not built yet
 

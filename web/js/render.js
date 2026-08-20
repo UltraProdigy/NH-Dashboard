@@ -17,6 +17,7 @@ import { PAGES } from "./pages.js";
 import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
 import { withOwner } from "./table.js";
 import { backFrom } from "./router.js";
+import { teamsOf } from "./teams.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -471,12 +472,23 @@ function renderDrill(view) {
     ? avatar(state.subject, 44)
     : avatar(state.data.org, 44, "sq");
 
+  // Org teams, riding beside the GitHub link. Only people have them — a repo
+  // isn't a member of anything — and most people have none, in which case the
+  // strip collapses and the button keeps the right edge to itself.
+  const teams = what ? teamsOf(state.subject) : [];
+  const badges = teams.length
+    ? `<div class="teams">${teams.map(t =>
+        `<span class="teambadge" data-tip="${esc(t.name)}"><img src="${t.img}" alt="${esc(t.name)}" loading="lazy" decoding="async"></span>`
+      ).join("")}</div>`
+    : "";
+
   const head = `<div class="subject">
     ${face}
     <div class="idcard">
       <h2>${esc(state.subject)}</h2>
       <span class="dates">${bits.join(" · ")}</span>
     </div>
+    ${badges}
     <a class="ghost" href="${subjectUrl(state.subject)}" target="_blank" rel="noopener">View on GitHub ↗</a>
   </div>`;
 
