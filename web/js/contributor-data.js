@@ -1,5 +1,15 @@
 import { state } from "./state.js";
-import { age, bucketLabel, contribLink, daysSince, dur, esc, fmt } from "./format.js";
+import {
+  activeShare,
+  age,
+  bucketLabel,
+  contribLink,
+  daysSince,
+  dur,
+  esc,
+  fmt,
+  pctFmt,
+} from "./format.js";
 import { renderTable } from "./table.js";
 import { panel } from "./data.js";
 
@@ -18,6 +28,19 @@ function contributorColumns() {
     { key: `${w}.prs`,       label: "PRs opened",      get: r => r[w].prs,       render: r => `<span class="num">${fmt(r[w].prs)}</span>` },
     { key: `${w}.merged`,    label: "Merged",          get: r => r[w].merged,    render: r => `<span class="num">${fmt(r[w].merged)}</span>` },
     { key: `${w}.approvals`, label: "Approvals given", get: r => r[w].approvals, render: r => `<span class="num">${fmt(r[w].approvals)}</span>` },
+    // All-time, like Last active beside it and unlike the three columns before
+    // it. A windowed version would be answering a different question — "were
+    // they busy lately" is what the PR counts already say, and this one is
+    // about the shape of somebody's whole run. Sorts missing data to the
+    // bottom rather than treating an old build as zero.
+    { key: "activeDays", label: "Active days", get: r => activeShare(r) ?? -1,
+      render: r => {
+        const share = activeShare(r);
+        return share == null
+          ? `<span class="sub">—</span>`
+          : `<span class="num" title="${fmt(r.activeDays)} of ${fmt(r.activeSpan)} days between their first and last activity">${
+              pctFmt(share)}</span>`;
+      } },
     { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
   ];
 }

@@ -1,7 +1,10 @@
-import { CLOSED_LABEL, state } from "../state.js";
+import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "../state.js";
 import {
+  activeShare,
   age,
   bucketLabel,
+  contribName,
+  dateFmt,
   daysSince,
   diff,
   dur,
@@ -23,12 +26,60 @@ import {
   byRepo,
   duo,
   linesIn,
-  resolvedRows,
+  prRows,
+  prStateOrder,
+  queueCounts,
+  queueDataMissing,
+  reviewRows,
   subject,
   subjectSlice,
   windowTable,
 } from "../drilldown-data.js";
-import { draftNotice, draftOrder, draftPill, sizeNotice } from "../module-helpers.js";
+import { draftNotice, draftPill, sizeNotice } from "../module-helpers.js";
+
+const prUrl = (r) =>
+  `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}`;
+
+const prTitle = (r) =>
+  `<a href="${prUrl(r)}" target="_blank" rel="noopener">${
+    esc(r.title || `#${r.number}`)}</a> <span class="repo">#${r.number}</span>`;
+
+/**
+ * The merged State column. An open PR's draft status and a resolved one's
+ * outcome are the same question asked at different points — "where is this" —
+ * so they share a column rather than each having one that's blank half the time.
+ */
+const prStatePill = (r) =>
+  r.open
+    ? draftPill(r.draft)
+    : r.merged
+      ? `<span class="pill merged">merged</span>`
+      : `<span class="pill dropped">closed</span>`;
+
+/* Why a PR is on their plate, and how the last review went. Requests read as
+   the thing to act on, so they take the attention colour; the rest are
+   context. */
+const WHY_TONE = { requested: "fail", reviewing: "neutral", assigned: "merged" };
+const VERDICT_TONE = {
+  APPROVED: "pass", CHANGES_REQUESTED: "fail",
+  COMMENTED: "neutral", DISMISSED: "unknown", PENDING: "draft",
+};
+
+/**
+ * How long this person has been around, and how much of it they were working.
+ *
+ * Measured over their own span rather than the org's: somebody who did six
+ * months of solid work in 2019 was not idle for the seven years since, they
+ * left, and a percentage that counts the leaving would say more about the
+ * calendar than about them. The denominator is first activity to last, so it
+ * reads "while they were here".
+ */
+function tenureNote(s) {
+  if (!s.first) return "";
+  const share = activeShare(s);
+  if (share == null) return "rebuild for the active-day count";
+  return `active ${fmt(s.activeDays)} of ${fmt(s.activeSpan)} days · ${pctFmt(share)}`;
+}
 
 export const contributorModules = {
   /* ---------------- Contributor Drilldown ----------------
@@ -64,8 +115,12 @@ export const contributorModules = {
           ${kpi("Commits", fmt(w.commits), `across ${fmt(w.sizedPRs)} sized PRs`)}
           ${kpi("Open PRs", fmt(b.total), `${fmt(b.unreviewed)} never reviewed`,
                 b.unreviewed ? "down" : "")}
-          ${kpi("Active since", s.first ? new Date(s.first).getFullYear() : "—",
-                s.last ? `last seen ${age(daysSince(s.last)).replace(/<[^>]+>/g, "")}` : "")}
+          ${/* The full date, not the year. "2021" is true of twelve months and
+                tells you which of them only by accident, and the tile sat next
+                to nine others carrying real numbers. The line underneath is
+                the density behind the span — a year on the calendar and a year
+                of work are very different claims about somebody. */""}
+          ${kpi("Active since", dateFmt(s.first), tenureNote(s), "date")}
         </div>` + sizeNotice(w);
       }
       return windowTable([
@@ -163,49 +218,119 @@ export const contributorModules = {
     },
   },
 
-  cOpenPRs: {
-    page: "contributor", label: "Open PRs", span: 6, flush: true, twin: "rBacklog",
+  /**
+   * What somebody is waiting on this person for.
+   *
+   * Replaces the Open PRs card, which showed their own backlog — a list the
+   * merged Pull requests card now carries as one of its four states, and which
+   * was never the question an admin opens a contributor page to ask. This is:
+   * reviews they've been asked for, reviews they've started and not finished,
+   * and the PRs they were put down as owning.
+   *
+   * Individual reviewers only. A team review request resolves to a team rather
+   * than to people, and attributing one to its members needs org read the
+   * ingest token doesn't have — so a PR whose only outstanding request is to a
+   * team is absent here rather than wrongly quiet.
+   */
+  cReviews: {
+    page: "contributor", label: "Reviews", span: 6, flush: true,
     controls: ["filter"],
-    sub: () => "still waiting",
+    tabControls: ["reviewKind"],
+    sub: () => `${REVIEW_KIND_LABEL[state.reviewKind].toLowerCase()}, on their plate`,
     render(expanded) {
-      const b = backlogOf();
+      const q = queueCounts();
+      const missing = queueDataMissing();
+
+      const head = `<div class="kpis">
+        ${kpi("Review requests", fmt(q.requested), "waiting on them", q.requested ? "down" : "")}
+        ${kpi("Ongoing reviews", fmt(q.reviewing), "reviewed, not yet merged")}
+        ${kpi("Assigned PRs", fmt(q.assignedOpen), `${fmt(q.assigned)} all time`)}
+      </div>`;
+
+      // Two separate absences, and they need separate wording: the review
+      // backfill is the cheap one and may well have run on its own.
+      const notices =
+        (missing.requests
+          ? `<div class="hint" style="padding:12px 14px 0">Review requests aren't in the store yet. Run <code>npm run ingest</code> — it re-walks the open PRs only, then <code>npm run build</code>.</div>`
+          : "") +
+        (missing.assignees
+          ? `<div class="hint" style="padding:12px 14px 0">Assignments aren't in the store yet. Run <code>npm run ingest</code> — this one re-walks every PR once, since assignment outlives the close.</div>`
+          : "");
+
+      const rows = reviewRows();
       const cols = [
-        { key: "repo",   label: "Repo", render: r => repoLink(r.repo) },
-        { key: "number", label: "PR",   render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
-        { key: "draft",  label: "State", get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
-        { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
-        { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
-        { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
+        { key: "repo", label: "Repo", render: r => repoLink(r.repo) },
+        { key: "title", label: "PR", get: r => r.title ?? "", render: prTitle },
+        { key: "author", label: "Author", render: r => contribName(r.author) },
+        { key: "why", label: "Why", sortable: false, render: r => r.why.map(w =>
+            `<span class="pill ${WHY_TONE[w]}">${w}</span>`).join(" ") },
+        { key: "state", label: "State", get: prStateOrder,
+          render: r => (r.outcome === 0
+            ? draftPill(r.draft)
+            : r.outcome === 1
+              ? `<span class="pill merged">merged</span>`
+              : `<span class="pill dropped">closed</span>`) },
+        { key: "reviewState", label: "Verdict", get: r => r.reviewState ?? "",
+          render: r => (r.reviewState
+            ? `<span class="pill ${VERDICT_TONE[r.reviewState] ?? "unknown"}">${
+                esc(r.reviewState.toLowerCase().replace("_", " "))}</span>`
+            : `<span class="sub">—</span>`) },
+        { key: "ageDays", label: "Opened", render: r => age(r.ageDays) },
+        { key: "staleDays", label: "Updated", render: r => age(r.staleDays) },
       ];
-      return draftNotice(b) +
-        renderTable(sortRows(applyFilter(b.oldest), cols), cols,
-          { sortable: expanded, limit: expanded ? null : 7 });
+
+      // Narrow in the overview slot, so the four columns that carry the point
+      // of the card and none of the ones that only refine it.
+      const shown = expanded
+        ? cols
+        : cols.filter(c => ["title", "why", "state", "ageDays"].includes(c.key));
+
+      const table = renderTable(sortRows(applyFilter(rows), shown), shown,
+        { sortable: expanded, limit: expanded ? null : 6 });
+
+      if (!expanded) return head + notices + table;
+
+      return head + notices + table +
+        `<div class="hint" style="margin-top:12px">A PR can carry more than one reason and often does — being re-requested after a round of changes puts it in both review lists, and being assigned something you're also asked to review is normal. It's one row either way, with every reason on it. "Ongoing" means the newest thing they said on a PR that hasn't landed: an approval sitting on an unmerged PR is as much an open loop as a request for changes, just somebody else's. Assignments are the only half that keeps closed rows, because "what did I own" is a fair question about last quarter as well as today.</div>`;
     },
   },
 
-  cClosed: {
-    page: "contributor", label: "Closed PRs", span: 12, flush: true,
+  /**
+   * Their pull requests, whatever state they're in.
+   *
+   * Open and closed were two cards, which split one list down a line nobody
+   * asks questions across: the tables shared five of six columns, and "how much
+   * has this person got going in GT5-Unofficial" meant reading both and adding
+   * up. One table with a four-way state filter, and "All" — which the old pair
+   * could not express at all.
+   */
+  cPRs: {
+    page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
     controls: ["window", "filter"],
     // tabControls, not controls: the overview gathers every module's controls
-    // into one toolbar, and a three-way filter for one card down the page is
+    // into one toolbar, and a four-way filter for one card down the page is
     // noise up there. It appears when this tab is the thing you're looking at.
-    tabControls: ["closedState"],
-    sub: () => `${CLOSED_LABEL[state.closedState]}, ${windowPhrase()}`,
+    tabControls: ["prState"],
+    sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
-      const rows = resolvedRows();
+      const rows = prRows();
       const cols = [
         { key: "repo",   label: "Repo",  render: r => repoLink(r.repo) },
-        { key: "number", label: "PR",    render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
-        { key: "merged", label: "Outcome", get: r => (r.merged ? 0 : 1),
-          render: r => r.merged
-            ? `<span class="pill merged">merged</span>`
-            : `<span class="pill dropped">closed</span>` },
-        { key: "at", label: "Resolved", get: r => r.at, render: r => age(daysSince(r.at)) },
+        { key: "title",  label: "PR", get: r => r.title ?? "", render: prTitle },
+        { key: "state",  label: "State", get: prStateOrder, render: prStatePill },
+        { key: "ageDays", label: "Opened", render: r => age(r.ageDays) },
+        { key: "at", label: "Resolved", get: r => r.at ?? "",
+          render: r => (r.at ? age(daysSince(r.at)) : `<span class="sub">—</span>`) },
+        { key: "reviewed", label: "Reviewed?", get: r => (r.open ? (r.reviewed ? 1 : 0) : 2),
+          render: r => (!r.open
+            ? `<span class="sub">—</span>`
+            : r.reviewed ? "yes" : `<span class="down">never</span>`) },
       ];
-      // Already newest-first from the build, and sortRows is a no-op until a
-      // header is clicked, so that's the default order for free.
-      return renderTable(sortRows(applyFilter(rows), cols), cols,
-        { sortable: expanded, limit: expanded ? null : 10 });
+      // Already ordered by the build and by prRows, and sortRows is a no-op
+      // until a header is clicked, so that's the default order for free.
+      return draftNotice(backlogOf()) +
+        renderTable(sortRows(applyFilter(rows), cols), cols,
+          { sortable: expanded, limit: expanded ? null : 10 });
     },
   },
 

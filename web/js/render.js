@@ -4,6 +4,7 @@ import { age, agoText, avatar, daysSince, esc, fmt } from "./format.js";
 import { A, I, activeWindow, issuePeople, panel, windowList } from "./data.js";
 import {
   backlogOf,
+  queueCounts,
   subject,
   subjectList,
   subjectUrl,
@@ -47,7 +48,10 @@ function moduleCount(id) {
   // Only the four the drilldown groups borrow a badge from are here — Closed,
   // Biggest, Filed and Triage no longer name a tab, and a count nothing
   // displays is just a query someone will later wonder about.
-  if (id === "cOpenPRs" || id === "rBacklog") return subject() ? backlogOf().total : null;
+  if (id === "cPRs" || id === "rBacklog") return subject() ? backlogOf().total : null;
+  // The queue, not the assignment log: this badge is meant to read as "things
+  // waiting on you", and half the assigned list is PRs that closed years ago.
+  if (id === "cReviews") return subject() ? queueCounts().waiting || null : null;
   if (id === "cIssues" || id === "rIssues")
     return subject() && hasIssues() ? issuesOf().totals.filed : null;
   // The lineup, not counting the subject — "1" on a card comparing nothing is
@@ -275,7 +279,8 @@ function renderToolbar() {
       <span class="seg" id="granSeg">${GRANS.map(g =>
         `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
-  if (wanted.has("closedState")) bits.push(controlHtml("closedState"));
+  for (const seg of ["prState", "reviewKind"])
+    if (wanted.has(seg)) bits.push(controlHtml(seg));
 
   if (wanted.has("minActivity"))
     bits.push(`<label class="minlabel">min activity <input type="number" id="minActivity" min="0" step="1" value="${state.minActivity}"></label>`);

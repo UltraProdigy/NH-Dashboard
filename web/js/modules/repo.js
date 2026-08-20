@@ -148,7 +148,7 @@ export const repoModules = {
   },
 
   rBacklog: {
-    page: "repo", label: "Backlog", span: 4, flush: false, twin: "cOpenPRs",
+    page: "repo", label: "Backlog", span: 4, flush: false, twin: "cPRs",
     controls: ["filter"],
     sub: () => "open PRs, by age",
     render(expanded) {

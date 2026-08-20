@@ -33,7 +33,15 @@
 }
 .combo-opt .n { overflow: hidden; text-overflow: ellipsis; }
 .combo-opt .c { margin-left: auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.combo-opt[aria-selected="true"] { background: var(--panel-2); }
+.combo-opt:hover { background: var(--panel-2); }
+/* Both can be true at once — the keyboard cursor sits on one row while the
+   mouse rests on another — so the selected row needs something the hover
+   doesn't have, or the popup shows two identical highlights and neither says
+   which one Enter will pick. */
+.combo-opt[aria-selected="true"] {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .combo-opt mark { background: none; color: var(--accent); font-weight: 600; }
 .combo-none { padding: 12px; color: var(--muted); font-size: 12px; }
 

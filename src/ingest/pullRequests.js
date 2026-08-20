@@ -74,6 +74,20 @@ const PR_FIELDS = `
   # reviews below; conflating the two would make a PR with one long review
   # thread look like a contentious one.
   comments { totalCount }
+  # Who owns the PR, and who has been asked to look at it. The two behave
+  # differently over a PR's life and the records have to reflect that:
+  # assignment survives the close, so it's meaningful on every record, while a
+  # review request is deleted by GitHub the moment the review lands. On
+  # anything closed the request list is therefore empty, and that's the truth
+  # rather than a gap — nobody is waiting on a merged PR.
+  assignees(first: 10) { nodes { login } }
+  # Individual reviewers only. A team request resolves to a Team, which has a
+  # name rather than a login, and attributing one to its members needs org
+  # read that this token doesn't have — so it selects nothing here and drops
+  # out below rather than landing as a null in somebody's queue.
+  reviewRequests(first: 20) {
+    nodes { requestedReviewer { ... on User { login } } }
+  }
   # totalCount only, no nodes — a reaction connection with no pagination args
   # is a scalar as far as the node budget is concerned.
   reactions { totalCount }
@@ -156,6 +170,10 @@ const toRecord = (repo, pr) => ({
   reactions: pr.reactions?.totalCount ?? 0,
   thumbsUp: pr.thumbsUp?.totalCount ?? 0,
   thumbsDown: pr.thumbsDown?.totalCount ?? 0,
+  assignees: (pr.assignees?.nodes ?? []).map((a) => a.login).filter(Boolean),
+  reviewRequests: (pr.reviewRequests?.nodes ?? [])
+    .map((n) => n.requestedReviewer?.login)
+    .filter(Boolean),
   // Truncation is recorded so aggregation can flag undercounts rather than
   // silently reporting wrong numbers.
   reviewsTruncated: pr.reviews.totalCount > pr.reviews.nodes.length,
@@ -309,10 +327,26 @@ const BACKFILLS = [
     query: OPEN_PRS,
     needs: (p) => p.state === "OPEN" && p.isDraft === undefined,
   },
+  // Pending review requests only exist on open PRs, so this is the cheap shape
+  // even though the field is new to every record in the store.
+  {
+    label: "review requests",
+    query: OPEN_PRS,
+    needs: (p) => p.state === "OPEN" && p.reviewRequests === undefined,
+  },
   {
     label: "diff size, comments, reactions and titles",
     query: PRS,
     needs: (p) => p.additions === undefined,
+  },
+  // Last, and deliberately: assignment outlives the close, so this one has no
+  // cheap shape — it's the full re-walk. Putting it after the diff-size pass
+  // means a store that needs both pays for one, since that pass re-fetches
+  // with the same query and fills this field on its way through.
+  {
+    label: "assignees",
+    query: PRS,
+    needs: (p) => p.assignees === undefined,
   },
 ];
 

@@ -100,5 +100,9 @@
 .kpi { background: var(--panel); padding: var(--kpi-pad, 14px); min-width: 0; }
 .kpi .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
 .kpi .v { font-size: var(--kpi-val, 24px); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.25; }
+/* A tile holding "12 Mar 2021" rather than a number. Two thirds of the width
+   of the strip is numeric, and a date set at the numeric size is the one tile
+   that wraps and shoves the row taller. */
+.kpi .v.date { font-size: calc(var(--kpi-val, 24px) * .72); letter-spacing: -.01em; }
 .kpi .d { font-size: 12px; color: var(--muted); }
 .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--muted); }

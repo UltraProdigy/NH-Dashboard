@@ -64,8 +64,11 @@ const PAGES = [
     // page about gaps. The issue cards come after the PR ones rather than
     // interleaved: they answer a different question about the same person, and
     // reading them as a block is how anyone actually uses them.
+    // cReviews sits in the six columns Open PRs used to, which is where the
+    // "what's outstanding" slot has always been — it's the question that
+    // changed, not the position.
     modules: [
-      "cProfile", "cActivity", "cRepos", "cCollab", "cOpenPRs", "cBiggest", "cClosed",
+      "cProfile", "cActivity", "cRepos", "cCollab", "cReviews", "cBiggest", "cPRs",
       "cIssues", "cTriage", "cFiled", "cVersus",
     ],
     // The twin map is what these were derived from: every `twin:` pair lands in
@@ -75,8 +78,8 @@ const PAGES = [
     groups: [
       { id: "activity", label: "Activity", twin: "@activity",
         modules: ["cActivity", "cRepos", "cCollab"] },
-      { id: "prs", label: "Pull requests", twin: "@prs", count: "cOpenPRs",
-        modules: ["cOpenPRs", "cClosed", "cBiggest"] },
+      { id: "prs", label: "Pull requests", twin: "@prs", count: "cPRs",
+        modules: ["cReviews", "cPRs", "cBiggest"] },
       { id: "issues", label: "Issues", twin: "@issues", count: "cIssues",
         modules: ["cIssues", "cTriage", "cFiled"] },
     ],
