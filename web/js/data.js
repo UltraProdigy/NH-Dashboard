@@ -50,9 +50,10 @@ function issuePeople() {
  * period whenever you open that tab, silently changes what Leaderboard was
  * showing behind your back.
  *
- * The cost is that its card on the overview grid doesn't answer to the toolbar
- * control above it. Its caption says which period it's on, for exactly that
- * reason.
+ * It carries its own period control in its card header — see cardWindow — so
+ * the toolbar's never claims to govern it. Its caption still names the period
+ * it's on, because on the grid it is showing a different span from the three
+ * cards beside it.
  */
 const OWN_WINDOW = { newcomers: "newFacesWindow" };
 

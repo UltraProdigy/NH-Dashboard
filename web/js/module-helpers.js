@@ -1,6 +1,6 @@
 import { diff, dur, esc, fmt, pctFmt } from "./format.js";
 import { kpi } from "./charts.js";
-import { A, panel } from "./data.js";
+import { A, panel, windowList } from "./data.js";
 import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "./state.js";
 
 /* ---- controls that have two homes ---------------------------------------
@@ -37,6 +37,25 @@ const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
  * entirely, which is where you most want to flip it.
  */
 const cardSeg = (name) => `<span class="card-filters">${controlHtml(name)}</span>`;
+
+/**
+ * A period control in a card's own header, writing to a named slot of state
+ * rather than the page's.
+ *
+ * New Faces is what this is for. It keeps a period of its own — six months of
+ * first-timers is a long list of people who stopped being new some time ago —
+ * and until now that meant the toolbar control above it silently did nothing to
+ * it. In the toolbar it can only read as page-wide; on the card it reads as the
+ * card's, which is what it is.
+ *
+ * Every period button names the state slot it writes, here and in the toolbar,
+ * so one handler serves both homes.
+ */
+const cardWindow = (key) => `<span class="card-filters"><span class="minlabel" style="gap:6px">period
+  <span class="seg mini">${windowList().map(w =>
+    `<button data-window="${esc(w.id)}" data-windowkey="${esc(key)}" aria-pressed="${
+      state[key] === w.id}" title="${esc(w.label)}">${esc(w.short ?? w.label)}</button>`
+  ).join("")}</span></span></span>`;
 
 /* ---- draft status -------------------------------------------------------
    Tri-state. Records ingested before `isDraft` was added to the query carry
@@ -136,6 +155,7 @@ const missingIngest = () =>
 export {
   SEG_KEY,
   cardSeg,
+  cardWindow,
   ciDur,
   ciSection,
   controlHtml,

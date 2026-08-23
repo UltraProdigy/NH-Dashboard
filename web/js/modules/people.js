@@ -3,6 +3,7 @@ import { age, avatar, contribHref, contribLink, daysSince, esc, fmt } from "../f
 import { hbars } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, panel, windowDays, windowPhrase } from "../data.js";
+import { cardWindow } from "../module-helpers.js";
 import { contributorAll, contributorColumns, contributorRows } from "../contributor-data.js";
 
 export const peopleModules = {
@@ -61,9 +62,13 @@ export const peopleModules = {
 
   newcomers: {
     page: "people", label: "New faces", span: 6, flush: true, controls: ["filter"],
-    // Names its own period explicitly. This card doesn't follow the toolbar
-    // control above it on the overview grid, so the caption has to say what it
-    // is showing rather than leaving you to assume it matches its neighbours.
+    // Its period lives in its own header rather than the toolbar, because it
+    // isn't the page's: this card opens on 3 months while its neighbours are on
+    // 6, and a control in the toolbar can only read as governing all four.
+    controlsHtml: () => cardWindow("newFacesWindow"),
+    // The caption still names the period, for the same reason it always did —
+    // on the grid this card is showing a different span from the three beside
+    // it, and that's worth saying rather than leaving you to notice.
     sub: () => activeWindow("newcomers") === "all"
       ? "first PR ever"
       : `first PR in the ${windowPhrase("newcomers")}`,

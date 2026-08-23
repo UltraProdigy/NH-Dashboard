@@ -1,7 +1,7 @@
 import { GRANS, isDrill, state } from "./state.js";
 import { controlHtml } from "./module-helpers.js";
 import { age, agoText, avatar, daysSince, esc, fmt } from "./format.js";
-import { A, I, activeWindow, issuePeople, panel, windowList } from "./data.js";
+import { A, I, activeWindow, issuePeople, panel, windowKey, windowList } from "./data.js";
 import {
   backlogOf,
   queueCounts,
@@ -273,8 +273,8 @@ function renderToolbar() {
     // range and which one is the bucket size isn't guessable from the buttons.
     bits.push(`<span class="minlabel">period
       <span class="seg" id="windowSeg">${ws.map(w =>
-        `<button data-window="${w.id}" aria-pressed="${w.id === cur}" title="${esc(w.label)}">${
-          esc(w.short ?? w.label)}</button>`).join("")}</span></span>`);
+        `<button data-window="${w.id}" data-windowkey="${esc(windowKey())}" aria-pressed="${
+          w.id === cur}" title="${esc(w.label)}">${esc(w.short ?? w.label)}</button>`).join("")}</span></span>`);
   }
 
   // Granularity is not a time range — it's what one bar means — so it keeps

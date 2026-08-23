@@ -1,6 +1,5 @@
 import { state } from "./state.js";
 import { SEG_KEY } from "./module-helpers.js";
-import { windowKey } from "./data.js";
 import {
   addLabelColumn,
   clearExclusions,
@@ -48,6 +47,23 @@ function segClick(e) {
   const key = b && SEG_KEY[b.dataset.seg];
   if (!key) return false;
   state[key] = b.dataset.val;
+  return true;
+}
+
+/**
+ * The period control, which likewise has two homes.
+ *
+ * One control, several homes for its *value*: the drilldowns keep their own
+ * period so looking at a person doesn't reset what Analytics was showing, and
+ * New Faces keeps its own so it can default to a shorter span than its page.
+ * The button carries the slot it writes rather than the handler working it out,
+ * because New Faces' control sits in its card header and arrives at a different
+ * listener from the toolbar's.
+ */
+function windowClick(e) {
+  const b = e.target.closest("button[data-window]");
+  if (!b) return false;
+  state[b.dataset.windowkey] = b.dataset.window;
   return true;
 }
 
@@ -117,8 +133,9 @@ document.getElementById("view").addEventListener("click", e => {
   if (open) return go(state.page, open.dataset.open);
 
   // A grouped tab renders its members' tabControls in their own card headers
-  // rather than the toolbar, so those clicks arrive here instead of there.
-  if (segClick(e)) return render();
+  // rather than the toolbar, and New Faces keeps its period there in both
+  // views, so those clicks arrive here instead of there.
+  if (segClick(e) || windowClick(e)) return render();
 
   const th = e.target.closest("th[data-sort]");
   if (th) {
@@ -244,14 +261,7 @@ document.getElementById("toolbar").addEventListener("click", e => {
     return goPage(mode.dataset.mode, tabTwin(state.page, state.tab));
   }
 
-  // One control, several homes for its value: the drilldowns keep their own
-  // period so looking at a person doesn't reset what Analytics was showing, and
-  // New Faces keeps its own so it can default to a shorter span than its page.
-  const w = e.target.closest("button[data-window]");
-  if (w) {
-    state[windowKey()] = w.dataset.window;
-    return render();
-  }
+  if (windowClick(e)) return render();
 
   if (segClick(e)) return render();
 

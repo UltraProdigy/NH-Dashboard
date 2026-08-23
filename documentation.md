@@ -337,11 +337,21 @@ months of first-timers is a long list of people who stopped being new some time
 ago. The alternative, rewriting the page's period whenever you open that tab,
 changes what Leaderboard was showing behind your back.
 
-The cost is that its card on the overview grid doesn't answer to the toolbar
-control above it, so its caption names the period it's actually on rather than
-leaving you to assume it matches its neighbours. `OWN_WINDOW` in the frontend
-is the whole mechanism: a module id mapped to the slot of `state` its period
-lives in, which `windowKey()` consults before falling back to the page's.
+`OWN_WINDOW` in the frontend is the whole mechanism: a module id mapped to the
+slot of `state` its period lives in, which `windowKey()` consults before
+falling back to the page's.
+
+The card carries its own period control, in its header, via `cardWindow()`. It
+used to have none — the toolbar's control quietly rewrote New Faces' period
+when you were on its tab and did nothing to it at all from the overview, which
+is two different wrong answers to "what does this button do". In the toolbar a
+period control can only read as the page's; on the card it reads as the card's,
+which is what it is. Its caption still names the period, because on the grid
+this card is showing a different span from the three beside it.
+
+Both homes emit the same buttons, each carrying the state slot it writes in
+`data-windowkey`, so `windowClick()` in `events.js` serves the toolbar and the
+card header without either knowing about the other.
 
 Granularity is a separate control, because it isn't a time range — it's what
 one bar *means*. It's labelled **x-axis** for exactly that reason, and offers
