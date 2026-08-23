@@ -31,6 +31,7 @@ export const peopleModules = {
      a glance and earn nothing by being openable. */
   topAuthors: {
     page: "people", label: "Most PRs opened", span: 6, tab: false,
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()
@@ -45,6 +46,7 @@ export const peopleModules = {
 
   topReviewers: {
     page: "people", label: "Most approvals given", span: 6, tab: false,
+    controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const rows = contributorRows()

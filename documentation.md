@@ -1710,7 +1710,15 @@ which is how the click handler knows whose sort to change.
 
 A module's `controls` reach the page toolbar whenever it's on screen. Its
 `tabControls` are ones that would be clutter above a grid of cards they affect
-one of.
+one of. Its `overviewControls` are the mirror of that — needed on the grid and
+not on the module's own tab.
+
+`overviewControls` exists for the two Pulse cards. The card reads one period
+against the one before it; the tab is every period side by side, which is a
+table a period control cannot change. Pulse's `sub()` is handed the same
+`expanded` flag the renderer passes to `render()`, so the caption says "last 6
+months vs. the 6 months before" on the grid and "every period side by side" on
+the tab, rather than naming a period the tab isn't showing.
 
 Grouping reintroduces that problem one level down: a filter in the toolbar doing
 nothing to two of the three tables under it reads as page-wide and isn't. So
@@ -1734,7 +1742,17 @@ The rule of thumb between the three:
 | --- | --- |
 | Affects the whole page | `controls` |
 | Affects one card, and only makes sense expanded | `tabControls` |
+| Affects one card, and only makes sense collapsed | `overviewControls` |
 | Affects one card, wanted everywhere that card is | `controlsHtml()` |
+
+**The period control is a `controls` entry like any other.** It used to be added
+by the toolbar renderer for every page except the Dream Panel and the
+drilldowns, on the reasoning that nearly everything reads it. Nearly isn't
+every: Open backlog, Label mix, Triage state, Needs attention and Actions load
+are all "right now" or "all time" questions with no time axis in them, and on
+each of those tabs the control sat there taking clicks and changing nothing.
+The drilldowns had always declared it per module for exactly this reason; the
+org pages do now too.
 
 Both toggles render from one `seg()` helper and carry the state key they write
 in a `data-seg` attribute, so a single `segClick` handler in `events.js` serves

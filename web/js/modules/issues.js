@@ -206,9 +206,14 @@ export const issueModules = {
 
   iPulse: {
     page: "issues", label: "Pulse", span: 12, flush: true,
-    sub: () => IW()?.prevLabel
-      ? `${windowPhrase()} vs. ${IW().prevLabel}`
-      : windowLabel().toLowerCase(),
+    // Not `controls`, for the same reason General Analytics' Pulse isn't: the
+    // expanded view is every window at once and has nothing to narrow.
+    overviewControls: ["window"],
+    sub: (expanded) => expanded
+      ? "every period side by side"
+      : IW()?.prevLabel
+        ? `${windowPhrase()} vs. ${IW().prevLabel}`
+        : windowLabel().toLowerCase(),
     render(expanded) {
       const d = I(), w = IW();
       if (!w) return missing();
@@ -266,7 +271,7 @@ export const issueModules = {
   iVolume: {
     page: "issues", label: "Issue volume", span: 8,
     sub: () => `by ${state.gran}, ${windowPhrase()}`,
-    controls: ["gran"],
+    controls: ["window", "gran"],
     render(expanded) {
       const d = I();
       if (!d) return missing();
@@ -350,6 +355,7 @@ export const issueModules = {
 
   iResponse: {
     page: "issues", label: "Response and resolution", span: 6,
+    controls: ["window", "gran"],
     sub: () => `median hours, by ${state.gran}`,
     render(expanded) {
       const d = I();
@@ -460,6 +466,7 @@ export const issueModules = {
 
   iReporters: {
     page: "issues", label: "Who files, answers and closes", span: 6,
+    controls: ["window"],
     sub: () => windowPhrase(),
     render(expanded) {
       const w = IW();
@@ -511,7 +518,7 @@ export const issueModules = {
    */
   iPeople: {
     page: "issues", label: "By contributor", span: 12, flush: true,
-    tabControls: ["filter"],
+    controls: ["window"], tabControls: ["filter"],
     sub: () => `filing, answering and closing, ${windowPhrase()}`,
     render(expanded) {
       const d = I();

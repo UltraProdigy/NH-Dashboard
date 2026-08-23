@@ -43,9 +43,14 @@ export const analyticsModules = {
 
   pulse: {
     page: "analytics", label: "Pulse", span: 12, flush: true,
-    sub: () => W()?.prevLabel
-      ? `${windowPhrase()} vs. ${W().prevLabel}`
-      : windowLabel().toLowerCase(),
+    // Not `controls`: the expanded view is every window side by side, so a
+    // period control on its tab would sit above a table it cannot change.
+    overviewControls: ["window"],
+    sub: (expanded) => expanded
+      ? "every period side by side"
+      : W()?.prevLabel
+        ? `${windowPhrase()} vs. ${W().prevLabel}`
+        : windowLabel().toLowerCase(),
     render(expanded) {
       const a = A(), w = W();
       if (!w) return missingIngest();
@@ -112,7 +117,7 @@ export const analyticsModules = {
   volume: {
     page: "analytics", label: "PR volume", span: 8,
     sub: () => `by ${state.gran}, ${windowPhrase()}`,
-    controls: ["gran"],
+    controls: ["window", "gran"],
     render(expanded) {
       if (!A()) return missingIngest();
       const s = seriesSlice();
@@ -171,6 +176,7 @@ export const analyticsModules = {
 
   latency: {
     page: "analytics", label: "Review latency", span: 6,
+    controls: ["window", "gran"],
     sub: () => `median hours, by ${state.gran}`,
     render(expanded) {
       if (!A()) return missingIngest();
@@ -188,6 +194,7 @@ export const analyticsModules = {
 
   growth: {
     page: "analytics", label: "Contributor growth", span: 6,
+    controls: ["window", "gran"],
     sub: () => "active vs. first-time",
     render(expanded) {
       if (!A()) return missingIngest();
@@ -208,6 +215,7 @@ export const analyticsModules = {
 
   repos: {
     page: "analytics", label: "Busiest repos", span: 6,
+    controls: ["window"],
     sub: () => `PRs opened, ${windowPhrase()}`,
     render(expanded) {
       const w = W();
@@ -224,6 +232,7 @@ export const analyticsModules = {
 
   reviewload: {
     page: "analytics", label: "Review load", span: 6,
+    controls: ["window"],
     sub: () => `approvals, ${windowPhrase()}`,
     render(expanded) {
       const w = W();

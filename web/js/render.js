@@ -209,6 +209,10 @@ function renderToolbar() {
   // reads as page-wide and isn't. So `tabControls` only reach the toolbar when
   // there's one card in the tab; grouped, they render in that card's own
   // header instead. See cardControls.
+  // `overviewControls` is the mirror of `tabControls`: a control the card needs
+  // on the grid and not in its own tab. Pulse is the case it exists for — the
+  // card reads one period, its tab is every period side by side, and a period
+  // control above that table is a button that changes nothing.
   const alone = ids?.length === 1;
   const wanted = new Set(
     ids
@@ -216,17 +220,18 @@ function renderToolbar() {
           ...(MODULES[id].controls ?? []),
           ...(alone ? MODULES[id].tabControls ?? [] : []),
         ])
-      : page.modules.flatMap(id => MODULES[id].controls ?? [])
+      : page.modules.flatMap(id => [
+          ...(MODULES[id].controls ?? []),
+          ...(MODULES[id].overviewControls ?? []),
+        ])
   );
-  // Window applies to nearly everything on the org pages. The drilldowns
-  // instead let each module declare it, so a tab that ignores the window —
-  // all-time Collaboration, the open-PR list — doesn't display a control that
-  // changes nothing when you touch it.
-  // Filter used to be a hardcoded list of module ids right here, which meant
-  // the renderer had to be edited whenever a module changed its mind about
-  // filtering — and a grouped tab would have had to test every member against
-  // it. It's a `controls` entry like everything else now.
-  if (!isDrill(page.id) && page.id !== "dream") wanted.add("window");
+  // Window used to be added here for every org page, on the reasoning that
+  // nearly everything reads it. Nearly isn't every: Open backlog, Label mix,
+  // Triage state and Needs attention are all "right now" questions with no time
+  // axis at all, and Actions load is projected from a fixed sample — five tabs
+  // where the control sat there taking clicks and changing nothing.
+  // It's a `controls` entry now, declared by the modules that read it, the same
+  // as filter and the same as the drilldowns have always done it.
   // The subject picker is the whole point of a drilldown page, so it's always
   // there — including before anything is selected, which is when it's needed.
   if (isDrill(page.id)) wanted.add("subject");
@@ -309,9 +314,13 @@ function renderToolbar() {
  * The line beside a card's title. Usually descriptive text; a module can hand
  * back markup instead when the thing that describes the card *is* a control —
  * By label, whose picker is the only sensible caption for it.
+ *
+ * Told whether it's captioning the card or the tab, because the two can be
+ * showing different things: Pulse's card is one period against the one before
+ * it, and its tab is every period at once.
  */
-const cardSub = (m) =>
-  m.subHtml ? m.subHtml() : `<span class="sub">${esc(m.sub ? m.sub() : "")}</span>`;
+const cardSub = (m, expanded) =>
+  m.subHtml ? m.subHtml(expanded) : `<span class="sub">${esc(m.sub ? m.sub(expanded) : "")}</span>`;
 
 /**
  * Controls that belong to one card rather than the page — the Dream filters,
@@ -343,7 +352,7 @@ function card(id) {
   return `<section class="card" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
-      ${cardSub(m)}
+      ${cardSub(m, false)}
       ${cardControls(m)}
       ${m.tab === false ? "" : `<button class="expand" data-open="${id}">See all →</button>`}
     </header>
@@ -357,7 +366,7 @@ function expandedCard(id, grouped) {
   const m = MODULES[id];
   const body = bodyOf(m, id, true);
   return `<section class="card" style="--span:12">
-    <header><h2>${esc(m.label)}</h2>${cardSub(m)}${cardControls(m, grouped)}</header>
+    <header><h2>${esc(m.label)}</h2>${cardSub(m, true)}${cardControls(m, grouped)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
 }
