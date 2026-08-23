@@ -106,11 +106,15 @@ export const analyticsModules = {
         ["Commits",              w => fmt(w.commits)],
         ["PR comments",          w => fmt(w.comments)],
       ];
-      return `<table>
+      // Wrapped, like every table renderTable emits: the columns are one per
+      // period and there are seven of them, which overflows a card long before
+      // a phone gets involved — and .card is overflow:hidden to clip its
+      // corners, so the overflow was silently cut off rather than reachable.
+      return `<div class="tscroll"><table>
         <thead><tr><th style="cursor:default">Metric</th>${a.windows.map(x => `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
         <tbody>${rows.map(([lab, f]) =>
           `<tr><td>${lab}</td>${a.windows.map(x => `<td class="num">${f(a.byWindow[x.id])}</td>`).join("")}</tr>`).join("")}</tbody>
-      </table>`;
+      </table></div>`;
     },
   },
 

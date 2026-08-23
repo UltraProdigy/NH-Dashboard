@@ -1867,6 +1867,19 @@ js/theme.js            dark/light toggle
 js/main.js             entry point: boot, load dashboard.json, first render
 ```
 
+```
+styles/tokens.css      colours, both themes, and the body grid
+styles/sidebar.css     the nav column, and its collapsed rail
+styles/layout.css      topbar, tabs, content padding, toolbar controls
+styles/cards.css       the twelve-column grid, cards, KPI strips
+styles/tables.css      tables and their scroll wrapper
+styles/charts.css      avatars, bars, heatmap, chart primitives
+styles/drilldown.css   subject header, combobox, paired boxes, head-to-head
+styles/pills.css       status pills
+styles/dream.css       the Dream Panel's exclusion popup and By label columns
+styles/mobile.css      what changes below 760px — loaded last
+```
+
 Dependencies run one way, roughly top to bottom in that list — `state` and
 `format` know about nothing, `main` knows about everything. A module that
 renders a card only ever imports helpers, never the renderer that calls it, so
@@ -1888,6 +1901,45 @@ The practical consequence: a fresh clone has no drilldown data until someone
 runs `npm run build`. `Dashboard.command` does that before serving, and the
 frontend shows a "run the build" message rather than breaking if the file is
 absent, so this only ever surfaces if you open `web/index.html` directly.
+
+## Narrow screens
+
+Below **760px** the sidebar stops being a column and becomes a drawer: fixed
+over the page, opened by a hamburger in the topbar, closed by the scrim, the
+Escape key, or picking a page — which is what it was opened for. `main` gets
+the full width either way, because the drawer is out of the grid entirely.
+
+The open state is one class on `<body>` and nothing else. The CSS decides
+whether `nav-open` means anything, so there's no viewport width tested in
+JavaScript and nothing to keep in step with the breakpoint if it moves.
+
+The rail is not the mobile answer. Collapsed, the sidebar is 56px of icons —
+fine as a sixth of a desktop, a sixth of a phone spent on navigation you look at
+twice. `mobile.css` also undoes the collapsed rules outright, because somebody
+who collapsed the sidebar on their desktop still has `nh:collapsed` in
+localStorage when they open the same page on a phone, and in a drawer that
+setting would hide every label.
+
+Everything else follows from the column being the whole viewport:
+
+- **Search boxes lose their minimum width.** 260px and 280px floors on a 320px
+  screen is a toolbar wider than the page.
+- **The period control shrinks rather than wraps.** Seven buttons have to stay
+  on one row: wrapped, a segmented control reads as two separate controls, which
+  is worse than small text.
+- **KPI strips go two across**, via a container query at 420px like the rest of
+  the strip rules — three tiles on a 320px card is six lines of type in a box the
+  size of a stamp.
+- **See all keeps its border.** It appears on `.card:hover` on a desktop, and
+  there is no hover on a touch screen.
+
+Two things were broken at every width and only obvious on a phone. The
+all-windows tables — both Pulse tabs, both Profile tabs, and the head-to-head —
+were emitted bare rather than through `renderTable`, so they missed its scroll
+wrapper: seven period columns overflowed the card, and `.card` is
+`overflow: hidden` to clip its corners, so the rest was cut off with no way to
+reach it. And the head-to-head's sticky first column only sticks to a
+scrollport, which the card isn't. Both are wrapped in `.tscroll` now.
 
 ## Tuning
 

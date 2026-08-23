@@ -80,7 +80,10 @@ function table(entries, readings) {
     return `<tr class="vs-group"><td colspan="${entries.length + 1}">${esc(g.title)}</td></tr>${rows}`;
   }).join("");
 
-  return `<table class="vs">${head}<tbody>${body}</tbody></table>`;
+  // The sticky first column only sticks to a scrollport, and the card is not
+  // one — it clips. This is that scrollport, and the reason the row labels
+  // stay put while you read across a five-way comparison.
+  return `<div class="tscroll"><table class="vs">${head}<tbody>${body}</tbody></table></div>`;
 }
 
 /** One ranked-bar block per headline metric — the table's shape, read sideways. */

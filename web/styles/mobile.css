@@ -1,0 +1,131 @@
+/* ==========================================================================
+   Narrow screens
+   --------------------------------------------------------------------------
+   One file rather than a breakpoint tacked onto the end of each of the others,
+   because what happens below 760px is a single decision — the sidebar stops
+   being a column and becomes a drawer, and everything else follows from the
+   main column suddenly being the whole viewport. Split across six files that
+   decision is six half-answers nobody can read together.
+
+   Loaded last, so these rules win over the ones they undo on equal specificity.
+   The breakpoints already living in cards.css, drilldown.css and charts.css
+   stay where they are: those are about a card running out of room, which
+   happens on a wide monitor too.
+   ========================================================================== */
+
+/* The hamburger, and the sheet behind the drawer. Both are display:none until
+   the drawer exists, so nothing below 760px has to hide them again. */
+.navbtn { display: none; }
+.scrim { display: none; }
+
+@media (max-width: 760px) {
+
+  /* ---------- the sidebar becomes a drawer ---------- */
+
+  /* One column. The rail is no use here — at this width it would be a strip of
+     icons eating a sixth of the screen on every page. */
+  body, body.collapsed { grid-template-columns: minmax(0, 1fr); }
+
+  /* Fixed, so it's out of the grid entirely and `main` gets the full width
+     whether the drawer is open or shut. dvh rather than vh: on a phone the
+     address bar comes and goes, and vh is measured against the tallest it
+     gets, which puts the theme toggle under the browser chrome. */
+  aside {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 40;
+    width: min(280px, 84vw);
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 0 0 40px rgb(0 0 0 / .4);
+  }
+  body.nav-open aside { transform: none; }
+
+  /* Somebody who collapsed the sidebar on a desktop and then opened the same
+     page on a phone still has `collapsed` in localStorage. In a drawer it
+     would hide every label and leave a 280px panel of unlabelled icons. */
+  body.collapsed .brand .name,
+  body.collapsed .brand .mark,
+  body.collapsed .pages .plabel,
+  body.collapsed .side-foot span { display: revert; }
+  body.collapsed .brand { justify-content: flex-start; }
+  body.collapsed .pages button,
+  body.collapsed .side-foot button,
+  body.collapsed .side-foot a { justify-content: flex-start; padding: 11px 10px; }
+  /* Scoped to the sidebar: `.navbtn` is an `.icon-btn` too, and it lives in the
+     topbar where neither of these applies. */
+  body.collapsed aside .icon-btn { margin-left: auto; }
+  body.collapsed aside .icon-btn svg { transform: none; }
+
+  .navbtn { display: grid; flex: none; margin-left: 0; }
+  .scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(0 0 0 / .5); }
+  .scrim[hidden] { display: none; }
+
+  /* Finger-sized. The desktop values are comfortable for a pointer and about
+     two thirds of what a thumb wants. */
+  .pages button, .side-foot button, .side-foot a { padding: 11px 10px; }
+
+  /* ---------- the main column ---------- */
+
+  .topbar { flex-wrap: wrap; gap: 10px; min-height: 0; padding: 10px 12px 0; }
+  .topbar h1 { font-size: 15px; }
+  /* Allowed to fall to its own line: "GTNewHorizons · built 20 min ago" doesn't
+     fit beside a page title, and how fresh the data is is the wrong half to
+     truncate. Indented to line up under the title rather than under the
+     hamburger, so it still reads as belonging to it. */
+  .meta { flex-basis: 100%; margin-left: 40px; padding-bottom: 10px; }
+
+  nav.tabs { padding: 0 8px; }
+  .content { padding: 14px 12px 60px; }
+
+  /* ---------- controls ---------- */
+
+  /* Nothing in the toolbar may set a minimum width bigger than the screen. The
+     search boxes are the offenders: 260px and 280px floors, on a 320px phone. */
+  .toolbar { gap: 8px; }
+  input[type="search"] { min-width: 0; flex: 1 1 180px; }
+  .combo { flex: 1 1 200px; min-width: 0; }
+  .combo input { min-width: 0; width: 100%; }
+  .combo-pop { min-width: 0; width: max(100%, 240px); max-width: calc(100vw - 24px); }
+
+  /* Smaller than the desktop control, not bigger. The period picker is seven
+     buttons and it has to fit one row — wrapped, a segmented control reads as
+     two separate controls, which is worse than small text. 7 x ~30px plus the
+     label clears 320px. */
+  .toolbar .seg button { padding: 7px 8px; font-size: 12px; }
+  .minlabel { font-size: 11px; gap: 6px; }
+
+  /* ---------- cards ---------- */
+
+  .grid, .stack { gap: 12px; }
+  .card > header { padding: 11px 12px; }
+  .card .body { padding: 12px; }
+  .card .body.flush > .hint { padding-left: 12px; padding-right: 12px; }
+  .card .body.flush > .hint:last-child { padding-bottom: 12px; }
+  /* Always visible: there is no hover on a touch screen, so the border that
+     appears on `.card:hover .expand` never would. */
+  .expand { border-color: var(--border); padding: 5px 9px; }
+
+  /* Ranked lists: give the name more of the row. The desktop split caps the
+     label at 34%, which on a 300px card is 100px — about twelve characters of
+     repo name — while the bar sits in the rest. */
+  .hbar { grid-template-columns: auto minmax(0, 1fr) minmax(38px, 26%) auto; gap: 8px; }
+  .heat { grid-template-columns: 26px repeat(24, 1fr); gap: 1px; }
+
+  th, td { padding: 7px 10px; }
+}
+
+/* ---------- KPI strips ----------
+   A container query, not a viewport one: this is about the card, which is why
+   the rest of the strip rules in cards.css are container queries too. Three
+   tiles across a 320px card is 100px each, which is a two-line label over a
+   number and a second two-line caption under it — six lines of type in a box
+   the size of a stamp.
+
+   `.card .body .kpis` rather than `.kpis` so it outranks the `:has()` rules in
+   cards.css, which pin a column count per tile count from 340px up. */
+@container (max-width: 420px) {
+  .card .body .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card .body .kpi { --kpi-val: 20px; }
+}

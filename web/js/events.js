@@ -68,9 +68,36 @@ function windowClick(e) {
   return true;
 }
 
+/* ---- the sidebar as a drawer -------------------------------------------
+   Below 760px the sidebar is fixed over the page instead of beside it. The
+   open/shut state is a class on <body> and nothing else — the CSS decides
+   whether that class means anything, so there's no width to test in here and
+   nothing to keep in step with the breakpoint. */
+
+const scrim = document.getElementById("scrim");
+const navToggle = document.getElementById("navToggle");
+
+function setNav(open) {
+  document.body.classList.toggle("nav-open", open);
+  scrim.hidden = !open;
+  navToggle.setAttribute("aria-expanded", String(open));
+  navToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+}
+
+navToggle.addEventListener("click", () =>
+  setNav(!document.body.classList.contains("nav-open")));
+scrim.addEventListener("click", () => setNav(false));
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNav(false);
+});
+
 document.getElementById("pages").addEventListener("click", e => {
   const b = e.target.closest("button[data-page]");
-  if (b) goPage(b.dataset.page);
+  if (!b) return;
+  // Picking a page is the whole reason the drawer was opened, so it closes
+  // itself rather than sitting over the page you just asked for.
+  setNav(false);
+  goPage(b.dataset.page);
 });
 
 document.getElementById("tabs").addEventListener("click", e => {
@@ -408,6 +435,9 @@ document.addEventListener("click", e => {
 
 const collapseBtn = document.getElementById("collapse");
 collapseBtn.addEventListener("click", () => {
+  // As a drawer this is the close button. Collapsing to a rail means nothing
+  // when the rail would be a strip of icons floating over the page.
+  if (document.body.classList.contains("nav-open")) return setNav(false);
   const c = document.body.classList.toggle("collapsed");
   localStorage.setItem("nh:collapsed", c ? "1" : "0");
   collapseBtn.title = c ? "Expand sidebar" : "Collapse sidebar";

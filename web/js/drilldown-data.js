@@ -378,12 +378,12 @@ function windowTable(rows) {
   const ws = state.drill?.windows ?? [];
   const s = subject();
   const at = id => s.windows[id] ?? EMPTY_WINDOW;
-  return `<table>
+  return `<div class="tscroll"><table>
     <thead><tr><th style="cursor:default">Metric</th>${ws.map(x =>
       `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(([lab, f]) =>
       `<tr><td>${lab}</td>${ws.map(x => `<td class="num">${f(at(x.id))}</td>`).join("")}</tr>`).join("")}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 export {

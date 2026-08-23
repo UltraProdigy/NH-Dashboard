@@ -13,10 +13,13 @@
 <link rel="stylesheet" href="styles/drilldown.css">
 <link rel="stylesheet" href="styles/pills.css">
 <link rel="stylesheet" href="styles/dream.css">
+<!-- Last, so its breakpoint rules win over the ones they undo without needing
+     to out-specify them. -->
+<link rel="stylesheet" href="styles/mobile.css">
 </head>
 <body>
 
-<aside>
+<aside id="sidebar">
   <div class="brand">
     <span class="mark">NH</span>
     <span class="name">NH Dashboard</span>
@@ -39,6 +42,9 @@
 
 <main>
   <div class="topbar">
+    <button class="icon-btn navbtn" id="navToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Zm0 4h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Zm0 4h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Z"/></svg>
+    </button>
     <h1 id="pageTitle">…</h1>
     <span class="meta" id="meta">loading…</span>
   </div>
@@ -48,6 +54,10 @@
     <div id="view"></div>
   </div>
 </main>
+
+<!-- Only ever visible with the sidebar open as a drawer: a tap anywhere off
+     the menu is how everyone closes one. -->
+<div class="scrim" id="scrim" hidden></div>
 
 <div id="popLayer"></div>
 

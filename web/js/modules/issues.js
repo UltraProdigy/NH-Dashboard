@@ -258,11 +258,15 @@ export const issueModules = {
         ["Comments",                (x) => fmt(x.comments)],
       ];
 
-      return `<table>
+      // Wrapped, like every table renderTable emits: the columns are one per
+      // period and there are seven of them, which overflows a card long before
+      // a phone gets involved — and .card is overflow:hidden to clip its
+      // corners, so the overflow was silently cut off rather than reachable.
+      return `<div class="tscroll"><table>
         <thead><tr><th style="cursor:default">Metric</th>${d.windows.map(x => `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
         <tbody>${rows.map(([lab, f]) =>
           `<tr><td>${lab}</td>${d.windows.map(x => `<td class="num">${f(d.byWindow[x.id])}</td>`).join("")}</tr>`).join("")}</tbody>
-      </table>
+      </table></div>
       <div class="hint" style="margin-top:14px">"Labeled on arrival" is measured against issues opened in the period, so it drifts down as the newest arrivals wait for triage — a low number on the 1-month column is normal, a low number on the 1-year column is not.</div>
       <div class="hint" style="margin-top:8px">Completed share is everything closed that wasn't marked not-planned or duplicate. ${d.totals.unknownReason ? `${fmt(d.totals.unknownReason)} of ${fmt(d.totals.closed)} closed issues carry no recorded reason at all and count as completed by default — read the all-time column with that in mind.` : `Every closed issue in the store carries a recorded reason, so nothing here is inferred.`}</div>`;
     },

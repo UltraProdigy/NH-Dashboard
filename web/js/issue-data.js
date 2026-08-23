@@ -191,13 +191,13 @@ function closerNotice(w) {
 /** Every window side by side, the issue equivalent of windowTable(). */
 function issueWindowTable(rows, s = subject()) {
   const ws = state.drill?.windows ?? [];
-  return `<table>
+  return `<div class="tscroll"><table>
     <thead><tr><th style="cursor:default">Metric</th>${ws.map((x) =>
       `<th style="cursor:default" class="num">${esc(x.label)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(([lab, f]) =>
       `<tr><td>${lab}</td>${ws.map((x) =>
         `<td class="num">${f(issueWindowOf(s, x.id))}</td>`).join("")}</tr>`).join("")}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 /** True when the subject has any issue record at all. */
