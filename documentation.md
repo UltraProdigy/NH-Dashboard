@@ -1780,11 +1780,19 @@ table a period control cannot change. Pulse's `sub()` is handed the same
 months vs. the 6 months before" on the grid and "every period side by side" on
 the tab, rather than naming a period the tab isn't showing.
 
-Grouping reintroduces that problem one level down: a filter in the toolbar doing
+Grouping reintroduces that problem one level down: a toggle in the toolbar doing
 nothing to two of the three tables under it reads as page-wide and isn't. So
 `tabControls` go in the toolbar when the module has its tab to itself, and in
 that card's own header when it's sharing. `controlHtml()` in
 `module-helpers.js` builds the markup for either home.
+
+**`filter` is the exception, and reaches the toolbar either way.** The other
+toggles are one card's opinion about its own rows; `state.filter` is a single
+value every table on the page reads, so a search box in the toolbar of a grouped
+tab is exactly as page-wide as it looks. It also has to be there, because the
+card-header slot renders through `controlHtml()`, which has never known how to
+draw a search box — a grouped member declaring `tabControls: ["filter"]` was
+getting no box at all, on six tabs.
 
 Twelve cards use it, all of them for `filter` — the tables whose search box
 only makes sense once you're looking at the whole list rather than a seven-row

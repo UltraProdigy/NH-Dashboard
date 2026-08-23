@@ -214,12 +214,18 @@ function renderToolbar() {
   // on the grid and not in its own tab. Pulse is the case it exists for — the
   // card reads one period, its tab is every period side by side, and a period
   // control above that table is a button that changes nothing.
+  // Filter is the exception to the grouping rule. The rest of the toggles are
+  // one card's opinion and belong in that card's header when it's sharing a
+  // tab — but `state.filter` is a single value every table on the page reads,
+  // so a box in the toolbar is exactly as page-wide as it looks. Left with the
+  // card headers it rendered as nothing at all: the header slot goes through
+  // `controlHtml`, which has never known how to draw a search box.
   const alone = ids?.length === 1;
   const wanted = new Set(
     ids
       ? ids.flatMap(id => [
           ...(MODULES[id].controls ?? []),
-          ...(alone ? MODULES[id].tabControls ?? [] : []),
+          ...(MODULES[id].tabControls ?? []).filter(c => alone || c === "filter"),
         ])
       : page.modules.flatMap(id => [
           ...(MODULES[id].controls ?? []),
