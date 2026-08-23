@@ -526,7 +526,10 @@ export const issueModules = {
       const top5 = [...rows].sort((a, b) => b.triage - a.triage).slice(0, 5)
         .reduce((n, r) => n + r.triage, 0);
 
-      const head = `<div class="kpis" style="margin:-14px -14px 14px">
+      // No negative pull on this one: the card is `flush`, so the body has no
+      // padding for the strip to escape — the -14px every other KPI strip uses
+      // would drag it past the card's border, where overflow:hidden cuts it.
+      const head = `<div class="kpis" style="margin-bottom:14px">
         ${kpi("People involved", fmt(rows.length),
               d.peopleCap && rows.length >= d.peopleCap ? `top ${fmt(d.peopleCap)} of ${fmt(w?.reporters ?? 0)}` : "in this period")}
         ${kpi("Triage acts", fmt(triageTotal), `${fmt(closedTotal)} closes, the rest first replies`)}

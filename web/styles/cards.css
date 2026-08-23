@@ -28,6 +28,11 @@
 .card .sub { color: var(--muted); font-size: 12px; }
 .card .body { padding: 14px; min-width: 0; flex: 1; }
 .card .body.flush { padding: 0; }
+/* A flush body gives its whole width to a table or a KPI strip, both of which
+   want the card's edges. Prose doesn't — the notes under Pulse were sitting
+   against the border with nothing between them and it. */
+.card .body.flush > .hint { padding-left: 14px; padding-right: 14px; }
+.card .body.flush > .hint:last-child { padding-bottom: 14px; }
 .expand {
   margin-left: auto;
   background: none; border: 1px solid transparent; border-radius: 6px;
