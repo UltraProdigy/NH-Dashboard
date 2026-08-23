@@ -47,6 +47,18 @@ createServer(async (req, res) => {
     });
     res.end(body);
   } catch {
+    // Routes are real paths — /analytics/actions, /repo/GT5-Unofficial — and
+    // nothing on disk answers to those. Redirected to the root rather than
+    // served the app here, which is what web/404.html does on GitHub Pages and
+    // for the same reason: index.html pulls its styles and scripts in
+    // relatively, so it has to be loaded from the one place those resolve.
+    if (!path.extname(pathname)) {
+      res.writeHead(302, {
+        location: "/?route=" + encodeURIComponent(pathname.replace(/^\/+/, "")),
+      });
+      res.end();
+      return;
+    }
     res.writeHead(404, { "content-type": "text/plain" });
     res.end(
       pathname === "/data/dashboard.json"

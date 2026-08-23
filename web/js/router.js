@@ -1,17 +1,26 @@
 import { isDrill, state } from "./state.js";
+import { BASE } from "./paths.js";
 import { PAGES } from "./pages.js";
 import { closeCombo, render } from "./render.js";
 import { resolveTab } from "./modules/index.js";
 
 /* ==========================================================================
-   Routing — hash keeps deep links shareable and survives a reload
+   Routing — the path is the state, so a link is shareable and a reload lands
+   where it says
+   --------------------------------------------------------------------------
+   This used to live in the fragment: `#analytics/actions`. It worked, but a
+   fragment is an anchor within a page — it's the part of a URL a server never
+   sees and a browser is entitled to scroll to — and using it to mean "which
+   page" is a thirty-year-old workaround for hosts that can't rewrite. Real
+   paths cost one static file (404.html) on GitHub Pages and one branch in the
+   dev server, which is cheaper than the confusion.
    ========================================================================== */
 
 /**
  * Two shapes, because drilldown pages carry a subject:
  *
- *   #people/newcomers
- *   #contributor/Dream-Master/cActivity
+ *   /people/newcomers
+ *   /contributor/Dream-Master/cActivity
  *
  * Logins and repo names can't contain a slash, so splitting on it is safe;
  * they're still percent-encoded, since they can contain plenty else.
@@ -19,7 +28,7 @@ import { resolveTab } from "./modules/index.js";
 /**
  * `_` is the placeholder for "a tab is selected but no subject is". It only
  * shows up when you flip modes with a tab open, and it exists so the subject
- * always sits in the same slot — without it, `#repo/rActivity` would be
+ * always sits in the same slot — without it, `/repo/rActivity` would be
  * indistinguishable from a repo that happens to be named rActivity.
  */
 const NO_SUBJECT = "_";
@@ -38,17 +47,42 @@ const remember = () => {
   lastPlace[state.page] = { tab: state.tab, subject: state.subject };
 };
 
-function hashFor(page, tab, subject) {
-  if (!isDrill(page)) return tab ? `${page}/${tab}` : page;
+function urlFor(page, tab, subject) {
   const seg = [page];
-  if (subject) seg.push(encodeURIComponent(subject));
-  else if (tab) seg.push(NO_SUBJECT);
+  if (isDrill(page)) {
+    if (subject) seg.push(encodeURIComponent(subject));
+    else if (tab) seg.push(NO_SUBJECT);
+  }
   if (tab) seg.push(tab);
-  return seg.join("/");
+  return BASE + seg.join("/");
 }
 
-function readHash() {
-  const parts = location.hash.replace(/^#/, "").split("/");
+/**
+ * The route as raw segments, from wherever this load happened to put it.
+ *
+ * Three shapes arrive here. Normally it's the path, which is the whole point.
+ * A deep link on GitHub Pages has been through 404.html, which has no way to
+ * serve the app under the requested URL and hands the route over in `?route=`
+ * instead. And a bookmark or a chat message from before this moved off the
+ * fragment still carries it in `#`.
+ *
+ * The last two are rewritten into the address bar here, before anything
+ * renders, so only the first shape ever reaches the rest of the app.
+ */
+function routeSegments() {
+  const relayed = new URLSearchParams(location.search).get("route");
+  const legacy = location.hash.slice(1);
+  const carried = relayed ?? (legacy || null);
+  if (carried != null) history.replaceState(null, "", BASE + carried.replace(/^\/+/, ""));
+
+  // Split before decoding: encodeURIComponent turns a slash in a repo name into
+  // %2F, so the raw string is the one where "/" means "next segment".
+  return (location.pathname.startsWith(BASE) ? location.pathname.slice(BASE.length) : "")
+    .split("/").filter(Boolean);
+}
+
+function readRoute() {
+  const parts = routeSegments();
   const page = parts[0];
   if (PAGES.some(p => p.id === page)) state.page = page;
 
@@ -58,13 +92,14 @@ function readHash() {
 
   // resolveTab also redirects: a link made before the tab consolidation names a
   // card that is now one of several under a group tab, and lands on the group.
-  const raw = parts[drill ? 2 : 1];
-  state.tab = resolveTab(state.page, raw);
-  // Rewritten rather than left alone so the address bar isn't still advertising
-  // a tab that no longer exists. `replace`, so the stale URL doesn't become a
-  // history entry you can press Back into.
-  if (raw && raw !== state.tab)
-    location.replace(`#${hashFor(state.page, state.tab, state.subject)}`);
+  state.tab = resolveTab(state.page, parts[drill ? 2 : 1]);
+
+  // Canonicalised rather than left alone, which covers the bare root landing on
+  // a page, a relayed link still wearing its `?route=`, and a URL naming a tab
+  // that no longer exists. `replaceState`, so none of those becomes a history
+  // entry you can press Back into.
+  const canon = urlFor(state.page, state.tab, state.subject);
+  if (location.pathname + location.search !== canon) history.replaceState(null, "", canon);
   remember();
 }
 
@@ -89,11 +124,11 @@ function go(page, tab = null, subject, restore = null) {
   closeCombo();
   remember();
 
-  location.hash = hashFor(page, state.tab, subject);
+  history.pushState(null, "", urlFor(page, state.tab, subject));
   render();
-  // Next frame, not now: setting the hash above queues a hashchange that
-  // re-renders the view, and a scroll set before that lands gets clamped away
-  // while the page is briefly empty.
+  // Next frame, not now: the view has just been replaced wholesale and a scroll
+  // set against a page that hasn't been laid out yet gets clamped to whatever
+  // height it briefly had.
   if (restore) requestAnimationFrame(() => scrollTo({ top: restore.scrollY }));
 }
 
@@ -162,4 +197,4 @@ function goPage(page, fallbackTab = null) {
   go(page, last?.tab ?? fallbackTab, last?.subject ?? null);
 }
 
-export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readHash };
+export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readRoute };

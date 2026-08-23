@@ -1001,10 +1001,10 @@ nothing to add and every time window is equally cheap. No extra API calls.
 Deep links carry the subject, so they're shareable:
 
 ```
-#contributor/Dream-Master           overview
-#contributor/Dream-Master/@activity a tab
-#contributor/Dream-Master/cProfile  a tab that's a single card
-#repo/GT5-Unofficial/@prs
+/contributor/Dream-Master           overview
+/contributor/Dream-Master/@activity a tab
+/contributor/Dream-Master/cProfile  a tab that's a single card
+/repo/GT5-Unofficial/@prs
 ```
 
 A segment starting with `@` is a group tab; anything else is a single module.
@@ -1569,12 +1569,12 @@ of its own, so the profile is one more click rather than gone.
 
 The one exception is that button itself, on the drilldown header.
 
-They're real anchors to `#contributor/<login>`, so middle-click and
+They're real anchors to `/contributor/<login>`, so middle-click and
 open-in-new-tab behave normally. Plain clicks are intercepted only so they
-route through `go()` and clear the sort and filter, which a bare hash change
-wouldn't.
+route through `go()` and clear the sort and filter, which letting the browser
+follow the link wouldn't — and it would reload the whole app to do it.
 
-**Repo names work the same way**, linking to `#repo/<name>` — the Busiest repos
+**Repo names work the same way**, linking to `/repo/<name>` — the Busiest repos
 list, the repo columns on every PR table, the contributor's Repos card, all of
 it. Same trade, same reasoning: the drilldown answers more of what you were
 asking when you clicked a repo name here, and it carries its own "View on
@@ -1590,6 +1590,57 @@ Everything is compared bare before linking, since the search-backed panels carry
 `GTNewHorizons/Angelica` and the drilldown is keyed on `Angelica` — the same
 `bareRepo` the exclusion filter uses.
 
+### The URL is the state
+
+Routes are real paths:
+
+```
+/analytics
+/analytics/actions
+/issues/@attention
+/repo/GT5-Unofficial/rProfile
+/repo/_/rProfile
+```
+
+They used to be fragments — `#analytics/actions`. That works, and it's what
+every static host can do without help, but a fragment is the part of a URL a
+server never sees: it means "an anchor within this page", and the browser is
+entitled to try to scroll to it. Using it to say *which page* is a workaround
+for hosts that can't rewrite, and it leaks — a `#` in a URL somebody pastes
+into an issue reads as a link to a heading.
+
+`_` is still the placeholder for "a tab is selected but no subject is", which
+happens when you flip modes with a tab open. Without it `/repo/rActivity` would
+be indistinguishable from a repo named rActivity.
+
+**Three things make this work on a static host.**
+
+`js/paths.js` derives `BASE` — where the app is mounted — from its own
+`import.meta.url`. That's `/` under `npm run serve` and `/NH-Dashboard/` on
+GitHub Pages, and neither has to be configured, because a module always knows
+where it was loaded from. Every link into the app and every data fetch goes
+through it. The fetches especially: `pushState` moves the document URL, so
+`fetch("data/drilldown.json")` from `/contributor/Dream-Master` would go looking
+for `/contributor/data/drilldown.json`.
+
+`web/404.html` catches deep links on Pages, which has no rewrite rule and will
+404 anything that isn't a file. It hands the route back in `?route=`, and the
+router puts it in the address bar with `replaceState` before the first render —
+so the redirect is a flicker in the address bar rather than something you end up
+looking at. It works out the mount point by checking whether the first path
+segment is one of the app's own page ids, which is a fact it can check; the
+hostname isn't, since a user site and a project site look identical from the
+client.
+
+`src/serve.js` does the same thing with a 302, rather than serving `index.html`
+under the requested path. It has to: `index.html` pulls in its styles and
+scripts relatively, so it can only be loaded from the one place those resolve.
+
+**Old links still work.** A URL with a fragment gets rewritten into a path on
+arrival, the same way a relayed one does, so every `#analytics/actions` link
+already pasted somewhere lands where it always did. That's on top of the
+existing redirect from a card id to the group tab that now holds it.
+
 ### Remembering where you were
 
 Each page remembers its last tab, and the drilldowns also remember their last
@@ -1597,18 +1648,17 @@ subject, so moving between pages resumes rather than resetting. The mode toggle
 does the same: flipping to Repo puts you back on the repo you were looking at,
 falling back to the equivalent tab only if you've never been there.
 
-This is in-memory for the session. The hash stays the source of truth, so a
-reload or a shared link lands exactly where the URL says — the memory only
-fills in what a navigation didn't specify.
+This is in-memory for the session. The URL stays the source of truth, so a
+reload or a shared link lands exactly where it says — the memory only fills in
+what a navigation didn't specify.
 
 ### Getting back
 
 Because every repo and contributor name is a link into a drilldown, most visits
 to one start somewhere else — halfway down a sorted table, three tabs into the
-Dream Panel. The browser's Back is a poor way home from there: on a hash-routed
-page it unwinds every tab and period you touched after arriving, one press at a
-time, and it can't restore a sort or a scroll position that were never in the
-URL to begin with.
+Dream Panel. The browser's Back is a poor way home from there: it unwinds every
+tab and period you touched after arriving, one press at a time, and it can't
+restore a sort or a scroll position that were never in the URL to begin with.
 
 So the drilldowns carry **a back button, left of the search box** — a small
 circular arrow that returns you to the exact spot the link was clicked, with
@@ -1628,7 +1678,7 @@ Two rules keep it from offering something stale:
 - Each entry records the drilldown it was pushed *for*, and `backFrom` checks it
   against where you actually are. Switching tabs on the drilldown keeps the
   offer — you're still on the page you were sent to — while the browser's own
-  Back and Forward move the hash out from under the trail, and an entry that no
+  Back and Forward move the URL out from under the trail, and an entry that no
   longer describes where you are simply stops applying.
 
 The button is disabled rather than hidden in that case. It sits at the head of a
@@ -1809,8 +1859,9 @@ js/dream.js            Dream Panel exclusions and By label's columns
 js/pages.js            the six pages, the modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
                        and derives the tab bar from pages.js
+js/paths.js            where the app is mounted, and links into it
 js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
-js/router.js           hash routing, and the back trail behind the drilldowns
+js/router.js           path routing, and the back trail behind the drilldowns
 js/events.js           every delegated listener
 js/theme.js            dark/light toggle
 js/main.js             entry point: boot, load dashboard.json, first render

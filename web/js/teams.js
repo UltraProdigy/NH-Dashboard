@@ -1,3 +1,5 @@
+import { href } from "./paths.js";
+
 /* ==========================================================================
    Org team membership
    --------------------------------------------------------------------------
@@ -12,13 +14,13 @@
    ========================================================================== */
 
 const TEAMS = [
-  { id: "owner",       name: "Owner",            img: "assets/teams/owner.png" },
-  { id: "admin",       name: "GitHub Admin",     img: "assets/teams/admin.png" },
-  { id: "developer",   name: "GTNH Developer",   img: "assets/teams/developer.png" },
-  { id: "contributor", name: "GTNH Contributor", img: "assets/teams/contributor.png" },
-  { id: "triage",      name: "Triage Team",      img: "assets/teams/triage.png" },
-  { id: "scala",       name: "Scala Developer",  img: "assets/teams/scala.png" },
-  { id: "balance",     name: "Balance Review",   img: "assets/teams/balance.png" },
+  { id: "owner",       name: "Owner",            img: href("assets/teams/owner.png") },
+  { id: "admin",       name: "GitHub Admin",     img: href("assets/teams/admin.png") },
+  { id: "developer",   name: "GTNH Developer",   img: href("assets/teams/developer.png") },
+  { id: "contributor", name: "GTNH Contributor", img: href("assets/teams/contributor.png") },
+  { id: "triage",      name: "Triage Team",      img: href("assets/teams/triage.png") },
+  { id: "scala",       name: "Scala Developer",  img: href("assets/teams/scala.png") },
+  { id: "balance",     name: "Balance Review",   img: href("assets/teams/balance.png") },
 ];
 
 const ROSTER = {

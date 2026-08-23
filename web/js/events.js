@@ -17,7 +17,8 @@ import {
   render,
   updateComboPop,
 } from "./render.js";
-import { drillFromHere, drillTo, go, goBack, goPage, readHash } from "./router.js";
+import { drillFromHere, drillTo, go, goBack, goPage, readRoute } from "./router.js";
+import { routeOf } from "./paths.js";
 import { tabTwin } from "./modules/index.js";
 import {
   addOpponent,
@@ -114,16 +115,19 @@ document.getElementById("view").addEventListener("click", e => {
   const clear = e.target.closest("button[data-vsclear]");
   if (clear) { clearOpponents(); return render(); }
 
-  // Contributor names are real anchors to #contributor/<login>, so the browser
+  // Contributor names are real anchors to /contributor/<login>, so the browser
   // handles middle-click and cmd-click natively. Plain clicks are intercepted
   // only so they route through go(), which clears the sort and filter the way
-  // every other navigation does — letting the hash change on its own would
-  // carry a stale filter onto the new subject.
+  // every other navigation does — letting the browser follow the link would
+  // reload the whole app to carry a stale filter onto the new subject.
   const link = e.target.closest("a[data-drilllink]");
   if (link && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
-    e.preventDefault();
-    const [page, subj] = link.getAttribute("href").slice(1).split("/");
-    return drillFromHere(page, decodeURIComponent(subj));
+    const route = routeOf(link.getAttribute("href"));
+    if (route) {
+      e.preventDefault();
+      const [page, subj] = route.split("/");
+      return drillFromHere(page, decodeURIComponent(subj));
+    }
   }
 
   const pick = e.target.closest("[data-pick]");
@@ -409,6 +413,8 @@ collapseBtn.addEventListener("click", () => {
   collapseBtn.title = c ? "Expand sidebar" : "Collapse sidebar";
 });
 
-window.addEventListener("hashchange", () => { readHash(); render(); });
+/* Back and Forward. pushState fires no event of its own, so this only ever
+   hears the browser's own navigation — go() has already rendered its own. */
+addEventListener("popstate", () => { readRoute(); render(); });
 
 export { collapseBtn };

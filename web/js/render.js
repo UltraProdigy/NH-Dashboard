@@ -13,6 +13,7 @@ import { hasIssues, issuesOf } from "./issue-data.js";
 import { opponents } from "./versus-data.js";
 import { byLabelCount, exclPopHtml, panelRows } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
+import { href } from "./paths.js";
 import { PAGES } from "./pages.js";
 import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
 import { withOwner } from "./table.js";
@@ -540,7 +541,10 @@ async function ensureDrilldown() {
     // The build names the file in dashboard.json rather than the page
     // hardcoding it, so renaming it later can't leave the two out of sync.
     const file = state.data?.panels?.drilldown?.file ?? "drilldown.json";
-    const res = await fetch(`data/${file}`, { cache: "no-store" });
+    // Absolute from the app root, not relative: pushState has moved the
+    // document URL to wherever you navigated, and "data/…" resolved against
+    // /contributor/Dream-Master is not a file anybody has.
+    const res = await fetch(href(`data/${file}`), { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.drill = await res.json();
     state.drillState = "ready";

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NH Dashboard</title>
+<script>
+/*
+ * GitHub Pages serves static files and has no rewrite rule, so a deep link
+ * like /NH-Dashboard/repo/GT5-Unofficial lands here rather than on the app.
+ * This hands the route back through the query string; the router puts it in
+ * the address bar with replaceState before anything renders, so what you end
+ * up looking at is the URL you clicked.
+ *
+ * The mount point is worked out rather than configured, so this file survives
+ * a fork, a rename, and a move to a custom domain. A project site serves the
+ * app from /<repo>/ and a user or org site serves it from /, and the two are
+ * told apart by whether the first segment is one of the app's own pages —
+ * which is a fact this file can check, unlike the hostname.
+ */
+(function () {
+  var PAGES = ["analytics", "dream", "issues", "people", "contributor", "repo"];
+  var seg = location.pathname.split("/").filter(Boolean);
+  var base = seg.length && PAGES.indexOf(seg[0]) === -1 ? "/" + seg.shift() + "/" : "/";
+  // Encoded whole: the segments are already percent-encoded, and the query
+  // reader decodes once on the way out, which hands the router back exactly
+  // the string that was in the path.
+  location.replace(base + "?route=" + encodeURIComponent(seg.join("/")));
+})();
+</script>
+</head>
+<body></body>
+</html>

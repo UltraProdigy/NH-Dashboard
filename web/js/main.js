@@ -1,7 +1,8 @@
 import { state } from "./state.js";
 import { loadExclusions, loadLabels } from "./dream.js";
 import { render } from "./render.js";
-import { readHash } from "./router.js";
+import { BASE, href } from "./paths.js";
+import { readRoute } from "./router.js";
 import { applyTheme } from "./theme.js";
 import { collapseBtn } from "./events.js";
 
@@ -16,9 +17,10 @@ const prefersLight =
 applyTheme(localStorage.getItem("nh:theme") ?? (prefersLight ? "light" : "dark"));
 
 try {
-  // Relative, not absolute: on GitHub Pages this lives under /NH-Dashboard/,
-  // so a leading slash would resolve to the wrong origin root.
-  const res = await fetch("data/dashboard.json", { cache: "no-store" });
+  // Resolved against the app's mount point rather than the document URL: on
+  // GitHub Pages this lives under /NH-Dashboard/, and once the router has
+  // pushed a route the document URL is no longer the directory the data is in.
+  const res = await fetch(href("data/dashboard.json"), { cache: "no-store" });
   if (!res.ok) throw new Error("no data yet");
   state.data = await res.json();
 
@@ -33,15 +35,17 @@ try {
 
   // Derive the workflow URL from wherever this is hosted, so a fork or a
   // move into the org doesn't need this hardcoded value updated.
+  // BASE rather than location.pathname: routes are real paths now, so the
+  // first segment of the address bar is as likely to be a page as the repo.
   const m = location.hostname.match(/^([^.]+)\.github\.io$/);
-  const repo = m ? `${m[1]}/${location.pathname.split("/").filter(Boolean)[0] ?? ""}` : null;
+  const repo = m ? `${m[1]}/${BASE.split("/").filter(Boolean)[0] ?? ""}` : null;
   document.getElementById("refresh").href = repo
     ? `https://github.com/${repo}/actions/workflows/build.yml`
     : "https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml";
 
   loadExclusions();
   loadLabels();
-  readHash();
+  readRoute();
   render();
 } catch (err) {
   document.getElementById("meta").textContent = "no data";
