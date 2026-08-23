@@ -1661,7 +1661,7 @@ without a `count` simply doesn't get one.
 are `contributorRows()` ranked by one column the Leaderboard already has, so
 expanding either gives you 25 bars where that tab gives you every column,
 sortable. They're worth a glance on the grid and nothing as a tab, so they keep
-the card and lose the Expand button.
+the card and lose the See all button.
 
 The result is 33 tabs. Dream Panel is untouched: four separate queues, each a
 list you act on independently.

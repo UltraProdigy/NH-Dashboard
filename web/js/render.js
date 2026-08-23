@@ -335,13 +335,17 @@ function card(id) {
   // so an unbounded list would just make the page metres long — there the
   // module's own max-height applies.
   //
-  // No Expand button on a `tab: false` card: there is nowhere for it to go.
+  // No See all button on a `tab: false` card: there is nowhere for it to go.
+  //
+  // "See all →" rather than an up-and-right arrow: this opens the card's own
+  // tab on the same page, and ↗ is the mark this dashboard uses for links that
+  // leave it — "View on GitHub ↗" sits three lines above it on the drilldowns.
   return `<section class="card" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
       ${cardSub(m)}
       ${cardControls(m)}
-      ${m.tab === false ? "" : `<button class="expand" data-open="${id}">Expand ↗</button>`}
+      ${m.tab === false ? "" : `<button class="expand" data-open="${id}">See all →</button>`}
     </header>
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}${
       m.fillList ? " fill-list" : ""}">${body}</div>
