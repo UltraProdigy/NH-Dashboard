@@ -149,7 +149,9 @@ export const repoModules = {
 
   rBacklog: {
     page: "repo", label: "Backlog", span: 4, flush: false, twin: "cPRs",
-    controls: ["filter"],
+    // The overview card shows the top eight unfiltered, so the box belongs with
+    // the full list on the tab rather than above a preview it can't reach.
+    tabControls: ["filter"],
     sub: () => "open PRs, by age",
     render(expanded) {
       const s = subject(), b = backlogOf();

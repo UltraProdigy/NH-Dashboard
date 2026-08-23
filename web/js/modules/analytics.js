@@ -138,7 +138,10 @@ export const analyticsModules = {
   },
 
   backlog: {
-    page: "analytics", label: "Open backlog", span: 4, controls: ["filter"],
+    page: "analytics", label: "Open backlog", span: 4,
+    // The collapsed card is buckets and three counts — nothing a search box can
+    // narrow. Only the oldest-open table on the tab reads the filter.
+    tabControls: ["filter"],
     sub: () => "PRs still open, by age",
     render(expanded) {
       const a = A();
@@ -317,7 +320,7 @@ export const analyticsModules = {
    * activity.
    */
   actions: {
-    page: "analytics", label: "Actions load", span: 12, controls: ["filter"],
+    page: "analytics", label: "Actions load", span: 12, tabControls: ["filter"],
     sub: () => "estimated org-wide, projected from sampled runs",
     render(expanded) {
       const p = panel("ciHealth");

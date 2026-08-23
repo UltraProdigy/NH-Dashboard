@@ -1726,9 +1726,14 @@ nothing to two of the three tables under it reads as page-wide and isn't. So
 that card's own header when it's sharing. `controlHtml()` in
 `module-helpers.js` builds the markup for either home.
 
-Nine cards use it, all of them for `filter` — the issue tables, whose search box
+Twelve cards use it, all of them for `filter` — the tables whose search box
 only makes sense once you're looking at the whole list rather than a seven-row
-preview.
+preview. Open backlog, Actions load and the repo drilldown's Backlog were
+declaring it as `controls`, which put a box on the overview that read the
+filter nowhere: all three ignore it in their collapsed card and only apply it
+to the full table on their tab. A control that can't change what's under it is
+worse than no control, because you spend a moment assuming it's broken data
+rather than a misplaced box.
 
 **`controlsHtml()` is the third home**, and the right one for a control that
 belongs to a single card in *both* views: it renders in that card's header on
