@@ -91,6 +91,21 @@ if there are rows to fill it with. The flex basis is `0` rather than `auto`
 there, or the card's natural height would count all twenty-five rows and it
 would set the row height rather than answer to it.
 
+It isn't only a Dream Panel trick. Issue Analytics has the same pairing twice:
+**Where the issues are** sits beside Who files, answers and closes, which is
+three ranked lists tall, and **Label mix** sits beside Response and resolution's
+chart-and-tiles. Six bars and nine bars against those left both cards as a strip
+of chart over a slab of empty panel. Both are `fillList` now, both carry twenty
+rows, and both scroll inside whatever height their row turns out to be. The rule
+matches `.tscroll` and `.scroll` alike — a table's wrapper and a list's — since
+what takes the leftover height depends on what the card is holding.
+
+Where the issues are also gained a second figure per row. Open is what ranks the
+list, and closed beside it in the same cell is the difference between a busy
+tracker somebody is on top of and one nobody has looked at — 40 open against 900
+closed and 40 against 3 are not the same repo. That's what `note` on `hbars` is
+for: a fact worth carrying that isn't what the bar is measuring.
+
 ### What counts as needing a release
 
 Being ahead of the last tag is necessary but not sufficient. Buildscript bumps,

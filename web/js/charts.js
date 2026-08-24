@@ -153,8 +153,13 @@ function legend(series) {
  * counting down from the top. `share` adds each row's percentage of the list's
  * total beside its count — on a per-repo breakdown of someone's PRs, "48 in
  * GT5-Unofficial" means something quite different at 12% than at 80%.
+ *
+ * `note` is a second string in the same cell, for a fact the bar can't carry
+ * because it isn't what the bar is measuring: "12 open" ranks the list, and
+ * "40 closed" beside it is the difference between a quiet tracker and a
+ * well-tended one.
  */
-function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt, rank = true, share = false, icon = null } = {}) {
+function hbars(rows, { label, value, color = "var(--accent)", href = null, internal = false, fmtV = fmt, rank = true, share = false, icon = null, note = null } = {}) {
   if (!rows.length) return `<div class="empty">Nothing to show.</div>`;
   const max = Math.max(...rows.map(value));
   // Of the list, not of the subject's grand total: these breakdowns are
@@ -176,6 +181,7 @@ function hbars(rows, { label, value, color = "var(--accent)", href = null, inter
         href ? `<a href="${href(r)}"${attrs}>${text}</a>` : text}</span>
       <span class="track"><span class="fill" style="width:${(v / max) * 100}%;background:${color}"></span></span>
       <span class="val">${fmtV(v)}${
+        note ? `<span class="sh">${note(r)}</span>` : ""}${
         share && total ? `<span class="sh">${Math.round((v / total) * 100)}%</span>` : ""}</span>
     </div>`;
   }).join("")}</div>`;

@@ -421,6 +421,10 @@ export const issueModules = {
   iLabels: {
     page: "issues", label: "Label mix", span: 6,
     tabControls: ["filter"], filterHint: "label",
+    // Same problem as Where the issues are, one row up: nine bars beside
+    // Response and resolution's chart-plus-tiles left the card ending well
+    // short of its neighbour. See fillList.
+    fillList: true,
     sub: () => {
       const d = I();
       if (!d) return "";
@@ -444,12 +448,17 @@ export const issueModules = {
         // fall back to whatever they use most.
         const status = groups.find((g) => g.name === "Status");
         const show = status ?? { name: null, rows: [...rows].sort((a, b) => b.open - a.open) };
-        const bars = show.rows.filter((l) => l.open).slice(0, 9);
+        // Twenty rather than nine: the list scrolls inside whatever height the
+        // row gives it, so the cap is only there to stop a 200-row card being
+        // built to be scrolled past.
+        const bars = show.rows.filter((l) => l.open)
+          .sort((a, b) => b.open - a.open).slice(0, 20);
         if (!bars.length) return `<div class="empty">Nothing labeled and open.</div>`;
         return (status ? "" : `<div class="hint" style="margin-bottom:10px">No <code>Status:</code> labels here — showing the busiest instead.</div>`) +
-          hbars(bars, {
+          `<div class="scroll">${hbars(bars, {
             label: (l) => l.short, value: (l) => l.open, color: "var(--warn)",
-          });
+            note: (l) => `${fmt(l.closed)} closed`,
+          })}</div>`;
       }
 
       const cols = labelCols(repos.length === 1);
@@ -466,6 +475,11 @@ export const issueModules = {
     page: "issues", label: "Where the issues are", span: 6,
     sub: () => "open issues per repo",
     tabControls: ["filter"],
+    // It shares a row with Who files, answers and closes, which is three ranked
+    // lists tall. Six bars against that left the card as a strip of chart over
+    // a slab of empty panel. The list takes the leftover height and scrolls
+    // now, and carries enough rows to fill whatever that turns out to be.
+    fillList: true,
     render(expanded) {
       const d = I();
       if (!d) return missing();
@@ -479,11 +493,15 @@ export const issueModules = {
         ${kpi("In the busiest repo", pctFmt(openTotal ? rows[0].open / openTotal : null), esc(rows[0].repo))}
       </div>`;
 
+      // Closed beside open, because the two together say something neither says
+      // alone: 40 open against 900 closed is a busy tracker somebody is on top
+      // of, and 40 against 3 is one nobody has looked at.
       if (!expanded)
-        return head + hbars(rows.slice(0, 6), {
+        return head + `<div class="scroll">${hbars(rows.slice(0, 20), {
           label: (r) => r.repo, value: (r) => r.open,
-          href: (r) => repoHref(r.repo), internal: true, share: true,
-        });
+          href: (r) => repoHref(r.repo), internal: true,
+          note: (r) => `${fmt(r.closed)} closed`,
+        })}</div>`;
 
       const cols = [
         { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },

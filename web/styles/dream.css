@@ -113,7 +113,11 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
    answering to it. The floor is what stops a card from collapsing to its
    header when nothing beside it is taller. */
 .grid .card > .body.fill-list { display: flex; flex-direction: column; }
-.grid .card > .body.fill-list > .tscroll {
+/* `.tscroll` is a table's wrapper and `.scroll` is a list's; either one can be
+   the thing that takes the leftover height. Both, because the two cards using
+   this on Issue Analytics hold ranked bars rather than tables. */
+.grid .card > .body.fill-list > .tscroll,
+.grid .card > .body.fill-list > .scroll {
   flex: 1 1 0; min-height: 200px; max-height: none;
 }
 
