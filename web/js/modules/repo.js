@@ -26,6 +26,8 @@ import {
   draftNotice,
   draftOrder,
   draftPill,
+  labelCol,
+  labelNotice,
   releaseFor,
   sizeNotice,
 } from "../module-helpers.js";
@@ -166,7 +168,7 @@ export const repoModules = {
     page: "repo", label: "Backlog", span: 4, flush: false, twin: "cPRs", empty: noPRs,
     // The overview card shows the top eight unfiltered, so the box belongs with
     // the full list on the tab rather than above a preview it can't reach.
-    tabControls: ["filter"],
+    tabControls: ["filter"], filterHint: ["repo", "title", "author", "label"],
     sub: () => "open PRs, by age",
     render(expanded) {
       const s = subject(), b = backlogOf();
@@ -192,6 +194,7 @@ export const repoModules = {
         { key: "number", label: "PR",     render: r => `<a href="https://github.com/${state.data.org}/${encodeURIComponent(s.repo)}/pull/${r.number}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "author", label: "Author", render: r => contribName(r.author) },
         { key: "draft",  label: "State",  get: r => draftOrder(r.draft), render: r => draftPill(r.draft) },
+        labelCol,
         { key: "ageDays",   label: "Opened",    render: r => age(r.ageDays) },
         { key: "staleDays", label: "Updated",   render: r => age(r.staleDays) },
         { key: "reviewed",  label: "Reviewed?", render: r => r.reviewed ? "yes" : `<span class="down">never</span>` },
@@ -205,7 +208,7 @@ export const repoModules = {
           `<h3 style="font-size:12px;margin:18px 0 6px;color:var(--muted)">Oldest</h3>` +
           `<div class="scroll short">${renderTable(b.oldest, [cols[0], cols[2], cols[3]], { limit: 8 })}</div>`;
 
-      return summary + bars + draftNotice(b) +
+      return summary + bars + draftNotice(b) + labelNotice() +
         `<h3 style="font-size:13px;margin:22px 0 8px">Open PRs, oldest first</h3>` +
         renderTable(sortRows(applyFilter(b.oldest), cols), cols, { sortable: true });
     },

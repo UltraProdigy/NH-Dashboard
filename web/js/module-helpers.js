@@ -1,6 +1,7 @@
 import { diff, dur, esc, fmt, pctFmt } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel, windowList } from "./data.js";
+import { labelsOf, prLabelsMissing } from "./drilldown-data.js";
 import { PR_STATE_LABEL, REVIEW_KIND_LABEL, REVIEW_STATE_LABEL, state } from "./state.js";
 
 /* ---- controls that have two homes ---------------------------------------
@@ -64,6 +65,33 @@ const cardWindow = (key) => `<span class="card-filters"><span class="minlabel" s
     `<button data-window="${esc(w.id)}" data-windowkey="${esc(key)}" aria-pressed="${
       state[key] === w.id}" title="${esc(w.label)}">${esc(w.short ?? w.label)}</button>`
   ).join("")}</span></span></span>`;
+
+/* ---- labels -------------------------------------------------------------
+   One column definition, used by the four drilldown tables that show rows a
+   label can be on. Not sortable: a row can carry several and there is no order
+   over sets that means anything to a reader — the search box is how you narrow
+   by label, and it matches these names on every table at once. */
+
+const labelCol = {
+  key: "labels", label: "Labels", sortable: false,
+  render: (r) => {
+    const names = labelsOf(r);
+    return names.length
+      ? names.map((n) => `<span class="label">${esc(n)}</span>`).join("")
+      : `<span class="sub">—</span>`;
+  },
+};
+
+/**
+ * Shown on the PR tables when the store has never been asked for labels — which
+ * is every store until the backfill runs, since the field is newer than the
+ * ingest. An empty Labels column otherwise reads as "nobody labels pull
+ * requests here", which on this org would be quite wrong.
+ */
+const labelNotice = () =>
+  prLabelsMissing()
+    ? `<div class="hint" style="padding:12px 14px 0">Pull request labels aren't in the store yet. Run <code>npm run ingest</code> — it re-walks every PR once, since a label outlives the close, then <code>npm run build</code>.</div>`
+    : "";
 
 /* ---- draft status -------------------------------------------------------
    Tri-state. Records ingested before `isDraft` was added to the query carry
@@ -164,6 +192,8 @@ export {
   SEG_KEY,
   cardSeg,
   cardWindow,
+  labelCol,
+  labelNotice,
   ciDur,
   ciSection,
   controlHtml,

@@ -4,6 +4,7 @@ import { barChart, kpi, legend } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, windowPhrase } from "../data.js";
 import { byLogin, byRepo, duo } from "../drilldown-data.js";
+import { labelCol } from "../module-helpers.js";
 import {
   IIW,
   closedRows,
@@ -113,6 +114,7 @@ export const contributorIssueModules = {
     page: "contributor", label: "Triage", span: 6, twin: "rIssuePeople", fill: true,
     controls: ["window"],
     tabControls: ["filter"], empty: noIssues,
+    filterHint: ["repo", "title", "label"],
     sub: () => `where they answer and close, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -143,6 +145,7 @@ export const contributorIssueModules = {
         { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
         { key: "title", label: "Issue", render: issueTitle },
         { key: "outcome", label: "Outcome", get: outcomeOrder, render: outcomePill },
+        labelCol,
         { key: "viaPR", label: "How", get: (r) => (r.viaPR ? 0 : 1),
           render: (r) => r.viaPR
             ? `<span class="pill ready">their PR</span>`
@@ -165,6 +168,7 @@ export const contributorIssueModules = {
     page: "contributor", label: "Filed issues", span: 6, flush: true, twin: "rIssueTriage",
     controls: ["window"],
     tabControls: ["filter"], empty: noIssues,
+    filterHint: ["repo", "title", "label"],
     sub: () => `what they reported, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -176,6 +180,7 @@ export const contributorIssueModules = {
         { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
         { key: "title", label: "Issue", render: issueTitle },
         { key: "outcome", label: "Outcome", get: outcomeOrder, render: outcomePill },
+        labelCol,
         { key: "waitDays", label: "Answered in", get: (r) => r.waitDays ?? -1,
           render: (r) => (r.waitDays == null
             ? `<span class="down">never</span>`

@@ -40,7 +40,14 @@ import {
   subjectSlice,
   windowTable,
 } from "../drilldown-data.js";
-import { cardSeg, draftNotice, draftPill, sizeNotice } from "../module-helpers.js";
+import {
+  cardSeg,
+  draftNotice,
+  draftPill,
+  labelCol,
+  labelNotice,
+  sizeNotice,
+} from "../module-helpers.js";
 
 const prUrl = (r) =>
   `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/pull/${r.number}`;
@@ -272,7 +279,8 @@ export const contributorModules = {
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
-    tabControls: ["filter"], empty: noPRs,
+    tabControls: ["filter"], filterHint: ["repo", "title", "author", "label"],
+    empty: noPRs,
     // In this card's own header rather than the page toolbar. It filters one
     // card, so it sits on that card — and unlike `tabControls` it's there on
     // the overview too, which is where you most want to flip it.
@@ -316,6 +324,7 @@ export const contributorModules = {
             : r.outcome === 1
               ? `<span class="pill merged">merged</span>`
               : `<span class="pill dropped">closed</span>`) },
+        labelCol,
         { key: "reviewState", label: "Verdict", get: r => r.reviewState ?? "",
           render: r => (r.reviewState
             ? `<span class="pill ${VERDICT_TONE[r.reviewState] ?? "unknown"}">${
@@ -354,6 +363,7 @@ export const contributorModules = {
   cPRs: {
     page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
     controls: ["window"], tabControls: ["filter"], empty: noPRs,
+    filterHint: ["repo", "title", "author", "label"],
     controlsHtml: () => cardSeg("prState"),
     sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
@@ -362,6 +372,7 @@ export const contributorModules = {
         { key: "repo",   label: "Repo",  render: r => repoLink(r.repo) },
         { key: "title",  label: "PR", get: r => r.title ?? "", render: prTitle },
         { key: "state",  label: "State", get: prStateOrder, render: prStatePill },
+        labelCol,
         { key: "ageDays", label: "Opened", render: r => age(r.ageDays) },
         { key: "at", label: "Resolved", get: r => r.at ?? "",
           render: r => (r.at ? age(daysSince(r.at)) : `<span class="sub">—</span>`) },
@@ -372,7 +383,7 @@ export const contributorModules = {
       ];
       // Already ordered by the build and by prRows, and sortRows is a no-op
       // until a header is clicked, so that's the default order for free.
-      return draftNotice(backlogOf()) +
+      return draftNotice(backlogOf()) + labelNotice() +
         renderTable(sortRows(applyFilter(rows), cols), cols,
           { sortable: expanded, limit: expanded ? null : 10 });
     },
@@ -393,6 +404,7 @@ export const contributorModules = {
   cBiggest: {
     page: "contributor", label: "Biggest PRs", span: 12, flush: true,
     controls: ["window"], tabControls: ["filter"], twin: "rGrossing", empty: noPRs,
+    filterHint: ["repo", "title", "author", "label"],
     sub: () => `by lines changed, ${windowPhrase()}`,
     render(expanded) {
       const rows = biggestRows();

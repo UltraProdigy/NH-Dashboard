@@ -253,23 +253,32 @@ function backButtonHtml() {
  * What the search box claims it matches.
  *
  * It said "repo, title, or author" everywhere, which is true of the PR and
- * issue tables and false of Label mix, whose filter only ever looked at the
- * label name. A box that names three fields and matches one reads as broken
- * data rather than a wrong caption, and you go looking for the bug in the
- * wrong place.
+ * issue tables, false of Label mix — whose filter only ever looked at the label
+ * name — and incomplete everywhere once labels became matchable. A box that
+ * names three fields and matches one reads as broken data rather than a wrong
+ * caption, and you go looking for the bug in the wrong place.
  *
- * A module says what it matches with `filterHint`; the default covers the
- * tables that really do take all three. Several modules on screen disagreeing
- * fall back to the bare word, which is at least not a claim.
+ * A module lists the fields it matches in `filterHint`; the default covers the
+ * tables that take the usual three. Several modules on screen contribute the
+ * union of theirs, because the one box really does search all of them — the
+ * repo drilldown's Issues tab holds a table matching titles and a label card
+ * matching labels, and "Filter by repo, title, author, or label" is the honest
+ * description of what one keystroke does to that page.
  */
+const DEFAULT_FILTER_FIELDS = ["repo", "title", "author"];
+
 function filterPlaceholder(ids) {
-  const hints = new Set();
+  const fields = new Set();
   for (const id of ids ?? currentPage().modules) {
     const m = MODULES[id];
     const declared = [...(m.controls ?? []), ...(m.tabControls ?? [])];
-    if (declared.includes("filter")) hints.add(m.filterHint ?? "repo, title, or author");
+    if (declared.includes("filter"))
+      for (const f of m.filterHint ?? DEFAULT_FILTER_FIELDS) fields.add(f);
   }
-  return hints.size === 1 ? `Filter by ${[...hints][0]}…` : "Filter…";
+  const list = [...fields];
+  if (!list.length) return "Filter…";
+  const last = list.pop();
+  return `Filter by ${list.length ? `${list.join(", ")}, or ${last}` : last}…`;
 }
 
 /**

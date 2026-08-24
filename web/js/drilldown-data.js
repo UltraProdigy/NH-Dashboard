@@ -13,6 +13,33 @@ const drillKey = () => DRILL[state.page];
 const subjectList = () => state.drill?.index?.[drillKey()] ?? [];
 const subject = () => state.drill?.[drillKey()]?.[state.subject] ?? null;
 
+/**
+ * The label names on a row, whatever shape its labels arrived in.
+ *
+ * Three stores put labels on rows and none of them agree. The drilldown interns
+ * them, so a row carries indexes into `labelNames` at the head of the payload.
+ * The issues panel in dashboard.json carries plain names. The Dream Panel's PR
+ * rows carry `{ name, color }` objects, straight from the search query. One
+ * reader for all three, because the filter runs over rows from every one of them
+ * and shouldn't have to be told which.
+ */
+const labelText = (l) =>
+  typeof l === "number" ? state.drill?.labelNames?.[l] ?? "" : l?.name ?? l ?? "";
+
+const labelsOf = (r) => (r?.labels ?? []).map(labelText).filter(Boolean);
+
+/**
+ * True when the store has never been asked what a PR's labels are.
+ *
+ * The same distinction the review queue makes: "this PR has no labels" and
+ * "we have never looked" are different facts, and the second one is a command
+ * the reader can run.
+ */
+const prLabelsMissing = () => {
+  const c = state.drill?.prFieldCoverage;
+  return !!c && c.total > 0 && !c.labels;
+};
+
 /** Absent windows mean "nothing happened", which is what a zeroed one says. */
 const EMPTY_WINDOW = {
   opened: 0, merged: 0, closed: 0, approvals: 0,
@@ -90,8 +117,9 @@ function resolvedAll() {
   // before the size columns existed are four long, so the tail destructures to
   // undefined — normalised to null here, which is what "not ingested yet" means
   // everywhere else and renders as an em dash rather than a zero.
-  s._resolved = rows.map(([r, number, at, merged, additions, deletions, commits, comments, title, ageDays]) => ({
+  s._resolved = rows.map(([r, number, at, merged, additions, deletions, commits, comments, title, ageDays, labels]) => ({
     repo: repos[r], number, at, merged: merged === 1,
+    labels: labels ?? null,
     additions: additions ?? null,
     deletions: deletions ?? null,
     commits: commits ?? null,
@@ -411,7 +439,9 @@ export {
   byRepo,
   drillKey,
   duo,
+  labelsOf,
   linesIn,
+  prLabelsMissing,
   prRows,
   prStateOrder,
   queueCounts,

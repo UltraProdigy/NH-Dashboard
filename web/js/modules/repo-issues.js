@@ -135,6 +135,7 @@ export const repoIssueModules = {
   rIssueTriage: {
     page: "repo", label: "Issue backlog", span: 6, twin: "cFiled",
     tabControls: ["filter"], empty: noIssues,
+    filterHint: ["title", "author", "label"],
     sub: () => "open issues, right now",
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -225,7 +226,7 @@ export const repoIssueModules = {
    */
   rLabels: {
     page: "repo", label: "Labels", span: 12, flush: true,
-    tabControls: ["filter"], filterHint: "label", empty: noIssues,
+    tabControls: ["filter"], filterHint: ["label"], empty: noIssues,
     sub: () => "issue labels on this repo, all time",
     render(expanded) {
       const d = I();

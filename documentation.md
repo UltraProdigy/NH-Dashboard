@@ -2001,13 +2001,34 @@ tabs, which is where the tables it filters actually live. That's how the Repo
 Drilldown had always been built; this is the contributor side catching up.
 
 **The box says what it matches.** It read "Filter by repo, title, or author" on
-every page, which is true of the PR and issue tables and false of Label mix,
-whose filter only ever looked at the label name. A control naming three fields
-and matching one reads as broken data rather than a wrong caption, and sends you
-hunting for the bug in the wrong place. A module declares `filterHint` when it
-matches something else — Label mix and the repo drilldown's Labels card both say
-`"label"` — and the toolbar builds the placeholder from whichever modules are on
-screen.
+every page, which is true of the PR and issue tables, false of Label mix — whose
+filter only ever looked at the label name — and incomplete everywhere once
+labels became matchable. A control naming three fields and matching one reads as
+broken data rather than a wrong caption, and sends you hunting for the bug in the
+wrong place.
+
+A module lists what it matches in `filterHint`, and the toolbar builds the
+placeholder from the **union** across whatever is on screen. Union rather than
+"give up unless they agree", because one box really does search all of them: the
+repo drilldown's Issues tab holds a table matching titles and a label card
+matching labels, and "Filter by repo, title, author, or label" is the honest
+description of what one keystroke does to that page.
+
+**Labels are matchable everywhere.** `applyFilter` reads them through `labelsOf`,
+which is the one thing that knows all three shapes a label list arrives in: the
+drilldown interns them as indexes, the issues panel carries plain names, and the
+Dream Panel's PR rows carry `{ name, color }` objects from the search query. So
+typing `Mod: GT` narrows the Pull requests table, the filed-issues log and the
+Dream Panel's queues alike, without any of them knowing where their rows came
+from. The four drilldown tables that show rows a label can be on grew a Labels
+column to go with it — unsortable, because a row can carry several and there is
+no order over sets that means anything to a reader.
+
+Pull request labels are newer than the ingest, so a store that hasn't had the
+backfill run shows an empty column. `prFieldCoverage.labels` is what the PR
+tables check to tell "this PR has no labels" from "we have never asked", and the
+second one prints the command — the same treatment `reviewRequests` and
+`assignees` get.
 
 **`controlsHtml()` is the third home**, and the right one for a control that
 belongs to a single card in *both* views: it renders in that card's header on

@@ -23,6 +23,7 @@ import {
   trio,
 } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
+import { labelsOf } from "../drilldown-data.js";
 import {
   I,
   IW,
@@ -54,10 +55,24 @@ const issueTitle = (r) =>
   `<a href="${r.url ?? issueUrl(r)}" target="_blank" rel="noopener">${
     esc(r.title || `#${r.number}`)}</a> <span class="repo">#${r.number}</span>`;
 
-const labelChips = (names) =>
-  names?.length
+/**
+ * Labels on a triage row.
+ *
+ * Goes through `labelsOf` because the two callers get their rows from different
+ * places: this page reads names straight out of dashboard.json, and the repo
+ * drilldown's copy reads indexes into the drilldown payload's label table.
+ *
+ * Unlabeled gets a pill rather than an em dash here, unlike `labelCol` on the
+ * PR and filed-issue tables. On a triage board "nothing has classified this" is
+ * the thing you are looking for, and it should catch the eye; everywhere else it
+ * is just an absence.
+ */
+const labelChips = (labels) => {
+  const names = labelsOf({ labels });
+  return names.length
     ? names.map((n) => `<span class="label">${esc(n)}</span>`).join("")
     : `<span class="pill unknown">none</span>`;
+};
 
 /** The open-issue table, shared by every triage list. */
 const TRIAGE_COLS = [
@@ -420,7 +435,7 @@ export const issueModules = {
 
   iLabels: {
     page: "issues", label: "Label mix", span: 6,
-    tabControls: ["filter"], filterHint: "label",
+    tabControls: ["filter"], filterHint: ["label"],
     // Same problem as Where the issues are, one row up: nine bars beside
     // Response and resolution's chart-plus-tiles left the card ending well
     // short of its neighbour. See fillList.

@@ -1,5 +1,6 @@
 import { state } from "./state.js";
 import { age, agoText, contribName, esc, fmt, repoLink } from "./format.js";
+import { labelsOf } from "./drilldown-data.js";
 
 /* ==========================================================================
    Shared table rendering
@@ -116,8 +117,12 @@ function sortRows(rows, cols) {
 function applyFilter(rows) {
   if (!state.filter) return rows;
   const q = state.filter.toLowerCase();
+  // Labels last because most rows have none and `labelsOf` allocates. Rows from
+  // three different stores carry them in three different shapes; that reader is
+  // the one thing that knows about all three.
   return rows.filter(r =>
-    [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q)));
+    [r.repo, r.title, r.author, r.tagName, r.login].some(v => String(v ?? "").toLowerCase().includes(q)) ||
+    labelsOf(r).some(n => n.toLowerCase().includes(q)));
 }
 
 export { COLUMNS, applyFilter, preview, renderTable, sortRows, withOwner };
