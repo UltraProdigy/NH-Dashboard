@@ -732,6 +732,16 @@ costs nothing. Reinstating them means a `REC_VERSION` bump and a re-walk.
 **Closing credit is a floor until the store is re-walked.** The next section says
 why, and what to run.
 
+**"First ever" is a property of a record, not of a second.** Both panels mark a
+PR or an issue as somebody's first by asking whether it *is* their earliest one,
+matched on `repo#number`. They used to ask whether its timestamp equalled their
+earliest timestamp, which is a different question: GitHub stamps to the second,
+so anybody who filed two issues in the same one had both counted, and all-time
+first-time reporters came out at 6,063 against 6,062 reporters — a subset larger
+than the set it belongs to. One person in the store had managed it. Ties now
+break on the identifier, so exactly one record wins however many share a second,
+and it wins the same way on every build.
+
 ### Who closed it
 
 The store used to know *when* an issue closed and not by whose hand, which left

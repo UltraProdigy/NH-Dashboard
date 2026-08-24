@@ -136,15 +136,26 @@ export async function analytics() {
   const months = new Map();
   const days = new Map();
   const dayCutoff = now - DAY_SERIES_DAYS * DAY;
-  const firstSeen = new Map(); // login -> earliest createdAt, for "new contributors"
+  // login -> `{ at, id }` for the one PR that was their first, for "new
+  // contributors".
+  const firstSeen = new Map();
   const repos = new Set();
+  const prId = (pr) => `${pr.repo}#${pr.number}`;
 
   // Pass 1: earliest PR per author. Needed before bucketing so a PR can be
   // labelled "this person's first" without depending on store ordering.
+  //
+  // Keyed on the PR rather than on its timestamp. GitHub stamps to the second,
+  // so two PRs opened in the same one would both match a timestamp comparison
+  // and both count as somebody's first — which is how the issue side ended up
+  // reporting more first-time reporters than reporters. No author in this store
+  // has managed it yet; the comparison shouldn't depend on that staying true.
   for (const pr of prs) {
     if (isBot(pr.author) || !pr.createdAt) continue;
     const prev = firstSeen.get(pr.author);
-    if (!prev || pr.createdAt < prev) firstSeen.set(pr.author, pr.createdAt);
+    const id = prId(pr);
+    if (!prev || pr.createdAt < prev.at || (pr.createdAt === prev.at && id < prev.id))
+      firstSeen.set(pr.author, { at: pr.createdAt, id });
   }
 
   const totals = { prs: 0, merged: 0, open: 0, closed: 0, approvals: 0 };
@@ -245,7 +256,7 @@ export async function analytics() {
     }
     totals.approvals += approvers.size;
 
-    const isFirstEver = !bot && firstSeen.get(pr.author) === pr.createdAt;
+    const isFirstEver = !bot && firstSeen.get(pr.author)?.id === prId(pr);
 
     // ---- time series (opened bucket) ----
     // The daily map is only fed for the recent slice — see DAY_SERIES_DAYS.
@@ -447,7 +458,7 @@ export async function analytics() {
       ...totals,
       contributors: firstSeen.size,
       repos: repos.size,
-      firstPR: [...firstSeen.values()].sort()[0] ?? null,
+      firstPR: [...firstSeen.values()].map((f) => f.at).sort()[0] ?? null,
     },
     series: {
       day: series(days),
