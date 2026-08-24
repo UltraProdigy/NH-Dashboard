@@ -128,6 +128,21 @@ document.getElementById("view").addEventListener("click", e => {
   if (ldel) { removeLabelColumn(Number(ldel.dataset.labeldel)); return render(); }
   if (e.target.closest("button[data-labelreset]")) { resetLabelCard(); return render(); }
 
+  /* ---- Label mix repo chips ----
+     Toggles rather than a single choice: the empty chip is "all repos", and
+     ticking several sums them. Changing the selection clears the sort, since
+     the columns themselves change between one repo and several. */
+  const lr = e.target.closest("button[data-labelrepo]");
+  if (lr) {
+    const name = lr.dataset.labelrepo;
+    const cur = state.issueLabelRepos;
+    if (!name) state.issueLabelRepos = [];
+    else if (cur.includes(name)) state.issueLabelRepos = cur.filter((r) => r !== name);
+    else state.issueLabelRepos = [...cur, name];
+    state.sort = {};
+    return render();
+  }
+
   /* ---- head to head ----
      Its picker lives inside the card rather than the toolbar, so its events
      arrive here alongside the drilldown links. */
@@ -238,14 +253,6 @@ document.getElementById("view").addEventListener("change", e => {
   const col = e.target.closest("select[data-labelcol]");
   if (col) {
     setLabelColumn(Number(col.dataset.labelcol), col.value);
-    return render();
-  }
-  // Issue Analytics label view. Changing repo clears the label pick, since a
-  // label from one tracker means nothing in another.
-  if (e.target.id === "issueLabelRepo") {
-    state.issueLabelRepo = e.target.value;
-    state.issueLabel = null;
-    state.sort = {};
     return render();
   }
   if (e.target.id === "issueLabelPick") {

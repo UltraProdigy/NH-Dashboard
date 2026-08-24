@@ -14,7 +14,7 @@ import {
   issueWindowTable,
   issuesOf,
 } from "../issue-data.js";
-import { groupLabels, groupSection, labelChips } from "./issues.js";
+import { groupLabels, groupSection, labelChips, labelCols } from "./issues.js";
 
 /** Backlog movement reads as a direction, not a magnitude. */
 const signed = (n) =>
@@ -219,7 +219,7 @@ export const repoIssueModules = {
    */
   rLabels: {
     page: "repo", label: "Labels", span: 12, flush: true,
-    tabControls: ["filter"],
+    tabControls: ["filter"], filterHint: "label",
     sub: () => "issue labels on this repo, all time",
     render(expanded) {
       const d = I();
@@ -248,7 +248,9 @@ export const repoIssueModules = {
             ${kpi("Slowest to answer", dur(Math.max(0, ...rows.map((l) => l.medianFirstResponseHours ?? 0)) || null),
                   esc(rows.slice().sort((a, b) => (b.medianFirstResponseHours ?? 0) - (a.medianFirstResponseHours ?? 0))[0]?.short ?? ""))}
           </div>
-          ${groups.map((g) => groupSection(g, repo)).join("")}
+          ${/* Always one repo here, so the median columns are meaningful and
+                the tracker count would be a column of ones. */""}
+          ${groups.map((g) => groupSection(g, labelCols(true))).join("")}
           <div class="hint" style="margin-top:16px">Grouped by the prefix before the colon, because <code>Status:</code> is a triage pipeline and <code>Mod:</code> is a parts list — one ranked chart of both buries the nine labels that say where work is stuck under a hundred that say what it's about.</div>
         </div>`;
     },

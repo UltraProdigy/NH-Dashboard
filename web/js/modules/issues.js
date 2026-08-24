@@ -29,6 +29,9 @@ import {
   dayLimitNote,
   delta,
   issuePeople,
+  labelRepoList,
+  labelReposInView,
+  labelRows,
   seriesSlice,
   windowLabel,
   windowPhrase,
@@ -94,13 +97,10 @@ const attentionBoxes = (t) => [
 
 /* ---- label view -------------------------------------------------------- */
 
-/** Which repo's labels are on screen. Null state means the configured focus. */
-const labelRepo = () => state.issueLabelRepo ?? I()?.labelFocus ?? null;
-
 /**
  * Rows bucketed by prefix, in the order the panel declared.
  *
- * Exported alongside groupSection and LABEL_COLS because the repo drilldown
+ * Exported alongside groupSection and labelCols because the repo drilldown
  * shows one repo's label mix with the same three-part treatment — bars for
  * what's open, a table for the rest, grouped by prefix. Two copies of that
  * would drift in a week.
@@ -121,25 +121,47 @@ function groupLabels(d, rows) {
     });
 }
 
-function repoPicker(d, repo) {
-  const repos = Object.keys(d.labelsByRepo ?? {}).sort(
-    (a, b) => (d.labelsByRepo[b]?.length ?? 0) - (d.labelsByRepo[a]?.length ?? 0)
-  );
-  return `<label class="minlabel" style="margin-bottom:16px;display:inline-flex">repo
-    <select id="issueLabelRepo">${repos.map((r) =>
-      `<option value="${esc(r)}"${r === repo ? " selected" : ""}>${esc(r)} (${fmt(d.labelsByRepo[r].length)})</option>`
-    ).join("")}</select></label>`;
+/**
+ * The repos in view, as toggle chips.
+ *
+ * A row of buttons rather than a dropdown or a popup: there are twenty-two
+ * trackers with labels on them and the picker is meant to answer "which am I
+ * looking at" without being opened. None pressed is every repo, which is also
+ * what the All chip goes back to — so the card's default state is legible from
+ * the control itself rather than being an absence you have to infer.
+ */
+function repoChips(d, chosen) {
+  const chip = (id, text, on, count) =>
+    `<button class="repochip" data-labelrepo="${esc(id)}" aria-pressed="${on}">${
+      esc(text)}${count == null ? "" : ` <span class="count">${fmt(count)}</span>`}</button>`;
+
+  return `<div class="repochips">
+    ${chip("", "All repos", !chosen.length, null)}
+    ${labelRepoList().map((r) =>
+      chip(r, r, chosen.includes(r), d.labelsByRepo[r].length)).join("")}
+  </div>`;
 }
 
-const LABEL_COLS = [
+const LABEL_HEAD = [
   { key: "short", label: "Label", render: (l) => `<span class="label">${esc(l.short)}</span>` },
   { key: "open", label: "Open", render: (l) => `<span class="num">${fmt(l.open)}</span>` },
   { key: "closed", label: "Closed", render: (l) => `<span class="num">${fmt(l.closed)}</span>` },
   { key: "total", label: "All time", render: (l) => `<span class="num">${fmt(l.total)}</span>` },
   { key: "unanswered", label: "Unanswered", render: (l) => `<span class="num ${l.unanswered ? "down" : ""}">${fmt(l.unanswered)}</span>` },
-  { key: "medianFirstResponseHours", label: "Median response", get: (l) => l.medianFirstResponseHours ?? -1, render: (l) => `<span class="num">${dur(l.medianFirstResponseHours)}</span>` },
-  { key: "medianCloseHours", label: "Median close", get: (l) => l.medianCloseHours ?? -1, render: (l) => `<span class="num">${dur(l.medianCloseHours)}</span>` },
 ];
+
+/**
+ * The columns depend on how many repos are in view, because two of them only
+ * mean anything in one repo — see labelRows(). One repo gets the medians; a
+ * combined view gets a count of how many trackers carry the label instead.
+ */
+const labelCols = (single) =>
+  single
+    ? [...LABEL_HEAD,
+       { key: "medianFirstResponseHours", label: "Median response", get: (l) => l.medianFirstResponseHours ?? -1, render: (l) => `<span class="num">${dur(l.medianFirstResponseHours)}</span>` },
+       { key: "medianCloseHours", label: "Median close", get: (l) => l.medianCloseHours ?? -1, render: (l) => `<span class="num">${dur(l.medianCloseHours)}</span>` }]
+    : [...LABEL_HEAD,
+       { key: "repos", label: "Repos", render: (l) => `<span class="num">${fmt(l.repos)}</span>` }];
 
 /** Filter on the bare label, not the prefixed name — you type "GT", not "Mod: GT". */
 const filterLabels = (rows) => {
@@ -147,7 +169,7 @@ const filterLabels = (rows) => {
   return q ? rows.filter((l) => l.short.toLowerCase().includes(q) || l.name.toLowerCase().includes(q)) : rows;
 };
 
-function groupSection(g, repo) {
+function groupSection(g, cols) {
   const rows = filterLabels(g.rows);
   if (!rows.length) return "";
   const open = rows.filter((l) => l.open);
@@ -160,7 +182,7 @@ function groupSection(g, repo) {
           label: (l) => l.short, value: (l) => l.open, color: "var(--warn)", share: true,
         })
       : `<div class="empty" style="padding:8px 0">Nothing open under ${esc(g.name)}.</div>`) +
-    renderTable(sortRows(rows, LABEL_COLS), LABEL_COLS, { sortable: true, limit: 12 });
+    renderTable(sortRows(rows, cols), cols, { sortable: true, limit: 12 });
 }
 
 /**
@@ -169,15 +191,19 @@ function groupSection(g, repo) {
  * Only the focus repo carries series, and only labels above the panel's
  * threshold — a trend line for a label with four issues is two dots and a gap.
  */
-function trendSection(d, repo) {
-  if (repo !== d.labelFocus) {
-    return `<div class="hint" style="margin-top:26px">Monthly trends are kept for <strong>${esc(d.labelFocus)}</strong> only — that's the tracker whose labels carry enough volume to trend. Change <code>ISSUE_LABEL_REPO</code> in <code>src/config.js</code> to move them.</div>`;
+function trendSection(d, repos) {
+  // The series exist for one tracker, so the chart is offered whenever that
+  // tracker is part of what you're looking at — which includes the all-repos
+  // default. Narrow to something else and it says so rather than quietly
+  // charting a repo you've filtered out.
+  if (!repos.includes(d.labelFocus)) {
+    return `<div class="hint" style="margin-top:26px">Monthly trends are kept for <strong>${esc(d.labelFocus)}</strong> only — that's the tracker whose labels carry enough volume to trend, and it isn't in the current selection. Change <code>ISSUE_LABEL_REPO</code> in <code>src/config.js</code> to move them.</div>`;
   }
 
   const names = Object.keys(d.labelSeries ?? {});
   if (!names.length) return "";
 
-  const byTotal = new Map((d.labelsByRepo[repo] ?? []).map((l) => [l.name, l.total]));
+  const byTotal = new Map((d.labelsByRepo[d.labelFocus] ?? []).map((l) => [l.name, l.total]));
   names.sort((a, b) => (byTotal.get(b) ?? 0) - (byTotal.get(a) ?? 0));
   const pick = names.includes(state.issueLabel) ? state.issueLabel : names[0];
 
@@ -190,7 +216,7 @@ function trendSection(d, repo) {
     { key: "closed", label: "Closed", color: "var(--good)" },
   ];
 
-  return `<h3 style="font-size:13px;margin:30px 0 8px">Trend</h3>
+  return `<h3 style="font-size:13px;margin:30px 0 8px">Trend <span class="sub" style="font-weight:400">${esc(d.labelFocus)}</span></h3>
     <label class="minlabel" style="margin-bottom:12px;display:inline-flex">label
       <select id="issueLabelPick">${names.map((n) =>
         `<option value="${esc(n)}"${n === pick ? " selected" : ""}>${esc(n)} (${fmt(byTotal.get(n) ?? 0)})</option>`
@@ -200,7 +226,7 @@ function trendSection(d, repo) {
 }
 
 
-export { LABEL_COLS, groupLabels, groupSection, issueTitle, labelChips, TRIAGE_COLS };
+export { groupLabels, groupSection, issueTitle, labelChips, labelCols, TRIAGE_COLS };
 
 export const issueModules = {
   /* ---------------- Issue Analytics ---------------- */
@@ -394,39 +420,45 @@ export const issueModules = {
 
   iLabels: {
     page: "issues", label: "Label mix", span: 6,
-    tabControls: ["filter"],
+    tabControls: ["filter"], filterHint: "label",
     sub: () => {
       const d = I();
       if (!d) return "";
-      const r = labelRepo();
-      return r === d.labelFocus ? `${r}, by status` : r ?? "";
+      const picked = state.issueLabelRepos;
+      if (!picked.length) return "every repo, by status";
+      return picked.length === 1 ? `${picked[0]}, by status` : `${picked.length} repos, by status`;
     },
     render(expanded) {
       const d = I();
       if (!d) return missing();
-      const repo = labelRepo();
-      const rows = d.labelsByRepo?.[repo] ?? [];
-      if (!rows.length) return `<div class="empty">No labels on ${esc(repo ?? "any repo")}.</div>`;
+      const repos = labelReposInView();
+      const rows = labelRows();
+      const chips = expanded ? repoChips(d, state.issueLabelRepos) : "";
+      if (!rows.length) return chips + `<div class="empty">No labels on the selected repos.</div>`;
 
       const groups = groupLabels(d, rows);
 
       if (!expanded) {
         // The Status group is the triage pipeline — where work is stuck, not
-        // what it's about — so it's what the card shows. Repos without one
+        // what it's about — so it's what the card shows. Selections without one
         // fall back to whatever they use most.
         const status = groups.find((g) => g.name === "Status");
         const show = status ?? { name: null, rows: [...rows].sort((a, b) => b.open - a.open) };
         const bars = show.rows.filter((l) => l.open).slice(0, 9);
         if (!bars.length) return `<div class="empty">Nothing labeled and open.</div>`;
-        return (status ? "" : `<div class="hint" style="margin-bottom:10px">No <code>Status:</code> labels on this repo — showing its busiest instead.</div>`) +
+        return (status ? "" : `<div class="hint" style="margin-bottom:10px">No <code>Status:</code> labels here — showing the busiest instead.</div>`) +
           hbars(bars, {
             label: (l) => l.short, value: (l) => l.open, color: "var(--warn)",
           });
       }
 
-      return repoPicker(d, repo) +
-        groups.map((g) => groupSection(g, repo)).join("") +
-        trendSection(d, repo);
+      const cols = labelCols(repos.length === 1);
+      return chips +
+        groups.map((g) => groupSection(g, cols)).join("") +
+        (repos.length === 1
+          ? ""
+          : `<div class="hint" style="margin-top:16px">Counts are summed across the ${fmt(repos.length)} trackers in view, and a label used in several of them is one row. Median response and median close are missing on purpose: a median of medians isn't a median of anything, so they only appear once a single repo is selected.</div>`) +
+        trendSection(d, repos);
     },
   },
 

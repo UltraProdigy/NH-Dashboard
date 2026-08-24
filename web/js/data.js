@@ -41,6 +41,68 @@ function issuePeople() {
   }));
 }
 
+/* ---- Label mix ----------------------------------------------------------
+   The card used to show one repo's labels, chosen from a dropdown and seeded
+   with whatever `ISSUE_LABEL_REPO` said. That made the modpack's 235 labels the
+   whole of what the page knew about labelling, and the twenty-one other
+   trackers invisible unless you already suspected they were there. It opens on
+   all of them now, and the chips narrow it. */
+
+/** Every repo the issues panel has label counts for, busiest first. */
+const labelRepoList = () => {
+  const d = I();
+  if (!d?.labelsByRepo) return [];
+  return Object.keys(d.labelsByRepo).sort(
+    (a, b) => d.labelsByRepo[b].length - d.labelsByRepo[a].length || a.localeCompare(b)
+  );
+};
+
+/** The repos currently in view. An empty selection is all of them. */
+const labelReposInView = () => {
+  const all = labelRepoList();
+  const picked = state.issueLabelRepos.filter((r) => all.includes(r));
+  return picked.length ? picked : all;
+};
+
+/**
+ * One row per label, summed over the repos in view.
+ *
+ * Counts add: an org-wide "Bug: Minor" open count is every repo's added up, and
+ * the sum is a real number. The medians don't, and there is no arithmetic that
+ * makes them — a median of medians is not a median of anything. So they survive
+ * only when there's exactly one repo in view, and the table drops those two
+ * columns otherwise rather than printing a plausible fiction. `repos` takes
+ * their place, since "this label is used in nine trackers" is the fact the
+ * combined view can honestly offer.
+ */
+function labelRows() {
+  const d = I();
+  if (!d?.labelsByRepo) return [];
+  const repos = labelReposInView();
+  if (repos.length === 1)
+    return (d.labelsByRepo[repos[0]] ?? []).map((l) => ({ ...l, repos: 1 }));
+
+  const by = new Map();
+  for (const repo of repos) {
+    for (const l of d.labelsByRepo[repo] ?? []) {
+      const cur = by.get(l.name);
+      if (!cur) {
+        by.set(l.name, {
+          ...l, repos: 1,
+          medianFirstResponseHours: null, medianCloseHours: null,
+        });
+        continue;
+      }
+      cur.repos++;
+      cur.open += l.open;
+      cur.closed += l.closed;
+      cur.total += l.total;
+      cur.unanswered += l.unanswered;
+    }
+  }
+  return [...by.values()].sort((a, b) => b.open - a.open || b.total - a.total);
+}
+
 /**
  * Modules that keep a period of their own, independent of their page's.
  *
@@ -164,6 +226,9 @@ export {
   dayLimitNote,
   delta,
   issuePeople,
+  labelRepoList,
+  labelReposInView,
+  labelRows,
   panel,
   seriesSlice,
   windowDays,

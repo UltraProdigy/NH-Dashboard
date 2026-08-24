@@ -43,11 +43,12 @@ const state = {
   dreamLabels: [],
 
   // ---- Issue Analytics ----
-  // Which repo's labels the Label mix tab is showing, and which label the
-  // trend chart is on. Null means "whatever the panel says is the focus" —
-  // held as null rather than seeded with the config value so the default can
-  // change in config.js without a stale name pinned in here.
-  issueLabelRepo: null,
+  // Which repos the Label mix tab is summing over, and which label the trend
+  // chart is on. An empty list means every repo that has labels, which is what
+  // the card opens on: "what is this org's tracker labelled like" is the
+  // question, and answering it with one repo's taxonomy made the other
+  // twenty-one invisible unless you knew to go looking for them.
+  issueLabelRepos: [],
   issueLabel: null,
 
   // ---- drilldown ----

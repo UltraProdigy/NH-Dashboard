@@ -11,3 +11,24 @@
 .pill.pass { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
 .pill.fail { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
 .pill.neutral { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); }
+
+/* ---------- repo toggle chips ---------- */
+/* Label mix's repo picker. Twenty-two of them fit in three wrapped lines, which
+   is why this is a row of buttons rather than a dropdown or a popup: what
+   you're looking at is readable without opening anything, and "all of them" is
+   a chip you can see is pressed rather than an absence you have to infer. */
+.repochips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.repochip {
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--panel); color: var(--muted);
+  padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer;
+  white-space: nowrap;
+}
+.repochip:hover { color: var(--text); border-color: var(--accent); }
+.repochip[aria-pressed="true"] {
+  background: var(--panel-2); color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+/* The tab badge brings its own left margin, which reads as a double space
+   inside a chip that already has a gap. */
+.repochip .count { margin-left: 5px; }

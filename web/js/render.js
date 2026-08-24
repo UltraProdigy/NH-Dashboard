@@ -1,7 +1,16 @@
 import { GRANS, isDrill, state } from "./state.js";
 import { controlHtml } from "./module-helpers.js";
 import { age, agoText, avatar, daysSince, esc, fmt } from "./format.js";
-import { A, I, activeWindow, issuePeople, panel, windowKey, windowList } from "./data.js";
+import {
+  A,
+  I,
+  activeWindow,
+  issuePeople,
+  labelRows,
+  panel,
+  windowKey,
+  windowList,
+} from "./data.js";
 import {
   backlogOf,
   queueCounts,
@@ -36,14 +45,11 @@ function moduleCount(id) {
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
   if (id === "iTriage") return I()?.triage?.open ?? null;
-  // labelsByRepo, not labels — the panel keys labels by repo, because a label
-  // taxonomy belongs to one tracker. This counted an array that never existed
-  // and quietly showed no badge at all.
-  if (id === "iLabels") {
-    const d = I();
-    const rows = d?.labelsByRepo?.[state.issueLabelRepo ?? d?.labelFocus] ?? null;
-    return rows ? rows.filter(l => l.open).length : null;
-  }
+  // Whatever the card is actually summing, which is every labelled repo until
+  // the chips narrow it. Reading one repo's list here — as this did — put a
+  // badge on the tab that disagreed with the table underneath it the moment
+  // the selection changed.
+  if (id === "iLabels") return labelRows().filter(l => l.open).length || null;
   if (id === "iRepos") return I()?.repos?.filter(r => r.open).length ?? null;
   if (id === "iPeople") return issuePeople().length || null;
   // Null until a subject is picked, which is also when the tabs mean anything.
@@ -198,6 +204,29 @@ function backButtonHtml() {
 }
 
 /**
+ * What the search box claims it matches.
+ *
+ * It said "repo, title, or author" everywhere, which is true of the PR and
+ * issue tables and false of Label mix, whose filter only ever looked at the
+ * label name. A box that names three fields and matches one reads as broken
+ * data rather than a wrong caption, and you go looking for the bug in the
+ * wrong place.
+ *
+ * A module says what it matches with `filterHint`; the default covers the
+ * tables that really do take all three. Several modules on screen disagreeing
+ * fall back to the bare word, which is at least not a claim.
+ */
+function filterPlaceholder(ids) {
+  const hints = new Set();
+  for (const id of ids ?? currentPage().modules) {
+    const m = MODULES[id];
+    const declared = [...(m.controls ?? []), ...(m.tabControls ?? [])];
+    if (declared.includes("filter")) hints.add(m.filterHint ?? "repo, title, or author");
+  }
+  return hints.size === 1 ? `Filter by ${[...hints][0]}…` : "Filter…";
+}
+
+/**
  * Toolbar is per-view: the overview shows whatever its page needs globally,
  * a module tab shows only the controls that module declares.
  */
@@ -268,7 +297,8 @@ function renderToolbar() {
   }
 
   if (wanted.has("filter"))
-    bits.push(`<input type="search" id="filter" placeholder="Filter by repo, title, or author…" value="${esc(state.filter)}">`);
+    bits.push(`<input type="search" id="filter" placeholder="${
+      esc(filterPlaceholder(ids))}" value="${esc(state.filter)}">`);
 
   if (wanted.has("window")) {
     const ws = windowList();

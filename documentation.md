@@ -881,13 +881,36 @@ card groups by prefix, and the overview shows `Status:` alone — the triage
 pipeline is the part you act on. A repo with no `Status:` labels falls back to
 its busiest and says so.
 
-Label stats are per repo for the same reason: the org-wide sum of a taxonomy
-one tracker invented means nothing. The picker reaches every repo with labels;
-`ISSUE_LABEL_REPO` in `src/config.js` sets which one it opens on.
+Label stats are stored per repo, because a taxonomy belongs to the tracker that
+invented it. The card used to be per repo too, opening on `ISSUE_LABEL_REPO` and
+reachable to the others only through a dropdown — which made the modpack's 235
+labels the whole of what the page said about labelling, and the twenty-one other
+trackers something you had to already suspect existed.
 
-Monthly trends are kept for that focus repo only, and only for labels with 20+
+**It opens on all of them now**, with a row of toggle chips to narrow. One chip
+per labelled repo with its label count, plus an *All repos* chip that clears the
+selection — a row of buttons rather than a dropdown or a popup, because
+twenty-two of them wrap into three lines and the point of the control is to say
+what you're looking at without being opened.
+
+Combining is only honest for some of the columns:
+
+- **Open, closed, all time, unanswered** are sums. `Bug: Minor` open across the
+  org is every tracker's count added up, and that number is real.
+- **Median response and median close** are not. There is no arithmetic that
+  turns per-repo medians into a median, so they're absent from the combined
+  view rather than filled with a plausible average of averages. Select a single
+  repo and they come back.
+- **Repos** takes their place — how many trackers carry that label. Sixteen of
+  the 294 distinct labels appear in more than one, which is exactly the kind of
+  thing the per-repo view could never show.
+
+Monthly trends are kept for the focus repo only, and only for labels with 20+
 issues. That bound is deliberate — series size scales with labels times months,
-and a trend line for a label carrying four issues is two dots and a gap.
+and a trend line for a label carrying four issues is two dots and a gap. The
+chart is offered whenever that repo is part of the current selection, including
+the all-repos default, and names the repo it's about so it can't be read as
+org-wide.
 
 ### Triage
 
@@ -1859,6 +1882,15 @@ They're `tabControls` now, so the box appears on the Pull requests and Issues
 tabs, which is where the tables it filters actually live. That's how the Repo
 Drilldown had always been built; this is the contributor side catching up.
 
+**The box says what it matches.** It read "Filter by repo, title, or author" on
+every page, which is true of the PR and issue tables and false of Label mix,
+whose filter only ever looked at the label name. A control naming three fields
+and matching one reads as broken data rather than a wrong caption, and sends you
+hunting for the bug in the wrong place. A module declares `filterHint` when it
+matches something else — Label mix and the repo drilldown's Labels card both say
+`"label"` — and the toolbar builds the placeholder from whichever modules are on
+screen.
+
 **`controlsHtml()` is the third home**, and the right one for a control that
 belongs to a single card in *both* views: it renders in that card's header on
 the overview and on its tab, so it's never somewhere it could be mistaken for
@@ -2018,7 +2050,7 @@ Everything worth adjusting lives in `src/config.js`:
 - `DEP_UPDATE_MAX_PAGES` — commits-per-repo ceiling on the deeper walk, in pages of 100
 - `DEP_UPDATE_MIN_DAYS` — drops repos updated more recently than this; 0 keeps everything
 - `ISSUE_STALE_DAYS` — how long an open issue sits untouched before Triage state calls it stale
-- `ISSUE_LABEL_REPO` — which tracker the Label mix card opens on, and the only one with per-label trends
+- `ISSUE_LABEL_REPO` — the only tracker with per-label trends; Label mix itself opens on every repo
 - `CACHE_TTL_MINUTES` — local API response cache
 
 `RELEASE_EXCLUDED_REPOS` takes repo names without the org prefix, matched
