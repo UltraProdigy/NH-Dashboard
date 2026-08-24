@@ -1797,7 +1797,7 @@ card-header slot renders through `controlHtml()`, which has never known how to
 draw a search box — a grouped member declaring `tabControls: ["filter"]` was
 getting no box at all, on six tabs.
 
-Twelve cards use it, all of them for `filter` — the tables whose search box
+Fifteen cards use it, all of them for `filter` — the tables whose search box
 only makes sense once you're looking at the whole list rather than a seven-row
 preview. Open backlog, Actions load and the repo drilldown's Backlog were
 declaring it as `controls`, which put a box on the overview that read the
@@ -1805,6 +1805,15 @@ filter nowhere: all three ignore it in their collapsed card and only apply it
 to the full table on their tab. A control that can't change what's under it is
 worse than no control, because you spend a moment assuming it's broken data
 rather than a misplaced box.
+
+Reviews, Pull requests and Biggest PRs were the same mistake in a louder place.
+They declared `filter` as `controls`, which put a search box at the head of the
+Contributor Drilldown's overview — where eight of the eleven cards below it are
+charts, ranked lists and KPI strips that read nothing at all. Typing a repo name
+there narrowed three previews out of eleven and left the page looking broken.
+They're `tabControls` now, so the box appears on the Pull requests and Issues
+tabs, which is where the tables it filters actually live. That's how the Repo
+Drilldown had always been built; this is the contributor side catching up.
 
 **`controlsHtml()` is the third home**, and the right one for a control that
 belongs to a single card in *both* views: it renders in that card's header on

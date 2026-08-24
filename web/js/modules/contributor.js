@@ -234,7 +234,7 @@ export const contributorModules = {
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
-    controls: ["filter"],
+    tabControls: ["filter"],
     // In this card's own header rather than the page toolbar. It filters one
     // card, so it sits on that card — and unlike `tabControls` it's there on
     // the overview too, which is where you most want to flip it.
@@ -309,7 +309,7 @@ export const contributorModules = {
    */
   cPRs: {
     page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
-    controls: ["window", "filter"],
+    controls: ["window"], tabControls: ["filter"],
     controlsHtml: () => cardSeg("prState"),
     sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
@@ -348,7 +348,7 @@ export const contributorModules = {
    */
   cBiggest: {
     page: "contributor", label: "Biggest PRs", span: 12, flush: true,
-    controls: ["window", "filter"], twin: "rGrossing",
+    controls: ["window"], tabControls: ["filter"], twin: "rGrossing",
     sub: () => `by lines changed, ${windowPhrase()}`,
     render(expanded) {
       const rows = biggestRows();
