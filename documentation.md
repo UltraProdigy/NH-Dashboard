@@ -1318,10 +1318,12 @@ The two halves are windowed by the only date each has — open PRs by when they
 were opened, resolved ones by when they ended. That's exactly what the two old
 cards each did on their own, so no row changes which window it lands in.
 
-This toggle and the Reviews one live in **their own card's header**, via
+This toggle and the Reviews pair live in **their own card's header**, via
 `controlsHtml()` — the same `.card-filters` slot the Dream Panel's exclusion
 buttons use, rendered at a smaller size with `.seg.mini` so a four-way control
-doesn't set the header's height.
+doesn't set the header's height. `cardSeg()` takes several names and puts them
+in one slot, because Reviews has two and two slots would each claim the header's
+slack and leave a gap between them that reads as a gap between unrelated things.
 
 They went through the other two homes first, and neither worked. As
 `tabControls` they vanished from the overview entirely, which is exactly where
@@ -1366,7 +1368,9 @@ destructures to `undefined` and is normalised to `null` — "we haven't asked" a
 The card in the six columns Open PRs used to hold, answering a question the old
 one didn't: what is somebody waiting on this person for. Three counts across the
 top — **review requests**, **ongoing reviews**, **assigned PRs** — over one
-table with an All / Requested / Reviewing / Assigned toggle.
+table with two toggles: All / Requested / Reviewing / Assigned for *why* the PR
+is on their plate, and All / Open / Merged / Closed for where the PR itself got
+to.
 
 - **Requested** is a pending review request on a live PR. GitHub deletes the
   request the moment the review lands, so this is genuinely "still waiting",
@@ -1385,6 +1389,21 @@ A PR can carry more than one reason and often does — being re-requested after 
 round of changes puts it in both review lists, and being assigned something
 you're also asked to review is normal. It's one row either way, with every
 reason on it as a pill, so the card can't read as three times the work it is.
+
+**The state toggle exists because the three reasons don't agree about time.**
+Requested and Reviewing are live by construction; Assigned is the only one that
+keeps resolved rows. With one control that difference was invisible: picking
+Assigned handed you a list mostly made of PRs that closed years ago, on a card
+whose caption says "on their plate". The second toggle pulls that apart, and it
+opens on **Open** — the card is a queue, and a review request on something that
+merged last spring is not waiting on anybody. Merged and Closed are still there,
+and are almost entirely assignments, because that's still the only one of the
+three lists with resolved rows in it.
+
+The three counts across the top ignore both toggles. They're the shape of the
+queue, not of whatever slice you're currently reading, and a headline that moved
+every time you changed the filter under it would be a fourth thing to keep track
+of rather than a summary.
 
 **Individual reviewers only.** A team review request resolves to a `Team`, which
 has a name rather than a login, and attributing one to its members needs org

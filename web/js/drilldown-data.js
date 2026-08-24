@@ -171,13 +171,28 @@ function reviewRows() {
     draft: r.draft == null ? null : r.draft === 1,
   }));
 
+  // Two independent axes. `why` is what put the PR on their plate; the state is
+  // where the PR itself ended up, and the two used to be tangled: picking
+  // "Assigned" handed you a list that was mostly PRs closed years ago, because
+  // the assignment log is the only half that keeps resolved rows. Now every
+  // `why` is read against whichever state you asked for, and the state opens on
+  // the live ones.
   const kind = state.reviewKind;
-  const wanted = kind === "all" ? rows : rows.filter((r) => r.why.includes(kind));
+  const byKind = kind === "all" ? rows : rows.filter((r) => r.why.includes(kind));
+  const st = REVIEW_OUTCOME[state.reviewState];
+  const wanted = st == null ? byKind : byKind.filter((r) => r.outcome === st);
   // Live PRs first, then oldest first within each half — the order in which
   // this is a queue rather than a log.
   return [...wanted].sort((a, b) =>
     (a.outcome === 0 ? 0 : 1) - (b.outcome === 0 ? 0 : 1) || (b.ageDays ?? 0) - (a.ageDays ?? 0));
 }
+
+/**
+ * The Reviews state toggle, as the `outcome` code the packed rows carry. Null
+ * is "don't filter", which is what All means — the payload's `prOutcomes` is
+ * `["open", "merged", "closed"]` and this is that list read backwards.
+ */
+const REVIEW_OUTCOME = { all: null, open: 0, merged: 1, dropped: 2 };
 
 const EMPTY_QUEUE = { requested: 0, reviewing: 0, assigned: 0, assignedOpen: 0, waiting: 0 };
 

@@ -1,4 +1,9 @@
-import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "../state.js";
+import {
+  PR_STATE_LABEL,
+  REVIEW_KIND_LABEL,
+  REVIEW_STATE_LABEL,
+  state,
+} from "../state.js";
 import {
   activeShare,
   age,
@@ -231,6 +236,14 @@ export const contributorModules = {
    * than to people, and attributing one to its members needs org read the
    * ingest token doesn't have — so a PR whose only outstanding request is to a
    * team is absent here rather than wrongly quiet.
+   *
+   * Two toggles, because there are two questions and they were being answered
+   * with one control. `reviewKind` is why the PR is on their plate; `reviewState`
+   * is where the PR itself got to. Only the assignment log keeps resolved rows,
+   * so before the second toggle existed, picking "Assigned" quietly handed you a
+   * list dominated by PRs that closed years ago while "Requested" and
+   * "Reviewing" could only ever be live — three filters that looked like one
+   * kind of thing and behaved like two.
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
@@ -238,8 +251,13 @@ export const contributorModules = {
     // In this card's own header rather than the page toolbar. It filters one
     // card, so it sits on that card — and unlike `tabControls` it's there on
     // the overview too, which is where you most want to flip it.
-    controlsHtml: () => cardSeg("reviewKind"),
-    sub: () => `${REVIEW_KIND_LABEL[state.reviewKind].toLowerCase()}, on their plate`,
+    controlsHtml: () => cardSeg("reviewKind", "reviewState"),
+    // Both axes, in the order the toggles sit: "requested, open, on their
+    // plate". The state half is named even when it's All, because "on their
+    // plate" is a claim about live work and a list that includes closed PRs
+    // isn't making it.
+    sub: () => `${REVIEW_KIND_LABEL[state.reviewKind].toLowerCase()}, ${
+      REVIEW_STATE_LABEL[state.reviewState].toLowerCase()}, on their plate`,
     render(expanded) {
       const q = queueCounts();
       const missing = queueDataMissing();
@@ -294,7 +312,8 @@ export const contributorModules = {
       if (!expanded) return head + notices + table;
 
       return head + notices + table +
-        `<div class="hint" style="margin-top:12px">A PR can carry more than one reason and often does — being re-requested after a round of changes puts it in both review lists, and being assigned something you're also asked to review is normal. It's one row either way, with every reason on it. "Ongoing" means the newest thing they said on a PR that hasn't landed: an approval sitting on an unmerged PR is as much an open loop as a request for changes, just somebody else's. Assignments are the only half that keeps closed rows, because "what did I own" is a fair question about last quarter as well as today.</div>`;
+        `<div class="hint" style="margin-top:12px">A PR can carry more than one reason and often does — being re-requested after a round of changes puts it in both review lists, and being assigned something you're also asked to review is normal. It's one row either way, with every reason on it. "Ongoing" means the newest thing they said on a PR that hasn't landed: an approval sitting on an unmerged PR is as much an open loop as a request for changes, just somebody else's.</div>` +
+        `<div class="hint" style="margin-top:6px">The second toggle is the PR's own state, and it opens on <strong>Open</strong> — this card is meant to read as a queue, and a review request on something that merged last spring is not waiting on anybody. Merged and Closed are almost entirely assignments, since that's the only one of the three lists the store keeps resolved rows for; "what did I own last quarter" is a fair question, it's just not the one the card is set to by default.</div>`;
     },
   },
 

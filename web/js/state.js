@@ -69,6 +69,12 @@ const state = {
   // and no way to read them against each other.
   prState: "all",
   reviewKind: "all", // Reviews card: all | requested | reviewing | assigned
+  // Reviews card, second axis: all | open | merged | dropped. Opens on `open`,
+  // because the card's question is "what is waiting on this person" and a
+  // review request on a PR that merged last spring is not waiting on anybody.
+  // The other three are there because "what did I own last quarter" is a fair
+  // question too — it's just not the one the card is for.
+  reviewState: "open",
   subject: null,      // selected login or repo name; null = nothing picked yet
   drill: null,        // contents of drilldown.json, fetched on first visit
   drillState: "idle", // idle | loading | ready | error
@@ -96,6 +102,18 @@ const PR_STATE_LABEL = { all: "All", open: "Opened", merged: "Merged", dropped: 
  */
 const REVIEW_KIND_LABEL = {
   all: "All", requested: "Requested", reviewing: "Reviewing", assigned: "Assigned",
+};
+
+/**
+ * The Reviews card's other axis, and deliberately not PR_STATE_LABEL.
+ *
+ * The two say nearly the same words about different things: on Pull requests
+ * "Opened" is when the person started it, while here the row is somebody else's
+ * PR and "Open" is where it currently sits. Sharing a map would make one of the
+ * two labels wrong, and they'd have to stay wrong together.
+ */
+const REVIEW_STATE_LABEL = {
+  all: "All", open: "Open", merged: "Merged", dropped: "Closed",
 };
 
 /**
@@ -180,6 +198,7 @@ const DREAM_LABELS_OVERVIEW = 4;
 export {
   PR_STATE_LABEL,
   REVIEW_KIND_LABEL,
+  REVIEW_STATE_LABEL,
   DREAM_EXCL_DEFAULT,
   DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,

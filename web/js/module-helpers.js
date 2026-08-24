@@ -1,7 +1,7 @@
 import { diff, dur, esc, fmt, pctFmt } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel, windowList } from "./data.js";
-import { PR_STATE_LABEL, REVIEW_KIND_LABEL, state } from "./state.js";
+import { PR_STATE_LABEL, REVIEW_KIND_LABEL, REVIEW_STATE_LABEL, state } from "./state.js";
 
 /* ---- controls that have two homes ---------------------------------------
    A `tabControls` entry sits in the page toolbar when its module has a tab to
@@ -18,11 +18,14 @@ const seg = (key, labels) => `<span class="seg mini" id="${key}Seg">${
     `<button data-seg="${key.toLowerCase()}" data-val="${id}" aria-pressed="${
       state[key] === id}">${esc(label)}</button>`).join("")}</span>`;
 
-const SEG_KEY = { prstate: "prState", reviewkind: "reviewKind" };
+const SEG_KEY = {
+  prstate: "prState", reviewkind: "reviewKind", reviewstate: "reviewState",
+};
 
 const CONTROL_HTML = {
   prState: () => seg("prState", PR_STATE_LABEL),
   reviewKind: () => seg("reviewKind", REVIEW_KIND_LABEL),
+  reviewState: () => seg("reviewState", REVIEW_STATE_LABEL),
 };
 
 const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
@@ -35,8 +38,13 @@ const controlHtml = (name) => CONTROL_HTML[name]?.() ?? "";
  * worth reaching for without opening a tab first. In the toolbar it reads as
  * page-wide and isn't; as a `tabControls` entry it disappears from the overview
  * entirely, which is where you most want to flip it.
+ *
+ * Several names share one slot rather than each getting their own: Reviews has
+ * two axes, and two `.card-filters` spans would each claim the header's slack
+ * and leave a gap between them that reads as a gap between unrelated controls.
  */
-const cardSeg = (name) => `<span class="card-filters">${controlHtml(name)}</span>`;
+const cardSeg = (...names) =>
+  `<span class="card-filters">${names.map(controlHtml).join("")}</span>`;
 
 /**
  * A period control in a card's own header, writing to a named slot of state
