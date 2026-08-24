@@ -405,6 +405,23 @@ running anything locally.
 Set `NH_STORE_DIR` to point the store somewhere else — tests use this so they
 can't clobber real data.
 
+### First active and last active
+
+The Leaderboard's last two columns bracket somebody's time in the org: when they
+turned up and when they were last seen. Neither is windowed — they're facts
+about the person, not about whatever period the toolbar is set to — and both
+come from the same `bump()` that counts everything else, so "first active" is
+the earliest of their first PR, their first merge and their first approval,
+whichever came first.
+
+Sorting on **First active** is what the column is for: one direction gives you
+the newest names on the board, the other gives you who has been here longest,
+which the page previously had no way to ask. It renders through `agoText` rather
+than `age`, because `age` tints anything past six months as stale — the right
+signal beside Last active and precisely the wrong one here, where it would paint
+every long-serving contributor in the warning colour for having been around a
+while. The exact date is in the tooltip.
+
 ### Active days
 
 The Leaderboard and every contributor drilldown show what share of a period

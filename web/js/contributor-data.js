@@ -2,8 +2,10 @@ import { state } from "./state.js";
 import {
   activeShare,
   age,
+  agoText,
   bucketLabel,
   contribLink,
+  dateFmt,
   daysSince,
   dur,
   esc,
@@ -47,6 +49,22 @@ function contributorColumns() {
         return `<span class="num" title="${esc(
           `active on ${fmt(r[w].activeDays)} of ${period}`)}">${pctFmt(share)}</span>`;
       } },
+    // Not windowed, and deliberately: this is when they turned up, which is a
+    // fact about the person rather than about the period you happen to be
+    // looking at. Sorting on it is what the column is for — one click gives you
+    // the newest faces on the board, the other gives you who has been here
+    // longest, which is a question the page could not previously answer at all.
+    //
+    // `agoText` rather than `age`: age() tints anything past six months as
+    // stale, which is the right signal beside Last active and exactly the wrong
+    // one here — it would paint every long-serving contributor in the warning
+    // colour for the crime of having been around. The exact date rides in the
+    // tooltip, since "5 yr ago" is the comparable form and the date is the
+    // precise one.
+    { key: "firstSeen", label: "First active", get: r => r.firstSeen ?? "",
+      render: r => (r.firstSeen
+        ? `<span class="num" title="${esc(dateFmt(r.firstSeen))}">${agoText(daysSince(r.firstSeen))}</span>`
+        : `<span class="sub">—</span>`) },
     { key: "lastSeen", label: "Last active", get: r => r.lastSeen ?? "", render: r => age(daysSince(r.lastSeen)) },
   ];
 }
