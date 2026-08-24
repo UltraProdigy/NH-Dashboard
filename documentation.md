@@ -1663,8 +1663,8 @@ restore a sort or a scroll position that were never in the URL to begin with.
 So the drilldowns carry **a back button, left of the search box** — a small
 circular arrow that returns you to the exact spot the link was clicked, with
 that page's tab, sort, filter and scroll position as you left them. Arrive under
-your own steam — the search box, the picker chips, the sidebar — and it's greyed
-out, because there's nowhere it would honestly take you.
+your own steam — the search box, the picker chips, the sidebar — and it isn't
+drawn at all, because there's nowhere it would honestly take you.
 
 It's one trail of origins in `router.js`, pushed by `drillFromHere` and popped by
 `goBack`, so a chain of hops back out in order: Analytics → a repo → one of its
@@ -1681,9 +1681,12 @@ Two rules keep it from offering something stale:
   Back and Forward move the URL out from under the trail, and an entry that no
   longer describes where you are simply stops applying.
 
-The button is disabled rather than hidden in that case. It sits at the head of a
-toolbar full of controls, and one that appears and disappears would shift all of
-them sideways every time you followed a link.
+The button is omitted rather than disabled in that case. It was greyed out for a
+while, to stop the rest of the toolbar shifting sideways as you moved between
+pages that had a trail and pages that didn't — but a greyed control still reads
+as something you ought to be able to use, and on a page you opened yourself there
+is no answer to what would make it work. The shift is one 30px button at the far
+left, which is the cheaper of the two.
 
 ## Tabs and groups
 

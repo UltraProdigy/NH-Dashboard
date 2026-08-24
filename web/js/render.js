@@ -179,19 +179,22 @@ function placeLabel(p) {
 }
 
 /**
- * Disabled rather than hidden when there's nothing to return to: a control that
- * appears and disappears beside the search box shifts everything next to it,
- * and on these two pages that's most of the toolbar.
+ * Nothing at all when there's nowhere to return to.
+ *
+ * This used to render disabled, to keep the toolbar from shifting as you moved
+ * between pages that had a trail and pages that didn't. But a greyed control is
+ * still a control: it reads as something you could use and can't work out how,
+ * and on a page you opened yourself there is no answer to that question. The
+ * shift is one 30px button at the far left, which costs less than the puzzle.
  */
 function backButtonHtml() {
   const from = backFrom();
+  if (!from) return "";
   const arrow = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"
     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M3.4 6.2h6.3a3.4 3.4 0 0 1 0 6.8H6.1"/><path d="M6.2 3.1 3.1 6.2l3.1 3.1"/></svg>`;
-  return `<button class="backbtn" id="backBtn" aria-label="Back"${
-    from ? ` title="Back to ${esc(placeLabel(from))}"`
-         : ` disabled title="Nothing to go back to — you opened this page directly"`
-  }>${arrow}</button>`;
+  return `<button class="backbtn" id="backBtn" aria-label="Back"
+    title="Back to ${esc(placeLabel(from))}">${arrow}</button>`;
 }
 
 /**

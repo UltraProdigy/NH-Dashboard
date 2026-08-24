@@ -1,6 +1,8 @@
 /* ---------- drilldown: back to where you came from ---------- */
 /* Sits left of the search box, at the size of an icon rather than a control —
-   it's a way out of the page, not one of the things the page is set to. */
+   it's a way out of the page, not one of the things the page is set to. It's
+   only drawn when there is somewhere to go back to, so there is no disabled
+   state to style. */
 .backbtn {
   flex: none;
   display: inline-flex; align-items: center; justify-content: center;
@@ -9,8 +11,7 @@
   background: var(--panel); color: var(--muted); cursor: pointer;
 }
 .backbtn svg { width: 15px; height: 15px; }
-.backbtn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
-.backbtn:disabled { opacity: .38; cursor: default; }
+.backbtn:hover { color: var(--text); border-color: var(--accent); }
 
 /* ---------- drilldown: search-and-select ---------- */
 /* Hand-rolled rather than a <datalist>: 1,200 options make the native popup
