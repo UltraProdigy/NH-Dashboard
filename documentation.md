@@ -541,12 +541,19 @@ Beyond the identity and timing fields, every PR record holds:
 | `isDraft` | Pull requests / Backlog state column |
 | `assignees[]` | Reviews card, assignment log |
 | `reviewRequests[]` | Reviews card, pending requests |
+| `labels[]` | label filtering on the drilldown tables |
 
 Most of them are scalars or `totalCount`-only connections on the PR itself, so
-they cost nothing against the GraphQL node budget. `assignees` and
-`reviewRequests` do have nodes, which takes a page from 2,500 to 4,000 — still
+they cost nothing against the GraphQL node budget. `assignees`, `reviewRequests`
+and `labels` do have nodes, which takes a page from 2,500 to 4,500 — still
 nowhere near the limit. The expensive part was never the fields; it was the
 one-time re-walk to populate the records that predate them.
+
+`labels` is the newest of them and the Dream Panel does not use it: that page
+asks about a handful of tracked names and gets them from one search query per
+label, which is cheaper than reading every PR's list. These are for the
+drilldowns, where the question is "what is on the pull request in front of me",
+and there is no search that answers that in advance.
 
 `reviewRequests` only ever holds *pending* requests, because that's all GitHub
 keeps: the request is deleted when the review lands. On a closed PR it's an
@@ -575,13 +582,15 @@ up in `BACKFILLS`, in this order:
 | Review requests | open records missing `reviewRequests` | `OPEN_PRS` | ~118 requests |
 | Diff size, comments, reactions, titles | any record missing `additions` | `PRS` | ~570 requests, once |
 | Assignees | any record missing `assignees` | `PRS` | ~570 requests, once |
+| Labels | any record missing `labels` | `PRS` | ~570 requests, once |
 
 The order is the point. The two `OPEN_PRS` passes are cheap and go first,
-because the expensive ones may well be interrupted. Of the two full re-walks,
-`assignees` goes last so that a store needing both pays for one: the diff-size
-pass re-fetches with the same query, which now carries `assignees`, and fills
-the field on its way through — leaving the fourth pass with nothing stale to
-find.
+because the expensive ones may well be interrupted. The full re-walks are
+ordered so a store needing several pays for one: every one of them re-fetches
+through the same `toRecord`, so the first to run fills in all the fields the
+query now carries and leaves the later passes with nothing stale to find. A
+store that needs only the last of them pays for a walk of its own, which is the
+price of adding a field to a 29,000-record store.
 
 A full re-walk is unavoidable for those two. Diff size is meaningful on merged
 PRs and assignment outlives the close, so neither can be scoped to open records

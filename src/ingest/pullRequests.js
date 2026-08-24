@@ -81,6 +81,13 @@ const PR_FIELDS = `
   # anything closed the request list is therefore empty, and that's the truth
   # rather than a gap — nobody is waiting on a merged PR.
   assignees(first: 10) { nodes { login } }
+  # What the PR is tagged as. Ten is generous — the busiest PR in the org
+  # carries four — and the connection is cheap next to reviews(first: 50).
+  # The Dream Panel gets its labels from a search query instead, because it
+  # only ever asks about a handful of tracked names and a search is one
+  # request for all of them; these are for the drilldowns, which need whatever
+  # happens to be on the PR in front of you.
+  labels(first: 10) { nodes { name } }
   # Individual reviewers only. A team request resolves to a Team, which has a
   # name rather than a login, and attributing one to its members needs org
   # read that this token doesn't have — so it selects nothing here and drops
@@ -171,6 +178,7 @@ const toRecord = (repo, pr) => ({
   thumbsUp: pr.thumbsUp?.totalCount ?? 0,
   thumbsDown: pr.thumbsDown?.totalCount ?? 0,
   assignees: (pr.assignees?.nodes ?? []).map((a) => a.login).filter(Boolean),
+  labels: (pr.labels?.nodes ?? []).map((l) => l.name).filter(Boolean),
   reviewRequests: (pr.reviewRequests?.nodes ?? [])
     .map((n) => n.requestedReviewer?.login)
     .filter(Boolean),
@@ -347,6 +355,17 @@ const BACKFILLS = [
     label: "assignees",
     query: PRS,
     needs: (p) => p.assignees === undefined,
+  },
+  // Labels are on every PR whatever state it's in, so this is the full re-walk
+  // too — and it's last for the reason the assignees pass is second to last: by
+  // the time it runs, any store that also needed one of the passes above has
+  // already had these filled in on the way through, since they all re-fetch
+  // through the same `toRecord`. On a store that needs only this one it costs a
+  // walk of its own, which is the price of the field.
+  {
+    label: "labels",
+    query: PRS,
+    needs: (p) => p.labels === undefined,
   },
 ];
 
