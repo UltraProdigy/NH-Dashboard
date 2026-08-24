@@ -907,12 +907,18 @@ export async function drilldown() {
   const closerCoverage = { closed: 0, unknown: 0 };
 
   // Earliest issue per reporter, so a repo can count first-time reporters the
-  // same way the org panel does.
+  // same way the org panel does — including the part where "the same way" means
+  // matching on `repo#number` rather than on the timestamp. GitHub stamps to the
+  // second and two issues filed in the same one would both look like somebody's
+  // first. See the note in src/panels/issues.js.
   const firstIssueBy = new Map();
+  const issueId = (i) => `${i.repo}#${i.number}`;
   for (const i of issueRecords) {
     if (isBot(i.author) || !i.createdAt) continue;
     const prev = firstIssueBy.get(i.author);
-    if (!prev || i.createdAt < prev) firstIssueBy.set(i.author, i.createdAt);
+    const id = issueId(i);
+    if (!prev || i.createdAt < prev.at || (i.createdAt === prev.at && id < prev.id))
+      firstIssueBy.set(i.author, { at: i.createdAt, id });
   }
 
   for (const i of issueRecords) {
@@ -936,7 +942,7 @@ export async function drilldown() {
       labels,
       closeHours,
       responseHours,
-      isFirstEver: !authorIsBot && firstIssueBy.get(i.author) === i.createdAt,
+      isFirstEver: !authorIsBot && firstIssueBy.get(i.author)?.id === issueId(i),
       bot: authorIsBot,
       closedBy,
       fixer,
