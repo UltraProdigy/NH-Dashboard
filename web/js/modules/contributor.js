@@ -71,6 +71,30 @@ const VERDICT_TONE = {
 };
 
 /**
+ * Why the pull request cards have nothing to say about this person.
+ *
+ * Most subjects on this page have no pull request footprint at all — they're
+ * issue reporters and triagers, who became subjects when the issue store
+ * arrived, and there are 5,607 of them against 1,186 authors. Six cards of
+ * zeroes was most of what their page said about them.
+ *
+ * Authoring isn't the only footprint, which is why this isn't just `totalPRs`.
+ * Twenty-one people in the store have approved somebody else's PR without ever
+ * opening one, and their review history is the whole of what this page has to
+ * say about them — exactly the thing that must not be hidden. One predicate for
+ * all six cards, so the Pull requests tab means "nothing PR-shaped here at all"
+ * rather than "nothing under one of the six headings".
+ */
+const noPRs = () => {
+  const s = subject();
+  const seen = s && (
+    s.totalPRs || s.windows?.all?.approvals || s.reviewQueue || s.assigned ||
+    (s.reviewsFor ?? []).length || (s.reviewedBy ?? []).length
+  );
+  return seen ? null : "This contributor has never opened or reviewed a pull request.";
+};
+
+/**
  * How long this person has been around, and how much of it they were working.
  *
  * Measured over their own span rather than the org's: somebody who did six
@@ -154,6 +178,7 @@ export const contributorModules = {
   cActivity: {
     page: "contributor", label: "Activity", span: 8, twin: "rActivity",
     controls: ["window"], sub: () => `by month, ${windowPhrase()}`,
+    empty: noPRs,
     render(expanded) {
       const s = subjectSlice();
       const prs = [
@@ -190,7 +215,7 @@ export const contributorModules = {
    */
   cRepos: {
     page: "contributor", label: "Repos", span: 4, twin: "rPeople", fill: true,
-    controls: ["window"],
+    controls: ["window"], empty: noPRs,
     sub: () => `PRs opened and reviewed, ${windowPhrase()}`,
     render(expanded) {
       const s = subject();
@@ -212,7 +237,7 @@ export const contributorModules = {
 
   cCollab: {
     page: "contributor", label: "Collaboration", span: 6, twin: "rHealth", fill: true,
-    sub: () => "all time",
+    sub: () => "all time", empty: noPRs,
     render(expanded) {
       const s = subject();
       return duo(
@@ -247,7 +272,7 @@ export const contributorModules = {
    */
   cReviews: {
     page: "contributor", label: "Reviews", span: 6, flush: true,
-    tabControls: ["filter"],
+    tabControls: ["filter"], empty: noPRs,
     // In this card's own header rather than the page toolbar. It filters one
     // card, so it sits on that card — and unlike `tabControls` it's there on
     // the overview too, which is where you most want to flip it.
@@ -328,7 +353,7 @@ export const contributorModules = {
    */
   cPRs: {
     page: "contributor", label: "Pull requests", span: 12, flush: true, twin: "rBacklog",
-    controls: ["window"], tabControls: ["filter"],
+    controls: ["window"], tabControls: ["filter"], empty: noPRs,
     controlsHtml: () => cardSeg("prState"),
     sub: () => `${PR_STATE_LABEL[state.prState].toLowerCase()}, ${windowPhrase()}`,
     render(expanded) {
@@ -367,7 +392,7 @@ export const contributorModules = {
    */
   cBiggest: {
     page: "contributor", label: "Biggest PRs", span: 12, flush: true,
-    controls: ["window"], tabControls: ["filter"], twin: "rGrossing",
+    controls: ["window"], tabControls: ["filter"], twin: "rGrossing", empty: noPRs,
     sub: () => `by lines changed, ${windowPhrase()}`,
     render(expanded) {
       const rows = biggestRows();

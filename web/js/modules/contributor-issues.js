@@ -26,6 +26,16 @@ const issueTitle = (r) =>
   `<a href="${issueUrl(r)}" target="_blank" rel="noopener">${
     esc(r.title || `#${r.number}`)}</a> <span class="repo">#${r.number}</span>`;
 
+/**
+ * Why the issue cards have nothing to say about this person. The mirror of
+ * `noPRs` next door, and the commoner of the two on this page only because
+ * there are more people than there are trackers.
+ */
+const noIssues = () =>
+  (hasIssues()
+    ? null
+    : "This contributor has never filed, answered or closed an issue.");
+
 export const contributorIssueModules = {
   /* ---------------- Contributor Drilldown: issues ----------------
      The other half of what a person does here. Pull requests say what they
@@ -34,7 +44,7 @@ export const contributorIssueModules = {
 
   cIssues: {
     page: "contributor", label: "Issues", span: 12, flush: true, twin: "rIssues",
-    controls: ["window"],
+    controls: ["window"], empty: noIssues,
     sub: () => `filed, answered and closed, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -102,7 +112,7 @@ export const contributorIssueModules = {
   cTriage: {
     page: "contributor", label: "Triage", span: 6, twin: "rIssuePeople", fill: true,
     controls: ["window"],
-    tabControls: ["filter"],
+    tabControls: ["filter"], empty: noIssues,
     sub: () => `where they answer and close, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -154,7 +164,7 @@ export const contributorIssueModules = {
   cFiled: {
     page: "contributor", label: "Filed issues", span: 6, flush: true, twin: "rIssueTriage",
     controls: ["window"],
-    tabControls: ["filter"],
+    tabControls: ["filter"], empty: noIssues,
     sub: () => `what they reported, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();

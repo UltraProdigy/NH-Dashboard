@@ -1880,6 +1880,47 @@ as on a single card. The two pages have to move together for that reason — if
 one grouped and the other didn't, the toggle would drop you on Overview half the
 time.
 
+### Cards with nothing behind them
+
+Most repos in this org have no issue tracker and most people in it have never
+touched a pull request — 237 of 299 and 5,607 of 6,818. Their drilldowns
+rendered the cards regardless, four or five in a row each saying its own version
+of "nothing here", which buries the two or three cards that do have something to
+say and makes the page of a prolific bug reporter look like the page of nobody.
+
+A module declares `empty()` and returns the sentence saying why it has nothing.
+Three things follow from a non-null answer:
+
+- **The card isn't drawn**, on the grid or in its tab.
+- **The tab says so** — a dashed, dim `none` where the count badge goes, with
+  the sentence as its tooltip. It stays clickable, because the tab is how you
+  find out the tracker doesn't exist; removing it would hide the answer along
+  with the absence.
+- **Opening the tab gives you the sentence once**, in one card, instead of four
+  times in four.
+
+`emptyReason()` short-circuits while no subject is selected or the drilldown
+payload is still loading — every one of these predicates reads the subject, and
+before there is one there's no question for them to answer. `renderToolbar` and
+`pageBody` both work from `liveMembers()` rather than `tabMembers()`, or a
+grouped card's toggle would land in neither of its two homes: the toolbar would
+think the tab was still a group while the renderer had reduced it to one card.
+
+**The predicate is the footprint, not the headline count.** `noPRs` on the
+contributor page can't just check `totalPRs`: twenty-one people in the store have
+approved somebody else's pull request without ever opening one, and their review
+history is precisely what their page exists to show. It checks approvals, the
+review queue, assignments and the collaboration lists too. One predicate serves
+all six PR cards, so "Pull requests: none" means nothing PR-shaped at all rather
+than nothing under one of six headings.
+
+Two cards deliberately have no `empty()`. **Health** on the repo page draws CI
+and release figures that come from the API rather than the PR store, and those
+are true of a repo nobody has ever opened a PR against. **Profile** is the
+page's identity card, and a drilldown with no profile at all would be worse than
+one whose profile is mostly zeroes — though that card is still ten PR tiles for
+an issue reporter, and is the obvious next thing to fix here.
+
 ### Sort is per card
 
 `state.sort` is a map of module id to `{ key, dir }`, not one key for the page.

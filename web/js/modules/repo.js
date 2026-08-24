@@ -30,6 +30,21 @@ import {
   sizeNotice,
 } from "../module-helpers.js";
 
+/**
+ * Why the pull request cards have nothing to say about this repo.
+ *
+ * Four repos in the org are trackers and nothing else — issues get filed, no
+ * code ever lands. Six cards of zeroes on those said less than one sentence
+ * does. Health is deliberately not one of them: its CI and release figures come
+ * from the API rather than the PR store, and they are true of a repo nobody has
+ * ever opened a PR against.
+ */
+const noPRs = () => {
+  const s = subject();
+  const seen = s && (s.totalPRs || s.windows?.all?.approvals || s.backlog?.total);
+  return seen ? null : "No pull request has ever been opened on this repo.";
+};
+
 export const repoModules = {
   /* ---------------- Repo Drilldown ---------------- */
 
@@ -94,7 +109,7 @@ export const repoModules = {
    */
   rGrossing: {
     page: "repo", label: "Most grossing", span: 12, twin: "cBiggest",
-    sub: () => "most discussed and most reacted-to PRs, all time",
+    sub: () => "most discussed and most reacted-to PRs, all time", empty: noPRs,
     render(expanded) {
       const s = subject();
       return trio(grossingBoxes(s.grossing), {
@@ -107,7 +122,7 @@ export const repoModules = {
 
   rActivity: {
     page: "repo", label: "Activity", span: 8, twin: "cActivity",
-    controls: ["window"], sub: () => `by month, ${windowPhrase()}`,
+    controls: ["window"], sub: () => `by month, ${windowPhrase()}`, empty: noPRs,
     render(expanded) {
       const s = subjectSlice();
       const prs = [
@@ -132,7 +147,7 @@ export const repoModules = {
 
   rPeople: {
     page: "repo", label: "People", span: 6, twin: "cRepos", fill: true,
-    controls: ["window"],
+    controls: ["window"], empty: noPRs,
     sub: () => `${windowPhrase()}`,
     render(expanded) {
       const s = subject(), w = activeWindow();
@@ -148,7 +163,7 @@ export const repoModules = {
   },
 
   rBacklog: {
-    page: "repo", label: "Backlog", span: 4, flush: false, twin: "cPRs",
+    page: "repo", label: "Backlog", span: 4, flush: false, twin: "cPRs", empty: noPRs,
     // The overview card shows the top eight unfiltered, so the box belongs with
     // the full list on the tab rather than above a preview it can't reach.
     tabControls: ["filter"],

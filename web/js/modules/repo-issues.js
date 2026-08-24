@@ -38,6 +38,12 @@ const bucketBars = (buckets) => {
     </div>`).join("")}</div>`;
 };
 
+/** Why the issue cards have nothing to say about this repo. */
+const noIssues = () =>
+  (hasIssues()
+    ? null
+    : "This repo has no issue tracker, or nothing has ever been filed on it.");
+
 const stat = (k, v, cls = "") =>
   `<div><div style="color:var(--muted);font-size:11px">${esc(k)}</div><div style="font-size:22px;font-weight:600" class="${cls}">${fmt(v)}</div></div>`;
 
@@ -50,7 +56,7 @@ export const repoIssueModules = {
 
   rIssues: {
     page: "repo", label: "Issues", span: 12, flush: true, twin: "cIssues",
-    controls: ["window"],
+    controls: ["window"], empty: noIssues,
     sub: () => `the tracker, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -128,7 +134,7 @@ export const repoIssueModules = {
 
   rIssueTriage: {
     page: "repo", label: "Issue backlog", span: 6, twin: "cFiled",
-    tabControls: ["filter"],
+    tabControls: ["filter"], empty: noIssues,
     sub: () => "open issues, right now",
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -170,7 +176,7 @@ export const repoIssueModules = {
 
   rIssuePeople: {
     page: "repo", label: "Issue people", span: 6, twin: "cTriage", fill: true,
-    controls: ["window"],
+    controls: ["window"], empty: noIssues,
     sub: () => `who files, answers and closes, ${windowPhrase()}`,
     render(expanded) {
       if (!hasIssues()) return issueMissing();
@@ -219,7 +225,7 @@ export const repoIssueModules = {
    */
   rLabels: {
     page: "repo", label: "Labels", span: 12, flush: true,
-    tabControls: ["filter"], filterHint: "label",
+    tabControls: ["filter"], filterHint: "label", empty: noIssues,
     sub: () => "issue labels on this repo, all time",
     render(expanded) {
       const d = I();

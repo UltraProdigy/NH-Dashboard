@@ -37,6 +37,15 @@ nav.tabs button[aria-selected="true"] {
   padding: 0 6px; margin-left: 6px;
   font-size: 11px; font-variant-numeric: tabular-nums;
 }
+/* A tab with nothing behind it — this repo has no tracker, this person has never
+   opened a PR. The badge slot says so rather than showing a zero, which reads as
+   a measurement, or nothing at all, which reads as an oversight. The tab stays
+   clickable: it's how you find out, and the tooltip and the tab itself both
+   carry the full sentence. Dashed and dim so it can't be mistaken for a count. */
+.count.none {
+  background: none; border-style: dashed;
+  color: var(--muted); font-variant-numeric: normal;
+}
 
 .content { padding: 20px 24px 60px; }
 

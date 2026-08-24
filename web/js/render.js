@@ -92,12 +92,58 @@ function tabCount(pageId, tab) {
   return id ? moduleCount(id) : null;
 }
 
+/* ==========================================================================
+   Cards with nothing behind them
+   --------------------------------------------------------------------------
+   Most repos in this org have no issue tracker, and most people in it have
+   never opened a pull request — 237 of 299 and 5,632 of 6,818 at the time of
+   writing. Their drilldowns were rendering the cards anyway, four or five of
+   them in a row each saying some version of "nothing here", which buries the
+   two or three cards that do have something to say and makes a page about a
+   prolific bug reporter look like a page about nobody.
+
+   A module declares `empty()` and returns the sentence explaining why it has
+   nothing. The card doesn't render, the tab says so, and opening the tab gives
+   you the sentence once rather than four times.
+   ========================================================================== */
+
+function emptyReason(id) {
+  const m = MODULES[id];
+  if (!m.empty) return null;
+  // These all read the selected subject. Before one is picked — or before the
+  // payload has arrived — there is no question yet for the answer to be empty.
+  if (isDrill(state.page) && (state.drillState !== "ready" || !subject())) return null;
+  return m.empty() || null;
+}
+
+/** The members of a tab that have something to show. */
+const liveMembers = (pageId, tab) =>
+  tabMembers(pageId, tab).filter(id => !emptyReason(id));
+
+/**
+ * Why a whole tab is empty, or null if any of its cards has something.
+ *
+ * The first member's reason stands for the tab: a group's cards share a data
+ * source, so when they're all empty they're all empty for the same reason.
+ */
+function tabEmpty(pageId, tab) {
+  const ids = tabMembers(pageId, tab);
+  return ids.length && !liveMembers(pageId, tab).length ? emptyReason(ids[0]) : null;
+}
+
 function renderTabs() {
   const page = currentPage();
   document.getElementById("pageTitle").textContent = page.label;
   document.getElementById("tabs").innerHTML =
     `<button data-module="" aria-selected="${state.tab === null}">Overview</button>` +
     tabsFor(page.id).map(t => {
+      // Still clickable, and still says what it's for. The tab is how you find
+      // out this repo has no tracker, so removing it would hide the answer
+      // along with the absence.
+      const why = tabEmpty(page.id, t.id);
+      if (why)
+        return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}"
+          title="${esc(why)}">${esc(t.label)}<span class="count none">none</span></button>`;
       const c = tabCount(page.id, t.id);
       return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}">${esc(t.label)}${
         c == null ? "" : `<span class="count">${typeof c === "number" ? fmt(c) : c}</span>`}</button>`;
@@ -232,7 +278,10 @@ function filterPlaceholder(ids) {
  */
 function renderToolbar() {
   const page = currentPage();
-  const ids = state.tab ? tabMembers(page.id, state.tab) : null;
+  // The live members, not every declared one: a card that isn't drawn shouldn't
+  // put a control in the toolbar, and `alone` below has to agree with what
+  // pageBody actually rendered or a grouped card's toggle lands in neither home.
+  const ids = state.tab ? liveMembers(page.id, state.tab) : null;
   // Alone in its tab a module gets everything it asks for. On the overview only
   // `controls` are gathered — `tabControls` are ones that would be clutter
   // floating above a grid of cards they only affect one of.
@@ -414,10 +463,18 @@ function expandedCard(id, grouped) {
 /** Overview grid, or the selected tab's cards stacked full-width. */
 function pageBody() {
   const page = currentPage();
-  if (state.tab === null)
-    return `<div class="grid">${page.modules.map(card).join("")}</div>`;
+  if (state.tab === null) {
+    const ids = page.modules.filter(id => !emptyReason(id));
+    return `<div class="grid">${ids.map(card).join("")}</div>`;
+  }
 
-  const ids = tabMembers(page.id, state.tab);
+  const ids = liveMembers(page.id, state.tab);
+  // Said once, in one card, rather than four times in four. The tab is
+  // reachable on purpose — see renderTabs — so this is the page it lands on.
+  if (!ids.length)
+    return `<section class="card" style="--span:12"><div class="body"><div class="empty">${
+      esc(tabEmpty(page.id, state.tab) ?? "Nothing here.")}</div></div></section>`;
+
   const grouped = ids.length > 1;
   const cards = ids.map(id => expandedCard(id, grouped)).join("");
   return grouped ? `<div class="stack">${cards}</div>` : cards;
