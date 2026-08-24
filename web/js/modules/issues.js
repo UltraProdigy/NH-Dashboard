@@ -268,8 +268,12 @@ export const issueModules = {
         <tbody>${rows.map(([lab, f]) =>
           `<tr><td>${lab}</td>${d.windows.map(x => `<td class="num">${f(d.byWindow[x.id])}</td>`).join("")}</tr>`).join("")}</tbody>
       </table></div>
-      <div class="hint" style="margin-top:14px">"Labeled on arrival" is measured against issues opened in the period, so it drifts down as the newest arrivals wait for triage — a low number on the 1-month column is normal, a low number on the 1-year column is not.</div>
-      <div class="hint" style="margin-top:8px">Completed share is everything closed that wasn't marked not-planned or duplicate. ${d.totals.unknownReason ? `${fmt(d.totals.unknownReason)} of ${fmt(d.totals.closed)} closed issues carry no recorded reason at all and count as completed by default — read the all-time column with that in mind.` : `Every closed issue in the store carries a recorded reason, so nothing here is inferred.`}</div>`;
+      ${/* In the order the rows they annotate appear above: completed share is
+            the sixth row, labeled on arrival the fourteenth. They were the
+            other way round, which reads as a mistake even when you can't name
+            which of the two is out of place. */""}
+      <div class="hint" style="margin-top:14px">Completed share is everything closed that wasn't marked not-planned or duplicate. ${d.totals.unknownReason ? `${fmt(d.totals.unknownReason)} of ${fmt(d.totals.closed)} closed issues carry no recorded reason at all and count as completed by default — read the all-time column with that in mind.` : `Every closed issue in the store carries a recorded reason, so nothing here is inferred.`}</div>
+      <div class="hint" style="margin-top:8px">"Labeled on arrival" is measured against issues opened in the period, so it drifts down as the newest arrivals wait for triage — a low number on the 1-month column is normal, a low number on the 1-year column is not.</div>`;
     },
   },
 
