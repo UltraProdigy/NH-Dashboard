@@ -1,6 +1,6 @@
 import { state } from "../state.js";
 import { avatar, esc, fmt } from "../format.js";
-import { legend, lineChart } from "../charts.js";
+import { barGrid, legend, lineChart } from "../charts.js";
 import { windowPhrase } from "../data.js";
 import {
   MAX_OPPONENTS,
@@ -86,27 +86,38 @@ function table(entries, readings) {
   return `<div class="tscroll"><table class="vs">${head}<tbody>${body}</tbody></table></div>`;
 }
 
-/** One ranked-bar block per headline metric — the table's shape, read sideways. */
+/**
+ * One ranked-bar block per headline metric — the table's shape, read sideways.
+ *
+ * Laid out as a grid rather than stacked. Stacked, each block was one list of
+ * three or four rows spanning a 12-column card, which put the login at one edge
+ * and its count at the other; four of those in a row down the page was most of
+ * a screen of mostly empty track. Side by side they're short enough to read as
+ * rows and there are four of them to fill the width with.
+ */
 function bars(entries, readings, picks) {
-  return picks.map(({ title, get, fmtV }) => {
+  return barGrid(picks.map(({ title, get, fmtV }) => {
     const rows = entries.map((e, i) => ({
       label: e.id, value: get(readings[i]) ?? 0, color: e.color,
     })).filter((r) => r.value);
-    if (!rows.length) return "";
     rows.sort((a, b) => b.value - a.value);
-    return `<h3 style="font-size:13px;margin:22px 0 8px">${esc(title)}</h3>` +
+    return {
+      title,
       // Coloured per row rather than per list: the colour is the subject's
       // identity everywhere else on this card, and a chart that recoloured them
       // would be its own separate thing to learn.
-      `<div class="hbars">${rows.map((r, i) => `
-        <div class="hbar">
-          <span class="rk">${i + 1}</span>
-          <span class="lab" title="${esc(r.label)}">${esc(r.label)}</span>
-          <span class="track"><span class="fill" style="width:${
-            (r.value / rows[0].value) * 100}%;background:${r.color}"></span></span>
-          <span class="val">${(fmtV ?? fmt)(r.value)}</span>
-        </div>`).join("")}</div>`;
-  }).join("");
+      html: rows.length
+        ? `<div class="hbars">${rows.map((r, i) => `
+            <div class="hbar">
+              <span class="rk">${i + 1}</span>
+              <span class="lab" title="${esc(r.label)}">${esc(r.label)}</span>
+              <span class="track"><span class="fill" style="width:${
+                (r.value / rows[0].value) * 100}%;background:${r.color}"></span></span>
+              <span class="val">${(fmtV ?? fmt)(r.value)}</span>
+            </div>`).join("")}</div>`
+        : "",
+    };
+  }));
 }
 
 const HEADLINES = {

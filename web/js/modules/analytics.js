@@ -16,6 +16,7 @@ import {
 } from "../format.js";
 import {
   barChart,
+  barGrid,
   grossingBoxes,
   grossingNote,
   hbars,
@@ -228,12 +229,21 @@ export const analyticsModules = {
       const w = W();
       if (!w) return missingIngest();
       const rows = expanded ? w.topRepos : w.topRepos.slice(0, 6);
-      return hbars(rows, {
+      const opened = hbars(rows, {
         label: r => r.repo,
         value: r => r.opened,
         href: r => repoHref(r.repo), internal: true,
-      }) + (expanded ? `<h3 style="font-size:13px;margin:22px 0 8px">Merged share</h3>` +
-        hbars(rows, { label: r => r.repo, value: r => r.merged, color: "var(--good)" }) : "");
+      });
+      // On the card there's one list and it's what the card is; on the tab
+      // there are two of the same shape and they belong beside each other,
+      // which is also the only way a full-width card holds them without
+      // stranding the counts at the far edge.
+      if (!expanded) return opened;
+      return barGrid([
+        { title: "PRs opened", html: opened },
+        { title: "Merged share", html: hbars(rows, {
+            label: r => r.repo, value: r => r.merged, color: "var(--good)" }) },
+      ]);
     },
   },
 

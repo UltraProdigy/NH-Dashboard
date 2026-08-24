@@ -1230,6 +1230,29 @@ on the repo side one person at 70% is a bus factor where three at 25% each
 isn't. The bar alone can't say this — it compares each row against the biggest
 one, not against the whole.
 
+### Ranked lists have a maximum width
+
+An `hbars` row is four parts read left to right — rank, name, track, count — and
+on a 12-column card at desk-monitor width that row was 2,000px long. The name
+sat at one edge, the count at the other, and finding out what somebody scored
+meant tracking the eye across the whole screen past a metre of empty track. It
+looked like a chart and worked like a puzzle.
+
+`.hbars` is capped at 880px, which is roughly where the four parts stop reading
+as one row. That fixes the readability and creates a second problem: a lone
+capped list in a wide card leaves two thirds of it empty.
+
+`barGrid()` is the other half. It takes several titled lists and lays them out
+`repeat(auto-fit, minmax(min(100%, 320px), 1fr))` — three across on a monitor,
+two on a laptop, one on a phone — so the width goes on more lists rather than on
+longer rows. Head to head's four headline metrics, Who files/answers/closes'
+three or four rosters, and Busiest repos' opened-and-merged pair all use it.
+Blocks with nothing in them drop out rather than leaving a titled hole.
+
+Anything already narrower than the cap — a duo box, a bargrid column, a
+four-column overview card — is untouched by it, since it's a ceiling and not a
+width.
+
 Review relationships ("who approves their PRs") are counted over all time. A
 review relationship accumulates slowly, and windowing it mostly produces noise.
 
@@ -1536,9 +1559,11 @@ where leading is meaningless (first seen, median PR size, open counts) highlight
 nothing at all. A tie highlights both cells rather than silently picking whoever
 was added first, and a row where everybody scored zero has no leader.
 
-Below the table, each headline metric gets a ranked bar block, and two overlaid
-monthly line charts show PR and issue volume per subject. Each subject keeps one
-colour across the chips, the table headers, the bars and both charts.
+Below the table, each headline metric gets a ranked bar block — four of them
+laid across the card by `barGrid`, not stacked, for the reason in *Ranked lists
+have a maximum width* — and two overlaid monthly line charts show PR and issue
+volume per subject. Each subject keeps one colour across the chips, the table
+headers, the bars and both charts.
 
 The lineup is held per mode (`state.vs.contributor` / `.repo`), so flipping from a
 contributor to a repo doesn't drag four logins along, and coming back finds the

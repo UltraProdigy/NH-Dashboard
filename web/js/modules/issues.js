@@ -15,6 +15,7 @@ import {
 } from "../format.js";
 import {
   barChart,
+  barGrid,
   hbars,
   kpi,
   legend,
@@ -484,21 +485,24 @@ export const issueModules = {
             })
           : `<div class="empty" style="padding:8px 0">Nothing recorded in this period.</div>`;
 
+      // Side by side rather than one after another. Three ranked lists stacked
+      // down a card this wide is three counts stranded at the right-hand edge
+      // and a lot of empty track; three columns is the same lists at a width
+      // where a row still reads as a row. See barGrid.
+      const blocks = [
+        { title: "Most issues filed", html: list(w.topReporters, "var(--accent)") },
+        { title: "First to reply", html: list(w.topResponders, "var(--purple)") },
+        { title: "Closed the most", html: list(w.topClosers, "var(--good)") },
+      ];
+      if (expanded)
+        blocks.push({ title: "Assigned the most", html: list(w.topAssignees, "var(--warn)") });
+
       return `<div class="kpis" style="margin:-14px -14px 14px">
           ${kpi("Reporters", fmt(w.reporters), `${fmt(w.newReporters)} filing their first`)}
           ${kpi("People answering", fmt(w.responders), `${fmt(w.responses)} first replies`)}
           ${kpi("People closing", fmt(w.closers), `${fmt(w.closedByPR)} closes came from a PR`)}
         </div>` +
-        `<h3 style="font-size:13px;margin:0 0 8px">Most issues filed</h3>` +
-        list(w.topReporters, "var(--accent)") +
-        `<h3 style="font-size:13px;margin:22px 0 8px">First to reply</h3>` +
-        list(w.topResponders, "var(--purple)") +
-        `<h3 style="font-size:13px;margin:22px 0 8px">Closed the most</h3>` +
-        list(w.topClosers, "var(--good)") +
-        (expanded
-          ? `<h3 style="font-size:13px;margin:22px 0 8px">Assigned the most</h3>` +
-            list(w.topAssignees, "var(--warn)")
-          : "") +
+        barGrid(blocks) +
         `<div class="hint" style="margin-top:12px">Credit for a reply goes to whoever spoke first and isn't the reporter or a bot. Closing credit goes to whoever pressed the button, which is often not who wrote the fix — the table below splits those apart.${
           w.unknownCloser
             ? ` ${fmt(w.unknownCloser)} closes in this period record no actor at all; run <code>npm run ingest</code> to backfill them.`

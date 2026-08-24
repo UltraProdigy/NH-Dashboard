@@ -36,7 +36,28 @@ svg.chart .grid-line { stroke: var(--border); stroke-width: 1; }
 svg.chart .axis { fill: var(--muted); font-size: 10px; }
 svg.chart .hoverzone:hover { fill: color-mix(in srgb, var(--text) 7%, transparent); }
 
-.hbars { display: flex; flex-direction: column; gap: 7px; }
+/* Capped, because a ranked row is read left to right and there is a width past
+   which that stops working. On a 12-column card at 2,000px the old row put the
+   rank at one edge and the count at the other with a metre of bar between them,
+   and finding out what "Dream-Master" scored meant tracking across the whole
+   screen. 880px is about where the four parts still read as one row. Anything
+   already narrower than that — a duo box, a bargrid column — is unaffected,
+   since this is a ceiling rather than a width. */
+.hbars { display: flex; flex-direction: column; gap: 7px; max-width: 880px; }
+
+/* Several ranked lists across the width instead of one after another.
+   Two or three columns of short rows use a wide card properly, where one
+   column of capped rows would leave most of it empty. auto-fit rather than a
+   fixed count so the same markup is three across on a monitor, two on a
+   laptop and one on a phone; `min(100%, 320px)` is what stops the track
+   collapsing below readable on the narrowest of those. */
+.bargrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 2px 30px;
+}
+.bargrid > section { min-width: 0; }
+.bargrid > section > h3 { font-size: 13px; font-weight: 600; margin: 20px 0 8px; }
 /* Four tracks: rank, name, bar, value. Every one of these lists ranks by a
    single metric, so the row's position *is* information — "who is fourth"
    shouldn't require counting down from the top with a finger. */

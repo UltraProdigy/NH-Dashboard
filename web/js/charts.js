@@ -182,6 +182,23 @@ function hbars(rows, { label, value, color = "var(--accent)", href = null, inter
 }
 
 /**
+ * Several titled ranked lists laid across the width of a card.
+ *
+ * The alternative was stacking them, which on a full-width card meant every row
+ * spanning the whole screen with its count stranded at the far edge — see the
+ * cap on `.hbars`. Capped and stacked would have read fine and left two thirds
+ * of the card empty; two or three columns of capped lists reads fine and uses
+ * the space. Blocks with nothing in them drop out rather than leaving a titled
+ * hole in the grid.
+ */
+function barGrid(blocks) {
+  const live = blocks.filter(b => b.html);
+  if (!live.length) return "";
+  return `<div class="bargrid">${live.map(b =>
+    `<section><h3>${esc(b.title)}</h3>${b.html}</section>`).join("")}</div>`;
+}
+
+/**
  * A ranked list of PRs — "most grossing", and anything else where the row is a
  * pull request rather than a name.
  *
@@ -249,4 +266,4 @@ function kpi(k, v, d = "", cls = "") {
   return `<div class="kpi"><div class="k">${esc(k)}</div><div class="v ${cls}">${v}</div><div class="d">${d}</div></div>`;
 }
 
-export { barChart, grossingBoxes, grossingNote, hbars, kpi, legend, lineChart, trio };
+export { barChart, barGrid, grossingBoxes, grossingNote, hbars, kpi, legend, lineChart, trio };
