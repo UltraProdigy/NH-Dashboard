@@ -1630,6 +1630,23 @@ have a maximum width* — and two overlaid monthly line charts show PR and issue
 volume per subject. Each subject keeps one colour across the chips, the table
 headers, the bars and both charts.
 
+**The picker's popup lives inside the card**, unlike the Dream Panel's, which
+sit in a layer at the end of `<body>`. It has to: it belongs to an input that
+must keep the caret while you type, and moving it out would mean rebuilding the
+input on every keystroke. The cost is that a card is `overflow: hidden` so its
+table can have rounded corners, and the list was being sliced off at the card's
+bottom edge — on the overview, where the card can be nothing but a chip row,
+that meant most of it.
+
+So the card makes room while the picker is open, via `:has()` on the popup's own
+`hidden` attribute. The list is absolutely positioned, so the reserved height is
+empty space below the chips rather than a shove: nothing under it moves, the
+card is just taller for as long as you're picking. Two heights for two list
+lengths — the tab offers forty rows and scrolls at 320px, the overview card
+offers three and says "keep typing" underneath them, because a card that grew by
+320px every time you clicked into the box would push the rest of the grid down
+the page.
+
 The lineup is held per mode (`state.vs.contributor` / `.repo`), so flipping from a
 contributor to a repo doesn't drag four logins along, and coming back finds the
 lineup you left. It isn't in the hash: a five-subject comparison is a thing you

@@ -253,17 +253,32 @@ function overlay(entries, { issues = false, field }) {
  * column to one card. Sharing the widget would have meant one input with two
  * meanings depending on where the caret was.
  */
+/**
+ * How many rows the popup offers, which depends on where the card is.
+ *
+ * The popup is drawn inside the card, and a card is `overflow: hidden` so its
+ * table can have rounded corners — so the card has to be tall enough to hold
+ * the list rather than the list being free to overhang. On the tab there's a
+ * whole page to spend and forty is a real search. On the overview the card is
+ * one of eleven, and a card that grew to 320px every time you clicked into the
+ * box would shove the rest of the grid down the page. Three rows keeps it close
+ * to the height it already had, and typing two letters narrows a thousand
+ * contributors to fewer than three anyway.
+ */
+const VS_LIMIT = () => (state.tab === null ? 3 : 40);
+
 function vsOptions() {
   const q = state.vs.q.trim().toLowerCase();
   const chosen = new Set([state.subject, ...opponents()]);
   const list = (state.drill?.index?.[drillKey()] ?? []).filter((o) => !chosen.has(o.id));
-  if (!q) return list.slice(0, 40);
+  const n = VS_LIMIT();
+  if (!q) return list.slice(0, n);
   const hits = [];
   for (const r of list) {
     const i = r.id.toLowerCase().indexOf(q);
     if (i !== -1) hits.push({ ...r, i });
   }
-  return hits.sort((a, b) => (a.i === 0 ? 0 : 1) - (b.i === 0 ? 0 : 1)).slice(0, 40);
+  return hits.sort((a, b) => (a.i === 0 ? 0 : 1) - (b.i === 0 ? 0 : 1)).slice(0, n);
 }
 
 function vsPopHtml() {
@@ -273,7 +288,12 @@ function vsPopHtml() {
     return `<div class="combo-none">No other ${what} matching “${esc(state.vs.q)}”.</div>`;
 
   const q = state.vs.q.trim().toLowerCase();
-  return opts.map((o, i) => {
+  // Only on the overview, where the list is three rows long and a full one is
+  // far more likely to be hiding somebody than to be the whole answer.
+  const more = state.tab === null && opts.length === VS_LIMIT()
+    ? `<div class="combo-none">Keep typing to narrow this, or open the tab for the full list.</div>`
+    : "";
+  return more + opts.map((o, i) => {
     const at = q ? o.id.toLowerCase().indexOf(q) : -1;
     const name = at === -1 ? esc(o.id)
       : esc(o.id.slice(0, at)) + `<mark>${esc(o.id.slice(at, at + q.length))}</mark>` +

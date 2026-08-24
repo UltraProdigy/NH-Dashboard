@@ -169,6 +169,25 @@
 .vs-x:hover { color: var(--bad); }
 .vs-add input { min-width: 200px; }
 
+/* Room for the picker's popup.
+   ---------------------------------------------------------------------------
+   This one is drawn inside the card rather than in the layer at the end of
+   <body> the Dream Panel's popups use, because it belongs to an input that has
+   to keep the caret — and a card is `overflow: hidden` so its table can have
+   rounded corners. So the list was being sliced off at the card's bottom edge,
+   which on a card holding nothing but a chip row meant most of it.
+
+   The card makes room instead, while the popup is open and not otherwise. The
+   list is absolutely positioned, so this reserves empty space below the chips
+   rather than moving anything: the table and charts under it stay where they
+   were, and the card simply gets taller for as long as you're picking.
+
+   Two heights, because the list itself has two lengths — see VS_LIMIT. On the
+   card it offers three rows and needs very little; on its own tab it offers
+   forty and scrolls at 320. */
+.card .body:has(> .vs-chips .combo-pop:not([hidden])) { min-height: 400px; }
+.grid .card .body:has(> .vs-chips .combo-pop:not([hidden])) { min-height: 210px; }
+
 /* A comparison table is read across, not down, so the row label has to stay put
    while the eye moves along it — hence the sticky first column rather than the
    usual free-scrolling table. */
