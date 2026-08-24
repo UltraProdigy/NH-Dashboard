@@ -1115,6 +1115,15 @@ because they're the shapes the frontend has to unpack:
   labels, which the payload states once at the top as `backlogBuckets`. Both the
   PR and issue backlogs work this way now, so both are read through the
   `backlogOf` / `issueBacklogOf` accessors rather than reached into directly.
+- **Labels are interned.** Every row that can carry them — resolved PRs, open
+  PRs, the review queue, the assignment log, filed issues, closed issues, both
+  backlogs — holds indexes into `labelNames` at the head of the payload rather
+  than the strings. There are a few hundred distinct labels in the org and tens
+  of thousands of rows to put them on, so `[3,17]` against `"Mod: GT"` written
+  out each time is the difference between half a megabyte and several. A row
+  with no labels is `null`. One table serves both stores: a PR label and an
+  issue label with the same name are the same string, and two tables would mean
+  the frontend having to know which store a row came from.
 - **Slim records.** The 3,900 people whose entire footprint is one or two bug
   reports get name, dates, packed windows and their filed rows — no ranked maps,
   no partner lists, no series. They still get a page, because a ranked list that
@@ -1439,7 +1448,7 @@ they have hundreds of PRs. The frontend expands them on first use like the
 series, destructuring positionally against `RESOLVED_FIELDS`:
 
 ```
-[repo, number, at, merged, additions, deletions, commits, comments, title, ageDays]
+[repo, number, at, merged, additions, deletions, commits, comments, title, ageDays, labels]
 ```
 
 Timestamps are stored as plain dates. The list sorts by recency and renders

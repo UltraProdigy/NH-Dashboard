@@ -34,6 +34,11 @@
  *
  * 19 MB is 3.4 MB gzipped, on a file two of six pages fetch once per session.
  *
+ * Labels are the same economy applied a fifth time: every row that carries them
+ * carries indexes into one table at the head of the payload rather than the
+ * names, which is what makes putting them on tens of thousands of rows cost half
+ * a megabyte rather than several. See `packLabels`.
+ *
  * Contributor repo breakdowns are still per-window like everything else; the
  * earlier two-window compromise existed to bound exactly the cost that turned
  * out not to matter.
@@ -253,7 +258,7 @@ function summarize(a) {
  */
 export const RESOLVED_FIELDS =
   ["repo", "number", "at", "merged", "additions", "deletions", "commits",
-   "comments", "title", "ageDays"];
+   "comments", "title", "ageDays", "labels"];
 
 const orNull = (v) => (typeof v === "number" ? v : null);
 
@@ -279,6 +284,10 @@ function packResolved(list) {
         // old they are. Open rows have carried ageDays since the backlog
         // existed; this is the resolved half catching up.
         r.ageDays,
+        // Indexes into the payload's label table, or null. Null also covers
+        // "this record predates the ingest asking for labels", which is every
+        // record until the backfill has run — see prFieldCoverage.labels.
+        r.labels ?? null,
       ];
     });
   return { repos, rows };
@@ -486,10 +495,11 @@ const packWindow = (kind, s) =>
   );
 
 export const FILED_FIELDS =
-  ["repo", "number", "at", "open", "outcome", "comments", "waitDays", "title"];
+  ["repo", "number", "at", "open", "outcome", "comments", "waitDays", "title",
+   "labels"];
 
 export const CLOSED_FIELDS =
-  ["repo", "number", "at", "outcome", "viaPR", "own", "title"];
+  ["repo", "number", "at", "outcome", "viaPR", "own", "title", "labels"];
 
 /**
  * A person's review queue: PRs somebody is waiting on them for.
@@ -505,7 +515,8 @@ export const CLOSED_FIELDS =
  * isn't ongoing, it's history, and history is what the Pull requests card is.
  */
 export const REVIEW_FIELDS =
-  ["repo", "number", "at", "author", "ageDays", "staleDays", "state", "draft", "title"];
+  ["repo", "number", "at", "author", "ageDays", "staleDays", "state", "draft",
+   "title", "labels"];
 
 /** Review verdicts, as the index the packed rows carry. */
 export const REVIEW_STATES =
@@ -521,7 +532,8 @@ export const REVIEW_STATES =
  * the top.
  */
 export const ASSIGNED_FIELDS =
-  ["repo", "number", "at", "outcome", "author", "ageDays", "staleDays", "draft", "title"];
+  ["repo", "number", "at", "outcome", "author", "ageDays", "staleDays", "draft",
+   "title", "labels"];
 
 /** How an assigned PR ended, as the index the packed rows carry. */
 export const PR_OUTCOMES = ["open", "merged", "closed"];
@@ -620,6 +632,31 @@ export async function drilldown() {
     to: Infinity,
   }));
   const inWindow = (from, ts) => ts != null && new Date(ts).getTime() >= from;
+
+  /* ---- labels, interned ----------------------------------------------------
+     Every row that can carry labels carries indexes into one table at the head
+     of the payload instead of the names themselves. There are a few hundred
+     distinct labels in the org and tens of thousands of rows to put them on, so
+     writing `"Mod: GT"` out each time would be most of the cost of the feature;
+     `[3,17]` is six bytes and a row with none is `null`.
+
+     One table for both stores. A PR label and an issue label with the same name
+     are the same string as far as this is concerned, and keeping two tables
+     would mean the frontend having to know which one a row came from. */
+  const labelNames = [];
+  const labelIx = new Map();
+  const packLabels = (names) => {
+    if (!names?.length) return null;
+    return names.map((n) => {
+      let i = labelIx.get(n);
+      if (i === undefined) {
+        i = labelNames.length;
+        labelIx.set(n, i);
+        labelNames.push(n);
+      }
+      return i;
+    });
+  };
 
   const contributors = new Map();
   const repos = new Map();
@@ -799,6 +836,7 @@ export async function drilldown() {
         commits: pr.commits,
         comments: pr.comments,
         ageDays,
+        labels: packLabels(pr.labels),
       });
     }
 
@@ -820,6 +858,7 @@ export async function drilldown() {
         // "not a draft" and "we don't know yet" have to render differently or
         // the column quietly lies until the backfill runs.
         draft: pr.isDraft ?? null,
+        labels: packLabels(pr.labels),
       };
       repo.open.push({ ...entry, author: pr.author });
       if (author) author.open.push({ ...entry, repo: pr.repo });
@@ -837,6 +876,7 @@ export async function drilldown() {
         staleDays,
         draft: pr.isDraft == null ? null : pr.isDraft ? 1 : 0,
         title: pr.title ?? "",
+        labels: packLabels(pr.labels),
       };
 
       for (const login of pr.reviewRequests ?? []) {
@@ -876,6 +916,7 @@ export async function drilldown() {
         // does on the Pull requests card rather than falling back to "unknown".
         draft: pr.isDraft == null ? null : pr.isDraft ? 1 : 0,
         title: pr.title ?? "",
+        labels: packLabels(pr.labels),
       });
     }
   }
@@ -966,6 +1007,11 @@ export async function drilldown() {
       assigned: (i.assignees ?? []).length > 0,
       comments: i.comments ?? 0,
       stale: (staleDays ?? 0) >= ISSUE_STALE_DAYS,
+      // Interned, like every other label list in this file. These used to be
+      // written out as names on the repo's copy and left off the contributor's
+      // altogether, which meant the same open issue had labels on one page and
+      // not on the other.
+      labels: packLabels(labels),
     };
 
     /* ---- the tracker ---- */
@@ -997,7 +1043,7 @@ export async function drilldown() {
     }
 
     if (open) {
-      repo._iopen.push({ ...openEntry, author: authorIsBot ? null : i.author, labels });
+      repo._iopen.push({ ...openEntry, author: authorIsBot ? null : i.author });
     }
 
     /* ---- the people ---- */
@@ -1034,6 +1080,7 @@ export async function drilldown() {
           comments: i.comments ?? 0,
           waitDays: responseHours == null ? null : Math.round(responseHours / 24),
           title: i.title ?? "",
+          labels: packLabels(labels),
         });
         if (open) s._iopen.push({ ...openEntry, repo: i.repo });
       }
@@ -1061,6 +1108,7 @@ export async function drilldown() {
           viaPR: fixed ? 1 : 0,
           own: mine ? 1 : 0,
           title: i.title ?? "",
+          labels: packLabels(labels),
         });
       }
 
@@ -1383,9 +1431,10 @@ export async function drilldown() {
       .sort((a, b) => b.n + b.i - (a.n + a.i)),
   };
 
-  let openTotal = 0, reviewRequestsKnown = 0, assigneesKnown = 0;
+  let openTotal = 0, reviewRequestsKnown = 0, assigneesKnown = 0, labelsKnown = 0;
   for (const pr of prs) {
     if (pr.assignees !== undefined) assigneesKnown++;
+    if (pr.labels !== undefined) labelsKnown++;
     if (pr.state !== "OPEN" || pr.mergedAt) continue;
     openTotal++;
     if (pr.reviewRequests !== undefined) reviewRequestsKnown++;
@@ -1400,6 +1449,9 @@ export async function drilldown() {
     // The issue backlogs carry bucket counts only; the labels live here once
     // rather than on every subject.
     backlogBuckets: BACKLOG_BUCKETS.map((b) => b.label),
+    // Every label either store has ever put on a row, stated once. Rows carry
+    // indexes into this — see packLabels.
+    labelNames,
     filedFields: FILED_FIELDS,
     closedFields: CLOSED_FIELDS,
     issueOutcomes: ISSUE_OUTCOMES,
@@ -1422,6 +1474,9 @@ export async function drilldown() {
       reviewRequests: reviewRequestsKnown,
       total: prs.length,
       assignees: assigneesKnown,
+      // Zero until the label backfill has run, which is the difference between
+      // "this PR has no labels" and "we have never asked what its labels are".
+      labels: labelsKnown,
     },
     // False when the issue store is missing entirely, which is a different
     // message from "this subject has no issue activity" and gets a different one.
