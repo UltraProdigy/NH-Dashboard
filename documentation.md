@@ -56,6 +56,11 @@ development needs one of the three options above rather than reusing the secret.
 
 ## Panels
 
+Every figure any of these produce is defined in [Calculations.md](Calculations.md)
+— what is counted, what it is divided by, what is left out, and what renders when
+the sample is empty. Go there first when a number looks wrong; the definition is
+the answer more often than the code is.
+
 | Panel | Cost | How it works |
 |---|---|---|
 | Approved, not merged | 1 search | `review:approved` is *current* state, so anything since un-approved drops out automatically |
