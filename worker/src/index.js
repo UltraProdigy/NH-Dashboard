@@ -12,6 +12,7 @@
  */
 
 import { handleEvent } from "./handlers.js";
+import { probe } from "./probe.js";
 import { recompute } from "./recompute.js";
 
 /**
@@ -214,6 +215,12 @@ export default {
       if (request.method !== "POST") return json({ error: "POST only" }, 405);
       const force = url.searchParams.get("force") === "1";
       return json(await recompute(env, { force }));
+    }
+
+    // TEMPORARY, with probe.js. Delete both once the recompute time is settled.
+    if (url.pathname === "/api/probe") {
+      if (request.method !== "POST") return json({ error: "POST only" }, 405);
+      return json(await probe(env));
     }
 
     return json({ error: "not found" }, 404);
