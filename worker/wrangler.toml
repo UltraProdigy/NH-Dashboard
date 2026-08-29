@@ -12,6 +12,14 @@ database_id = "ed20adc3-f434-4f0a-8832-80862af30201"
 [observability]
 enabled = true
 
+# The recompute. Ten minutes is a debounce, not a poll: the job returns
+# immediately when `dirty` is 0, so a quiet stretch costs one read per tick.
+#
+# Keep the interval under an hour. A cron trigger at or above hourly gets a
+# different CPU ceiling than one below it, and nothing here needs the trade.
+[triggers]
+crons = ["*/10 * * * *"]
+
 # Secrets are set with `wrangler secret put`, never written here:
 #
 #   GITHUB_WEBHOOK_SECRET   the value also pasted into the App's webhook config

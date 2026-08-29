@@ -209,3 +209,20 @@ CREATE TABLE IF NOT EXISTS meta (
 
 INSERT OR IGNORE INTO meta (key, value) VALUES ('version', '0');
 INSERT OR IGNORE INTO meta (key, value) VALUES ('dirty', '0');
+
+-- One row per panel, holding its rendered JSON.
+--
+-- A blob rather than materialised rows, and that is a write-cost decision. The
+-- contributors panel is 1,214 people; writing them as rows would be ~1,200
+-- writes plus indexes on every recompute, and a recompute every half hour is
+-- then the entire daily free budget spent on one panel. As a blob it is one
+-- write. D1 caps a row at 2 MB, which the largest panel here (720 KB) sits
+-- comfortably under — but that is the ceiling to watch, and `drilldown` at
+-- 23 MB cannot use this table at all. It gets its own materialised tables,
+-- which is why those already exist above.
+CREATE TABLE IF NOT EXISTS panel_cache (
+  name              TEXT PRIMARY KEY,
+  json              TEXT NOT NULL,
+  computed_at       TEXT NOT NULL,
+  ms                INTEGER
+);

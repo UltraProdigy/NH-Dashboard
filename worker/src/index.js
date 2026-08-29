@@ -12,6 +12,7 @@
  */
 
 import { handleEvent } from "./handlers.js";
+import { recompute } from "./recompute.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
@@ -140,6 +141,28 @@ async function handleHealth(env) {
   return json({ ok: true, counts });
 }
 
+/**
+ * Serve a cached panel.
+ *
+ * Straight blob read, no assembly — the recompute already paid that cost, once,
+ * rather than once per viewer. That is the point of the cache table, and it
+ * holds regardless of plan: rebuilding a 720 KB panel on every page load would
+ * be the same work repeated for an answer that changes every ten minutes.
+ */
+async function handlePanel(env, name) {
+  const row = await env.DB.prepare(
+    "SELECT json, computed_at FROM panel_cache WHERE name = ?",
+  )
+    .bind(name)
+    .first();
+
+  if (!row) return json({ error: "no such panel, or never computed" }, 404);
+
+  return new Response(row.json, {
+    headers: { ...JSON_HEADERS, "x-computed-at": row.computed_at },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -152,6 +175,25 @@ export default {
     if (url.pathname === "/api/version") return handleVersion(env);
     if (url.pathname === "/api/health") return handleHealth(env);
 
+    const panel = url.pathname.match(/^\/api\/panel\/([a-z][a-z0-9]*)$/i);
+    if (panel) return handlePanel(env, panel[1]);
+
+    // Manual trigger, for checking a rebuild without waiting for the cron. It
+    // only rebuilds and cannot destroy anything, so it is unauthenticated on
+    // purpose — but it is the one route that costs real work per call, so it
+    // requires POST to keep crawlers and link previews off it.
+    if (url.pathname === "/api/recompute") {
+      if (request.method !== "POST") return json({ error: "POST only" }, 405);
+      const force = url.searchParams.get("force") === "1";
+      return json(await recompute(env, { force }));
+    }
+
     return json({ error: "not found" }, 404);
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      recompute(env).then((r) => console.log(JSON.stringify({ cron: r }))),
+    );
   },
 };
