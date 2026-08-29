@@ -393,6 +393,11 @@ that sets `reviewsTruncated`, the contributors panel counts how many records
 carry it, and the build prints a warning. Approval counts on those PRs are
 slightly under.
 
+**Deleted accounts are dropped.** A review whose author is null — the account
+was deleted since — cannot be attributed to a reviewer, so it counts toward no
+one and is excluded from the total rather than grouped under a null reviewer.
+Two approvals are in this state today, and 31 reviews overall.
+
 ### Labels
 
 The GraphQL issue walk fetches `LABEL_SAMPLE = 15` labels per issue and sets
