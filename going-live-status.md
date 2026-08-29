@@ -213,6 +213,47 @@ and `npm run test:parity` diffs the output field by field against the
 `dashboard.json` the Node panel produced from the same seed. 1,214 contributors,
 every count matching in all seven windows.
 
+**`analytics` is done too, and it was the hard one.** 484 lines of accumulators
+became 43 queries: 25 parity assertions pass against the seed, and the cached
+blob is 281 KB. The four things that took the time are worth carrying:
+
+- **`strftime` returns TEXT, and SQLite orders TEXT above every number.** An
+  uncast `strftime('%s', col) >= ?` is not imprecise, it is *constant* — `>=` a
+  bound always true, `<` always false. Every windowed count came back as either
+  the whole table or zero, and every query looked correct. `epochSql` casts;
+  nothing else may compare a timestamp to a bound.
+- **±Infinity cannot cross the D1 wire.** Parameters are serialised as JSON and
+  `Infinity` becomes `null`, which would turn every comparison NULL. All-time
+  binds a finite sentinel instead.
+- **The bot rule now exists in two languages.** SQLite has no regex, so
+  `BOT_PATTERN` and `isBotSql` are both generated from one list of prefixes and
+  the parity test runs both over all 6,525 logins in the seed.
+- **ISO weeks are not `strftime('%Y-%W')`.** The parity test runs `weekKey`
+  against its SQL twin on every day from 2005 to 2035 rather than sampling,
+  because the only days they could differ on are the thirty year boundaries.
+
+The panel is registered in `recompute.js` and in `LIVE_PANELS`, so the frontend
+should read "2 panels live" once a recompute has run.
+
+**Rebuilding it locally takes 2.6 seconds against a cold `node:sqlite` replica**
+— against 189ms for `contributors`. Most of that is one query: the first-review
+grouping, run once per period, and 13 periods over 41,000 reviews. Warm, the
+same query is 20ms, so the local figure is mostly the seed being paged in and
+the real number is whatever the first production recompute reports. It is worth
+looking at: if D1 says seconds rather than hundreds of milliseconds, the fix is
+to stop recomputing first reviews per period, and the shape that avoids it is a
+running `SUM(…) OVER (ORDER BY hours)` per period over one materialised set —
+more complex than what is there now, which is why it was not written first.
+
+**Top-N lists now break ties on the key.** `topRepos`, `topAuthors` and
+`topReviewers` sorted on count alone, so tied entries came out in store order
+and reshuffled between builds — the same latent bug the Leaderboard had. Once a
+panel exists in two languages that stops being cosmetic: store order is not
+something SQL can reproduce, so the two would have disagreed by construction.
+Both sides now sort by count then key. Rebuilding the Node panel against the
+same store differs from the shipped `dashboard.json` in exactly two leaves, one
+tied pair swapping places, which is the whole of the behaviour change.
+
 **D1 rejects a compound SELECT with more than a few arms.** A six-arm `UNION`
 building the active-day set failed on the first real recompute with "too many
 terms in compound SELECT", having passed every local test — `node:sqlite`
@@ -245,16 +286,17 @@ drilldown adds 26,513 issues. Paid lifts CPU, not memory. So the panels are
 reimplemented in SQL rather than moved, and the parity test is what makes that
 survivable.
 
-Still to port: `analytics`, `issues`, `issueMetrics`, `activeDays`, `drilldown`.
-Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
+Still to port: `issues`, `issueMetrics`, `activeDays`, `drilldown`. Staying in
+the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
 `pullRequests` — each needs a live GitHub call, so no amount of D1 helps. That
 split is the end state, not a migration half-finished.
 
 **The frontend reads live panels already.** `web/js/live.js` loads
 `data/dashboard.json` as before, then overlays the ported panels from the Worker
-and re-overlays when `/api/version` moves. Confirmed in a browser: the header
-reads "1 panel live", both API calls return 200, contributor numbers come from
-D1.
+and re-overlays when `/api/version` moves. Confirmed in a browser at one panel:
+the header read "1 panel live", both API calls returned 200, contributor numbers
+came from D1. `analytics` has been added to `LIVE_PANELS` but has not yet been
+seen in a browser — that needs a deploy and a recompute first.
 
 The static file stays the floor rather than being replaced, and that is the
 design, not a stepping stone. A Worker that is down, blocked or slow costs

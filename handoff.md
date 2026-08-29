@@ -4,18 +4,36 @@ Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Written 2026-08-29, end of the session that took the Worker live.
+Written 2026-08-29, end of the session that ported `analytics`.
 
 ---
 
 ## The one-paragraph version
 
 The ingest pipeline is live and unattended. GitHub events reach a Cloudflare
-Worker, land in D1, and a cron rebuilds cached panels every ten minutes. One
-panel — `contributors` — is ported to SQL, proven identical to the old
-JavaScript, and rendering live in the browser. Five panels remain. The next one,
-`analytics`, is the hardest in the set and was deliberately not started at the
-tail of a long session.
+Worker, land in D1, and a cron rebuilds cached panels every ten minutes. Two
+panels — `contributors` and `analytics` — are ported to SQL, proven identical to
+the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one
+and it has not been deployed yet: the code is done and tested, the first real
+recompute is not. Four panels remain, and the next, `issues`, is ordinary work
+by comparison.
+
+## Do this first
+
+Nothing has been deployed since `analytics` landed. Until it is, `LIVE_PANELS`
+names a panel the Worker will not serve, and the frontend will quietly fall back
+to the built file for it — which is the designed behaviour, not a bug, but it
+means the port is unverified in production.
+
+```
+cd worker && npx wrangler deploy
+curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
+```
+
+Read the `built.analytics.ms` in the response. Locally it is 2.6s against a cold
+SQLite replica; if D1 says something in the same range rather than hundreds of
+milliseconds, see "the one thing that might need fixing" below. Then open the
+dashboard and confirm the header reads "2 panels live".
 
 ## Live infrastructure
 
@@ -36,81 +54,88 @@ issues. `traffic_daily` is still 0 — the deferred half of the seed split.
 
 ## What was built this session
 
-- The Worker deployed, webhook configured, eight events subscribed, deliveries
-  confirmed writing to D1 (`meta.dirty` flipped to 1)
-- `src/shared/contributor-rules.js` — `WINDOWS`, `BOT_PATTERN`, `isBot`, and the
-  leaderboard comparator, dependency-free so Node and the Worker share one copy
-- `worker/src/panels/contributors.js` — the panel as three D1 queries
-- `worker/src/recompute.js` + `panel_cache` — panels cached as one JSON blob
-  each, rebuilt on a debounced cron
-- `web/js/live.js` — the frontend overlays live panels over the built file and
-  polls `/api/version`
+- `src/shared/analytics-rules.js` — the percentile, the week/month/day keys, the
+  backlog buckets and the top-N comparator, each with its SQL twin generated
+  from the same constants. Dependency-free so Node and the Worker share one copy
+- `isBotSql` in `src/shared/contributor-rules.js`, generated from the same
+  prefix list as `BOT_PATTERN`, because SQLite has no regex
+- `worker/src/panels/analytics.js` — the panel as 43 D1 queries
+- `worker/test/analytics.parity.test.js` — 25 assertions, all passing
+- Top-N ties now break on the key, in both implementations
+- `analytics` registered in `recompute.js` and `LIVE_PANELS`
 
-Twelve commits, all local and unpushed. Nothing has been pushed at any point.
+Thirteen commits this session, none pushed. Nothing has been pushed at any point.
 
-## Next task: port `analytics`
+## Next task: port `issues`
 
-`src/panels/analytics.js`, 484 lines, 281 KB of output. Follow the pattern in
-`worker/src/panels/contributors.js` and write the parity test first.
+`src/panels/issues.js`. Follow the pattern in `worker/src/panels/analytics.js`
+and write the parity test first — `analytics.parity.test.js` is the closer model
+of the two, since it deals with buckets and windows rather than one flat table.
 
-What makes it the hard one:
-
-- **Percentiles per time bucket.** `mergeMedianH`, `mergeP90H`,
-  `reviewMedianH`. SQLite has no percentile function. The route is
-  `ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY hours)` against
-  `COUNT(*) OVER (PARTITION BY bucket)`, picking the row matching the existing
-  `pct()` — index `floor(p/100 * len)`, zero-based, so `rn = index + 1`
-- **Week keys.** `weekKey()` is ISO-week arithmetic via the nearest Thursday.
-  `strftime('%Y-%W')` is *not* the same thing and will disagree at year
-  boundaries
-- **First PR ever.** Ties on `createdAt` break on `repo#number`, deliberately —
-  GitHub stamps to the second and the issue side once reported more first-time
-  reporters than reporters
-- **`firstReviewAt`** excludes bots *and* the PR's own author
-- **The heatmap** is weekday × hour, UTC, over the last year
-- **Previous-period accumulators** — every dated window has an equal-length
-  period before it for the deltas. All-time has none
-
-`grossingLists` and `hasEngagement` come from `src/panels/grossing.js`, which
-reads no store and may port straight across.
-
-After `analytics`: `issues`, `issueMetrics`, `activeDays`, then `drilldown`.
-`drilldown` is 23 MB and cannot use `panel_cache` — a D1 row caps at 2 MB. It
-gets `drilldown_contributors` and `drilldown_repos`, which already exist in the
-schema for exactly this reason.
+After `issues`: `issueMetrics`, `activeDays`, then `drilldown`. `drilldown` is
+23 MB and cannot use `panel_cache` — a D1 row caps at 2 MB. It gets
+`drilldown_contributors` and `drilldown_repos`, which already exist in the schema
+for exactly this reason.
 
 Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
 `pullRequests`. Each needs a live GitHub call, so D1 cannot answer for them.
 That split is the end state, not a migration half-done.
 
-## Four things that will bite again
+## The one thing that might need fixing
+
+`analytics` rebuilds in 2.6s locally against `contributors`' 189ms, and one
+query is most of it: the first-review grouping, run once per period, thirteen
+periods over 41,000 reviews. Warm, that same query is 20ms — so the local figure
+is largely the seed paging in, and the production number is the one that
+decides whether this matters.
+
+If it does matter, the fix is to stop recomputing first reviews per period.
+Materialise the `(created_at, hours)` pairs once, then rank within each period
+using a running `SUM(CASE WHEN in_period THEN 1 ELSE 0 END) OVER (ORDER BY
+hours)` — thirteen such columns in one query, with the percentile picked where
+the running count equals `pctRankSql`. It works, and it was deliberately not
+written first: it is materially harder to read than what is there, and the rule
+on this project is that clever SQL which passes locally is exactly what fails on
+D1.
+
+## Five things that will bite again
+
+**`strftime` returns TEXT, and SQLite orders every TEXT value above every
+number.** An uncast `strftime('%s', col) >= ?` is not approximately right, it is
+constant — `>=` a bound is always true and `<` always false. Every windowed
+count in the first run of `analytics` came back as the whole table or as zero,
+and not one query looked wrong. `epochSql` casts. Nothing may compare a
+timestamp against a bound without it.
+
+**±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
+`Infinity` becomes `null`, which makes every comparison NULL. All-time binds a
+finite sentinel.
 
 **A local SQLite replica proves logic, not dialect.** `node:sqlite` and D1 are
 different builds. A six-arm `UNION` passed every local test and failed on the
 first real recompute — D1 caps compound SELECT terms far below SQLite's default
-of 500. The parity test now counts UNION arms, but the general lesson stands:
-the first real recompute is part of the test, not a formality after it.
+of 500, and a multi-row `VALUES` is a compound SELECT too, which is why the
+thirteen periods are columns and parameters rather than a joined period table.
+The parity test counts UNION arms; the general lesson stands.
 
-**Write the parity test before trusting the port.** It is the whole reason the
-`contributors` port is believable. It caught a hardcoded `truncated: 0` that
-would have silently switched off the frontend's "approval counts are a floor"
-warning. Two implementations of the same numbers drift invisibly — a wrong
-leaderboard looks exactly like a right one.
+**Write the parity test before trusting the port.** It is the whole reason both
+ports are believable. On `contributors` it caught a hardcoded `truncated: 0`; on
+`analytics` it caught the TEXT comparison above, which four other kinds of
+checking had not. Two implementations of the same numbers drift invisibly — a
+median merge time of 3.5 hours and one of 4.1 look equally like a working
+dashboard.
 
 **Reusing the Node panels in the Worker does not fit.** Measured: 96 MB of heap
 to rebuild the PR store, against a 128 MB ceiling, before any accumulator and
 before issues. Paid lifted CPU, not memory.
 
-**Cache panels as blobs, not rows.** Materialising 1,214 contributor rows per
-recompute would make write cost scale with the data rather than the panel count.
-One blob is one write. The 2 MB row cap is the ceiling to watch.
-
 ## Commands
 
 ```
 npm run test:handlers     # 31 assertions, webhook handlers
-npm run test:parity       # SQL vs JS, needs worker/seed.sql + data/dashboard.json
-node --experimental-sqlite worker/test/recompute.test.js
+npm run test:recompute    # 17 assertions, the cron's contract
+npm run test:parity       # both panels, SQL vs JS
+npm run test:parity:analytics
 
 cd worker && npx wrangler deploy
 npx wrangler tail                                    # live delivery log
@@ -118,8 +143,8 @@ curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
 npx wrangler d1 execute nh-dashboard --remote --command "SELECT key, value FROM meta"
 ```
 
-Both test suites build their own SQLite replica from `schema.sql` + `seed.sql`
-and skip politely when those are absent, which they are in CI. Neither is
+Every suite builds its own SQLite replica from `schema.sql` + `seed.sql` and
+skips politely when those are absent, which they are in CI. Neither is
 committed.
 
 Deploys must run from a machine logged in to Cloudflare — the credentials are
@@ -146,6 +171,7 @@ Detailed in `going-live-status.md`.
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md` in the repo, then port the
-> `analytics` panel to D1 following the pattern in
-> `worker/src/panels/contributors.js`. Write the parity test first.
+> Read `handoff.md` and `going-live-status.md` in the repo. Deploy the worker and
+> force a recompute first — `analytics` is ported but has never run against D1.
+> Then port the `issues` panel, following `worker/src/panels/analytics.js` and
+> writing the parity test first.
