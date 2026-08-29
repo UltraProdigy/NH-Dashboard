@@ -14,7 +14,31 @@
 import { handleEvent } from "./handlers.js";
 import { recompute } from "./recompute.js";
 
-const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+/**
+ * The read API is public and cross-origin by necessity — the dashboard is
+ * served from Pages and this Worker from workers.dev, which are different
+ * origins, so without this every panel fetch fails in the browser.
+ *
+ * `*` rather than an allowlist because the data is public: it is the same
+ * content the dashboard renders to anyone who loads it. There is nothing here
+ * that an origin check would protect, and an allowlist would only break the
+ * next preview deployment. The webhook is a different matter and is not
+ * covered by this — it is authenticated by signature, not by origin.
+ */
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+  // Without this the browser hides x-computed-at from cross-origin JavaScript,
+  // and the page cannot tell how stale the panel it is showing actually is.
+  "access-control-expose-headers": "x-computed-at",
+  "access-control-max-age": "86400",
+};
+
+const JSON_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  ...CORS,
+};
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
@@ -166,6 +190,10 @@ async function handlePanel(env, name) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS });
+    }
 
     if (url.pathname === "/webhook") {
       if (request.method !== "POST") return json({ error: "POST only" }, 405);
