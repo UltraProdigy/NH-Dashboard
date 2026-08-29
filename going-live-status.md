@@ -96,24 +96,27 @@ the job exists to prevent. It runs locally until D1 holds it.
 
 ---
 
-## Not in the plan, and blocking
-
-**There is no display filter for private repos.** Nothing leaks today because no
-panel reads traffic and the private backfill has not run. But Phase E puts
-private PRs and issues into a `dashboard.json` served from public Pages. Per the
-plan's own reasoning this wants to be opt-in — panels ask for restricted repos
-rather than remembering to exclude them, so a new panel fails closed.
-
-**This is the real blocker on Phase E**, and it is not a numbered step anywhere.
-
----
-
 ## Decisions taken today
 
+**Private repo data ships publicly. There will be no display filter.** The
+earlier position was that Phase E needed an opt-in filter before private PRs and
+issues could reach a `dashboard.json` served from public Pages. That is
+withdrawn: the content across the 12 private repos is judged unharmful, and the
+one repo that was not — `Dupes-Exploits-GTNH` — is already excluded at ingest.
+Phase E is therefore unblocked and has no outstanding prerequisite.
+
+What this commits to, so it is not rediscovered later: private PR and issue
+titles, bodies, authors and timings become public and indexable the first time a
+`dashboard.json` built from D1 is deployed. Un-publishing removes the file, not
+the copies. If a private repo is ever added that does not meet the same bar, the
+lever is `NH_INGEST_EXCLUDE`, and it has to be pulled *before* the build that
+would carry it.
+
 **`Dupes-Exploits-GTNH` is excluded at ingest**, via `NH_INGEST_EXCLUDE` in
-`.env` and never in committed source. Revisit once the Worker plus access
-control exists — at that point it is a one-line change, and GitHub retains PR and
-issue history so only that repo's traffic is lost.
+`.env` and never in committed source. With the display filter dropped, this
+exclusion is now the *only* thing keeping that repo out of a public artefact, so
+it is load-bearing rather than provisional. GitHub retains PR and issue history
+either way, so only that repo's traffic is lost while it stays excluded.
 
 **Labels and assignees stay JSON, not link tables.** Reversible in-database with
 no API calls if a panel ever needs to filter by label at scale.
@@ -171,6 +174,10 @@ shape. This was five days from ageing out of the retention window unseen.
 they would return 200 and write nothing, which looks like success. Either wait
 for the daily reset, or take a month of Workers Paid. Deploy and webhook config
 can happen either way.
+
+Deploy must be run from a machine logged in to Cloudflare — the credentials are
+local to the operator, and `node_modules` holds platform-specific `workerd`
+binaries, so it does not run from an arbitrary environment.
 
 Then the bulk of Phase D: port panels to D1 queries, debounced recompute,
 `/api/version`, frontend polling, deploy automation. Also still outstanding:
