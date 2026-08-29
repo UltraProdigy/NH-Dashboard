@@ -14,26 +14,30 @@ The ingest pipeline is live and unattended. GitHub events reach a Cloudflare
 Worker, land in D1, and a cron rebuilds cached panels every ten minutes. Two
 panels — `contributors` and `analytics` — are ported to SQL, proven identical to
 the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one:
-it deployed, rebuilt in 6.3 seconds, and was rewritten to take its percentiles
-in one pass instead of thirteen. That rewrite is committed and not yet deployed.
-Four panels remain, and the next, `issues`, is ordinary work by comparison.
+it deployed, rebuilt in 6.3 seconds, and has since been through two rounds of
+making that faster — the second of which is committed and not yet deployed, so
+the first thing below is a deploy. Four panels remain, and the next, `issues`,
+is ordinary work by comparison.
 
 ## Do this first
 
-`analytics` has been deployed once and rebuilt in **6,306ms**, against 400ms for
-`contributors`. A fix landed after that deploy and has not itself been deployed.
+`analytics` deployed at **6,306ms**, then **5,102ms** after the percentile
+rewrite. A third change — every period comparison as a string rather than a
+parsed date — took the local rebuild from 2,451ms to 1,314ms and has not been
+deployed.
 
 ```
 cd worker && npx wrangler deploy
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
 ```
 
-Read `built.analytics.ms`. The fix turned thirteen per-period percentile queries
-into three and took the panel from 43 queries to 33; the local replica barely
-moved, because locally the cold seed dominates and the repeated work is exactly
-what D1 was charging for. If it is still seconds, the next thing to look at is
-`periodScalars` — seven full scans of 29,000 rows that could be one query of 91
-columns, held back only by not knowing D1's column limit.
+Read `built.analytics.ms`. Two theories about where the time went were wrong
+before this one was measured rather than guessed, so treat any number below as
+provisional until this prints. If it is still above ~3s, the remaining leads in
+order of expected size are the week-key expression (37ms a query locally, and it
+appears in six), the `approver` CTE built twice, and `periodScalars`' seven
+scans, which could be one query of 91 columns if D1's column limit turns out to
+allow it.
 
 Then open the dashboard and confirm the header reads "2 panels live".
 
@@ -62,11 +66,11 @@ issues. `traffic_daily` is still 0 — the deferred half of the seed split.
 - `isBotSql` in `src/shared/contributor-rules.js`, generated from the same
   prefix list as `BOT_PATTERN`, because SQLite has no regex
 - `worker/src/panels/analytics.js` — the panel as 33 D1 queries
-- `worker/test/analytics.parity.test.js` — 25 assertions, all passing
+- `worker/test/analytics.parity.test.js` — 26 assertions, all passing
 - Top-N ties now break on the key, in both implementations
 - `analytics` registered in `recompute.js` and `LIVE_PANELS`
 
-Fifteen commits this session, none pushed. Nothing has been pushed at any point.
+Eighteen commits this session, none pushed. Nothing has been pushed at any point.
 
 ## Next task: port `issues`
 
@@ -83,14 +87,27 @@ Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
 `pullRequests`. Each needs a live GitHub call, so D1 cannot answer for them.
 That split is the end state, not a migration half-done.
 
-## Six things that will bite again
+## Seven things that will bite again
 
-**`strftime` returns TEXT, and SQLite orders every TEXT value above every
-number.** An uncast `strftime('%s', col) >= ?` is not approximately right, it is
-constant — `>=` a bound is always true and `<` always false. Every windowed
-count in the first run of `analytics` came back as the whole table or as zero,
-and not one query looked wrong. `epochSql` casts. Nothing may compare a
-timestamp against a bound without it.
+**`strftime` parses a date string, per row, per call.** It is the single
+largest cost in this panel — 43ms a query against 7ms for the equivalent string
+comparison, over 29,000 rows. Timestamps here are fixed-width and whole-second,
+so lexical order is chronological order; compare the strings and ceil the bound
+with `isoBound`. Reach for a date function only where the calendar is genuinely
+needed, as the weekday and the ISO week are.
+
+**And if you do reach for `strftime('%s')`, cast it.** It returns TEXT, and
+SQLite orders every TEXT value above every number, so an uncast comparison is
+not approximately right, it is constant — `>=` a bound always true, `<` always
+false. Every windowed count in the first run of `analytics` came back as the
+whole table or as zero, and not one query looked wrong.
+
+**Measure before rewriting, and measure the thing itself.** Two confident
+theories about this panel's 6.3 seconds — the repeated first-review grouping,
+then per-query round-trip cost — were wrong, and each cost a rewrite and a
+deploy. A temporary `/api/probe` settled the second in one deploy: round trips
+are ~9ms, `Promise.all` does overlap them, and 33 of them cost 73ms together.
+The third theory was measured locally first and was worth 46%.
 
 **±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
 `Infinity` becomes `null`, which makes every comparison NULL. All-time binds a

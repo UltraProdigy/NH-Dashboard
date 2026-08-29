@@ -286,12 +286,41 @@ order is what a percentile reads. Every timestamp GitHub gives these panels is
 at second resolution, which the parity test asserts, so this is exact rather
 than merely close.
 
-Where a timestamp is compared against a period boundary the column is cast:
-`CAST(strftime('%s', col) AS INTEGER)`. `strftime` returns TEXT, and SQLite
-orders every TEXT value above every number regardless of the digits — so an
-uncast comparison is not imprecise, it is constant. `>=` a bound is always true
-and `<` always false, which turns a windowed count into either the whole table
-or zero, and looks exactly like a working query.
+### Comparing a timestamp against a period boundary
+
+Not by parsing it. Every stored timestamp is a fixed-width
+`YYYY-MM-DDTHH:MM:SSZ` from GitHub, so lexical order over the column is
+chronological order and a window is a plain string comparison. The bound is
+ceiled to a whole second first, and both ends ceil the same way:
+
+```
+isoBound(ms) = ISO string of ceil(ms / 1000) seconds
+
+t × 1000 >= bound   ⟺   t >= ceil(bound / 1000)
+t × 1000 <  bound   ⟺   t <  ceil(bound / 1000)
+```
+
+The second equivalence holds whether or not the bound falls on an exact second,
+which is why one value serves both ends.
+
+The ceiling is not a rounding convenience. Comparing a raw ISO string against a
+bound that carries milliseconds gets the boundary second *backwards*: `Z` sorts
+after `.`, so `…:19Z` reads as later than `…:19.825Z` when it is genuinely
+earlier. The parity test asserts the equivalence at the boundary and a
+millisecond either side of it, and separately that no compared column carries a
+fraction or varies in width.
+
+**Why not epoch seconds.** `CAST(strftime('%s', col) AS INTEGER) >= ?` is
+correct and was the first version. It parses a date per row per comparison, and
+this panel compares thirteen bounds against 29,000 rows in a dozen queries —
+43ms a query, against 7ms for the string compare.
+
+The CAST in that form is also not optional, which is worth recording even though
+nothing does it any more: `strftime` returns TEXT, and SQLite orders every TEXT
+value above every number regardless of the digits. Uncast, the comparison is not
+imprecise, it is *constant* — `>=` a bound always true and `<` always false,
+turning a windowed count into either the whole table or zero while looking
+exactly like a working query.
 
 ### Month and day keys
 

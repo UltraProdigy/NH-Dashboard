@@ -256,6 +256,45 @@ running count past a rank sitting inside it and the lookup silently returns
 NULL. The parity test caught nothing here because it passed first time — which
 is the argument for having written it before the port rather than after.
 
+**That fix bought 19%, and the theory behind it was wrong.** 6,306ms → 5,102ms.
+A second theory — that D1 charges per query and the panel's `Promise.all` was
+not overlapping round trips — was measured with a temporary `/api/probe` and is
+also wrong:
+
+| 33 queries | sequential | `Promise.all` | `batch()` |
+|---|---|---|---|
+| `SELECT 1` | 291ms | 73ms | 26ms |
+| `COUNT(*)` over `pull_requests` | 320ms | 84ms | 30ms |
+
+A round trip is ~9ms, `Promise.all` does overlap them, and all 33 cost about
+73ms together. A full-table `COUNT(*)` costs 1ms more than `SELECT 1`. So
+neither round trips nor scanning was the expense, and `batch()` would have won
+back about 50ms — the probe is deleted, and it was worth its one deploy for
+ruling that out before another rewrite.
+
+**It was `strftime`, which parses a date string per row per call.** Measured
+locally over the 29,091 rows:
+
+| | |
+|---|---|
+| `COUNT(*)` baseline | 0.0ms |
+| 13 window comparisons via `strftime('%s')` | 43.0ms |
+| the same 13 as plain ISO string compares | 7.2ms |
+| week-key grouping | 37.4ms |
+| week-key with the Thursday computed once | 33.6ms |
+| day grouping via `substr` | 4.0ms |
+
+Every stored timestamp is a fixed-width `YYYY-MM-DDTHH:MM:SSZ`, so lexical order
+*is* chronological order and a window can be a string comparison — given the
+bound is ceiled to a whole second, which both ends of the window do identically.
+`isoBound` carries the equivalence and the parity test asserts it at the
+boundary second and a millisecond either side, because comparing against a raw
+millisecond bound gets that one second backwards: `Z` sorts after `.`.
+
+**Local rebuild: 2,451ms → 1,314ms.** Which is a bigger cut than the 15–25% that
+was predicted, and predictions have not been reliable here, so the production
+number is again the one that counts.
+
 **Top-N lists now break ties on the key.** `topRepos`, `topAuthors` and
 `topReviewers` sorted on count alone, so tied entries came out in store order
 and reshuffled between builds — the same latent bug the Leaderboard had. Once a
