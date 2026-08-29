@@ -172,15 +172,23 @@ shape. This was five days from ageing out of the retention window unseen.
 
 ## Next
 
-**One thing outstanding before the pipe is proven end to end.** Take a real
-action in a low-traffic repo after the daily write reset at 00:00 UTC, then
-confirm `/api/health` moves. A green ping is not this proof: the ping handler
-returns 200 without touching D1, so it passes even with the write budget spent.
+**The pipe is proven end to end.** `meta.dirty` reads `1` against the remote
+database. It ships as `0` in the schema, only `markDirty` sets it, and that runs
+only after a handler completes — so a real delivery was received, verified,
+written, and committed. Nothing clears it yet because the recompute does not
+exist.
 
-Deliveries arriving while the budget is spent return 200 and write nothing,
-which looks like success. They are not lost — GitHub retains the payloads and
-each one has a **Redeliver** button in the App's Recent Deliveries — and the
-all-time ingest would catch them regardless.
+**The write ceiling never bit, and the estimate should not have been treated as
+a block.** The 441,640 figure is an estimate of *billed* writes, which is a
+billing quantity, not an observed refusal. Writes kept working the same day.
+Anything of this shape wants a probe before it becomes a reason to stop: a green
+ping is not that probe, because the ping handler returns before touching D1.
+`meta.dirty` is, and reads are free.
+
+Useful checks, both cheap:
+
+    npx wrangler d1 execute nh-dashboard --remote --command "SELECT key, value FROM meta"
+    npx wrangler tail          # from worker/, one JSON line per delivery
 
 Deploy must be run from a machine logged in to Cloudflare. The credentials are
 local to the operator, and `node_modules` holds platform-specific `workerd`
