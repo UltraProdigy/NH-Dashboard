@@ -7,7 +7,7 @@ compatibility_date = "2026-08-29"
 [[d1_databases]]
 binding = "DB"
 database_name = "nh-dashboard"
-database_id = "REPLACE_ME"
+database_id = "ed20adc3-f434-4f0a-8832-80862af30201"
 
 [observability]
 enabled = true
