@@ -31,29 +31,46 @@ Aug 14–27, 338 repos in scope.
 ignored, commit step gone, `contents: read`, rolling Actions cache, deploy
 narrowed to `data/*.json`.
 
-**Phase D steps 1–6 — schema, seed, skeleton, handlers.** All proven locally.
-`npm run test:handlers` is 31 assertions; `npm run webhook:test` exercises the
-signature path including rejection.
+**Phase D steps 1–6 — schema, seed, skeleton, handlers.**
+
+- `npm run test:handlers` is 31 assertions; `npm run webhook:test` exercises the
+  signature path including rejection
+- D1 database `nh-dashboard`, id `ed20adc3-f434-4f0a-8832-80862af30201`
+- **Schema and seed are loaded remotely and verified**: 29,091 pull requests,
+  41,239 reviews, 26,513 issues. Traffic is not loaded — it was the deferred
+  half of the split, and see the write ceiling note below
+- The Worker is written and tested but **not deployed**, and no webhook is
+  configured
 
 ---
 
 ## Where the plan is now wrong
 
-**The seed does not need two days or Workers Paid.** The ~150k estimate assumed
-labels, assignees and review requests became link tables. As JSON columns —
-which is how they already exist in the store — the load is:
+**D1 bills index writes, and that changes the seed maths entirely.**
 
-| Table | Rows |
-|---|---|
-| `pull_requests` | 29,029 |
-| `reviews` | 41,141 |
-| `issues` | 26,478 |
-| `traffic_daily` | 4,731 |
-| `ingest_state` | 341 |
-| **total** | **101,726** |
+The plan estimated ~150k records against a 100,000/day ceiling. Keeping labels
+and assignees as JSON columns rather than link tables does cut the *logical*
+rows to ~97,000 — but D1's billing metric is **rows written**, which counts every
+secondary index entry as well as the row itself. The actual seed cost was
+**441,640 writes**, about 4.5×:
 
-Splitting traffic to a second day puts the first pass at **96,995**, under the
-100,000/day ceiling. `--only=prs,issues,state` then `--only=traffic`.
+| Table | Logical rows | Billed (approx.) |
+|---|---|---|
+| `pull_requests` | 29,091 | ~143,000 |
+| `reviews` | 41,245 | ~165,000 |
+| `issues` | 26,513 | ~111,000 |
+| `ingest_state` | 341 | ~700 |
+
+So the plan's instinct was right and the "it fits free" revision was wrong. The
+seed blew roughly 4.4× through a day's free allowance.
+
+**This is a one-time cost, not an ongoing one.** Steady state is a webhook
+delivery writing one row plus its indexes — five or six billed writes — and a
+busy day across the org is a few hundred deliveries. Ongoing operation sits
+comfortably inside the free tier.
+
+Two consequences worth carrying forward: any *reseed* costs the same 440k again,
+and dropping an index is now a write-cost decision as well as a read-speed one.
 
 **`drilldown.json` is not the hardest part of the port.** 18.5 MB of its 22 MB is
 one map keyed by login — 6,818 contributors averaging 2.7 KB. That is not a blob
@@ -138,17 +155,26 @@ shape. This was five days from ageing out of the retention window unseen.
 
 ## Next
 
-1. `npx wrangler d1 create nh-dashboard`, paste the id into `worker/wrangler.toml`
-2. Regenerate `worker/seed.sql` — the store advanced to 29,091 PRs
-3. Seed remote once: `--only=prs,issues,state`
-4. `npx wrangler deploy`
-5. Webhook URL and secret into the App settings; subscribe `pull_request`,
-   `pull_request_review`, `issues`, `issue_comment`, `push`, `workflow_run`,
-   `release`, `repository`; confirm the ping
-6. Watch a real event land in D1
+**Start here.** Deploying is free; the writes are what to watch.
+
+1. `cd worker && npx wrangler deploy` — gives the Worker its URL
+2. `npx wrangler secret put GITHUB_WEBHOOK_SECRET` — the same value that is in
+   `worker/.dev.vars`
+3. In the App's settings: webhook URL `https://<worker>.workers.dev/webhook`,
+   the same secret, and subscribe `pull_request`, `pull_request_review`,
+   `issues`, `issue_comment`, `push`, `workflow_run`, `release`, `repository`.
+   Events currently read `(none)` — that is expected, not a fault
+4. Confirm the ping goes green, then watch a real event land
+
+**The write ceiling gates step 4, not the earlier ones.** The seed spent roughly
+4.4× a day's free writes, so deliveries arriving today may fail to persist —
+they would return 200 and write nothing, which looks like success. Either wait
+for the daily reset, or take a month of Workers Paid. Deploy and webhook config
+can happen either way.
 
 Then the bulk of Phase D: port panels to D1 queries, debounced recompute,
-`/api/version`, frontend polling, deploy automation.
+`/api/version`, frontend polling, deploy automation. Also still outstanding:
+loading `traffic_daily`, which was the deferred half of the seed split.
 
 **First CI run of the new workflow needs checking** — confirm the post-job cache
 save appears. Until it does, `git rm -r --cached data/` should wait.
