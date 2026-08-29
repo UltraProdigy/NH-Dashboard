@@ -12,7 +12,8 @@
     "ingest:traffic": "node --env-file-if-exists=.env src/ingest/traffic.js",
     "verify:app": "node --env-file-if-exists=.env scripts/verify-app.js",
     "serve": "node --env-file-if-exists=.env src/serve.js",
-    "webhook:test": "node scripts/send-test-webhook.js"
+    "webhook:test": "node scripts/send-test-webhook.js",
+    "test:handlers": "node --experimental-sqlite worker/test/handlers.test.js"
   },
   "engines": {
     "node": ">=20.6"

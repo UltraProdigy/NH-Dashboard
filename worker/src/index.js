@@ -11,6 +11,8 @@
  * not here.
  */
 
+import { handleEvent } from "./handlers.js";
+
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
 function json(body, status = 200) {
@@ -100,16 +102,23 @@ async function handleWebhook(request, env) {
   const repo = payload.repository?.name ?? null;
   const action = payload.action ?? null;
 
-  // Handlers land here in the next step. Until then the shape of what actually
-  // arrives is the useful output — subscriptions can be wrong in ways that only
-  // show up as events that never fire.
-  console.log(
-    JSON.stringify({ event, action, repo, delivery, bytes: rawBody.length }),
-  );
+  let result;
+  try {
+    result = await handleEvent(env.DB, event, payload);
+    await markDirty(env.DB);
+  } catch (err) {
+    // Still a 200. GitHub retries nothing and disables a webhook that keeps
+    // failing, so a handler bug must not cost the subscription — the delivery
+    // is logged and the reconcile sweep will correct whatever was missed.
+    console.error(
+      JSON.stringify({ event, action, repo, delivery, error: String(err) }),
+    );
+    return json({ ok: false, event, error: "handler failed" });
+  }
 
-  await markDirty(env.DB);
+  console.log(JSON.stringify({ event, action, repo, delivery, result }));
 
-  return json({ ok: true, event, action, repo });
+  return json({ ok: true, event, action, repo, result });
 }
 
 async function handleVersion(env) {
