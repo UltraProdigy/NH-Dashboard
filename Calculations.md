@@ -272,6 +272,48 @@ as of the last build.
 Several numbers are decided at ingest time and merely counted later. If one of
 these derivations is wrong, no amount of reading the panel code will show it.
 
+### Traffic views and clones
+
+`src/ingest/traffic.js`.
+
+**Shows** — how many times a repo was viewed and cloned, per day.
+
+**Rule** — `GET /repos/{repo}/traffic/views` and `/traffic/clones`, both of which
+return the whole retained window on every call. Each datapoint's `timestamp` is
+truncated to its `YYYY-MM-DD` UTC date and stored as one row per repo per day,
+carrying `views`, `viewUniques`, `clones`, and `cloneUniques`.
+
+**The store is keyed, not appended.** Every row is identified by `repo + date`,
+and a later reading of a day replaces the earlier one rather than adding to it.
+This is what makes the job safely re-runnable: successive runs overlap by
+thirteen days and collapse to nothing.
+
+**The current day is discarded.** GitHub counts today as it goes, so capturing
+it would store a partial number that only gets corrected if another run happens
+before midnight UTC. Rows only exist for days that have closed.
+
+**Yesterday can still arrive late.** GitHub's aggregation lags by some hours, so
+the most recent closed day is sometimes missing or zero at capture time. The
+next run overwrites it with the settled figure, so this self-heals — but a row
+read within a day of capture may be low.
+
+**A day with no traffic has no row.** GitHub omits datapoints for days a repo saw
+nothing, so absent and zero mean the same thing and neither is stored as a gap.
+Consequently the row count is well below `repos × days`.
+
+**Uniques do not sum.** `viewUniques` counts distinct visitors within one day.
+Adding a week of daily uniques counts a returning visitor once per day they
+appeared, so the result is an upper bound on weekly reach, not a headcount. Only
+`views` and `clones` are safely additive across days.
+
+**Clones are not people.** A single CI job cloning in a loop can put six figures
+of clones against a few dozen uniques. Where the two diverge sharply the traffic
+is automated, and the useful signal is `cloneUniques`.
+
+**Excluded repos are absent entirely**, per `NH_INGEST_EXCLUDE` — they are never
+requested, so their traffic is not merely hidden but never collected, and cannot
+be backfilled later.
+
 ### First response on an issue
 
 `src/ingest/issues.js` (GraphQL path) and `src/ingest/issuesBulk.js` (REST bulk

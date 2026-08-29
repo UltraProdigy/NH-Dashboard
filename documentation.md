@@ -36,23 +36,101 @@ Tried in order:
 2. The `gh` CLI's stored credential — nothing on disk, nothing to rotate
 3. `.env` (gitignored) — see `.env.example`
 
+### The GitHub App
+
+`NH-Dashbot` (App ID `4745300`) is what reaches private repos, and what will
+deliver webhooks later. A personal token cannot see either.
+
+Only the private key is secret. The App ID is public — it appears in the App's
+own URL — and the installation ID is deliberately *not* stored: `src/github/app.js`
+derives it from `GET /orgs/{org}/installation` on every run, because reinstalling
+the App mints a new one and anything hardcoded would break silently the day an
+owner reinstalls.
+
+GitHub issues the key as PKCS#1. Convert it once, because Cloudflare Workers'
+WebCrypto will only import PKCS#8 and Node accepts either:
+
+```
+openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
+  -in <downloaded>.pem -out nh-dashbot-pk8.pem
+```
+
+Then set `GH_APP_ID` and `GH_APP_KEY_PATH` (or `GH_APP_PRIVATE_KEY` with the
+contents, for CI). `npm run verify:app` walks the whole chain — JWT, installation
+lookup, token exchange, granted permissions, repo counts, and a live traffic
+probe — and prints no secrets, so its output is safe to paste into an issue.
+
+Installation tokens last an hour and are cached until five minutes before
+expiry, so a long ingest never dies mid-run on a token that aged out.
+
+Repo **Administration: Read** is the notable permission. It is the only route to
+traffic data, and it also carries branch protection, collaborator lists, and
+repo settings. `discussions` and `repository_projects` were requested but not
+granted, and nothing reads them — they can be dropped from the request.
+
+### Exclusions that apply everywhere
+
+`NH_INGEST_EXCLUDE` is a comma-separated list of repos that never enter the
+store: not fetched, not built, not deployed. Wildcards (`*`, `?`) work and a
+leading `!` re-includes something an earlier pattern caught — the same syntax as
+the release list, sharing the same matcher.
+
+It is env-only, with nothing listed in committed source. For most repos a name
+in a config file is harmless, but where a private repo's *existence* is the
+sensitive part, writing it into source publishes the very fact the exclusion
+exists to hide. Set it in `.env` locally and as a repo secret in CI.
+
+Excluding at ingest rather than at display is a deliberate choice to fail
+closed. A record that was never fetched cannot be leaked by a panel that forgot
+to filter; one sitting in the store depends on every present and future panel
+remembering.
+
 ### Builds and Pages
 
-`.github/workflows/build.yml` runs on push to `main` and on manual dispatch: it
-builds the data, commits `data/`, and deploys `web/` + `data/` to GitHub Pages.
-A 30-minute `schedule:` trigger is parked (commented out) in the workflow —
-uncomment to bring it back. Cost isn't the concern; every run commits `data/`,
-so 48 runs a day grow the repo whether or not anyone is reading the dashboard.
+`.github/workflows/build.yml` runs every 30 minutes, on push to `main`, and on
+manual dispatch. It ingests, builds, and deploys `web/` plus the built JSON to
+GitHub Pages.
+
+Nothing is committed. The ingest store used to be, so each run could resume from
+the last watermark, but that made every run a push into an org that broadcasts
+push events — which is why the schedule sat parked. State now rides the Actions
+cache instead, and the workflow holds `contents: read`.
+
+**The cache key must be unique per run.** Entries are immutable, so a stable key
+like `ingest-v1` restores on every run and then silently skips the save, freezing
+the watermarks at whatever the first run wrote. `ingest-${{ github.run_id }}`
+with `restore-keys: ingest-` never hits exactly, so the newest prefix match is
+restored and the post-job save always writes a fresh entry.
+
+**The deploy copies `data/*.json`, not `data/`.** The raw store in `data/ingest`
+is far larger than anything the page reads and, with private repos in scope, not
+publishable at all. `cp -r data` would serve every NDJSON file as a static asset.
 
 One-time setup: Settings → Pages → Source → **GitHub Actions**.
 
-It needs a repo secret named **`GH_DASHBOARD_TOKEN`** (Settings → Secrets and
-variables → Actions), holding a PAT with `public_repo` scope. Actions' built-in
-`secrets.GITHUB_TOKEN` will *not* work — it's scoped to this repo alone and
-can't read the GTNewHorizons org.
+It still needs the repo secret **`GH_DASHBOARD_TOKEN`** (Settings → Secrets and
+variables → Actions) holding a PAT with `public_repo` scope, until the ingest
+moves to App auth. Actions' built-in `secrets.GITHUB_TOKEN` will *not* work —
+it's scoped to this repo alone and can't read the GTNewHorizons org.
 
 GitHub Secrets are only readable from inside a workflow run, which is why local
 development needs one of the three options above rather than reusing the secret.
+
+### Traffic
+
+`npm run ingest:traffic` appends to `data/ingest/traffic.ndjson`: views and
+clones per repo per day, two requests per repo.
+
+It runs ahead of the rest of the going-live work because it is the only dataset
+with a deadline. GitHub keeps traffic for 14 days and offers no backfill, so a
+day not captured is gone for good. PRs and issues are retained indefinitely and
+can be walked whenever.
+
+That also means **the Actions cache is the wrong home for it.** Losing a cache
+entry costs the ingest nothing — watermarks reset and the next run re-walks from
+the API. Losing it costs traffic everything older than the current window, which
+is the exact loss this job exists to prevent. Until the store is somewhere
+durable, run it locally.
 
 ## Panels
 
