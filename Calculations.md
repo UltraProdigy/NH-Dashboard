@@ -54,10 +54,17 @@ These hold everywhere unless an entry says otherwise.
 
 ### Bots are excluded from people-shaped numbers
 
-A login is a bot if it matches `BOT_PATTERN` in `src/config.js`: a trailing
-`[bot]`, or a name starting `dependabot`, `github-actions`, `renovate`,
-`codecov`, `mergify`, or `stale`. A null or empty login also counts as a bot,
-which is how deleted accounts are handled.
+A login is a bot if it matches `BOT_PATTERN` in `src/shared/contributor-rules.js`
+(re-exported from `src/config.js`): a trailing `[bot]`, or a name starting
+`dependabot`, `github-actions`, `renovate`, `codecov`, `mergify`, or `stale`. A
+null or empty login also counts as a bot, which is how deleted accounts are
+handled.
+
+The rule also exists as a SQL predicate, `isBotSql`, because SQLite has no regex
+and the Worker's panels need it. Both are generated from one list of prefixes,
+and the analytics parity test runs both over every login in the seed — a login
+excluded on one side and counted on the other would be a leaderboard that
+contradicts its own drilldown, with nothing to say which half is wrong.
 
 Bot exclusion applies to:
 
@@ -173,8 +180,9 @@ depending on who was looking.
 
 ### Percentile — nearest-rank, no interpolation
 
-Defined identically in `src/panels/analytics.js`, `src/panels/issueMetrics.js`
-and `src/panels/drilldown.js`.
+Defined once in `src/shared/analytics-rules.js` and used by
+`src/panels/analytics.js`, `src/panels/issueMetrics.js` and
+`src/panels/drilldown.js`.
 
 ```
 pct(sorted, p):
@@ -196,6 +204,20 @@ This is a deliberate simplification. On samples of the size this dashboard
 works with the difference from a properly interpolated percentile is smaller
 than the noise in the underlying data.
 
+**In SQL.** SQLite has no percentile function, so the Worker ranks rows with
+`ROW_NUMBER() OVER (ORDER BY value)` against `COUNT(*) OVER ()` and takes the
+one row whose rank matches. `pctRankSql` generates that rank, and it is the
+index above plus one because `ROW_NUMBER` counts from one:
+
+```
+rank = 1 + min(n − 1, CAST(n × p/100 AS INTEGER))
+```
+
+`CAST(… AS INTEGER)` truncates toward zero, which is `floor` for the
+non-negative values this ever sees, and the fraction is emitted as the same
+double JavaScript computes — so the two agree bit for bit rather than
+approximately.
+
 ### Median
 
 ```
@@ -210,7 +232,8 @@ the list. Where a mean does appear it is labelled as one — see
 ### Week key
 
 ISO-ish week, Monday-start, matching GitHub's own charts. Defined in
-`src/panels/analytics.js` and `src/panels/issueMetrics.js`.
+`src/shared/analytics-rules.js`, used by `src/panels/analytics.js` and
+`src/panels/issueMetrics.js`.
 
 ```
 weekKey(date):
@@ -225,6 +248,32 @@ weekKey(date):
 The Thursday shift is what makes the year correct for weeks straddling New
 Year. The key sorts lexically, which for this format is chronological.
 
+**In SQL.** `weekKeySql` is the same three steps — find the Thursday, take its
+year, count weeks from that year's 4 January — spelled out with `date()` and
+`julianday()`. `strftime('%Y-%W')` is **not** this: it counts weeks from the
+first Sunday of the calendar year, and disagrees at roughly every other year
+boundary. The parity test runs both over every day from 2005 to 2035, because
+sampling would miss precisely the thirty days where they could differ.
+
+### Duration in hours
+
+```
+hours(from, to) = (epoch_seconds(to) − epoch_seconds(from)) / 3600
+```
+
+Whole seconds, not `julianday` differences. A julianday is a REAL count of days
+whose rounding error is large enough to reorder two nearly-equal rows, and the
+order is what a percentile reads. Every timestamp GitHub gives these panels is
+at second resolution, which the parity test asserts, so this is exact rather
+than merely close.
+
+Where a timestamp is compared against a period boundary the column is cast:
+`CAST(strftime('%s', col) AS INTEGER)`. `strftime` returns TEXT, and SQLite
+orders every TEXT value above every number regardless of the digits — so an
+uncast comparison is not imprecise, it is constant. `>=` a bound is always true
+and `<` always false, which turns a windowed count into either the whole table
+or zero, and looks exactly like a working query.
+
 ### Month and day keys
 
 ```
@@ -237,8 +286,9 @@ real calendar months; this is the one place calendar boundaries are used.
 
 ### Backlog age buckets
 
-One list, in `src/panels/analytics.js`, imported by every panel that buckets by
-age so the org total always equals the sum of the repos:
+One list, in `src/shared/analytics-rules.js` and re-exported from
+`src/panels/analytics.js`, imported by every panel that buckets by age so the
+org total always equals the sum of the repos:
 
 | Bucket | Condition |
 |---|---|
@@ -264,6 +314,26 @@ staleDays(x) = floor((now − x.updatedAt) / 86,400,000)   # null if no updatedA
 
 `now` is the build's start time, not the reader's clock — every age on a page is
 as of the last build.
+
+### Top-N lists
+
+`topRepos`, `topAuthors` and `topReviewers` on the Analytics windows, and any
+other "top eight by count" list.
+
+```
+sort by count descending, then by key ascending
+take the first n
+```
+
+The tiebreak on the key — the login or the repo name — is the same fix the
+Leaderboard needed. Sorted on count alone, ties come out in whatever order the
+store yielded, so a list reshuffles between builds because somebody unrelated
+opened a pull request. Once the panel exists in two languages that is worse than
+noise: "whatever order the store yielded" is not something SQL can reproduce, so
+the two implementations would disagree by construction.
+
+Compared with `<` rather than `localeCompare`, so two runtimes in two locales
+cannot disagree about the answer.
 
 ---
 
@@ -579,6 +649,12 @@ Built from PRs where `state == OPEN` and `mergedAt` is unset.
 | `oldest` | The 25 highest `ageDays`, descending |
 
 Not windowed. "Open right now" is a statement about now.
+
+`ageDays` is a whole number of days, so the 25 tie constantly. The SQL panel
+orders the tied ones by `createdAt` then `repo#number`; the Node panel leaves
+them in store order. Both lists are 25 PRs of the same ages, and which member of
+a tied group appears is arbitrary either way — the parity test asserts the ages
+rather than the identities for exactly that reason.
 
 ### Time series buckets
 
