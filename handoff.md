@@ -13,27 +13,29 @@ Written 2026-08-29, end of the session that ported `analytics`.
 The ingest pipeline is live and unattended. GitHub events reach a Cloudflare
 Worker, land in D1, and a cron rebuilds cached panels every ten minutes. Two
 panels — `contributors` and `analytics` — are ported to SQL, proven identical to
-the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one
-and it has not been deployed yet: the code is done and tested, the first real
-recompute is not. Four panels remain, and the next, `issues`, is ordinary work
-by comparison.
+the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one:
+it deployed, rebuilt in 6.3 seconds, and was rewritten to take its percentiles
+in one pass instead of thirteen. That rewrite is committed and not yet deployed.
+Four panels remain, and the next, `issues`, is ordinary work by comparison.
 
 ## Do this first
 
-Nothing has been deployed since `analytics` landed. Until it is, `LIVE_PANELS`
-names a panel the Worker will not serve, and the frontend will quietly fall back
-to the built file for it — which is the designed behaviour, not a bug, but it
-means the port is unverified in production.
+`analytics` has been deployed once and rebuilt in **6,306ms**, against 400ms for
+`contributors`. A fix landed after that deploy and has not itself been deployed.
 
 ```
 cd worker && npx wrangler deploy
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
 ```
 
-Read the `built.analytics.ms` in the response. Locally it is 2.6s against a cold
-SQLite replica; if D1 says something in the same range rather than hundreds of
-milliseconds, see "the one thing that might need fixing" below. Then open the
-dashboard and confirm the header reads "2 panels live".
+Read `built.analytics.ms`. The fix turned thirteen per-period percentile queries
+into three and took the panel from 43 queries to 33; the local replica barely
+moved, because locally the cold seed dominates and the repeated work is exactly
+what D1 was charging for. If it is still seconds, the next thing to look at is
+`periodScalars` — seven full scans of 29,000 rows that could be one query of 91
+columns, held back only by not knowing D1's column limit.
+
+Then open the dashboard and confirm the header reads "2 panels live".
 
 ## Live infrastructure
 
@@ -59,12 +61,12 @@ issues. `traffic_daily` is still 0 — the deferred half of the seed split.
   from the same constants. Dependency-free so Node and the Worker share one copy
 - `isBotSql` in `src/shared/contributor-rules.js`, generated from the same
   prefix list as `BOT_PATTERN`, because SQLite has no regex
-- `worker/src/panels/analytics.js` — the panel as 43 D1 queries
+- `worker/src/panels/analytics.js` — the panel as 33 D1 queries
 - `worker/test/analytics.parity.test.js` — 25 assertions, all passing
 - Top-N ties now break on the key, in both implementations
 - `analytics` registered in `recompute.js` and `LIVE_PANELS`
 
-Thirteen commits this session, none pushed. Nothing has been pushed at any point.
+Fifteen commits this session, none pushed. Nothing has been pushed at any point.
 
 ## Next task: port `issues`
 
@@ -81,24 +83,7 @@ Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
 `pullRequests`. Each needs a live GitHub call, so D1 cannot answer for them.
 That split is the end state, not a migration half-done.
 
-## The one thing that might need fixing
-
-`analytics` rebuilds in 2.6s locally against `contributors`' 189ms, and one
-query is most of it: the first-review grouping, run once per period, thirteen
-periods over 41,000 reviews. Warm, that same query is 20ms — so the local figure
-is largely the seed paging in, and the production number is the one that
-decides whether this matters.
-
-If it does matter, the fix is to stop recomputing first reviews per period.
-Materialise the `(created_at, hours)` pairs once, then rank within each period
-using a running `SUM(CASE WHEN in_period THEN 1 ELSE 0 END) OVER (ORDER BY
-hours)` — thirteen such columns in one query, with the percentile picked where
-the running count equals `pctRankSql`. It works, and it was deliberately not
-written first: it is materially harder to read than what is there, and the rule
-on this project is that clever SQL which passes locally is exactly what fails on
-D1.
-
-## Five things that will bite again
+## Six things that will bite again
 
 **`strftime` returns TEXT, and SQLite orders every TEXT value above every
 number.** An uncast `strftime('%s', col) >= ?` is not approximately right, it is
@@ -128,6 +113,13 @@ dashboard.
 **Reusing the Node panels in the Worker does not fit.** Measured: 96 MB of heap
 to rebuild the PR store, against a 128 MB ceiling, before any accumulator and
 before issues. Paid lifted CPU, not memory.
+
+**A window frame defaults to RANGE, and RANGE cannot count.** The percentiles
+rank with `SUM(…) OVER (ORDER BY v ROWS UNBOUNDED PRECEDING)`; drop the explicit
+frame and every row tied on `v` shares one running total, so the count jumps
+past any rank inside a tied group and the lookup returns NULL rather than a
+number. It would show up as a median that is occasionally absent, on a panel
+where a missing median renders the same as one that has not been computed yet.
 
 ## Commands
 
@@ -172,6 +164,7 @@ Detailed in `going-live-status.md`.
 ## Open the next conversation with
 
 > Read `handoff.md` and `going-live-status.md` in the repo. Deploy the worker and
-> force a recompute first — `analytics` is ported but has never run against D1.
-> Then port the `issues` panel, following `worker/src/panels/analytics.js` and
-> writing the parity test first.
+> force a recompute first — there is a committed fix for a 6.3 second rebuild
+> that has not been deployed, and the response tells us whether it worked. Then
+> port the `issues` panel, following `worker/src/panels/analytics.js` and writing
+> the parity test first.

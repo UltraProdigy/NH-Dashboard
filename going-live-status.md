@@ -235,15 +235,26 @@ blob is 281 KB. The four things that took the time are worth carrying:
 The panel is registered in `recompute.js` and in `LIVE_PANELS`, so the frontend
 should read "2 panels live" once a recompute has run.
 
-**Rebuilding it locally takes 2.6 seconds against a cold `node:sqlite` replica**
-— against 189ms for `contributors`. Most of that is one query: the first-review
-grouping, run once per period, and 13 periods over 41,000 reviews. Warm, the
-same query is 20ms, so the local figure is mostly the seed being paged in and
-the real number is whatever the first production recompute reports. It is worth
-looking at: if D1 says seconds rather than hundreds of milliseconds, the fix is
-to stop recomputing first reviews per period, and the shape that avoids it is a
-running `SUM(…) OVER (ORDER BY hours)` per period over one materialised set —
-more complex than what is there now, which is why it was not written first.
+**The first production recompute took 6,306ms**, against 400ms for
+`contributors` — 2.4× the local replica rather than better than it. Version 15,
+nothing failed, 287,157 bytes cached.
+
+That was the per-period percentile queries: each rebuilt its value set, and for
+first-review hours that set is a join and a grouping over 41,000 reviews, done
+thirteen times. The fix builds each set once and ranks within each period using
+a running `SUM(…) OVER (ORDER BY value ROWS UNBOUNDED PRECEDING)` — thirteen
+counters in one pass, with the percentile picked where a counter first reaches
+the rank. Thirteen queries became three, and the panel went from 43 queries to
+33. The local replica moved 2.6s → 2.4s, which says almost nothing: locally the
+cold seed paging in is most of the wall time, and the repeated work this removed
+is what D1 was actually charging for. **The number that matters is the next
+production recompute.**
+
+`ROWS UNBOUNDED PRECEDING` is load-bearing there and is not the default frame.
+RANGE lumps in every row tied on the value, so a group of equal values jumps the
+running count past a rank sitting inside it and the lookup silently returns
+NULL. The parity test caught nothing here because it passed first time — which
+is the argument for having written it before the port rather than after.
 
 **Top-N lists now break ties on the key.** `topRepos`, `topAuthors` and
 `topReviewers` sorted on count alone, so tied entries came out in store order

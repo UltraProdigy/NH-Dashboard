@@ -218,6 +218,25 @@ non-negative values this ever sees, and the fraction is emitted as the same
 double JavaScript computes — so the two agree bit for bit rather than
 approximately.
 
+**Across several periods at once.** The Analytics windows need the same
+percentile taken thirteen times over thirteen overlapping slices of one set.
+Filtering and ranking per slice rebuilds the set thirteen times, so the set is
+built once and each slice gets a running count instead:
+
+```
+k_i = SUM(row is in period i) OVER (ORDER BY value ROWS UNBOUNDED PRECEDING)
+percentile_i = MIN(value) WHERE k_i = rank_i, and period i is non-empty
+```
+
+`k_i` first reaches `rank_i` at the row a per-period `ROW_NUMBER()` would have
+picked; later rows outside the period carry the same `k_i` but a larger value,
+so the minimum is that row.
+
+`ROWS UNBOUNDED PRECEDING` is not the default frame and the default is wrong
+here. RANGE lumps in every row tied on the value, so a group of three equal
+values jumps the running count past any rank sitting inside it and the lookup
+finds nothing.
+
 ### Median
 
 ```
