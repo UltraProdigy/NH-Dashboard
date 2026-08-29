@@ -213,6 +213,19 @@ and `npm run test:parity` diffs the output field by field against the
 `dashboard.json` the Node panel produced from the same seed. 1,214 contributors,
 every count matching in all seven windows.
 
+**D1 rejects a compound SELECT with more than a few arms.** A six-arm `UNION`
+building the active-day set failed on the first real recompute with "too many
+terms in compound SELECT", having passed every local test — `node:sqlite`
+compiles with SQLite's own default of 500 and accepts what D1 will not. A local
+replica proves logic, never dialect. The parity test now counts UNION arms in
+the panel sources so the next one fails cheaply.
+
+The workaround costs real CPU. Deduplicating the day set moved from SQLite into
+JavaScript, taking the panel from ~9ms to ~50ms — nothing against Paid's 30
+seconds, but it means this panel could no longer fit the free plan even split
+one-per-tick. Downgrading would mean materialising the day set into a table
+rather than rebuilding it each run.
+
 The pattern each remaining panel follows:
 
 1. Aggregate in SQL, not in the isolate. Query time is I/O and free; a loop over
