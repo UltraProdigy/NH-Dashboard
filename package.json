@@ -11,9 +11,13 @@
     "ingest": "node --env-file-if-exists=.env src/ingest.js --no-cache",
     "ingest:traffic": "node --env-file-if-exists=.env src/ingest/traffic.js",
     "verify:app": "node --env-file-if-exists=.env scripts/verify-app.js",
-    "serve": "node --env-file-if-exists=.env src/serve.js"
+    "serve": "node --env-file-if-exists=.env src/serve.js",
+    "webhook:test": "node scripts/send-test-webhook.js"
   },
   "engines": {
     "node": ">=20.6"
+  },
+  "devDependencies": {
+    "wrangler": "^4.127.1"
   }
 }
