@@ -357,16 +357,11 @@ async function seriesFor(db, grain, cutoff) {
 // -------------------------------------------------------------- per-window
 
 /**
- * The scalar counts for one period.
+ * Seven measures × thirteen periods, as seven queries of thirteen columns.
  *
  * Each event is counted against the period *its own* timestamp falls in, so
  * "merged in the last three months" does not quietly drop a PR opened before
- * the window started. `merged_with_approval` is the exception on purpose: it
- * asks whether a PR merged in this period ever drew a human approval, at any
- * time, which is not the same question as how many approvals landed here.
- */
-/**
- * Seven measures × thirteen periods, as seven queries of thirteen columns.
+ * the window started.
  *
  * Periods as columns rather than as queries. The obvious shape — one query per
  * period — reads better and scans the table thirteen times instead of seven,
@@ -449,57 +444,139 @@ async function approvedMerges(db, periods) {
 }
 
 /**
- * Median and p90 of one period's merge hours, first-review hours and PR sizes.
+ * One value set, its percentiles taken separately for all thirteen periods, in
+ * a single query.
  *
- * Three independent orderings, so three ranked CTEs rather than one — a
- * percentile is a position in a sort, and these are sorts of different sets.
- * An empty set yields NULL from the scalar subquery, which is the `null` the
- * Node panel returns for the same case.
+ * The obvious shape is a query per period: filter to the period, `ROW_NUMBER()`
+ * over the survivors, take the row `pctRankSql` names. It is much easier to
+ * read and it was the first version. It also rebuilds the value set thirteen
+ * times, and for first-review hours that set costs a join and a grouping over
+ * 41,000 reviews — 6.3 seconds for the panel on D1, against 400ms for
+ * contributors.
+ *
+ * So the set is built once and the ranking is done thirteen times over it
+ * instead, with a running count of the rows that belong to each period:
+ *
+ *   k_i = SUM(row is in period i) OVER (ORDER BY v ROWS UNBOUNDED PRECEDING)
+ *
+ * For the row at in-period rank `r`, `k_i` first reaches `r`. Rows after it
+ * that are outside the period carry the same `k_i` and a larger `v`, and every
+ * row before it carries a smaller one — so `MIN(v) WHERE k_i = r` is exactly
+ * the row a per-period `ROW_NUMBER()` would have picked.
+ *
+ * `ROWS UNBOUNDED PRECEDING` is load-bearing and not the default. The default
+ * frame is RANGE, which lumps in every row tied on `v` — so a group of three
+ * equal values would jump the running count past a rank sitting inside it, and
+ * the pick would find no row and return NULL. RANGE is right for a great many
+ * things and wrong for counting.
+ *
+ * An empty period yields NULL, which is the `null` the Node panel returns for
+ * the same case; the `n_i > 0` guard is what stops rank 0 from matching every
+ * row that precedes the first in-period one.
  */
-async function periodPercentiles(db, from, to) {
-  const ranked = (name) => `
-    , ${name}_r AS (
-      SELECT v,
-             ROW_NUMBER() OVER (ORDER BY v) AS rn,
-             COUNT(*) OVER () AS n
-        FROM ${name}_v
-    )`;
+async function percentilesAcrossPeriods(db, periods, { with: cte, source, at }, ps) {
+  const inPeriod = `${at} >= ? AND ${at} < ?`;
 
-  const pick = (name, p) =>
-    `(SELECT v FROM ${name}_r WHERE rn = ${pctRankSql("n", p)})`;
+  const counts = periods
+    .map((_, i) => `SUM(${inPeriod}) AS n_${i}`)
+    .join(",\n             ");
 
-  // The period predicate is pushed inside the first-review grouping rather than
-  // applied after it. Grouping every review in the org and then throwing away
-  // the ones outside a one-month window cost 89ms a period, thirteen times
-  // over; filtering the pull requests first leaves an index lookup per PR.
+  const running = periods
+    .map(
+      (_, i) =>
+        `SUM(CASE WHEN ${inPeriod} THEN 1 ELSE 0 END)
+               OVER (ORDER BY v ROWS UNBOUNDED PRECEDING) AS k_${i}`,
+    )
+    .join(",\n             ");
+
+  const picks = periods
+    .flatMap((_, i) =>
+      ps.map(
+        (p) =>
+          `(SELECT MIN(v) FROM ranked
+                WHERE n.n_${i} > 0
+                  AND k_${i} = ${pctRankSql(`n.n_${i}`, p)}) AS p${p}_${i}`,
+      ),
+    )
+    .join(",\n         ");
+
   const sql = `
-    WITH ${firstReview(`${epochSql("p.created_at")} >= ? AND ${epochSql("p.created_at")} < ?`)}
-    , merge_v AS (
-      SELECT ${hoursSql("created_at", "merged_at")} AS v
-        FROM pull_requests
-       WHERE merged_at IS NOT NULL
-         AND ${epochSql("merged_at")} >= ? AND ${epochSql("merged_at")} < ?
-    )
-    , review_v AS (
-      SELECT ${hoursSql("p.created_at", "fr.at")} AS v
-        FROM pull_requests p
-        JOIN first_review fr ON fr.repo = p.repo AND fr.pr_number = p.number
-    )
-    , size_v AS (
-      SELECT additions + COALESCE(deletions, 0) AS v
-        FROM pull_requests
-       WHERE additions IS NOT NULL
-         AND ${epochSql("created_at")} >= ? AND ${epochSql("created_at")} < ?
-    )
-    ${ranked("merge")}${ranked("review")}${ranked("size")}
-    SELECT ${pick("merge", 50)} AS merge_p50,
-           ${pick("merge", 90)} AS merge_p90,
-           ${pick("review", 50)} AS review_p50,
-           ${pick("size", 50)} AS size_p50,
-           ${pick("size", 90)} AS size_p90,
-           (SELECT COUNT(*) FROM size_v) AS sized`;
+    WITH ${cte ? `${cte},\n    ` : ""}vals AS (${source})
+    , n AS (SELECT ${counts} FROM vals)
+    , ranked AS (SELECT v, ${running} FROM vals)
+    SELECT ${periods.map((_, i) => `n.n_${i}`).join(", ")},
+           ${picks}
+      FROM n`;
 
-  return db.prepare(sql).bind(from, to, from, to, from, to).first();
+  const bounds = periodParams(periods);
+  const row = await db
+    .prepare(sql)
+    .bind(...bounds, ...bounds)
+    .first();
+
+  return periods.map((_, i) => ({
+    n: row?.[`n_${i}`] ?? 0,
+    ...Object.fromEntries(ps.map((p) => [`p${p}`, row?.[`p${p}_${i}`] ?? null])),
+  }));
+}
+
+/**
+ * Merge hours, first-review hours and PR sizes — three sets, three orderings,
+ * three queries. A percentile is a position in a sort, and these are sorts of
+ * different things, so they cannot share a pass.
+ *
+ * Each value carries the timestamp that decides which periods it belongs to,
+ * and they are not all the same column: a merge time is counted where it
+ * merged, a review wait and a diff size where the pull request was opened.
+ */
+async function periodPercentiles(db, periods) {
+  const [merge, review, size] = await Promise.all([
+    percentilesAcrossPeriods(
+      db,
+      periods,
+      {
+        source: `SELECT ${hoursSql("created_at", "merged_at")} AS v,
+                        ${epochSql("merged_at")} AS at
+                   FROM pull_requests WHERE merged_at IS NOT NULL`,
+        at: "at",
+      },
+      [50, 90],
+    ),
+    percentilesAcrossPeriods(
+      db,
+      periods,
+      {
+        with: FIRST_REVIEW,
+        source: `SELECT ${hoursSql("p.created_at", "fr.at")} AS v,
+                        ${epochSql("p.created_at")} AS at
+                   FROM pull_requests p
+                   JOIN first_review fr
+                     ON fr.repo = p.repo AND fr.pr_number = p.number`,
+        at: "at",
+      },
+      [50],
+    ),
+    percentilesAcrossPeriods(
+      db,
+      periods,
+      {
+        source: `SELECT additions + COALESCE(deletions, 0) AS v,
+                        ${epochSql("created_at")} AS at
+                   FROM pull_requests WHERE additions IS NOT NULL`,
+        at: "at",
+      },
+      [50, 90],
+    ),
+  ]);
+
+  return periods.map((_, i) => ({
+    merge_p50: merge[i].p50,
+    merge_p90: merge[i].p90,
+    review_p50: review[i].p50,
+    size_p50: size[i].p50,
+    size_p90: size[i].p90,
+    sized: size[i].n,
+  }));
 }
 
 /**
@@ -729,7 +806,7 @@ export async function analytics(db, now = Date.now()) {
 
   const [scalars, quantiles] = await Promise.all([
     periodScalars(db, periods),
-    Promise.all(periods.map((p) => periodPercentiles(db, p.from, p.to))),
+    periodPercentiles(db, periods),
   ]);
 
   const index = new Map(periods.map((p, i) => [p.key, i]));
