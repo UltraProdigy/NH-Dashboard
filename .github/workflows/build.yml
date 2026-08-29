@@ -1,8 +1,22 @@
 name: Build and deploy dashboard
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
+  # Still parked, but no longer for the original reason. Committing data/ was
+  # what made a schedule expensive, and that's gone — the store rides the cache
+  # now and nothing here writes to the repo.
+  #
+  # What keeps it off is minutes. This repo is private, so Actions bills against
+  # the 2,000/month Free allowance rather than the unlimited public pool, and a
+  # build costs 15-90 minutes because the ingest walks all-time history. Even
+  # daily runs sit between 450 and 2,700 minutes a month. Half-hourly is roughly
+  # ten times the budget at best case.
+  #
+  # Two things change the answer: moving the repo into the org makes it public
+  # and the minutes free, and webhooks make this job reconciliation rather than
+  # the freshness mechanism — daily, not 48 times a day.
+  #
+  # schedule:
+  #   - cron: "0 5 * * *"
   workflow_dispatch: {}
   push:
     branches: [main]
@@ -16,9 +30,14 @@ permissions:
   pages: write
   id-token: write
 
+# Never cancel a run in flight. Builds range from 15 to 90 minutes, so
+# cancelling on a new trigger means a long build is killed and restarted
+# forever without ever reaching the cache save — the watermarks would never
+# advance and every run would redo the same work. GitHub keeps at most one run
+# pending per group, so queueing cannot pile up.
 concurrency:
   group: build-data
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

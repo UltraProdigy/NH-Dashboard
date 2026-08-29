@@ -87,14 +87,28 @@ remembering.
 
 ### Builds and Pages
 
-`.github/workflows/build.yml` runs every 30 minutes, on push to `main`, and on
-manual dispatch. It ingests, builds, and deploys `web/` plus the built JSON to
-GitHub Pages.
+`.github/workflows/build.yml` runs on push to `main` and on manual dispatch. It
+ingests, builds, and deploys `web/` plus the built JSON to GitHub Pages.
 
 Nothing is committed. The ingest store used to be, so each run could resume from
 the last watermark, but that made every run a push into an org that broadcasts
 push events — which is why the schedule sat parked. State now rides the Actions
 cache instead, and the workflow holds `contents: read`.
+
+**The schedule is still off, for a different reason than before.** Commits are
+no longer the problem; minutes are. A build costs 15–90 minutes because the
+ingest walks all-time history, and while this repo is private that bills against
+the 2,000/month Free allowance rather than the unlimited public-repo pool. Even
+a daily run is 450–2,700 minutes a month. Moving the repo into the org makes
+those minutes free; webhooks make the job reconciliation rather than the
+freshness mechanism. Either change makes a schedule affordable, and both are
+coming.
+
+**Runs are never cancelled in flight.** With builds sometimes exceeding an hour,
+cancelling on a new trigger would kill a long run before it reached the cache
+save — the watermarks would never advance and each replacement would redo the
+same work indefinitely. GitHub keeps at most one run pending per concurrency
+group, so letting them queue cannot pile up.
 
 **The cache key must be unique per run.** Entries are immutable, so a stable key
 like `ingest-v1` restores on every run and then silently skips the save, freezing
