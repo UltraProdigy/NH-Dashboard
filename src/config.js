@@ -5,7 +5,12 @@
 
 import { execFileSync } from "node:child_process";
 
-export const ORG = process.env.GITHUB_ORG || "GTNewHorizons";
+import { DEFAULT_ORG } from "./shared/analytics-rules.js";
+
+// The default lives in `shared/` because the Worker builds the same PR links
+// and cannot read `process.env` — this file resolves tokens and shells out, so
+// nothing bundled into a Worker can import it.
+export const ORG = process.env.GITHUB_ORG || DEFAULT_ORG;
 
 /**
  * Where the org's managed label set lives.

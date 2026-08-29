@@ -12,65 +12,29 @@
  */
 
 import { readStore } from "../ingest/pullRequests.js";
-import { BOT_PATTERN, ORG } from "../config.js";
+import { ORG } from "../config.js";
 import { WINDOWS } from "./contributors.js";
 import { grossingLists, hasEngagement } from "./grossing.js";
+import { isBot } from "../shared/contributor-rules.js";
+import {
+  BACKLOG_BUCKETS,
+  DAY_SERIES_DAYS,
+  GROSSING_ORG_N,
+  HEATMAP_DAYS,
+  dayKey,
+  monthKey,
+  pct,
+  round1,
+  weekKey,
+} from "../shared/analytics-rules.js";
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
-/**
- * How stale an open PR has to be before it lands in each backlog bucket.
- * Exported so the per-repo drilldown buckets identically — two copies of this
- * list would drift, and then the org total wouldn't equal the sum of the repos.
- */
-export const BACKLOG_BUCKETS = [
-  { label: "< 1 week", max: 7 },
-  { label: "1–4 weeks", max: 30 },
-  { label: "1–3 months", max: 90 },
-  { label: "3–12 months", max: 365 },
-  { label: "> 1 year", max: Infinity },
-];
-
-const isBot = (login) => !login || BOT_PATTERN.test(login);
-
-/** Linear-interpolation-free percentile. Good enough for a dashboard. */
-function pct(sorted, p) {
-  if (!sorted.length) return null;
-  const i = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[i];
-}
-
-const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
-
-/** ISO-ish week key: 2026-W32. Weeks start Monday, matching GitHub's charts. */
-function weekKey(d) {
-  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dow = (t.getUTCDay() + 6) % 7; // Mon = 0
-  t.setUTCDate(t.getUTCDate() - dow + 3); // nearest Thursday defines the year
-  const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round((t - firstThu) / (7 * DAY));
-  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-const monthKey = (d) =>
-  `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-
-/** 2026-08-10. Sorts lexically, same as the week and month keys. */
-const dayKey = (d) => d.toISOString().slice(0, 10);
-
-/**
- * How far back the daily series reaches.
- *
- * The org's history starts in 2014, so an all-time daily series would be ~4,300
- * buckets — roughly 800 KB in a file that's committed on every build, for a
- * chart nobody can read at that width. Two years is 730 buckets (~135 KB) and
- * covers every case where a day-by-day view answers something a weekly one
- * doesn't. The frontend reads `series.dayFrom` and says so when the selected
- * period reaches further back than the data does, rather than quietly plotting
- * a shorter span than the control claims.
- */
-export const DAY_SERIES_DAYS = 730;
+// The definitions moved to `shared/analytics-rules.js` when the panel gained a
+// SQL twin. Re-exported because the drilldown reads the backlog buckets from
+// here and the frontend the day span, and neither should have to know that.
+export { BACKLOG_BUCKETS, DAY_SERIES_DAYS };
 
 /**
  * Accumulator for one time bucket. `authors` is a Set while building and gets
@@ -323,7 +287,7 @@ export async function analytics() {
     }
 
     // ---- heatmap (last 365 days only) ----
-    if (now - created <= 365 * DAY && !bot) {
+    if (now - created <= HEATMAP_DAYS * DAY && !bot) {
       heat[(created.getUTCDay() + 6) % 7][created.getUTCHours()]++;
     }
 
@@ -478,7 +442,7 @@ export async function analytics() {
     },
     // Ten rather than the repo drilldown's five: this is the org-wide board and
     // a top 5 across 1,400 repos is almost entirely one repo's greatest hits.
-    grossing: grossingLists(gross, 10),
+    grossing: grossingLists(gross, GROSSING_ORG_N),
     heatmap: heat,
   };
 }
