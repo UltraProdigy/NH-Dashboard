@@ -9,6 +9,7 @@
     "build": "node --env-file-if-exists=.env src/build.js",
     "build:fresh": "node --env-file-if-exists=.env src/build.js --no-cache",
     "ingest": "node --env-file-if-exists=.env src/ingest.js --no-cache",
+    "verify:app": "node --env-file-if-exists=.env scripts/verify-app.js",
     "serve": "node --env-file-if-exists=.env src/serve.js"
   },
   "engines": {
