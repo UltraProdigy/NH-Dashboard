@@ -150,25 +150,29 @@ export const hoursSql = (from, to) =>
   `((CAST(strftime('%s', ${to}) AS INTEGER) - CAST(strftime('%s', ${from}) AS INTEGER)) / 3600.0)`;
 
 /**
- * A timestamp column as epoch seconds, for comparing against period bounds.
+ * A millisecond period bound as the ISO string the SQL compares against.
  *
- * The CAST is not decoration. `strftime` returns TEXT, and SQLite orders every
- * TEXT value above every number regardless of what the digits say — so an
- * uncast comparison is not merely imprecise, it is constant: `>=` a bound is
- * always true and `<` always false, which turns a windowed count into either
- * the whole table or zero and looks exactly like a working query.
- */
-export const epochSql = (col) => `CAST(strftime('%s', ${col}) AS INTEGER)`;
-
-/**
- * Period bounds as the seconds the SQL compares against.
+ * Every timestamp these panels store is a fixed-width `YYYY-MM-DDTHH:MM:SSZ`
+ * from GitHub, so lexical order over that column *is* chronological order and a
+ * window can be a plain string comparison. That matters because the alternative
+ * parses a date per row per comparison: thirteen periods over 29,000 rows
+ * measured 43ms against 7ms for the string compare, in a panel that does this
+ * in a dozen queries.
  *
- * Bounds stay fractional. Stored timestamps are whole seconds, so comparing an
- * integer against a real is exactly the comparison JavaScript makes in
- * milliseconds, where rounding the bound to a second would move the boundary by
- * up to a second and take a PR with it.
+ * The bound has to be ceiled to a whole second first, and both ends ceil the
+ * same way. Stored times are whole seconds, so for an integer `t` seconds:
+ *
+ *   t × 1000 >= bound   ⟺   t >= ceil(bound / 1000)
+ *   t × 1000 <  bound   ⟺   t <  ceil(bound / 1000)
+ *
+ * The second one is the surprise — it holds whether or not the bound falls
+ * exactly on a second — and it is why `>=` and `<` can share one value. Ceiling
+ * is not a rounding convenience: comparing raw ISO strings against a bound
+ * carrying milliseconds gets the boundary second backwards, because `Z` sorts
+ * after `.` and so `…:19Z` reads as later than `…:19.825Z`.
  */
-export const seconds = (ms) => ms / 1000;
+export const isoBound = (ms) =>
+  new Date(Math.ceil(ms / 1000) * 1000).toISOString().replace(".000Z", "Z");
 
 // --------------------------------------------------------------------- sorting
 

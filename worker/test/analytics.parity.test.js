@@ -37,7 +37,11 @@ import { tmpdir } from "node:os";
 
 import { analytics } from "../src/panels/analytics.js";
 import { BOT_PATTERN, isBotSql } from "../../src/shared/contributor-rules.js";
-import { weekKey, weekKeySql } from "../../src/shared/analytics-rules.js";
+import {
+  isoBound,
+  weekKey,
+  weekKeySql,
+} from "../../src/shared/analytics-rules.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..", "..");
@@ -155,22 +159,68 @@ function checkBotRule(db) {
  * a fraction. `ingest_state.at` does — it is written locally, not by GitHub —
  * so this asks the columns that matter rather than the whole database.
  */
-function checkSecondPrecision(db) {
+function checkTimestampShape(db) {
   const cols = [
     ["pull_requests", "created_at"],
     ["pull_requests", "merged_at"],
     ["pull_requests", "updated_at"],
     ["reviews", "submitted_at"],
   ];
+  // Fixed width and no fraction, both load-bearing: the fraction is what makes
+  // the duration arithmetic exact, and the fixed width is what makes lexical
+  // order chronological, which every period comparison in the panel now relies
+  // on. A single 'Z'-less or millisecond-carrying row would break the second
+  // silently, and only for rows near a boundary.
   const bad = cols.filter(
     ([t, c]) =>
-      db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${c} LIKE '%.%'`).get().n >
-      0,
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM ${t}
+            WHERE ${c} IS NOT NULL
+              AND (${c} LIKE '%.%' OR length(${c}) <> 20 OR ${c} NOT LIKE '%Z')`,
+        )
+        .get().n > 0,
   );
   check(
-    "no duration column carries sub-second precision",
+    "every compared timestamp is a fixed-width whole-second ISO string",
     bad.length === 0,
     bad.map(([t, c]) => `${t}.${c}`).join(", "),
+  );
+}
+
+/**
+ * `isoBound` must turn a millisecond bound into a string comparison that agrees
+ * with the millisecond one, on both sides of the window.
+ *
+ * The interesting cases are the boundary second itself and the millisecond
+ * either side of it, which is where a naive ISO comparison gets it backwards —
+ * 'Z' sorts after '.', so a raw bound of `…:19.825Z` reads as *earlier* than a
+ * stored `…:19Z` that is genuinely before it.
+ */
+function checkIsoBound(db) {
+  const stamps = db
+    .prepare(
+      `SELECT created_at AS t FROM pull_requests
+        ORDER BY created_at DESC LIMIT 400`,
+    )
+    .all()
+    .map((r) => r.t);
+
+  const diffs = [];
+  for (const t of stamps) {
+    const ms = Date.parse(t);
+    for (const offset of [-1001, -1000, -999, -1, 0, 1, 999, 1000, 1001]) {
+      const bound = ms + offset;
+      const b = isoBound(bound);
+      if ((t >= b) !== (ms >= bound)) diffs.push(`${t} >= ${bound}: ${t >= b}`);
+      if ((t < b) !== (ms < bound)) diffs.push(`${t} < ${bound}: ${t < b}`);
+    }
+  }
+
+  check(
+    `isoBound agrees with millisecond comparison across ${stamps.length} timestamps`,
+    diffs.length === 0,
+    diffs.slice(0, 3).join("; "),
   );
 }
 
@@ -287,7 +337,8 @@ async function main() {
 
   checkWeekKey(db);
   checkBotRule(db);
-  checkSecondPrecision(db);
+  checkTimestampShape(db);
+  checkIsoBound(db);
 
   const started = Date.now();
   const got = await analytics(d1(db), now);

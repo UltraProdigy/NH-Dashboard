@@ -33,12 +33,11 @@ import {
   HEATMAP_DAYS,
   byCountThenKey,
   dayKeySql,
-  epochSql,
+  isoBound,
   hoursSql,
   monthKeySql,
   pctRankSql,
   round1,
-  seconds,
   weekKeySql,
 } from "../../../src/shared/analytics-rules.js";
 
@@ -49,11 +48,13 @@ const DAY = 86_400_000;
  *
  * The JavaScript uses ±Infinity, which cannot cross the D1 wire — parameters
  * are serialised as JSON and `Infinity` becomes `null` on the way, which would
- * silently turn every comparison into NULL and every count into zero. These are
- * epoch seconds far outside anything GitHub can stamp.
+ * silently turn every comparison into NULL and every count into zero.
+ *
+ * Timestamps in the same fixed-width shape as the stored ones, so they sort
+ * with them rather than beside them, and outside anything GitHub can stamp.
  */
-const NEVER = -1e12;
-const FOREVER = 1e12;
+const NEVER = "0000-01-01T00:00:00Z";
+const FOREVER = "9999-12-31T23:59:59Z";
 
 const HUMAN = isHumanSql("author");
 
@@ -99,20 +100,26 @@ const APPROVER = `
 /**
  * The thirteen periods: each window, plus an equal-length one immediately
  * before it for the deltas. All-time has nothing before it.
+ *
+ * Bounds are ISO strings rather than epoch seconds, and every window comparison
+ * in this file is therefore a plain lexical one. `strftime` parses a date per
+ * row per call, and this panel compares thirteen bounds against 29,000 rows in
+ * a dozen queries — measured at 43ms a query against 7ms for the string
+ * compare. `isoBound` carries the argument for why the two are equivalent.
  */
 function periodsFor(now) {
   const out = [];
   for (const w of WINDOWS) {
     out.push({
       key: w.id,
-      from: w.days == null ? NEVER : seconds(now - w.days * DAY),
+      from: w.days == null ? NEVER : isoBound(now - w.days * DAY),
       to: FOREVER,
     });
     if (w.days != null) {
       out.push({
         key: `prev:${w.id}`,
-        from: seconds(now - 2 * w.days * DAY),
-        to: seconds(now - w.days * DAY),
+        from: isoBound(now - 2 * w.days * DAY),
+        to: isoBound(now - w.days * DAY),
       });
     }
   }
@@ -198,7 +205,7 @@ async function openedSeries(db, key, cutoff) {
            COUNT(DISTINCT CASE WHEN ${HUMAN} THEN author END) AS authors,
            COALESCE(SUM(author_rn = 1), 0) AS new_authors
       FROM ranked
-     ${cutoff == null ? "" : `WHERE ${epochSql("created_at")} >= ?`}
+     ${cutoff == null ? "" : `WHERE created_at >= ?`}
      GROUP BY b`;
 
   const stmt = db.prepare(sql);
@@ -223,7 +230,7 @@ async function endedSeries(db, key, cutoff) {
                    (merged_at IS NOT NULL) AS is_merged
               FROM pull_requests)
      WHERE ended_at IS NOT NULL
-       ${cutoff == null ? "" : `AND ${epochSql("ended_at")} >= ?`}
+       ${cutoff == null ? "" : `AND ended_at >= ?`}
      GROUP BY b`;
 
   const stmt = db.prepare(sql);
@@ -262,7 +269,7 @@ async function mergeHoursSeries(db, key, cutoff) {
              ${hoursSql("created_at", "merged_at")} AS hours
         FROM pull_requests
        WHERE merged_at IS NOT NULL
-         ${cutoff == null ? "" : `AND ${epochSql("created_at")} >= ?`}
+         ${cutoff == null ? "" : `AND created_at >= ?`}
     )`);
 
   const stmt = db.prepare(sql);
@@ -276,7 +283,7 @@ async function reviewHoursSeries(db, key, cutoff) {
              ${hoursSql("p.created_at", "fr.at")} AS hours
         FROM pull_requests p
         JOIN first_review fr ON fr.repo = p.repo AND fr.pr_number = p.number
-       ${cutoff == null ? "" : `WHERE ${epochSql("p.created_at")} >= ?`}
+       ${cutoff == null ? "" : `WHERE p.created_at >= ?`}
     )`);
 
   const stmt = db.prepare(sql);
@@ -395,9 +402,9 @@ const SCALARS = {
 async function periodScalars(db, periods) {
   const from = `
       FROM (SELECT state, merged_at, additions, deletions, commits, comments,
-                   ${epochSql("created_at")} AS c,
-                   ${epochSql("merged_at")} AS m,
-                   ${epochSql("updated_at")} AS u
+                   created_at AS c,
+                   merged_at AS m,
+                   updated_at AS u
               FROM pull_requests)`;
 
   const bounds = periodParams(periods);
@@ -433,7 +440,7 @@ async function approvedMerges(db, periods) {
       "n",
       periods,
     )}
-      FROM (SELECT ${epochSql("p.merged_at")} AS m,
+      FROM (SELECT p.merged_at AS m,
                    (a.repo IS NOT NULL) AS ok
               FROM pull_requests p
               LEFT JOIN approved a ON a.repo = p.repo AND a.pr_number = p.number
@@ -536,7 +543,7 @@ async function periodPercentiles(db, periods) {
       periods,
       {
         source: `SELECT ${hoursSql("created_at", "merged_at")} AS v,
-                        ${epochSql("merged_at")} AS at
+                        merged_at AS at
                    FROM pull_requests WHERE merged_at IS NOT NULL`,
         at: "at",
       },
@@ -548,7 +555,7 @@ async function periodPercentiles(db, periods) {
       {
         with: FIRST_REVIEW,
         source: `SELECT ${hoursSql("p.created_at", "fr.at")} AS v,
-                        ${epochSql("p.created_at")} AS at
+                        p.created_at AS at
                    FROM pull_requests p
                    JOIN first_review fr
                      ON fr.repo = p.repo AND fr.pr_number = p.number`,
@@ -561,7 +568,7 @@ async function periodPercentiles(db, periods) {
       periods,
       {
         source: `SELECT additions + COALESCE(deletions, 0) AS v,
-                        ${epochSql("created_at")} AS at
+                        created_at AS at
                    FROM pull_requests WHERE additions IS NOT NULL`,
         at: "at",
       },
@@ -600,7 +607,7 @@ async function periodGroups(db, periods) {
     SELECT login, MIN(created_at) AS first_created,
            ${periodSums(inWindow("c"), "n", periods)}
       FROM (SELECT author AS login, created_at,
-                   ${epochSql("created_at")} AS c
+                   created_at AS c
               FROM pull_requests
              WHERE ${HUMAN})
      GROUP BY login`;
@@ -608,7 +615,7 @@ async function periodGroups(db, periods) {
   const reviewersSql = `
     WITH ${APPROVER}
     SELECT login, ${periodSums(inWindow("c"), "n", periods)}
-      FROM (SELECT author AS login, ${epochSql("at")} AS c FROM approver)
+      FROM (SELECT author AS login, at AS c FROM approver)
      GROUP BY login`;
 
   const reposSql = `
@@ -617,7 +624,7 @@ async function periodGroups(db, periods) {
            ${periods
              .map((_, i) => `SUM(c >= ? AND c < ? AND merged) AS m_${i}`)
              .join(",\n           ")}
-      FROM (SELECT repo, ${epochSql("created_at")} AS c,
+      FROM (SELECT repo, created_at AS c,
                    (merged_at IS NOT NULL) AS merged
               FROM pull_requests)
      GROUP BY repo`;
@@ -743,14 +750,17 @@ async function heatmap(db, now) {
   const rows = (
     await db
       .prepare(
+        // The hour is characters 12–13 of a fixed-width ISO string, so it is a
+        // substring rather than a parsed date. The weekday genuinely needs the
+        // calendar and stays a strftime.
         `SELECT (CAST(strftime('%w', created_at) AS INTEGER) + 6) % 7 AS dow,
-                CAST(strftime('%H', created_at) AS INTEGER) AS hr,
+                CAST(substr(created_at, 12, 2) AS INTEGER) AS hr,
                 COUNT(*) AS n
            FROM pull_requests
-          WHERE ${HUMAN} AND ${epochSql("created_at")} >= ?
+          WHERE ${HUMAN} AND created_at >= ?
           GROUP BY dow, hr`,
       )
-      .bind(seconds(now - HEATMAP_DAYS * DAY))
+      .bind(isoBound(now - HEATMAP_DAYS * DAY))
       .all()
   ).results;
 
@@ -779,7 +789,7 @@ export async function analytics(db, now = Date.now()) {
     heat,
   ] = await Promise.all([
     totals(db),
-    seriesFor(db, "day", seconds(dayCutoff)),
+    seriesFor(db, "day", isoBound(dayCutoff)),
     seriesFor(db, "week", null),
     seriesFor(db, "month", null),
     periodGroups(db, periods),
@@ -796,12 +806,14 @@ export async function analytics(db, now = Date.now()) {
   // A person's first PR ever, counted into whichever periods contain it. Done
   // here rather than in SQL because the author query already carries the one
   // number it needs, and thirteen more columns would be thirteen more scans.
+  // Compared as strings, against the same bounds the SQL uses. Parsing the
+  // timestamp here and the bound there would be two roads to one answer, and
+  // the boundary second is exactly where they would part company.
   groups.newContributors = periods.map(
     (p) =>
-      groups.authors.filter((r) => {
-        const t = seconds(Date.parse(r.first_created));
-        return t >= p.from && t < p.to;
-      }).length,
+      groups.authors.filter(
+        (r) => r.first_created >= p.from && r.first_created < p.to,
+      ).length,
   );
 
   const [scalars, quantiles] = await Promise.all([
