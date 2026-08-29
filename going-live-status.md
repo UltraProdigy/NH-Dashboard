@@ -291,9 +291,24 @@ bound is ceiled to a whole second, which both ends of the window do identically.
 boundary second and a millisecond either side, because comparing against a raw
 millisecond bound gets that one second backwards: `Z` sorts after `.`.
 
-**Local rebuild: 2,451ms → 1,314ms.** Which is a bigger cut than the 15–25% that
-was predicted, and predictions have not been reliable here, so the production
-number is again the one that counts.
+**Local rebuild 2,451ms → 1,314ms; production 5,102ms → 3,080ms.** Half of the
+original 6,306ms, and the panel is done being optimised — what is left is real
+work rather than waste.
+
+**D1 runs this workload at about 2.2× the local replica.** Two measurements:
+2,451 → 5,102 and 1,314 → 3,080. That ratio is the most reusable thing to come
+out of the exercise, because it means the four remaining panels can be tuned
+against `node:sqlite` and multiplied, rather than spending a deploy per
+hypothesis the way this one did. It also settles the older worry in the other
+direction: a local replica cannot prove *dialect*, but it turns out to predict
+*cost* well enough to work from.
+
+Headroom that was deliberately left, in order of size, if a future panel makes
+the recompute too slow as a whole: the week-key expression (37ms a query
+locally, in six queries), the `approver` CTE built twice, and `periodScalars`'
+seven scans of 29,000 rows, which could be one query of 91 columns if D1's
+column limit allows it — untested, and the compound-SELECT lesson says do not
+assume.
 
 **Top-N lists now break ties on the key.** `topRepos`, `topAuthors` and
 `topReviewers` sorted on count alone, so tied entries came out in store order

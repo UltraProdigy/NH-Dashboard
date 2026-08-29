@@ -14,32 +14,28 @@ The ingest pipeline is live and unattended. GitHub events reach a Cloudflare
 Worker, land in D1, and a cron rebuilds cached panels every ten minutes. Two
 panels — `contributors` and `analytics` — are ported to SQL, proven identical to
 the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one:
-it deployed, rebuilt in 6.3 seconds, and has since been through two rounds of
-making that faster — the second of which is committed and not yet deployed, so
-the first thing below is a deploy. Four panels remain, and the next, `issues`,
-is ordinary work by comparison.
+it deployed at 6.3 seconds and came down to 3.1 over two rounds. Everything
+committed is deployed and nothing is outstanding. Four panels remain, and the
+next, `issues`, is ordinary work by comparison.
 
-## Do this first
+## State of play
 
-`analytics` deployed at **6,306ms**, then **5,102ms** after the percentile
-rewrite. A third change — every period comparison as a string rather than a
-parsed date — took the local rebuild from 2,451ms to 1,314ms and has not been
-deployed.
+Everything committed is deployed. Version 19, both panels built, nothing failed.
 
-```
-cd worker && npx wrangler deploy
-curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
-```
+| Panel | Cached | Rebuild |
+|---|---|---|
+| `contributors` | 737 KB | 437ms |
+| `analytics` | 287 KB | 3,080ms |
 
-Read `built.analytics.ms`. Two theories about where the time went were wrong
-before this one was measured rather than guessed, so treat any number below as
-provisional until this prints. If it is still above ~3s, the remaining leads in
-order of expected size are the week-key expression (37ms a query locally, and it
-appears in six), the `approver` CTE built twice, and `periodScalars`' seven
-scans, which could be one query of 91 columns if D1's column limit turns out to
-allow it.
+`analytics` started at 6,306ms and came down in two rounds. It is done being
+optimised — what is left is real work, not waste.
 
-Then open the dashboard and confirm the header reads "2 panels live".
+The one thing worth carrying forward: **D1 runs this workload at about 2.2× the
+local `node:sqlite` replica** — measured twice, 2,451 → 5,102 and 1,314 → 3,080.
+So the remaining panels can be tuned locally and multiplied, instead of spending
+a deploy per hypothesis, which is what the first two rounds here cost.
+
+Not yet confirmed in a browser: the header should read "2 panels live".
 
 ## Live infrastructure
 
@@ -70,7 +66,7 @@ issues. `traffic_daily` is still 0 — the deferred half of the seed split.
 - Top-N ties now break on the key, in both implementations
 - `analytics` registered in `recompute.js` and `LIVE_PANELS`
 
-Eighteen commits this session, none pushed. Nothing has been pushed at any point.
+Nineteen commits this session, none pushed. Nothing has been pushed at any point.
 
 ## Next task: port `issues`
 
@@ -107,7 +103,10 @@ theories about this panel's 6.3 seconds — the repeated first-review grouping,
 then per-query round-trip cost — were wrong, and each cost a rewrite and a
 deploy. A temporary `/api/probe` settled the second in one deploy: round trips
 are ~9ms, `Promise.all` does overlap them, and 33 of them cost 73ms together.
-The third theory was measured locally first and was worth 46%.
+The third theory was measured locally first and was worth 40%.
+
+The local replica predicts D1 at ~2.2×, so there is no excuse for guessing:
+profile against `node:sqlite`, and only deploy once the local number has moved.
 
 **±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
 `Infinity` becomes `null`, which makes every comparison NULL. All-time binds a
@@ -180,8 +179,6 @@ Detailed in `going-live-status.md`.
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md` in the repo. Deploy the worker and
-> force a recompute first — there is a committed fix for a 6.3 second rebuild
-> that has not been deployed, and the response tells us whether it worked. Then
-> port the `issues` panel, following `worker/src/panels/analytics.js` and writing
-> the parity test first.
+> Read `handoff.md` and `going-live-status.md` in the repo, then port the
+> `issues` panel to D1, following the pattern in
+> `worker/src/panels/analytics.js`. Write the parity test first.
