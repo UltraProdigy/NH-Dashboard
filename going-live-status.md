@@ -237,13 +237,35 @@ The pattern each remaining panel follows:
    same numbers drift silently, and a wrong leaderboard looks exactly like a
    right one
 
+**Reusing the Node panels inside the Worker was measured and rejected.** The
+tempting shortcut — rebuild the store from D1, call the existing, proven panel
+function — costs 96 MB of heap against a Worker's 128 MB ceiling, for pull
+requests alone, before the panel allocates an accumulator and before the
+drilldown adds 26,513 issues. Paid lifts CPU, not memory. So the panels are
+reimplemented in SQL rather than moved, and the parity test is what makes that
+survivable.
+
 Still to port: `analytics`, `issues`, `issueMetrics`, `activeDays`, `drilldown`.
 Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
 `pullRequests` — each needs a live GitHub call, so no amount of D1 helps. That
 split is the end state, not a migration half-finished.
 
-Then: frontend polling of `/api/version`, deploy automation, and loading
-`traffic_daily`, which was the deferred half of the seed split.
+**The frontend reads live panels already.** `web/js/live.js` loads
+`data/dashboard.json` as before, then overlays the ported panels from the Worker
+and re-overlays when `/api/version` moves. Confirmed in a browser: the header
+reads "1 panel live", both API calls return 200, contributor numbers come from
+D1.
+
+The static file stays the floor rather than being replaced, and that is the
+design, not a stepping stone. A Worker that is down, blocked or slow costs
+freshness only — the page still renders from data at worst as old as the last
+build. Fetching panels from the API alone would have made an API outage a blank
+dashboard. Polling pauses on a hidden tab and every fetch has a timeout.
+
+Adding a panel to the live set is one entry in `LIVE_PANELS`.
+
+Then: deploy automation, and loading `traffic_daily`, which was the deferred
+half of the seed split.
 
 **Ties in the leaderboard are now broken by login.** 497 of 1,214 people share a
 score of 1, and their order was previously whatever the store yielded, so the
