@@ -39,8 +39,22 @@ narrowed to `data/*.json`.
 - **Schema and seed are loaded remotely and verified**: 29,091 pull requests,
   41,239 reviews, 26,513 issues. Traffic is not loaded — it was the deferred
   half of the split, and see the write ceiling note below
-- The Worker is written and tested but **not deployed**, and no webhook is
-  configured
+
+**The Worker is deployed and the webhook is configured.**
+
+- `https://nh-dashboard.gtnh.workers.dev`, on the account's `gtnh.workers.dev`
+  subdomain. The subdomain is account-wide, not per-Worker, and renaming it
+  would break every URL under it including the webhook
+- `/api/health` answers from production with the seed counts, which is the
+  D1 binding proving itself rather than just the deploy succeeding
+- `GITHUB_WEBHOOK_SECRET` is set as a production secret, matching
+  `worker/.dev.vars`
+- The App subscribes the eight events and the ping is green
+
+**Workers publishing is gated on a verified account email; D1 is not.** The seed
+loaded happily hours before the first deploy failed with code 10034. Worth
+knowing because the error arrives after a successful bundle upload and reads
+like a code fault.
 
 ---
 
@@ -158,30 +172,25 @@ shape. This was five days from ageing out of the retention window unseen.
 
 ## Next
 
-**Start here.** Deploying is free; the writes are what to watch.
+**One thing outstanding before the pipe is proven end to end.** Take a real
+action in a low-traffic repo after the daily write reset at 00:00 UTC, then
+confirm `/api/health` moves. A green ping is not this proof: the ping handler
+returns 200 without touching D1, so it passes even with the write budget spent.
 
-1. `cd worker && npx wrangler deploy` — gives the Worker its URL
-2. `npx wrangler secret put GITHUB_WEBHOOK_SECRET` — the same value that is in
-   `worker/.dev.vars`
-3. In the App's settings: webhook URL `https://<worker>.workers.dev/webhook`,
-   the same secret, and subscribe `pull_request`, `pull_request_review`,
-   `issues`, `issue_comment`, `push`, `workflow_run`, `release`, `repository`.
-   Events currently read `(none)` — that is expected, not a fault
-4. Confirm the ping goes green, then watch a real event land
+Deliveries arriving while the budget is spent return 200 and write nothing,
+which looks like success. They are not lost — GitHub retains the payloads and
+each one has a **Redeliver** button in the App's Recent Deliveries — and the
+all-time ingest would catch them regardless.
 
-**The write ceiling gates step 4, not the earlier ones.** The seed spent roughly
-4.4× a day's free writes, so deliveries arriving today may fail to persist —
-they would return 200 and write nothing, which looks like success. Either wait
-for the daily reset, or take a month of Workers Paid. Deploy and webhook config
-can happen either way.
-
-Deploy must be run from a machine logged in to Cloudflare — the credentials are
+Deploy must be run from a machine logged in to Cloudflare. The credentials are
 local to the operator, and `node_modules` holds platform-specific `workerd`
 binaries, so it does not run from an arbitrary environment.
 
 Then the bulk of Phase D: port panels to D1 queries, debounced recompute,
 `/api/version`, frontend polling, deploy automation. Also still outstanding:
 loading `traffic_daily`, which was the deferred half of the seed split.
+
+Phase E is unblocked — see the private-repo decision above.
 
 **First CI run of the new workflow needs checking** — confirm the post-job cache
 save appears. Until it does, `git rm -r --cached data/` should wait.
