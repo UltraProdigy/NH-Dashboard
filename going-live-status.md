@@ -251,5 +251,27 @@ bottom two-thirds reshuffled on every build for no reason.
 
 Phase E is unblocked — see the private-repo decision above.
 
+---
+
+## Found, parked for QA
+
+Deliberately not fixed yet. Shipping first, then a QA pass.
+
+**The Leaderboard orders by the wrong period.** The card reads "by activity,
+last 6 months" and every column is windowed, but the rows arrive in all-time
+order and `contributorRows()` filters without re-sorting — `sortRows` only bites
+once the tab is expanded and a column is clicked. So Dream-Master, with 20 PRs
+in six months, outranks UltraProdigy's 374 on a card claiming to rank six
+months. True of every window except All.
+
+Predates the port. Breaking ties by login made it *stable*, which is how it
+became visible. Either sort by the selected window, or change the subtitle to
+say the ranking is all-time — the first is one line, the second is honest about
+the current behaviour, and which is right is a product question.
+
+**Six panels in `data/dashboard.json` are empty** — approvedUnmerged,
+changesRequested, byLabel, needsRelease, depUpdates, ciHealth. A build was run
+without a token. `npm run build` with one restores them; nothing is lost.
+
 **First CI run of the new workflow needs checking** — confirm the post-job cache
 save appears. Until it does, `git rm -r --cached data/` should wait.
