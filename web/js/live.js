@@ -25,7 +25,7 @@ import { state } from "./state.js";
  * depUpdates, needsRelease, the pull request panels — since D1 cannot answer
  * for those at all.
  */
-const LIVE_PANELS = ["contributors"];
+const LIVE_PANELS = ["contributors", "analytics"];
 
 /**
  * Where the API lives.

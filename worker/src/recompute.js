@@ -10,6 +10,7 @@
  * there is nothing to rebuild, and the whole invocation is one read.
  */
 
+import { analytics } from "./panels/analytics.js";
 import { contributors } from "./panels/contributors.js";
 
 /**
@@ -20,7 +21,7 @@ import { contributors } from "./panels/contributors.js";
  * GitHub call, so they stay in the Node build and reach the frontend the old
  * way. That split is expected to persist, not a migration half-done.
  */
-const PANELS = { contributors };
+const PANELS = { contributors, analytics };
 
 export async function recompute(env, { force = false } = {}) {
   const dirty = await env.DB.prepare(

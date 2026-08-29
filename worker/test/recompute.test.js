@@ -100,7 +100,11 @@ async function main() {
   setDirty(db, 1);
   const run = await recompute(env);
   check("contributors was built", !!run.built?.contributors);
+  check("analytics was built", !!run.built?.analytics);
   check("nothing failed", Object.keys(run.failed ?? {}).length === 0, JSON.stringify(run.failed));
+  for (const [name, r] of Object.entries(run.built ?? {})) {
+    console.log(`        ${name}: ${(r.bytes / 1024).toFixed(0)} KB in ${r.ms}ms`);
+  }
   check("dirty cleared", get(db, "dirty") === "0");
   check("version bumped to 1", get(db, "version") === "1", get(db, "version"));
 
@@ -132,6 +136,9 @@ async function main() {
   };
   const afterFail = await recompute(broken);
   check("failure is reported", !!afterFail.failed?.contributors);
+  // The claim in recompute.js that one panel failing does not cost the others
+  // their rebuild is only assertable now that there is more than one panel.
+  check("the other panels still built", !!afterFail.built?.analytics);
   check("dirty still cleared", get(db, "dirty") === "0");
   check("previous blob still served", !!db.prepare("SELECT json FROM panel_cache WHERE name='contributors'").get()?.json);
 
