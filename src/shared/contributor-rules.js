@@ -32,14 +32,57 @@ export const WINDOWS = [
 ];
 
 /**
+ * Named bot accounts, as prefixes. GitHub Apps are caught separately by their
+ * "[bot]" suffix.
+ *
+ * A list rather than a literal regex because the rule now has to exist in two
+ * languages — SQLite has no regex, so the Worker's panels need it as a LIKE
+ * predicate. Building both from one array is what stops them from drifting.
+ */
+const BOT_PREFIXES = [
+  "dependabot",
+  "github-actions",
+  "renovate",
+  "codecov",
+  "mergify",
+  "stale",
+];
+
+/**
  * Logins matching this are excluded from contributor stats.
  * GitHub Apps show up with a "[bot]" suffix; the rest are named explicitly.
  */
-export const BOT_PATTERN =
-  /(\[bot\]$|^dependabot|^github-actions|^renovate|^codecov|^mergify|^stale)/i;
+export const BOT_PATTERN = new RegExp(
+  `(\\[bot\\]$|${BOT_PREFIXES.map((p) => `^${p}`).join("|")})`,
+  "i",
+);
 
 /** A missing login is not a person either — deleted accounts land here. */
 export const isBot = (login) => !login || BOT_PATTERN.test(login);
+
+/**
+ * `isBot` as a SQL predicate over one column.
+ *
+ * SQLite's LIKE is case-insensitive over ASCII, which is what the regex's `i`
+ * flag buys, and `[` and `]` carry no special meaning in a LIKE pattern — only
+ * `%` and `_` do — so the bot suffix can be matched literally.
+ *
+ * Anchoring differs from the regex only where the regex is already anchored:
+ * the prefixes are `^`-anchored and become `prefix%`, the suffix is `$`-anchored
+ * and becomes `%[bot]`. The parity test runs both over every author in the seed
+ * and asserts they agree, because "close enough" here means a login counted on
+ * one side of the dashboard and excluded on the other.
+ */
+export function isBotSql(column) {
+  const likes = [
+    `${column} LIKE '%[bot]'`,
+    ...BOT_PREFIXES.map((p) => `${column} LIKE '${p}%'`),
+  ];
+  return `(${column} IS NULL OR ${likes.join(" OR ")})`;
+}
+
+/** The negation, which is what most predicates actually want. */
+export const isHumanSql = (column) => `NOT ${isBotSql(column)}`;
 
 /**
  * Leaderboard order: activity descending, login ascending to break ties.
