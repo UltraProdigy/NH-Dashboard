@@ -169,3 +169,27 @@ export const epochSql = (col) => `CAST(strftime('%s', ${col}) AS INTEGER)`;
  * up to a second and take a PR with it.
  */
 export const seconds = (ms) => ms / 1000;
+
+// --------------------------------------------------------------------- sorting
+
+/**
+ * Count descending, key ascending.
+ *
+ * The tiebreak is the same fix the leaderboard needed. A top-8 sorted on count
+ * alone leaves ties in whatever order the store yielded, so a list reshuffles
+ * between builds because somebody unrelated opened a pull request — and once
+ * the panel exists in two languages, "whatever order the store yielded" is not
+ * a thing the other one can reproduce at all.
+ *
+ * Compared with `<` rather than `localeCompare` so two runtimes in two locales
+ * cannot disagree about the answer.
+ */
+export function byCountThenKey(keyOf, countOf) {
+  return (a, b) => {
+    const diff = countOf(b) - countOf(a);
+    if (diff !== 0) return diff;
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  };
+}

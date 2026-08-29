@@ -21,6 +21,7 @@ import {
   DAY_SERIES_DAYS,
   GROSSING_ORG_N,
   HEATMAP_DAYS,
+  byCountThenKey,
   dayKey,
   monthKey,
   pct,
@@ -338,10 +339,14 @@ export async function analytics() {
     }
   }
 
+  // Ties break on the key, not on store order. Without it a top-8 reshuffles
+  // between builds because somebody unrelated opened a pull request, and the
+  // SQL twin has no way to reproduce whatever order the store happened to
+  // yield.
   const topN = (map, key, n = 8) =>
     [...map.entries()]
       .map(([k, v]) => (typeof v === "number" ? { [key]: k, count: v } : v))
-      .sort((a, b) => (b.count ?? b.opened) - (a.count ?? a.opened))
+      .sort(byCountThenKey((e) => e[key], (e) => e.count ?? e.opened))
       .slice(0, n);
 
   /** Scalar metrics only — the shape both a window and its prev period share. */
