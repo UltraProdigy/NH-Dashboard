@@ -8,29 +8,18 @@
 
 import { readStore } from "../ingest/pullRequests.js";
 import { activeDayIndex } from "./activeDays.js";
-import { BOT_PATTERN, CONTRIBUTOR_MIN_ACTIVITY } from "../config.js";
+import { CONTRIBUTOR_MIN_ACTIVITY } from "../config.js";
+import {
+  WINDOWS,
+  isBot,
+  byActivityThenLogin,
+} from "../shared/contributor-rules.js";
 
 const DAY = 86_400_000;
 
-/**
- * `short` is for the segmented control on the drilldowns, `label` for prose
- * ("last 3 months") and table headers.
- *
- * All-time leads because it's the drilldowns' default and the answer you
- * usually want first about a single subject. Order here drives the control,
- * the dropdown, and the column order of the all-window comparison tables.
- */
-export const WINDOWS = [
-  { id: "all", label: "All time", short: "All", days: null },
-  { id: "m1", label: "1 month", short: "1m", days: 30 },
-  { id: "m3", label: "3 months", short: "3m", days: 90 },
-  { id: "m6", label: "6 months", short: "6m", days: 180 },
-  { id: "y1", label: "1 year", short: "1y", days: 365 },
-  { id: "y2", label: "2 years", short: "2y", days: 730 },
-  { id: "y5", label: "5 years", short: "5y", days: 1825 },
-];
-
-const isBot = (login) => !login || BOT_PATTERN.test(login);
+// Re-exported because analytics.js and drilldown.js have always imported
+// WINDOWS from here.
+export { WINDOWS };
 
 export async function contributors() {
   const prs = await readStore();
@@ -114,7 +103,7 @@ export async function contributors() {
       }
       return out;
     })
-    .sort((a, b) => b.all.prs + b.all.approvals - (a.all.prs + a.all.approvals));
+    .sort(byActivityThenLogin);
 
   if (truncated) {
     console.warn(

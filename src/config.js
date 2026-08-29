@@ -215,12 +215,10 @@ export const CACHE_TTL_MINUTES = 15;
  */
 export const CI_RUN_SAMPLE = 20;
 
-/**
- * Logins matching this are excluded from contributor stats.
- * GitHub Apps show up with a "[bot]" suffix; the rest are named explicitly.
- */
-export const BOT_PATTERN =
-  /(\[bot\]$|^dependabot|^github-actions|^renovate|^codecov|^mergify|^stale)/i;
+// Defined in shared/ because the Worker needs it too and cannot import this
+// file — token resolution below reaches for node:fs. Re-exported rather than
+// moved so existing importers keep working.
+export { BOT_PATTERN } from "./shared/contributor-rules.js";
 
 /**
  * Hard floor on contributors written to the dashboard data.
