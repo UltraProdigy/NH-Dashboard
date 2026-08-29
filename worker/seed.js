@@ -192,8 +192,11 @@ async function seedState(w) {
   }
 }
 
+// No BEGIN TRANSACTION and no PRAGMA. D1's remote engine rejects both — it
+// wraps statements itself and exposes transactions only through the JS API.
+// Nothing is lost: every statement is INSERT OR REPLACE, so a load that dies
+// halfway can simply be run again.
 const stream = createWriteStream(OUT);
-stream.write("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n");
 
 const writer = new Writer(stream);
 const wanted = (name) => !ONLY || ONLY.includes(name);
@@ -204,7 +207,6 @@ if (wanted("traffic")) await seedTraffic(writer);
 if (wanted("state")) await seedState(writer);
 
 writer.flush();
-stream.write("COMMIT;\n");
 await new Promise((resolve) => stream.end(resolve));
 
 let total = 0;
