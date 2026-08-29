@@ -1,0 +1,23 @@
+name = "nh-dashboard"
+main = "src/index.js"
+compatibility_date = "2026-08-29"
+
+# Filled in by `wrangler d1 create nh-dashboard` — it prints the block to paste.
+# The id is not a secret; it identifies the database, it doesn't grant access.
+[[d1_databases]]
+binding = "DB"
+database_name = "nh-dashboard"
+database_id = "REPLACE_ME"
+
+[observability]
+enabled = true
+
+# Secrets are set with `wrangler secret put`, never written here:
+#
+#   GITHUB_WEBHOOK_SECRET   the value also pasted into the App's webhook config
+#   GH_APP_PRIVATE_KEY      PKCS#8, only needed once the Worker calls the API
+#
+# For local development they go in worker/.dev.vars, which is gitignored.
+
+[vars]
+GITHUB_ORG = "GTNewHorizons"

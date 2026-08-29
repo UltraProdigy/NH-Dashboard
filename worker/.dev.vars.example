@@ -1,0 +1,11 @@
+# Copy to worker/.dev.vars for local development. Gitignored.
+#
+# In production these are set with `wrangler secret put NAME` and never appear
+# in wrangler.toml.
+
+# Any random string, as long as the same value goes into the App's webhook
+# settings. Generate one with:  openssl rand -hex 32
+GITHUB_WEBHOOK_SECRET=
+
+# PKCS#8 contents, only needed once the Worker itself calls the GitHub API.
+# GH_APP_PRIVATE_KEY=
