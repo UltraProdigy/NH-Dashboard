@@ -144,8 +144,21 @@ would look wrong until a panel emptied out. The tests assert this specifically.
 failing, and that failure is silent, so a handler bug must not cost the
 subscription when the sweep will correct it anyway.
 
-**Don't buy Workers Paid yet.** Nothing on the current path needs it. The moment
-that changes is the private backfill, which will certainly exceed 100,000 writes.
+**Workers Paid is now active**, taken earlier than planned and for a different
+reason than expected. The recompute measured 8.8ms warm and 12.6ms cold against
+the free plan's 10ms CPU ceiling, with five panels still to port — and a cron
+firing every ten minutes is cold nearly every time. The alternative was
+rebuilding one panel per tick to keep each invocation small, which works but
+buys staleness and bookkeeping to dodge a $5 problem.
+
+What it lifts, beyond the CPU: D1 queries per invocation 50 → 1000, database
+size 500 MB → 10 GB, and a write allowance that makes both the seed and the
+private backfill unremarkable. The write ceiling section below is now history
+rather than a live constraint.
+
+Going back to free would mean the per-tick round-robin, and re-checking the
+payload sizes — worth revisiting once the panel port settles and the real
+numbers are known.
 
 ---
 
@@ -194,9 +207,34 @@ Deploy must be run from a machine logged in to Cloudflare. The credentials are
 local to the operator, and `node_modules` holds platform-specific `workerd`
 binaries, so it does not run from an arbitrary environment.
 
-Then the bulk of Phase D: port panels to D1 queries, debounced recompute,
-`/api/version`, frontend polling, deploy automation. Also still outstanding:
-loading `traffic_daily`, which was the deferred half of the seed split.
+**The panel port has started, and the pattern is set.** `contributors` is done:
+the aggregation runs as three D1 queries, the Worker only stitches the results,
+and `npm run test:parity` diffs the output field by field against the
+`dashboard.json` the Node panel produced from the same seed. 1,214 contributors,
+every count matching in all seven windows.
+
+The pattern each remaining panel follows:
+
+1. Aggregate in SQL, not in the isolate. Query time is I/O and free; a loop over
+   96,000 rows is not
+2. Cache the result as one JSON blob in `panel_cache`. Materialising rows per
+   recompute is what makes write cost scale with the data instead of the panel
+   count — `drilldown` is the exception, at 23 MB it needs its own tables
+3. Write the parity test *before* trusting the port. Two implementations of the
+   same numbers drift silently, and a wrong leaderboard looks exactly like a
+   right one
+
+Still to port: `analytics`, `issues`, `issueMetrics`, `activeDays`, `drilldown`.
+Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
+`pullRequests` — each needs a live GitHub call, so no amount of D1 helps. That
+split is the end state, not a migration half-finished.
+
+Then: frontend polling of `/api/version`, deploy automation, and loading
+`traffic_daily`, which was the deferred half of the seed split.
+
+**Ties in the leaderboard are now broken by login.** 497 of 1,214 people share a
+score of 1, and their order was previously whatever the store yielded, so the
+bottom two-thirds reshuffled on every build for no reason.
 
 Phase E is unblocked — see the private-repo decision above.
 
