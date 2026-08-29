@@ -1,26 +1,18 @@
 name: Build and deploy dashboard
 
 on:
-  # Manual only for now, plus a rebuild whenever code lands on main.
-  #
-  # The scheduled run is parked rather than deleted — uncomment to bring it
-  # back. Cost was never the reason to stop: Actions is free on public repos
-  # and the build is ~50 API requests. The reason is that every run commits
-  # `data/`, so 48 runs a day grow the repo whether or not anyone is reading
-  # the dashboard.
-  #
-  # schedule:
-  #   - cron: "*/30 * * * *"
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
   push:
     branches: [main]
     paths-ignore:
-      - "data/**"
       - "README.md"
       - "documentation.md"
 
+# Read-only: nothing here writes to the repo any more.
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -38,9 +30,23 @@ jobs:
         with:
           node-version: "22"
 
+      # Carries the ingest store between runs now that it isn't committed.
+      #
+      # The key must be unique per run. Cache entries are immutable, so a stable
+      # key would restore on every run and then skip the save, freezing the
+      # watermarks at whatever the first run happened to write. A run-scoped key
+      # never hits exactly, so restore-keys picks the newest prefix match and
+      # the post-job save always writes a fresh entry.
+      - name: Restore ingest store
+        uses: actions/cache@v4
+        with:
+          path: data/ingest
+          key: ingest-${{ github.run_id }}
+          restore-keys: ingest-
+
       # Incremental — the PR pass skips repos with no pushes since the last run,
       # and both stop at their own watermark, so this is fast despite covering
-      # all-time history. Both stores are committed, so the checkout has them.
+      # all-time history.
       - name: Ingest PRs and issues
         env:
           GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
@@ -57,26 +63,18 @@ jobs:
           GITHUB_ORG: GTNewHorizons
         run: node src/build.js --no-cache
 
-      - name: Commit data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if git diff --staged --quiet; then
-            echo "No changes."
-          else
-            git commit -m "Update dashboard data [skip ci]"
-            git push
-          fi
-
       # Stage the site: index.html at the root, data/ beside it. The frontend
       # fetches "data/dashboard.json" relatively, so this layout works both
       # here and under `npm run serve` locally.
+      #
+      # Only the built JSON is copied. data/ingest holds the raw store, which is
+      # both far larger than anything the page reads and — once private repos
+      # are ingested — not publishable at all. `cp -r data` would serve it.
       - name: Stage site
         run: |
-          mkdir -p _site
+          mkdir -p _site/data
           cp -r web/* _site/
-          cp -r data _site/data
+          cp data/*.json _site/data/
 
       - uses: actions/upload-pages-artifact@v3
         with:
