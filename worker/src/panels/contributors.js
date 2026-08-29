@@ -98,41 +98,78 @@ async function approvalCounts(db, dated) {
  * caller so that one definition serves every panel.
  */
 async function activeDays(db, dated) {
-  const sql = `
-    SELECT login,
-           COUNT(*) AS days_all,
-           ${windowSums("day", "days", dated)},
-           MIN(day) AS first_day
-      FROM (
-        SELECT author AS login, substr(created_at, 1, 10) AS day
-          FROM pull_requests WHERE author IS NOT NULL
-        UNION
-        SELECT author, substr(submitted_at, 1, 10)
-          FROM reviews WHERE author IS NOT NULL AND submitted_at IS NOT NULL
-        UNION
-        SELECT author, substr(created_at, 1, 10)
-          FROM issues WHERE author IS NOT NULL
-        UNION
-        SELECT first_responder, substr(first_response_at, 1, 10)
-          FROM issues
-         WHERE first_responder IS NOT NULL AND first_response_at IS NOT NULL
-        UNION
-        SELECT closed_by, substr(closed_at, 1, 10)
-          FROM issues WHERE closed_by IS NOT NULL AND closed_at IS NOT NULL
-        UNION
-        SELECT closed_via_author, substr(closed_at, 1, 10)
-          FROM issues
-         WHERE closed_via_kind = 'pr'
-           AND closed_via_author IS NOT NULL
-           AND closed_at IS NOT NULL
+  // Three queries and a merge, rather than the one six-arm UNION this obviously
+  // wants to be. D1 caps the number of terms in a compound SELECT far below
+  // SQLite's own default, and rejects six with "too many terms in compound
+  // SELECT". Local SQLite accepts it, so this cannot be caught anywhere but
+  // against D1 itself.
+  //
+  // The issue rows come back unpivoted — four possible (login, day) pairs per
+  // row — and are expanded here. Deduplication then has to happen in JS, which
+  // is what the UNION was doing: one person doing three things on one day is
+  // one day.
+  const [prs, reviews, issues] = await Promise.all([
+    db
+      .prepare(
+        `SELECT DISTINCT author AS login, substr(created_at, 1, 10) AS day
+           FROM pull_requests WHERE author IS NOT NULL`,
       )
-     GROUP BY login`;
+      .all(),
+    db
+      .prepare(
+        `SELECT DISTINCT author AS login, substr(submitted_at, 1, 10) AS day
+           FROM reviews
+          WHERE author IS NOT NULL AND submitted_at IS NOT NULL`,
+      )
+      .all(),
+    db
+      .prepare(
+        `SELECT author,
+                substr(created_at, 1, 10) AS created_day,
+                first_responder,
+                substr(first_response_at, 1, 10) AS response_day,
+                closed_by,
+                CASE WHEN closed_via_kind = 'pr' THEN closed_via_author END
+                  AS fixer,
+                substr(closed_at, 1, 10) AS closed_day
+           FROM issues`,
+      )
+      .all(),
+  ]);
 
-  // Day keys are `YYYY-MM-DD`, so the bounds are truncated to match. A string
-  // compare against a full instant would put `2026-08-29` before
-  // `2026-08-29T00:00:00Z` and silently drop the boundary day.
-  const params = dated.map((w) => w.from.slice(0, 10));
-  return (await db.prepare(sql).bind(...params).all()).results;
+  const sets = new Map();
+  const mark = (login, day) => {
+    if (!day || isBot(login)) return;
+    let s = sets.get(login);
+    if (!s) sets.set(login, (s = new Set()));
+    s.add(day);
+  };
+
+  for (const r of prs.results) mark(r.login, r.day);
+  for (const r of reviews.results) mark(r.login, r.day);
+  for (const r of issues.results) {
+    mark(r.author, r.created_day);
+    mark(r.first_responder, r.response_day);
+    mark(r.closed_by, r.closed_day);
+    mark(r.fixer, r.closed_day);
+  }
+
+  // Bounds truncated to `YYYY-MM-DD` to match the day keys. Comparing a day
+  // against a full instant would put `2026-08-29` before `2026-08-29T00:00:00Z`
+  // and silently drop the boundary day.
+  const from = dated.map((w) => ({ id: w.id, day: w.from.slice(0, 10) }));
+
+  const out = [];
+  for (const [login, days] of sets) {
+    const row = { login, days_all: days.size, first_day: null };
+    for (const w of from) row[`days_${w.id}`] = 0;
+    for (const day of days) {
+      if (row.first_day === null || day < row.first_day) row.first_day = day;
+      for (const w of from) if (day >= w.day) row[`days_${w.id}`]++;
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 const minISO = (a, b) => (!a ? b : !b ? a : a < b ? a : b);

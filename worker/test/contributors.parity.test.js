@@ -19,7 +19,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -84,7 +84,36 @@ function load() {
   return { db, file };
 }
 
+/**
+ * D1 rejects a compound SELECT with many arms — "too many terms in compound
+ * SELECT" — at a threshold well below SQLite's own default of 500. Local
+ * SQLite, and therefore every test in this file, accepts what D1 will refuse.
+ *
+ * A six-arm UNION shipped once on the strength of a green local suite and
+ * failed on the first real recompute. This counts the arms in the panel sources
+ * so the next one fails here instead, where it is cheap.
+ */
+function checkCompoundSelects() {
+  const dir = path.join(HERE, "..", "src", "panels");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".js"))) {
+    const src = readFileSync(path.join(dir, file), "utf8");
+    // Counted per template literal, not per file — two separate queries with
+    // three UNIONs each are fine; one query with six is not.
+    const worst = (src.match(/`[^`]*`/gs) ?? []).reduce(
+      (n, lit) => Math.max(n, (lit.match(/\bUNION\b/gi) ?? []).length),
+      0,
+    );
+    check(
+      `${file}: no query exceeds D1's compound SELECT limit`,
+      worst <= 3,
+      worst > 3 ? `${worst} UNION arms in one query` : "",
+    );
+  }
+}
+
 async function main() {
+  checkCompoundSelects();
+
   if (!existsSync(SEED) || !existsSync(EXPECTED)) {
     console.log(
       "\nskipped: needs worker/seed.sql and data/dashboard.json, neither committed\n",
