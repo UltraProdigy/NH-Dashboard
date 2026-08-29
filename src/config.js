@@ -68,26 +68,62 @@ export const RELEASE_EXCLUDED_REPOS = [
   // "GT-New-Horizons-Modpack",
 ];
 
-const releaseRules = [
+const releaseRules = compileRules([
   ...RELEASE_EXCLUDED_REPOS,
   ...(process.env.NH_RELEASE_EXCLUDE ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-].map((raw) => {
-  const negated = raw.startsWith("!");
-  const pattern = negated ? raw.slice(1) : raw;
-  const re = new RegExp(
-    `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
-    "i"
-  );
-  return { negated, re };
-});
+]);
 
 /** Later rules win, so a `!` entry can carve an exception out of a wildcard. */
 export function isReleaseExcluded(repoName) {
+  return matchesAny(releaseRules, repoName);
+}
+
+/**
+ * Repos that never enter the store at all.
+ *
+ * Different in kind from RELEASE_EXCLUDED_REPOS above, which only suppresses a
+ * repo from one panel. This one is applied at ingest: excluded repos are never
+ * fetched, so nothing about them reaches data/ or the deployed site, and a new
+ * panel that forgets to filter cannot leak them.
+ *
+ * Deliberately env-only, with nothing listed in committed source. For most
+ * repos a name in a config file is harmless, but the existence of some private
+ * repos is itself the sensitive part — writing one here would publish exactly
+ * the fact the exclusion exists to hide. Set it in .env locally and as a repo
+ * secret in CI. Same wildcard syntax as the release list.
+ *
+ * Losing traffic data for an excluded repo is permanent, unlike PRs and issues
+ * which GitHub retains and a future private view could backfill.
+ */
+const ingestRules = compileRules(
+  (process.env.NH_INGEST_EXCLUDE ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+export function isIngestExcluded(repoName) {
+  return matchesAny(ingestRules, repoName);
+}
+
+function compileRules(patterns) {
+  return patterns.map((raw) => {
+    const negated = raw.startsWith("!");
+    const pattern = negated ? raw.slice(1) : raw;
+    const re = new RegExp(
+      `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
+      "i",
+    );
+    return { negated, re };
+  });
+}
+
+function matchesAny(rules, repoName) {
   let excluded = false;
-  for (const rule of releaseRules) {
+  for (const rule of rules) {
     if (rule.re.test(repoName)) excluded = !rule.negated;
   }
   return excluded;
