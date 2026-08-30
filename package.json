@@ -13,7 +13,7 @@
     "verify:app": "node --env-file-if-exists=.env scripts/verify-app.js",
     "serve": "node --env-file-if-exists=.env src/serve.js",
     "webhook:test": "node scripts/send-test-webhook.js",
-    "test:exclusion": "node --env-file-if-exists=.env test/exclusion.test.js",
+    "test:exclusion": "node --experimental-sqlite --env-file-if-exists=.env test/exclusion.test.js",
     "test:handlers": "node --experimental-sqlite worker/test/handlers.test.js",
     "test:recompute": "node --experimental-sqlite worker/test/recompute.test.js",
     "test:parity": "npm run test:parity:contributors && npm run test:parity:analytics",

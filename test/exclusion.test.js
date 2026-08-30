@@ -14,7 +14,7 @@
  * what makes this worth a test rather than care: the exclusion has no output of
  * its own to look wrong, and the only symptom is data quietly present.
  *
- * Two checks, because they catch different mistakes:
+ * Four checks, because they catch different mistakes:
  *
  *   Every ingest module must reference `isIngestExcluded`. Crude, and it is the
  *   check that would have caught the original gap — the same reasoning as the
@@ -22,11 +22,27 @@
  *
  *   With a store on disk, an excluded repo must not survive `readStore`. That
  *   is the behaviour the first check only approximates.
+ *
+ *   The matcher and its SQL twin must agree. The Worker reads D1 directly and
+ *   cannot use the JavaScript one, and the two disagreeing would put a repo on
+ *   a public page rather than raise anything.
+ *
+ *   A scoped handle must keep an excluded repo out of what a panel actually
+ *   produces, asserted against a real seed and a repo genuinely in it. The
+ *   failure worth catching is not a wrong predicate but one query out of thirty
+ *   that never got one.
  */
 
+import { DatabaseSync } from "node:sqlite";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+import {
+  compileRules,
+  excludedRepoSql,
+  matchesAny,
+} from "../src/shared/repo-rules.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -121,10 +137,123 @@ async function checkStores() {
   }
 }
 
+/**
+ * The JavaScript matcher and its SQL twin must classify identically.
+ *
+ * Wildcards, the `!` exception, last-match-wins, and the LIKE metacharacters a
+ * repo name can legitimately contain — a repo called `report_v2` must not
+ * exclude `reportXv2` because `_` means "any character" to LIKE and nothing to
+ * the regex.
+ */
+function checkMatcherTwins() {
+  const names = [
+    "Dupes-Exploits-GTNH", "dupes-exploits-gtnh", "GT5-Unofficial", "Angelica",
+    "Horizon-QA", "Horizon-Dev", "Foo-Test", "report_v2", "reportXv2",
+    "100%Cool", "GTNHLib", "Mod-A", "Mod-B",
+  ];
+  const sets = [
+    [], ["Dupes-Exploits-GTNH"], ["*-Test"], ["Horizon-*", "!Horizon-QA"],
+    ["Mod-*", "!Mod-B", "Mod-A"], ["report_v2"], ["100%Cool"], ["?TNHLib"],
+    ["*"], ["*", "!Angelica"], ["DUPES-*"],
+  ];
+
+  const db = new DatabaseSync(":memory:");
+  const diffs = [];
+  for (const patterns of sets) {
+    const rules = compileRules(patterns);
+    const stmt = db.prepare(
+      `SELECT ${excludedRepoSql("n", patterns)} AS x FROM (SELECT ? AS n)`,
+    );
+    for (const name of names) {
+      const js = matchesAny(rules, name);
+      const sql = stmt.get(name).x === 1;
+      if (js !== sql) diffs.push(`${JSON.stringify(patterns)} vs ${name}`);
+    }
+  }
+  db.close();
+  check(
+    `matcher and SQL twin agree across ${sets.length} pattern sets`,
+    diffs.length === 0,
+    diffs.slice(0, 3).join("; "),
+  );
+}
+
+/**
+ * A scoped handle must keep an excluded repo out of what a panel produces.
+ *
+ * Run against a real seed with a repo that is genuinely in it, because the
+ * interesting failure is not "the predicate is wrong" but "one of thirty-odd
+ * queries never got one". Asserting the totals move by exactly the right amount
+ * is what distinguishes a filter that worked from a query that quietly
+ * returned nothing.
+ */
+async function checkScopedPanels() {
+  const SEED = path.join(ROOT, "worker", "seed.sql");
+  const SCHEMA = path.join(ROOT, "worker", "schema.sql");
+  if (!existsSync(SEED)) {
+    console.log("  skip  scoped panels need worker/seed.sql, not committed");
+    return;
+  }
+
+  const { scopedDb } = await import("../worker/src/scope.js");
+  const { analytics } = await import("../worker/src/panels/analytics.js");
+  const { contributors } = await import("../worker/src/panels/contributors.js");
+
+  const db = new DatabaseSync(":memory:");
+  db.exec(readFileSync(SCHEMA, "utf8"));
+  db.exec("BEGIN");
+  db.exec(readFileSync(SEED, "utf8"));
+  db.exec("COMMIT");
+
+  const d1 = (h) => ({
+    prepare(sql) {
+      let params = [];
+      const api = {
+        bind(...p) { params = p; return api; },
+        async all() { return { results: h.prepare(sql).all(...params) }; },
+        async first() { return h.prepare(sql).get(...params) ?? null; },
+      };
+      return api;
+    },
+  });
+
+  // Whichever repo has the most pull requests, so the arithmetic is unambiguous.
+  const top = db
+    .prepare("SELECT repo, COUNT(*) n FROM pull_requests GROUP BY repo ORDER BY n DESC LIMIT 1")
+    .get();
+  if (!top) { console.log("  skip  seed has no pull requests"); db.close(); return; }
+
+  const all = db.prepare("SELECT COUNT(*) n FROM pull_requests").get().n;
+  const now = Date.now();
+  const scoped = scopedDb(d1(db), { NH_INGEST_EXCLUDE: top.repo });
+
+  const a = await analytics(scoped, now);
+  const c = await contributors(scoped, now);
+
+  check(
+    `analytics drops the excluded repo's ${top.n} pull requests`,
+    a.totals.prs === all - top.n,
+    `${a.totals.prs}, expected ${all - top.n}`,
+  );
+  for (const [label, out] of [["analytics", a], ["contributors", c]]) {
+    const hits = (JSON.stringify(out).match(new RegExp(top.repo, "g")) ?? []).length;
+    check(`${label} never names the excluded repo`, hits === 0, `${hits} mentions`);
+  }
+
+  // An unscoped handle must be handed back untouched, so a deployment with no
+  // exclusions runs byte-identical SQL to the one this was all developed on.
+  const bare = scopedDb(d1(db), {});
+  check("no exclusions configured leaves the handle alone", bare === d1(db) || !bare.excluded);
+
+  db.close();
+}
+
 async function main() {
   console.log("\ningest exclusion\n");
   checkWiring();
+  checkMatcherTwins();
   await checkStores();
+  await checkScopedPanels();
   console.log(`\n${pass} passed, ${failures.length} failed\n`);
   if (failures.length) process.exit(1);
 }

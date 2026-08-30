@@ -12,6 +12,7 @@
 
 import { analytics } from "./panels/analytics.js";
 import { contributors } from "./panels/contributors.js";
+import { scopedDb } from "./scope.js";
 
 /**
  * Panels served from `panel_cache`, by name.
@@ -37,10 +38,15 @@ export async function recompute(env, { force = false } = {}) {
   const built = {};
   const failed = {};
 
+  // Panels never see the raw handle. Excluded repos stay in D1 and are filtered
+  // out of everything served, and doing it here rather than in each panel means
+  // a new panel cannot forget. See scope.js.
+  const db = scopedDb(env.DB, env);
+
   for (const [name, fn] of Object.entries(PANELS)) {
     const started = Date.now();
     try {
-      const data = await fn(env.DB, now);
+      const data = await fn(db, now);
       const json = JSON.stringify(data);
       const ms = Date.now() - started;
 

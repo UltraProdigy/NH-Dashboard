@@ -6,6 +6,11 @@
 import { execFileSync } from "node:child_process";
 
 import { DEFAULT_ORG } from "./shared/analytics-rules.js";
+import {
+  compileRules,
+  matchesAny,
+  parseRepoList,
+} from "./shared/repo-rules.js";
 
 // The default lives in `shared/` because the Worker builds the same PR links
 // and cannot read `process.env` — this file resolves tokens and shells out, so
@@ -114,35 +119,14 @@ export function isReleaseExcluded(repoName) {
  * which GitHub retains and a future private view could backfill.
  */
 const ingestRules = compileRules(
-  (process.env.NH_INGEST_EXCLUDE ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
+  parseRepoList(process.env.NH_INGEST_EXCLUDE),
 );
 
 export function isIngestExcluded(repoName) {
   return matchesAny(ingestRules, repoName);
 }
 
-function compileRules(patterns) {
-  return patterns.map((raw) => {
-    const negated = raw.startsWith("!");
-    const pattern = negated ? raw.slice(1) : raw;
-    const re = new RegExp(
-      `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
-      "i",
-    );
-    return { negated, re };
-  });
-}
 
-function matchesAny(rules, repoName) {
-  let excluded = false;
-  for (const rule of rules) {
-    if (rule.re.test(repoName)) excluded = !rule.negated;
-  }
-  return excluded;
-}
 
 /**
  * "Dep updates" tuning.
