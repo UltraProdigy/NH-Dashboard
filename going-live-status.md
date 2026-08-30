@@ -177,18 +177,28 @@ All four suites are green: 100 assertions.
 The rebuild took 592s and 409 API requests, which is the cost of a clean
 artefact and worth knowing before anyone treats a rebuild as free.
 
-**Outstanding:**
+**The Worker secret is set and deployed.** `NH_INGEST_EXCLUDE` is a Worker
+secret; the scoped handle is live.
 
-- **Pages has not been redeployed.** The build only wrote the files locally, so
-  the public copy is the old one until Pages picks the new one up. This is the
-  last thing standing between the fix and the exposure being over.
-- **`NH_INGEST_EXCLUDE` is not set as a Worker secret.** The deployed Worker has
-  the scoping code and an empty list, so it is currently unfiltered. Harmless
-  while only `contributors` and `analytics` are served — both PR-based, and the
-  repo has no PRs — but it **must** be set before `issues` goes live, or the
-  scoped handle protects nothing:
+**The local rebuild does not reach Pages, and that was nearly the whole fix
+undone.** The workflow restores the ingest cache, runs its *own*
+`src/ingest.js` and `src/build.js`, and publishes *that* to Pages — a clean
+`dashboard.json` on the operator's disk proves nothing about the deployed one.
+Neither step was passed `NH_INGEST_EXCLUDE`, so the next push would have
+re-walked the excluded repo and republished it, and everything local would have
+kept looking correct.
 
-      cd worker && npx wrangler secret put NH_INGEST_EXCLUDE
+Both steps now pass it, and the test asserts they do. What remains:
+
+- **Add `NH_INGEST_EXCLUDE` as a repo secret** — Settings → Secrets and
+  variables → Actions. Value is the same as in `.env`. **Do this before
+  pushing**, because the workflow triggers on push to `main` and a run without
+  the secret republishes the repo.
+- **Then push, and let the workflow rebuild Pages.** That is the step that
+  finally replaces the public copy.
+- Optionally clear the `ingest-` Actions cache. Not required — `readStore`
+  filters on the way out, so a cache written before the exclusion existed still
+  produces a clean build — but it is the tidier end state.
 
 For the record, the contributors parity test failed in between, and the failure
 was the stale baseline rather than a regression: every difference was
