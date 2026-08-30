@@ -229,7 +229,14 @@ async function handleHealth(env) {
        (SELECT COUNT(DISTINCT repo) FROM commits) AS withCommits,
        (SELECT COUNT(DISTINCT repo) FROM commits
          WHERE committed_at >= ${window}) AS withCommitsInWindow,
-       (SELECT COUNT(*) FROM commits WHERE via_pr IS NULL) AS commitsAwaitingPrAnswer`,
+       (SELECT COUNT(*) FROM commits WHERE via_pr IS NULL) AS commitsAwaitingPrAnswer,
+       -- Should be 0. A pushed_at made only of digits is a Unix epoch that was
+       -- written where an ISO date belongs, which sorts below every real date
+       -- and silently reads as dormant. Counted rather than assumed, because
+       -- the symptom is a repo quietly missing from a card.
+       (SELECT COUNT(*) FROM repos
+         WHERE pushed_at IS NOT NULL
+           AND pushed_at NOT GLOB '*[^0-9]*') AS reposWithEpochPushedAt`,
   ).first();
 
   return json({ ok: true, counts, scope });
