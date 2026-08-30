@@ -2284,19 +2284,26 @@ Dependencies run one way, roughly top to bottom in that list — `state` and
 renders a card only ever imports helpers, never the renderer that calls it, so
 there are no import cycles.
 
-`data/` is committed deliberately. Once a cron runs the build on a schedule,
-the git history of that file becomes a free time-series of point-in-time values
-that can't be reconstructed from the API later (star counts, CI pass rates,
-team membership). Most historical metrics *are* reconstructible from
-`created_at`/`merged_at` timestamps and don't need this.
+**`data/` is gitignored and no longer written by any run.** It used to be
+committed on purpose: with a cron running the build, the git history of
+`dashboard.json` was a free time-series of point-in-time values the API cannot
+reconstruct later — star counts, CI pass rates, team membership. That was traded
+away when the store moved to the Actions cache, because committing meant every
+run pushed into an org that broadcasts push events, and because a tracked
+`data/` cannot coexist with ingesting private repos. Most historical metrics
+*are* reconstructible from `created_at`/`merged_at` timestamps and never needed
+it; the handful that aren't now have D1 keeping them instead.
 
-`data/drilldown.json` is the exception, and is **gitignored**. Every byte of it
-comes from `prs.ndjson` and `issues.ndjson`, both of which are already committed,
-so its history would record nothing you couldn't regenerate exactly — it'd be
-19 MB of repo growth per build in exchange for nothing. The build writes it on every run and the Pages deploy
-copies it off disk, so the hosted site is unaffected.
+**Six files are still tracked anyway**, because `.gitignore` does not untrack
+what was already committed — `dashboard.json` and the two NDJSON stores among
+them, 36 MB, last written in August. They are dead weight in every clone, and
+`data/ingest/prs.ndjson` predates `NH_INGEST_EXCLUDE`, so it may hold records
+for repos the exclusion now withholds from the published site. `git rm --cached
+data/` drops them going forward; purging the history is a separate decision.
+Both workflow jobs delete `data/*.json` after checkout so that nothing depends
+on which answer was chosen.
 
-The practical consequence: a fresh clone has no drilldown data until someone
+The practical consequence for a fresh clone: no drilldown data until someone
 runs `npm run build`. `Dashboard.command` does that before serving, and the
 frontend shows a "run the build" message rather than breaking if the file is
 absent, so this only ever surfaces if you open `web/index.html` directly.
