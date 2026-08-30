@@ -41,7 +41,11 @@ const COLUMNS = {
   release: [
     { key: "repo",             label: "Repo",          render: r => `<a href="${r.repoUrl}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
     { key: "tagName",          label: "Last release",  render: r => `<a href="${r.releaseUrl}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
-    { key: "commitsAhead",     label: "Commits ahead", render: r => `<span class="num">${r.commitsAhead ?? "?"}</span>` },
+    // `≥` when the store cannot see back as far as the release: the count is
+    // then only the commits inside the swept window, which measured 20 against
+    // a true 106. Build-served rows carry no flag and read as exact, which they
+    // are — the Node panel asks GitHub to compare the tag against HEAD.
+    { key: "commitsAhead",     label: "Commits ahead", render: r => `<span class="num">${r.commitsAhead == null ? "?" : `${r.commitsAheadApprox ? "≥" : ""}${r.commitsAhead}`}</span>` },
     { key: "daysSinceRelease", label: "Released",      render: r => age(r.daysSinceRelease) },
     { key: "defaultBranch",    label: "Branch",        render: r => `<span class="repo">${esc(r.defaultBranch)}</span>` },
   ],

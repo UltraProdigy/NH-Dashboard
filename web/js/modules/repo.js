@@ -238,7 +238,7 @@ export const repoModules = {
       const release = rel
         ? `<div class="kpis" style="margin:18px -14px 0">
              ${kpi("Last release", `<a href="${rel.releaseUrl}" target="_blank" rel="noopener" style="font-size:18px">${esc(rel.tagName)}</a>`,
-                   `${fmt(rel.commitsAhead ?? "?")} commits behind ${esc(rel.defaultBranch)}`)}
+                   `${rel.commitsAheadApprox ? "at least " : ""}${fmt(rel.commitsAhead ?? "?")} commits behind ${esc(rel.defaultBranch)}`)}
              ${kpi("Released", age(rel.daysSinceRelease), rel.isPrerelease ? "prerelease" : "")}
            </div>`
         : `<div class="hint" style="margin-top:18px">Not flagged as needing a release — either it's current with its last tag, it has no releases, or it's excluded in <code>RELEASE_EXCLUDED_REPOS</code>.</div>`;
