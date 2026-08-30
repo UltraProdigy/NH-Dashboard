@@ -167,6 +167,39 @@ the answer more often than the code is.
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
 
+## Freshness
+
+Every card is ringed in the colour of how its numbers get rebuilt, and the
+topbar counts the rings on the page you're looking at.
+
+| Ring | Tier | Meaning |
+|---|---|---|
+| Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged and Changes requested |
+| Blue | `cron` | Recomputed by the Worker every 10 minutes — Contributors, Analytics, Needs a release, Time since last update, By label |
+| Amber | `build` | From the last Actions build, because nothing serves it live yet — Issue analytics, CI health, both drilldowns |
+| Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
+
+The tier is read from the `x-refresh` header the Worker sets, not from a list in
+the frontend, so promoting a panel from the ten-minute recompute to the webhook
+path retints its card with no change on this side. Which panels the page tries
+to overlay is `LIVE_PANELS` in `web/js/live.js`; which of those the Worker treats
+as instant is `INSTANT` in `worker/src/recompute.js`.
+
+**The topbar counts cards, not panels.** That distinction is the whole reason
+the line was rewritten. A panel is a data source and a card is a thing on
+screen, and the two are not one-to-one: `analytics` is a single panel behind all
+eleven General Analytics cards, `contributors` a single panel behind five. The
+old line counted panels — "7 panels live" — above a page whose rings could never
+be added up to seven, which made the indicator unfalsifiable and therefore
+useless. It now counts the cards this render actually drew, so the tally and the
+rings are the same thing said twice. It moves as you change page or open a tab
+for that reason; a fixed dashboard-wide total would be back to a number with
+nothing on screen to check it against.
+
+`visibleIds()` and `tierCounts()` in `web/js/render.js` are the two halves, both
+exported so `test/freshness.test.js` can assert the unit directly. Tiers with no
+cards print nothing rather than a zero.
+
 ## Dream Panel
 
 Five cards, ordered by how close each one is to "somebody press the button":

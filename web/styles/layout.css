@@ -9,6 +9,27 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .topbar h1 { font-size: 16px; margin: 0; font-weight: 600; }
 .meta { color: var(--muted); font-size: 12px; }
 .meta.stale { color: var(--warn); }
+
+/* The freshness tally, in the same four colours the cards are ringed in — the
+   dot is the key and the cards are what it reads. Text stays muted so the line
+   is still one sentence rather than four coloured fragments; only the dot
+   carries the colour, which is enough to match it to a card and quiet enough
+   to sit in a topbar all day. */
+.meta .tier { white-space: nowrap; }
+.meta .tier i {
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--fresh);
+  vertical-align: baseline;
+}
+.meta .tier-instant { --fresh: var(--good); }
+.meta .tier-cron    { --fresh: var(--accent); }
+.meta .tier-build   { --fresh: var(--warn); }
+/* Red is not a tier but a fault — see cards.css. It's the one count worth
+   reading before the others, so it takes the text colour too. */
+.meta .tier-down { --fresh: var(--bad); color: var(--bad); }
 .spacer { margin-left: auto; }
 
 nav.tabs {

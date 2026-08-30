@@ -635,10 +635,88 @@ function renderDrill(view) {
   view.innerHTML = head + pageBody();
 }
 
+/* ==========================================================================
+   The freshness line
+   --------------------------------------------------------------------------
+   It used to read "7 panels live", counted from `state.data.panels`, and that
+   number was unreconcilable against the page under it. Panels are not cards:
+   `analytics` is one panel behind eleven cards and `contributors` one behind
+   five, so a page tinted entirely blue reported as a single unit while the
+   Dream Panel's five cards reported as five. Nobody could add the tints up to
+   seven because the two were never counting the same thing.
+
+   Counted per card, over the cards this render actually drew, so the line and
+   the tints on screen are the same tally read two ways. It follows you across
+   pages and tabs for that reason — a fixed dashboard-wide total would be back
+   to a number with nothing on screen to check it against.
+   ========================================================================== */
+
+/** The cards `pageBody` draws, which is what the dots count. */
+function visibleIds() {
+  const page = currentPage();
+  // A drilldown with no subject picked draws a picker, not cards.
+  if (isDrill(page.id) && (state.drillState !== "ready" || !subject())) return [];
+  return state.tab === null
+    ? page.modules.filter(id => !emptyReason(id))
+    : liveMembers(page.id, state.tab);
+}
+
+/**
+ * `cron` reads as "live" and `build` as "built": the tier names are the
+ * pipeline's words for how a panel is rebuilt, and "5 cron" is not a sentence
+ * about freshness to anyone who hasn't read the Worker.
+ */
+const TIERS = [
+  ["instant", "instant", "Rebuilt the moment GitHub delivers the webhook"],
+  ["cron", "live", "Recomputed by the Worker every 10 minutes"],
+  ["build", "built", "From the last Actions build — no live source yet"],
+  ["down", "down", "Should be live; the API did not answer, so these are build-old"],
+];
+
+/**
+ * How many of these cards sit in each tier.
+ *
+ * Per card, not per panel: eleven Analytics cards reading one `analytics`
+ * panel are eleven blue cards, and eleven is the number the reader can check.
+ * Cards with no panel behind them — the ones that draw no tint — are counted
+ * nowhere, so the tally and the rings on screen always agree.
+ */
+function tierCounts(ids) {
+  const counts = {};
+  for (const id of ids) {
+    const f = freshness(MODULES[id], id);
+    if (f) counts[f.tier] = (counts[f.tier] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function renderMeta() {
+  const el = document.getElementById("meta");
+  if (!el || !state.data) return;
+
+  const mins = Math.round((Date.now() - new Date(state.data.generatedAt)) / 60000);
+  const ageText = mins < 1 ? "just now"
+    : mins < 90 ? `${mins} min ago`
+    : `${Math.round(mins / 60)} hr ago`;
+
+  const counts = tierCounts(visibleIds());
+
+  const dots = TIERS.filter(([tier]) => counts[tier]).map(
+    ([tier, label, title]) =>
+      `<span class="tier tier-${tier}" title="${esc(title)}"><i></i>${counts[tier]} ${label}</span>`
+  );
+
+  el.innerHTML = [`${esc(state.data.org)} · built ${ageText}`, ...dots].join(" · ");
+  // Older than a couple of cron cycles usually means a workflow run failed
+  // rather than just ran late.
+  el.classList.toggle("stale", mins > 90);
+}
+
 function render() {
   renderSidebar();
   renderTabs();
   renderToolbar();
+  renderMeta();
 
   const view = document.getElementById("view");
   if (!state.data) return;
@@ -683,4 +761,12 @@ async function ensureDrilldown() {
   render();
 }
 
-export { closeCombo, comboOptions, positionExclPop, render, updateComboPop };
+export {
+  closeCombo,
+  comboOptions,
+  positionExclPop,
+  render,
+  tierCounts,
+  updateComboPop,
+  visibleIds,
+};
