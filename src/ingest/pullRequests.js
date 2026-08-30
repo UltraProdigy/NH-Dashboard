@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { graphql } from "../github/client.js";
-import { ORG } from "../config.js";
+import { ORG, isIngestExcluded } from "../config.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -214,7 +214,10 @@ async function listRepos() {
     const data = await graphql(REPOS, { org: ORG, cursor });
     const page = data.organization?.repositories;
     if (!page) break;
-    repos.push(...page.nodes);
+    // Excluded repos are dropped here so they are never walked at all — the
+    // point of an ingest-level exclusion is that no later stage has to
+    // remember, and a panel that forgets a predicate cannot leak them.
+    repos.push(...page.nodes.filter((r) => !isIngestExcluded(r.name)));
     if (!page.pageInfo.hasNextPage) break;
     cursor = page.pageInfo.endCursor;
   }
@@ -509,6 +512,11 @@ export async function readStore() {
       if (!line.trim()) continue;
       try {
         const rec = JSON.parse(line);
+        // Filtered on the way out as well as on the way in. The exclusion list
+        // can grow after a repo is already in the store, and re-walking all-time
+        // history to honour it would take an hour — this makes the next build
+        // clean without one, and makes a stale store safe to keep.
+        if (isIngestExcluded(rec.repo)) continue;
         byKey.set(`${rec.repo}#${rec.number}`, rec);
       } catch {
         /* skip a torn line from an interrupted write */
