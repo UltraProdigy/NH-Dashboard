@@ -85,7 +85,7 @@ const staleBound = (now) =>
  */
 const LIVE = `
   live AS (
-    SELECT name, default_branch
+    SELECT name, default_branch, commits_since
       FROM repos
      WHERE archived = 0
        AND private = 0
@@ -132,6 +132,7 @@ export async function needsRelease(db, now = Date.now()) {
        )
        SELECT l.name              AS repo,
               l.default_branch    AS default_branch,
+              l.commits_since     AS commits_since,
               r.tag_name          AS tag_name,
               r.published_at      AS published_at,
               rel.prerelease      AS prerelease,
@@ -144,24 +145,35 @@ export async function needsRelease(db, now = Date.now()) {
          LEFT JOIN pull_requests p
                 ON p.repo = c.repo AND p.merge_commit_sha = c.sha
         WHERE c.committed_at > r.published_at
-        GROUP BY l.name, l.default_branch, r.tag_name, r.published_at, rel.prerelease
+        GROUP BY l.name, l.default_branch, l.commits_since,
+                 r.tag_name, r.published_at, rel.prerelease
        HAVING COUNT(*) >= ?2 AND MAX(${viaPullRequestSql("c", "p")}) = 1
         ORDER BY commits_ahead DESC, repo`,
     )
     .bind(staleBound(now), RELEASE_COMMIT_THRESHOLD)
     .all();
 
-  return results.map((r) => ({
-    repo: r.repo,
-    repoUrl: repoUrl(r.repo),
-    defaultBranch: r.default_branch,
-    tagName: r.tag_name,
-    releaseUrl: `${repoUrl(r.repo)}/releases/tag/${r.tag_name}`,
-    releasedAt: r.published_at,
-    isPrerelease: Boolean(r.prerelease),
-    commitsAhead: r.commits_ahead,
-    daysSinceRelease: days(now, r.published_at),
-  }));
+  return results.map((r) => {
+    // The count is only a count when the store reaches back past the release.
+    // Otherwise it is "however many commits the sweep happened to capture",
+    // which measured 20 against a true 106 on TC4Tweaks — and the card renders
+    // it as a bare number either way. Saying so is the difference between a
+    // floor and a lie.
+    const truncated = Boolean(r.commits_since && r.published_at < r.commits_since);
+
+    return {
+      repo: r.repo,
+      repoUrl: repoUrl(r.repo),
+      defaultBranch: r.default_branch,
+      tagName: r.tag_name,
+      releaseUrl: `${repoUrl(r.repo)}/releases/tag/${r.tag_name}`,
+      releasedAt: r.published_at,
+      isPrerelease: Boolean(r.prerelease),
+      commitsAhead: r.commits_ahead,
+      commitsAheadApprox: truncated,
+      daysSinceRelease: days(now, r.published_at),
+    };
+  });
 }
 
 /**
@@ -183,6 +195,19 @@ export async function needsRelease(db, now = Date.now()) {
  * A repo whose entire window is pull requests gets a floor row rather than a
  * date, matching the Node panel's `approx: true` — the card renders those
  * differently, as "more than N days" rather than a link to a commit.
+ *
+ * **The floor is how far back the store can see, not how far back this repo's
+ * rows happen to go.** The first version used `MIN(committed_at)` per repo and
+ * was wrong in the flattering direction: DummyCore's oldest stored commit is
+ * 102 days old, so it reported a 102-day floor, while the build — which walked
+ * the full horizon and found nothing — reported 365. Both are looking at the
+ * same fact, that the repo has no direct commit in a year, and only one of them
+ * says so. A repo with a gap in its history is not a repo we cannot see into.
+ *
+ * So the horizon comes from `meta.commits_since`, written by the backfill to
+ * record the date it actually swept from. Falling back to the per-repo oldest
+ * only makes sense when no backfill has run, which is the one case where the
+ * store really can only see as far as the webhook has been running.
  */
 export async function depUpdates(db, now = Date.now()) {
   const since = isoBound(now - DEP_UPDATE_LOOKBACK_DAYS * DAY);
@@ -207,6 +232,7 @@ export async function depUpdates(db, now = Date.now()) {
        )
        SELECT l.name           AS repo,
               l.default_branch AS default_branch,
+              l.commits_since  AS commits_since,
               d.sha            AS sha,
               d.committed_at   AS committed_at,
               d.author         AS author,
@@ -243,13 +269,9 @@ export async function depUpdates(db, now = Date.now()) {
           author: null,
           message: null,
           approx: true,
-          // The floor is however far back the store actually goes for this
-          // repo, not the full lookback. Claiming the lookback for a repo whose
-          // history starts three weeks ago would assert something the webhook
-          // capture window cannot support.
           daysSinceDirect: Math.min(
             DEP_UPDATE_LOOKBACK_DAYS,
-            days(now, r.oldest) ?? DEP_UPDATE_LOOKBACK_DAYS,
+            days(now, r.commits_since ?? r.oldest) ?? DEP_UPDATE_LOOKBACK_DAYS,
           ),
         },
   );

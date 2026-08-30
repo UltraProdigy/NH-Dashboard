@@ -85,8 +85,9 @@ const ago = (days) => utcSeconds(NOW - days * DAY);
 
 function addRepo(db, name, extra = {}) {
   db.prepare(
-    `INSERT INTO repos (name, full_name, private, archived, default_branch, pushed_at, updated_at)
-     VALUES (?, ?, 0, ?, ?, ?, ?)`,
+    `INSERT INTO repos (name, full_name, private, archived, default_branch, pushed_at,
+                        updated_at, commits_since)
+     VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
   ).run(
     name,
     `GTNewHorizons/${name}`,
@@ -94,6 +95,9 @@ function addRepo(db, name, extra = {}) {
     extra.defaultBranch ?? "master",
     extra.pushedAt ?? ago(1),
     extra.pushedAt ?? ago(1),
+    // How far back the backfill swept this repo. Defaults to the full lookback,
+    // which is what a normal repo gets.
+    extra.commitsSince === undefined ? ago(365) : extra.commitsSince,
   );
 }
 
@@ -372,6 +376,83 @@ console.log("\ndepUpdates");
     "sorted oldest first",
     rows.every((r, i) => i === 0 || rows[i - 1].daysSinceDirect >= r.daysSinceDirect),
     rows.map((r) => `${r.repo}:${r.daysSinceDirect}`).join(" "),
+  );
+
+  db.close();
+}
+
+// ------------------------------------------------------- the store's horizon
+
+console.log("\nhow far back the store can see");
+
+{
+  const db = blank();
+
+  // The release predates the sweep, so the count is only the commits that fell
+  // inside the window. Measured against the live build: 20 where the truth was
+  // 106, printed as a bare number.
+  addRepo(db, "OldRelease", { commitsSince: ago(365) });
+  addRelease(db, "OldRelease", "v1.0", 1268);
+  const m1 = addCommit(db, "OldRelease", 200);
+  addMergedPr(db, "OldRelease", 1, m1);
+  addCommit(db, "OldRelease", 100);
+
+  // Same shape, but the deep walk reached the release, so the count is real.
+  addRepo(db, "Deepened", { commitsSince: ago(1300) });
+  addRelease(db, "Deepened", "v1.0", 1268);
+  const m2 = addCommit(db, "Deepened", 900);
+  addMergedPr(db, "Deepened", 2, m2);
+
+  const got = byRepo(await needsRelease(d1(db), NOW));
+
+  check(
+    "a release older than the horizon is flagged approximate",
+    got.OldRelease?.commitsAheadApprox === true,
+    JSON.stringify(got.OldRelease),
+  );
+  check(
+    "a repo walked back past its release is not flagged",
+    got.Deepened?.commitsAheadApprox === false,
+    JSON.stringify(got.Deepened),
+  );
+  check(
+    "the count itself is still reported either way",
+    got.OldRelease?.commitsAhead === 2 && got.Deepened?.commitsAhead === 1,
+  );
+
+  db.close();
+}
+
+{
+  const db = blank();
+
+  // The bug this replaced. Every commit in the window came through a pull
+  // request, so this is a floor row — and the repo's oldest stored commit is
+  // 102 days old only because nothing happened before it, not because the
+  // sweep could not see further. Reading MIN(committed_at) reported 102 where
+  // the build, having walked the whole horizon, reported 365.
+  addRepo(db, "GapInHistory", { commitsSince: ago(365) });
+  const only = addCommit(db, "GapInHistory", 102);
+  addMergedPr(db, "GapInHistory", 1, only);
+
+  // No backfill has touched this one, so the webhook capture window really is
+  // all there is and the oldest row is the honest answer.
+  addRepo(db, "NeverBackfilled", { commitsSince: null });
+  const only2 = addCommit(db, "NeverBackfilled", 30);
+  addMergedPr(db, "NeverBackfilled", 2, only2);
+
+  const got = byRepo(await depUpdates(d1(db), NOW));
+
+  check(
+    "a floor reads from the swept horizon, not the oldest row",
+    got.GapInHistory?.daysSinceDirect === 365,
+    String(got.GapInHistory?.daysSinceDirect),
+  );
+  check("that row is still marked approximate", got.GapInHistory?.approx === true);
+  check(
+    "with no backfill, the floor falls back to the oldest row",
+    got.NeverBackfilled?.daysSinceDirect === 30,
+    String(got.NeverBackfilled?.daysSinceDirect),
   );
 
   db.close();
