@@ -61,8 +61,17 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   labels            TEXT NOT NULL DEFAULT '[]',
   assignees         TEXT NOT NULL DEFAULT '[]',
   review_requests   TEXT NOT NULL DEFAULT '[]',
+  merge_commit_sha  TEXT,
   PRIMARY KEY (repo, number)
 );
+
+-- merge_commit_sha exists to answer "did this commit come from a pull request"
+-- without a GitHub call. The push payload has no such field, so a delivered
+-- commit joins back to the PR that produced it through this column. Exact for
+-- squash merges and merge commits; a rebase merge replays commits under fresh
+-- SHAs and matches nothing, which the read path treats as "direct".
+CREATE INDEX IF NOT EXISTS idx_pr_merge_sha ON pull_requests (merge_commit_sha)
+  WHERE merge_commit_sha IS NOT NULL;
 
 -- 256 of 29,029 records carry only the fields the search API returns — no
 -- title, no diff stats. Nullable rather than absent so they still count in
@@ -151,6 +160,64 @@ CREATE INDEX IF NOT EXISTS idx_issues_author  ON issues (author, created_at);
 CREATE INDEX IF NOT EXISTS idx_issues_created ON issues (created_at);
 CREATE INDEX IF NOT EXISTS idx_issues_open    ON issues (repo, updated_at) WHERE state = 'OPEN';
 CREATE INDEX IF NOT EXISTS idx_issues_closer  ON issues (closed_by) WHERE closed_by IS NOT NULL;
+
+-- -------------------------------------------------------------------- commits
+
+-- Default-branch commits only, and that is the panels' definition rather than a
+-- storage economy: both cards ask about the branch a release is cut from, and a
+-- topic branch's commits would answer a question nobody asked while inflating
+-- "commits ahead" with work that was later squashed into one.
+--
+-- Two writers with different confidence land here. The daily build carries
+-- GitHub's own `associatedPullRequests` answer; a `push` delivery carries no
+-- pull-request field at all, so it writes NULL and the read resolves it against
+-- pull_requests.merge_commit_sha. See src/shared/commit-rules.js for why the
+-- distinction is a column rather than a guess made at write time.
+--
+-- No URL column. It is `https://github.com/{org}/{repo}/commit/{sha}` for every
+-- row, and D1 bills index and row writes by size — the review-state panel
+-- already derives its URLs for the same reason.
+CREATE TABLE IF NOT EXISTS commits (
+  repo              TEXT NOT NULL,
+  sha               TEXT NOT NULL,
+  committed_at      TEXT NOT NULL,
+  author            TEXT,
+  message           TEXT,
+  via_pr            INTEGER,
+  PRIMARY KEY (repo, sha)
+);
+
+-- Both panels scan one repo's history newest-first within a date bound, which
+-- is exactly this index. `committed_at` is Z-normalised whole seconds so the
+-- bound is a string compare — a push payload's timestamps arrive with the
+-- committer's UTC offset and are normalised on the way in, because `+02:00`
+-- sorts below `Z` and would quietly break MAX().
+CREATE INDEX IF NOT EXISTS idx_commits_repo_time ON commits (repo, committed_at DESC);
+
+-- ------------------------------------------------------------------- releases
+
+-- A release payload carries `tag_name` and `target_commitish`, and no SHA for
+-- the tagged commit — `target_commitish` is usually a branch name. So the port
+-- cannot reproduce the Node panel's `tagCommit.oid === head.oid` test, and does
+-- not try: "is any default-branch commit newer than the latest release" is the
+-- same question asked of data this store actually holds.
+--
+-- Drafts are stored rather than filtered on the way in. A draft that is later
+-- published arrives as a second delivery on the same tag, and a row that was
+-- never written cannot be updated by one.
+CREATE TABLE IF NOT EXISTS releases (
+  repo              TEXT NOT NULL,
+  tag_name          TEXT NOT NULL,
+  published_at      TEXT,
+  created_at        TEXT,
+  draft             INTEGER NOT NULL DEFAULT 0,
+  prerelease        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (repo, tag_name)
+);
+
+-- Prereleases are deliberately not excluded here or in the panel: a repo that
+-- just cut an rc is not a repo needing a release.
+CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases (repo, published_at DESC);
 
 -- -------------------------------------------------------------------- traffic
 

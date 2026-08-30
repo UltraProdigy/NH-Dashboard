@@ -24,7 +24,7 @@
  *   user input, and no table name arrives as a bound parameter.
  *
  *   The rewrite only ever fires on `FROM`/`JOIN` immediately followed by one of
- *   four known table names. A CTE called `ranked` or `approver` is untouched;
+ *   the known table names. A CTE called `ranked` or `approver` is untouched;
  *   a CTE named after a real table would be rewritten, so do not name one that.
  *
  *   With no exclusions configured it is the identity. The expressions collapse
@@ -35,7 +35,14 @@
 import { includedRepoSql, parseRepoList } from "../../src/shared/repo-rules.js";
 
 /** Tables carrying a `repo` column, and therefore filterable. */
-const TABLES = ["pull_requests", "reviews", "issues", "traffic_daily"];
+const TABLES = [
+  "pull_requests",
+  "reviews",
+  "issues",
+  "traffic_daily",
+  "commits",
+  "releases",
+];
 
 const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${TABLES.join("|")})\\b`, "g");
 
