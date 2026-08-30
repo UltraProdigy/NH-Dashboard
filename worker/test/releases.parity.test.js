@@ -265,11 +265,21 @@ console.log("\nneedsRelease");
   addRelease(db, "PrivateRepo", "v10.0", 30);
   addCommit(db, "PrivateRepo", 5, { viaPr: 1 });
 
-  // Dormant for longer than STALE_REPO_CUTOFF_DAYS. "Nobody has released this
-  // in two years" is not news about a repo nobody has touched in two years.
-  addRepo(db, "Dormant", { pushedAt: ago(500) });
-  addRelease(db, "Dormant", "v9.0", 900);
-  addCommit(db, "Dormant", 600, { viaPr: 1 });
+  // A stale `pushed_at` must not remove a repo that has commits. In production
+  // 27 repos carried a `pushed_at` older than a year while having commits
+  // inside the lookback, and the cutoff dropped every one of them — a repo
+  // cannot both have been pushed to last week and have a year-old pushed_at,
+  // so between the two the commits are the better authority.
+  addRepo(db, "StalePushedAt", { pushedAt: ago(500) });
+  addRelease(db, "StalePushedAt", "v9.0", 90);
+  addCommit(db, "StalePushedAt", 10, { viaPr: 1 });
+
+  // Genuinely dormant: no commits after its release. Dropped by the data
+  // rather than by a predicate, which is the point — the commit rows are
+  // already the bound the cutoff was trying to be.
+  addRepo(db, "TrulyDormant", { pushedAt: ago(500) });
+  addRelease(db, "TrulyDormant", "v9.1", 900);
+  addCommit(db, "TrulyDormant", 950, { viaPr: 1 });
 
   const rows = await needsRelease(d1(db), NOW);
   const got = byRepo(rows);
@@ -298,7 +308,15 @@ console.log("\nneedsRelease");
   check("the draft's tag is not reported", got.HasDraft?.tagName === "v5.0");
   check("a prerelease counts as a release", !got.JustCutRc);
   check("an archived repo is dropped", !got.Archived);
-  check("a dormant repo is dropped", !got.Dormant);
+  check(
+    "a stale pushed_at does not drop a repo that has commits",
+    Boolean(got.StalePushedAt),
+    "the commits are a better authority than a copied timestamp",
+  );
+  check(
+    "a repo with no commits after its release is dropped by the data",
+    !got.TrulyDormant,
+  );
   check(
     "a private repo is included, as the build includes it",
     Boolean(got.PrivateRepo),

@@ -19,10 +19,10 @@
  * The commit count follows from it. The Node panel spends a `compare` call for
  * `ahead_by`; here it is the COUNT of the same rows the filter already scanned.
  *
- * Both panels are bounded by `STALE_REPO_CUTOFF_DAYS` for the reason the Node
- * ones are: the sweep is ordered by `pushed_at` and stops at the first dormant
- * repo, and "nobody has released this in two years" is not news about a repo
- * nobody has touched in two years.
+ * Neither panel carries the Node versions' stale-repo cutoff. That predicate
+ * bounds API cost, which is not a cost D1 has, and in production it was
+ * removing repos that had commits inside the window. The `live` CTE below says
+ * why at length.
  *
  * **Measured, on 295 repos and 80k commits: ~5ms and ~36ms locally, so roughly
  * 12ms and 79ms on D1** at the 2.2× ratio this repo has measured twice. That is
@@ -38,28 +38,12 @@ import {
   DEP_UPDATE_LOOKBACK_DAYS,
   DEP_UPDATE_MIN_DAYS,
   RELEASE_COMMIT_THRESHOLD,
-  STALE_REPO_CUTOFF_DAYS,
 } from "../../../src/config.js";
 import { isDirectCommitSql, viaPullRequestSql } from "../../../src/shared/commit-rules.js";
 import { isoBound } from "../../../src/shared/analytics-rules.js";
 import { DEFAULT_ORG } from "../../../src/shared/analytics-rules.js";
 
 const DAY = 86_400_000;
-
-/**
- * A finite sentinel for "no cutoff".
- *
- * `STALE_REPO_CUTOFF_DAYS` is nullable and the obvious binding for an absent
- * bound is `-Infinity`, which cannot cross the D1 wire — parameters serialise
- * as JSON and `Infinity` becomes `null`, so the predicate silently stops
- * filtering. Every period in `analytics` binds a sentinel for the same reason.
- */
-const DAWN = "0000-01-01T00:00:00Z";
-
-const staleBound = (now) =>
-  STALE_REPO_CUTOFF_DAYS === null
-    ? DAWN
-    : isoBound(now - STALE_REPO_CUTOFF_DAYS * DAY);
 
 /**
  * Repos either panel will consider.
@@ -95,18 +79,31 @@ const staleBound = (now) =>
  * simply absent, and the card cannot tell the two apart. The backfill writes
  * `repos` for exactly this reason.
  *
- * A NULL `pushed_at` is kept rather than dropped. The bound is a coarse
- * pre-filter and the commit data does the real work — `needsRelease` needs a
- * commit newer than a release and `depUpdates` needs one inside the lookback,
- * so a genuinely dormant repo produces no rows either way. Excluding unknowns
- * here would instead lose a repo for having an unwritten column.
+ * **There is no stale-repo cutoff here either, and that is a departure from the
+ * Node panels rather than an oversight.** Both of them stop sweeping at the
+ * first repo pushed longer ago than `STALE_REPO_CUTOFF_DAYS`, which is a bound
+ * on *API cost*: the sweep is ordered by `pushedAt` descending, so stopping
+ * early saves requests. Reading a row that is already in D1 costs nothing, so
+ * the same predicate here buys nothing and only removes repos.
+ *
+ * It was removing real ones. Measured in production: 270 repos had a commit
+ * inside the lookback and the panel returned 245, with 27 repos carrying a
+ * `pushed_at` older than a year. A repo cannot both have been pushed to last
+ * week and have a year-old `pushed_at`, so that column disagrees with the
+ * commits — and between a timestamp copied from a payload and the commit rows
+ * themselves, the commits are the better authority.
+ *
+ * The commit data also *is* the bound, which is what makes dropping the
+ * predicate safe: `needsRelease` needs a commit newer than the release and
+ * `depUpdates` needs one inside the lookback, so a genuinely dormant repo
+ * still produces nothing. Filtering on `pushed_at` was never doing work the
+ * data was not already doing correctly.
  */
 const LIVE = `
   live AS (
     SELECT name, default_branch, commits_since
       FROM repos
      WHERE archived = 0
-       AND (pushed_at IS NULL OR pushed_at >= ?1)
   )`;
 
 const repoUrl = (repo) => `https://github.com/${DEFAULT_ORG}/${repo}`;
@@ -164,10 +161,10 @@ export async function needsRelease(db, now = Date.now()) {
         WHERE c.committed_at > r.published_at
         GROUP BY l.name, l.default_branch, l.commits_since,
                  r.tag_name, r.published_at, rel.prerelease
-       HAVING COUNT(*) >= ?2 AND MAX(${viaPullRequestSql("c", "p")}) = 1
+       HAVING COUNT(*) >= ?1 AND MAX(${viaPullRequestSql("c", "p")}) = 1
         ORDER BY commits_ahead DESC, repo`,
     )
-    .bind(staleBound(now), RELEASE_COMMIT_THRESHOLD)
+    .bind(RELEASE_COMMIT_THRESHOLD)
     .all();
 
   return results.map((r) => {
@@ -239,12 +236,12 @@ export async function depUpdates(db, now = Date.now()) {
            FROM commits c
            LEFT JOIN pull_requests p
                   ON p.repo = c.repo AND p.merge_commit_sha = c.sha
-          WHERE c.committed_at >= ?2 AND ${isDirectCommitSql()}
+          WHERE c.committed_at >= ?1 AND ${isDirectCommitSql()}
        ),
        seen AS (
          SELECT repo, MIN(committed_at) AS oldest
            FROM commits
-          WHERE committed_at >= ?2
+          WHERE committed_at >= ?1
           GROUP BY repo
        )
        SELECT l.name           AS repo,
@@ -259,7 +256,7 @@ export async function depUpdates(db, now = Date.now()) {
          JOIN seen s ON s.repo = l.name
          LEFT JOIN direct d ON d.repo = l.name AND d.rn = 1`,
     )
-    .bind(staleBound(now), since)
+    .bind(since)
     .all();
 
   const rows = results.map((r) =>
