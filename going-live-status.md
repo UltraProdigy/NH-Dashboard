@@ -753,3 +753,60 @@ the last of the three events the webhook receives and discards. It is the
 biggest of them — run conclusions need their own table shape, and the panel
 aggregates per repo and per branch rather than picking one row — which is why it
 was left rather than rushed in alongside these two.
+
+---
+
+## Verified against the build, and two things it caught
+
+Both panels were diffed row by row against `data/dashboard.json`. This is what
+the port has that the previous ones did not: a build and a Worker answering the
+same question from different data, on the same day.
+
+`depUpdates` exact rows are clean — every repo with a real commit date matched
+the build across the whole range, 17 of 17 sampled. Three rows differ by exactly
+one day (Botania 25/26, Salis-Arcana 2/3), which is the build running at 00:54
+against a recompute at 05:20 and the day counter ticking over. Not a defect, and
+worth writing down so nobody chases it later.
+
+`needsRelease` matched 16 of 18 repos. What the other rows exposed was real.
+
+**`commitsAhead` was a floor being rendered as a count.** TC4Tweaks: build 106,
+live 20. BugTorch: 79 against 9. GTNewHorizons.github.io: 64 against 31. In each
+case the live number is exactly how many commits the backfill captured — every
+one of those repos has a release older than the 365-day window, so the count was
+never a count. It was "however many commits fell inside the sweep", printed as a
+bare number, and it under-reported precisely the repos furthest behind.
+
+**`depUpdates` floors were too shallow, in the same flattering direction.** The
+floor used `MIN(committed_at)` per repo. DummyCore's oldest stored commit is 102
+days old, so it reported a 102-day floor where the build reported 365 — but the
+sweep *did* look back a full year for that repo and found nothing. A gap in a
+repo's history is not a limit on how far we can see. Both readings were looking
+at the same fact and only one of them said it.
+
+Both are fixed by the same idea: the horizon is a property of the sweep, not of
+the rows. `repos.commits_since` records how far back each repo was actually
+walked. `depUpdates` reads its floor from it; `needsRelease` compares the release
+against it and sets `commitsAheadApprox`, which the card renders as `≥20` rather
+than `20`.
+
+The sweep now has a third pass for the few repos whose last release predates the
+window, walking each back to its own release so the count is a real count.
+Repos that exhaust `DEEP_MAX_PAGES` keep the flat horizon and stay flagged,
+because a cap reached is still a floor.
+
+## One divergence that is not a bug
+
+TinkersGregworks is in the build's list — 50 commits ahead, tag published 86 days
+ago — and absent from the live one, which found zero commits after that date.
+
+Both are right about what they measure. The Node panel compares commit
+*ancestry* (`tagSha...headSha`); this one compares commit *dates* against the
+release's `published_at`, because a release webhook carries no tag SHA. Those
+agree until a tag is cut from an old commit, which is exactly what happened
+here: the tag is recent, the commit it points at is not.
+
+The substitution is documented in `Calculations.md` and this is its worst case.
+Worth knowing it fails by dropping a repo silently rather than by showing a
+wrong number — which is the harder failure to notice, and the argument for
+keeping the build's copy of this panel alive rather than deleting it.
