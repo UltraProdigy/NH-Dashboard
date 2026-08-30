@@ -14,7 +14,7 @@
  * what makes this worth a test rather than care: the exclusion has no output of
  * its own to look wrong, and the only symptom is data quietly present.
  *
- * Four checks, because they catch different mistakes:
+ * Five checks, because they catch different mistakes:
  *
  *   Every ingest module must reference `isIngestExcluded`. Crude, and it is the
  *   check that would have caught the original gap — the same reasoning as the
@@ -22,6 +22,10 @@
  *
  *   With a store on disk, an excluded repo must not survive `readStore`. That
  *   is the behaviour the first check only approximates.
+ *
+ *   Every CI step that ingests or builds must be passed the variable. The
+ *   workflow publishes its own build to Pages, so a clean local artefact proves
+ *   nothing about the deployed one.
  *
  *   The matcher and its SQL twin must agree. The Worker reads D1 directly and
  *   cannot use the JavaScript one, and the two disagreeing would put a repo on
@@ -96,6 +100,38 @@ function checkWiring() {
       reader.includes("isIngestExcluded"),
       "an already-polluted store would still reach every panel",
     );
+  }
+}
+
+/**
+ * CI must pass the exclusion to anything that ingests or builds.
+ *
+ * The workflow runs its own ingest and build and publishes *that* output to
+ * Pages — a clean local `dashboard.json` never reaches the site. So a workflow
+ * step that runs either without `NH_INGEST_EXCLUDE` in its env is a step that
+ * republishes every excluded repo, and nothing about the run looks wrong.
+ *
+ * That is not hypothetical: this file set the variable nowhere, and an excluded
+ * repo was served from public Pages as a result.
+ */
+function checkWorkflows() {
+  const dir = path.join(ROOT, ".github", "workflows");
+  if (!existsSync(dir)) return;
+
+  for (const file of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
+    const src = readFileSync(path.join(dir, file), "utf8");
+    // Steps are `- name: … env: … run: …` blocks; split on the run lines and
+    // check the block that introduced each ingest or build invocation.
+    const steps = src.split(/\n\s*-\s+(?=name:|uses:)/);
+    for (const step of steps) {
+      const runs = /run:[\s\S]*?(src\/ingest\.js|src\/build\.js)/.exec(step);
+      if (!runs) continue;
+      check(
+        `${file}: the step running ${runs[1]} passes NH_INGEST_EXCLUDE`,
+        step.includes("NH_INGEST_EXCLUDE"),
+        "CI would re-ingest and republish every excluded repo",
+      );
+    }
   }
 }
 
@@ -251,6 +287,7 @@ async function checkScopedPanels() {
 async function main() {
   console.log("\ningest exclusion\n");
   checkWiring();
+  checkWorkflows();
   checkMatcherTwins();
   await checkStores();
   await checkScopedPanels();

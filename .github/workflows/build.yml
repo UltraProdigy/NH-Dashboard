@@ -70,6 +70,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
           GITHUB_ORG: GTNewHorizons
+          # Without this, CI walks and publishes repos the operator excluded —
+          # the env var is the whole mechanism, and it is deliberately absent
+          # from committed source, so a workflow that forgets to pass it is a
+          # workflow with no exclusion at all. That is what happened: this file
+          # never set it, and an excluded repo reached public Pages.
+          #
+          # A repo secret rather than a plain value, because for some repos the
+          # fact of the exclusion is the sensitive part.
+          NH_INGEST_EXCLUDE: ${{ secrets.NH_INGEST_EXCLUDE }}
         run: node src/ingest.js
 
       - name: Build data
@@ -80,6 +89,11 @@ jobs:
           # Settings → Secrets and variables → Actions → New repository secret
           GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
           GITHUB_ORG: GTNewHorizons
+          # Also here, not just on the ingest. `readStore` filters on the way
+          # out too, so this is what keeps a restored Actions cache written
+          # before the exclusion existed from reaching the published artefact —
+          # without it the build would republish from the cache alone.
+          NH_INGEST_EXCLUDE: ${{ secrets.NH_INGEST_EXCLUDE }}
         run: node src/build.js --no-cache
 
       # Stage the site: index.html at the root, data/ beside it. The frontend
