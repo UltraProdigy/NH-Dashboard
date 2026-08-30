@@ -116,8 +116,9 @@ export function summarizeRuns(runs) {
        `timedRuns` rather than `runs` as the denominator, because a run missing
        a usable timestamp contributes nothing to the total and would otherwise
        drag the average down. That gap is not rare: GitHub bumps `updated_at`
-       on runs that finished a year ago, so roughly one sampled run in seven has
-       no believable duration. See CI_MAX_RUN_MINUTES. */
+       on runs that finished a year ago, so about 1.7% of sampled runs have no
+       believable duration — 53 of 3,156 org-wide, across 29 of 252 repos. See
+       CI_MAX_RUN_MINUTES. */
     totalMinutes: durations.length
       ? round1(durations.reduce((n, m) => n + m, 0))
       : null,

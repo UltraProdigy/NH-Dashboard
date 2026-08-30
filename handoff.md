@@ -40,11 +40,20 @@ three rounds across two sessions.
 npm run rebuild:ci
 ```
 
-~2 minutes, ~260 requests. Rewrites only `dashboard.json`'s `ciHealth` key with
-the corrected duration rule and prints the before/after. **`hoursPerMonth`
-should collapse** from ~33,654 to the low hundreds; **`runsPerMonth` should
-barely move** — the ceiling drops durations, not runs. If runs move, something
-other than the ceiling changed and the rest of this block should wait.
+~2.5 minutes, ~260 requests. Rewrites only `dashboard.json`'s `ciHealth` key
+with the corrected duration rule and prints the before/after. Measured on the
+first run:
+
+```
+sampled minutes    22,630,939  ->  11,569
+hours per month        33,655  ->     362
+mean run minutes        7,173  ->     3.7
+runs per month          9,608  ->   8,862
+```
+
+`hours per month` and `mean run minutes` are the ceiling. **`runs per month` is
+resampling noise** — it wanders by ±15% between crawls hours apart, and did so
+twice before the ceiling existed. Do not read it as a signal either way.
 
 ```
 cd worker
@@ -158,12 +167,20 @@ Not a row count. Two of these would pass one.
 
 - **252 repos** in the build's `ciHealth`. Materially fewer live means the
   backfill did not reach some repos, not that they have no CI.
-- **`runsPerMonth` barely moves.** If it does, the sample *selection* differs,
-  which is a different bug from the duration one.
-- **`hoursPerMonth` collapses** from ~33,654 to the low hundreds. If it has not,
-  the ceiling is not being applied on the live side.
-- **`timedRuns < runs` on most repos, by about a seventh.** Equality means the
-  ceiling is not firing.
+- **`runsPerMonth` is noisy and proves nothing.** It moved 9,608 → 7,926 →
+  8,862 across three crawls, and **two of those three ran without the ceiling
+  at all**. The ceiling provably cannot touch it: `runs` and `sampleSpanDays`
+  are computed from `run_started_at` only, so the sole route from a discarded
+  duration to this figure is a repo losing *every* duration it had and dropping
+  out of the projection — which would show as `projectedFrom` falling, and did
+  not (236 → 236). Watch `projectedFrom`, not this.
+- **`hoursPerMonth` collapses** — 33,655 → 362 on the first corrected build. If
+  it has not, the ceiling is not being applied on the live side.
+- **`timedRuns < runs` on a *minority* of repos.** Measured: 29 of 252 repos,
+  53 of 3,156 runs, 1.7%. An earlier estimate here said "about a seventh",
+  extrapolated from a 14-repo sample deliberately chosen for the worst
+  offenders — the org-wide rate is an order of magnitude lower. Equality across
+  every repo still means the ceiling is not firing.
 - **`web/js/dream.js`'s `orgRepos()` reads `ciHealth.data.repos` as the org's
   repo list** for the exclusion popup. It is the only consumer of this panel
   that is not about CI, and a shorter list quietly shortens that menu.
@@ -343,10 +360,10 @@ unrecoverable around Sept 12** if it is not run before then. The one dataset
 here that cannot be backfilled. Loading it into D1 is the fix.
 
 **The org-wide `meanRunMinutes` divides by `sampledRuns` while each repo's own
-mean divides by `timedRuns`.** With roughly a seventh of runs now untimed, that
-biases the org figure downwards — the opposite direction from the bug the
-ceiling fixed, and much smaller. Left alone because it is existing behaviour and
-changing it would move a number for an unrelated reason.
+mean divides by `timedRuns`.** With 1.7% of runs untimed that bias is real but
+tiny — the opposite direction from the bug the ceiling fixed, and roughly a
+thousandth of its size. Left alone because it is existing behaviour and changing
+it would move a number for an unrelated reason.
 
 **The ingest exclusion.** `NH_INGEST_EXCLUDE` is applied in code and covered by
 `npm run test:exclusion`, but CI has no repo secret, so a CI build still

@@ -1073,14 +1073,20 @@ More than a row count, because two of these would pass one:
 
 - **252 repos** in the build's `ciHealth`. A live figure materially below that
   means the backfill did not reach some repos, not that they have no CI.
-- **`runsPerMonth` should barely move.** The ceiling drops durations, not runs.
-  If it moves, the *sample selection* differs, which is a different bug from the
-  one just fixed.
-- **`hoursPerMonth` should collapse** from ~33,654 to something in the low
-  hundreds. If it does not, the ceiling is not being applied on the live side.
-- **`timedRuns < runs` on most repos**, by roughly a seventh. Equality means the
-  ceiling is not firing; a much larger gap means the store's timestamps are not
-  what the API's were.
+- **`runsPerMonth` is noisy and proves nothing.** It moved 9,608 → 7,926 →
+  8,862 across three crawls, and **two of those three ran without the ceiling
+  at all**. The ceiling provably cannot touch it: `runs` and `sampleSpanDays`
+  are computed from `run_started_at` only, so the sole route from a discarded
+  duration to this figure is a repo losing *every* duration it had and dropping
+  out of the projection — which would show as `projectedFrom` falling, and did
+  not (236 → 236). Watch `projectedFrom`, not this.
+- **`hoursPerMonth` collapses** — 33,655 → 362 on the first corrected build. If
+  it has not, the ceiling is not being applied on the live side.
+- **`timedRuns < runs` on a *minority* of repos.** Measured: 29 of 252 repos,
+  53 of 3,156 runs, 1.7%. An earlier estimate here said "about a seventh",
+  extrapolated from a 14-repo sample deliberately chosen for the worst
+  offenders — the org-wide rate is an order of magnitude lower. Equality across
+  every repo still means the ceiling is not firing.
 - **`web/js/dream.js` reads `ciHealth.data.repos` as the org's repo list** for
   the exclusion popup — `orgRepos()`. It is the only consumer of this panel that
   is not about CI, and a shorter list quietly shortens that menu.

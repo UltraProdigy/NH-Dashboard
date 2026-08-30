@@ -69,6 +69,12 @@ export const isDecisiveSql = (run = "r") =>
  * absent from `timedRuns`, which is a denominator the panel already reports and
  * already handles being smaller than the sample.
  *
+ * Measured org-wide on the first corrected build: **53 of 3,156 sampled runs
+ * discarded, 1.7%, across 29 of 252 repos, and no repo lost all of its
+ * durations.** Those 53 runs carried 22,619,370 of the 22,630,939 minutes the
+ * panel used to report — 99.95% of the total from 1.7% of the runs, which is
+ * the shape of the whole problem in one line.
+ *
  * The failure direction is worth naming because it is the opposite of every
  * other defect this port has produced. Those all made the org look healthier
  * than it was; this one made it look busier and more expensive. Both are the

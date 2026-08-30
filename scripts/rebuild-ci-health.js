@@ -81,8 +81,8 @@ async function main() {
     line("mean run minutes", org.meanRunMinutes ?? 0, was.meanRunMinutes ?? 0);
     line("runs per month", org.runsPerMonth, was.runsPerMonth);
     console.log(
-      `\n  runs per month should be unchanged — the ceiling drops durations, ` +
-        `not runs.\n`,
+      `\n  runs per month is resampling noise, not the ceiling — it cannot ` +
+        `touch that\n  figure unless a repo loses every duration it had.\n`,
     );
   }
 }

@@ -1312,8 +1312,11 @@ so the number can move a long way either way without changing a verdict.
 
 **Discarded, not clamped.** A clamp invents a number and hides that it did.
 Dropping leaves the run counted in `runs` and absent from `timedRuns`, which is
-a denominator the panel already reports. Roughly one sampled run in seven is
-discarded this way, so `timedRuns < runs` is normal rather than a symptom.
+a denominator the panel already reports. Measured org-wide: **53 of 3,156
+sampled runs, 1.7%, across 29 of 252 repos**, and no repo loses all of its
+durations. So `timedRuns < runs` is normal on a minority of repos rather than a
+symptom — and those 53 runs held 99.95% of the minutes the panel used to
+report.
 
 This is the one defect found during the port that made the org look **worse**
 than it was rather than healthier. The direction differs; the cause does not —
