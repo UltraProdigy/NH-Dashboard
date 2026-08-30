@@ -16,6 +16,7 @@ import {
   approvedUnmerged,
   changesRequested,
 } from "./panels/review-state.js";
+import { byLabel } from "./panels/by-label.js";
 import { depUpdates, needsRelease } from "./panels/releases.js";
 import { scopedDb } from "./scope.js";
 
@@ -36,8 +37,14 @@ import { scopedDb } from "./scope.js";
  * answer from a partial history — a repo whose release predates the capture
  * window has no row and simply does not appear, which reads as "up to date".
  *
- * Still outside: `ciHealth`, which needs `workflow_run` captured the same way,
- * and `byLabel`, which needs the managed label list from another repo.
+ * `byLabel` joined once the `labels` table gave the managed label set somewhere
+ * to live. It was the only one of the five Dream Panel cards blocked on data
+ * that genuinely could not be reached rather than on a wrong assumption about
+ * what a panel needed — Label-Sync-GTNH is a file in another repo, and no
+ * webhook fires when it changes.
+ *
+ * Still outside: `ciHealth`, which needs `workflow_run` captured the way `push`
+ * and `release` now are.
  */
 const PANELS = {
   contributors,
@@ -46,6 +53,7 @@ const PANELS = {
   changesRequested,
   needsRelease,
   depUpdates,
+  byLabel,
 };
 
 /**
