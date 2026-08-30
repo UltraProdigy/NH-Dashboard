@@ -180,9 +180,14 @@ depending on who was looking.
 
 ### Percentile — nearest-rank, no interpolation
 
-Defined once in `src/shared/analytics-rules.js` and used by
-`src/panels/analytics.js`, `src/panels/issueMetrics.js` and
-`src/panels/drilldown.js`.
+Defined once in `src/shared/analytics-rules.js`. Every panel that takes a
+percentile imports it from there — `analytics`, `issueMetrics`, `drilldown` —
+and so does the Worker.
+
+It was defined three more times, identically, until the issues port needed a
+single owner for the SQL twin. The copies did agree, which is the point: two
+copies of a definition are not a bug until somebody edits one, and then they are
+a bug with no error message.
 
 ```
 pct(sorted, p):

@@ -53,7 +53,9 @@
 
 import { readStore } from "../ingest/pullRequests.js";
 import { readStore as readIssueStore } from "../ingest/issues.js";
-import { BOT_PATTERN, ISSUE_STALE_DAYS } from "../config.js";
+import { ISSUE_STALE_DAYS } from "../config.js";
+import { isBot } from "../shared/contributor-rules.js";
+import { monthKey, pct, round1 } from "../shared/analytics-rules.js";
 import { WINDOWS } from "./contributors.js";
 import { activeDayIndex } from "./activeDays.js";
 import { BACKLOG_BUCKETS } from "./analytics.js";
@@ -101,9 +103,6 @@ const TOP_N = Infinity;
  */
 const ISSUE_TOP_N = 200;
 
-const isBot = (login) => !login || BOT_PATTERN.test(login);
-
-const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
 
 /**
  * Ratios are rendered as whole percentages, so full float precision is 15
@@ -112,14 +111,6 @@ const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
  */
 const round3 = (n) => (n == null ? null : Math.round(n * 1000) / 1000);
 
-const monthKey = (d) =>
-  `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-
-/** Nearest-rank percentile over a pre-sorted array. */
-function pct(sorted, p) {
-  if (!sorted.length) return null;
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
-}
 
 /** First review by anyone other than the author — what the author waits on. */
 function firstReviewAt(pr) {

@@ -15,12 +15,24 @@
  * mean half the fields are always null.
  */
 
-import { BOT_PATTERN } from "../config.js";
+import { isBot } from "../shared/contributor-rules.js";
+import {
+  dayKey,
+  monthKey,
+  pct,
+  round1,
+  weekKey,
+} from "../shared/analytics-rules.js";
 
 export const DAY = 86_400_000;
 export const HOUR = 3_600_000;
 
-export const isBot = (login) => !login || BOT_PATTERN.test(login);
+// The percentile, the rounding and the three bucket keys used to be defined
+// again here, identically. They agreed — checked across every day from 2005 to
+// 2035 before they were merged — but two copies of a definition is a bet that
+// nobody ever edits one of them, and both are about to gain a SQL twin that
+// only one copy can own.
+export { isBot, pct, round1, monthKey, weekKey, dayKey };
 
 /**
  * Close reasons that mean "this was never fixed".
@@ -41,32 +53,10 @@ export const UNRESOLVED = new Set(["NOT_PLANNED", "DUPLICATE"]);
  */
 export const isUnanswered = (i) => !i.firstResponseAt && !i.responseUnknown;
 
-/** Nearest-rank percentile over a pre-sorted array. */
-export function pct(sorted, p) {
-  if (!sorted.length) return null;
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
-}
-
-export const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
 export const round3 = (n) => (n == null ? null : Math.round(n * 1000) / 1000);
 
 const sorted = (a) => a.sort((x, y) => x - y);
 export const median = (arr) => round1(pct(sorted(arr), 50));
-
-export const monthKey = (d) =>
-  `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-
-/** ISO-ish week key: 2026-W32. Weeks start Monday, matching GitHub's charts. */
-export function weekKey(d) {
-  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const dow = (t.getUTCDay() + 6) % 7;
-  t.setUTCDate(t.getUTCDate() - dow + 3);
-  const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round((t - firstThu) / (7 * DAY));
-  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-export const dayKey = (d) => d.toISOString().slice(0, 10);
 
 /**
  * Labels on the modpack follow a "Prefix: Value" convention — `Mod: GT`,

@@ -31,10 +31,8 @@
 
 import { readStore } from "../ingest/pullRequests.js";
 import { readStore as readIssueStore } from "../ingest/issues.js";
-import { BOT_PATTERN } from "../config.js";
+import { isBot } from "../shared/contributor-rules.js";
 import { closerOf, fixerOf } from "./issueMetrics.js";
-
-const isBot = (login) => !login || BOT_PATTERN.test(login);
 
 /**
  * Memoized for the same reason the stores are: a build reads this from two

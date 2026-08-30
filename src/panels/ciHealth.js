@@ -18,6 +18,7 @@
 
 import { graphql, rest } from "../github/client.js";
 import { CI_RUN_SAMPLE, ORG, STALE_REPO_CUTOFF_DAYS } from "../config.js";
+import { round1 } from "../shared/analytics-rules.js";
 
 const DAY = 86_400_000;
 const MINUTE = 60_000;
@@ -51,8 +52,6 @@ const SWEEP = `
  */
 const PASS = new Set(["success"]);
 const FAIL = new Set(["failure", "timed_out", "startup_failure"]);
-
-const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
 
 function median(nums) {
   if (!nums.length) return null;
