@@ -810,3 +810,100 @@ The substitution is documented in `Calculations.md` and this is its worst case.
 Worth knowing it fails by dropping a repo silently rather than by showing a
 wrong number — which is the harder failure to notice, and the argument for
 keeping the build's copy of this panel alive rather than deleting it.
+
+---
+
+## All five Dream Panel cards are live
+
+`LIVE_PANELS` now carries `needsRelease`, `depUpdates` and `byLabel` alongside
+the two review cards. Only `ciHealth` still comes from the build, waiting on
+`workflow_run` to be captured the way `push` and `release` now are.
+
+Each card was held back until it *reconciled* against the build rather than
+merely returning rows, and that gate is the only reason the following were found
+rather than shipped. Every one of them failed in the flattering direction:
+
+- **`commitsAhead` was counting the sweep window, not commits.** TC4Tweaks read
+  20 against a true 106, and the repos affected were the ones furthest behind.
+- **Floors read 102 days where the truth was 365**, because the horizon was
+  taken from the oldest stored row rather than from how far the sweep looked.
+- **Seven private repos were withheld** from a page that publishes them.
+- **The stale-repo cutoff dropped 25 repos that had commits from last week.**
+- **Six repos with no commits at all vanished entirely** — the strongest form of
+  the thing the card looks for, answered by omission.
+
+The pattern is worth naming, because it will recur: every defect made the org
+look healthier than it was. A dashboard that errs that way is worse than no
+dashboard, and none of these were visible from the panel's own output — all five
+needed a second implementation to disagree with.
+
+## Where live still differs from the build
+
+Small and understood. Kept here so nobody re-investigates them.
+
+**Freshness.** Live counts run ahead of the 00:54 build by one or two commits on
+active repos (GT5-Unofficial 3 → 4, EnderIO 1 → 2). That is the port working.
+
+**Day boundaries.** A whole-day age computed at 05:20 differs by one from the
+same age computed at 00:54. Not a defect.
+
+**Ancestry versus dates**, and this is the only real one. `needsRelease` asks
+whether a commit is *newer than the release's `published_at`*; the Node panel
+asks whether it is *reachable from the tag*. A release webhook carries no tag
+SHA, so the store cannot ask the second question. The two agree until a tag is
+cut from an older commit:
+
+| Repo | Build | Live |
+|---|---|---|
+| BugTorch | 79 ahead | 35 |
+| TinkersGregworks | 50 ahead | absent |
+| Variable-Horizons | 2 ahead | absent |
+
+Two of the three fail by *dropping a repo silently*, which is the harder failure
+to notice. Left as-is deliberately — the fix is to have the daily build resolve
+each tag to its commit and store it, which is a real piece of work and not
+urgent at three repos. It is also the standing argument for keeping the build's
+copy of this panel rather than deleting it.
+
+## Reconciliation, for the next person
+
+`depUpdates`: live 270 + 6 repos with no commits = the build's 276. Exact.
+
+`needsRelease`: 16 of 18 shared rows identical on tag and count; the two
+differences are in the table above.
+
+`byLabel`: 20 columns against the build's 20, 294 pull requests, chips coloured.
+
+`/api/health` now reports the funnel — `withCommitsInWindow`, `droppedAsDormant`,
+`reposWithEpochPushedAt` and friends — because every one of the bugs above was
+invisible in a row count and obvious in the funnel. Two of them were found that
+way after wrangler could not answer a question at all.
+
+## Two things about wrangler, learned the hard way
+
+**`--file` cannot read.** It goes through D1's import endpoint, which executes
+statements and discards result rows: a five-statement diagnostic reported
+"30,563 rows read" and printed nothing. It applies changes; it cannot answer
+questions.
+
+**`--command` is refused by this account** with code 7403 on the `/query`
+endpoint, while `--file` works. So there is currently *no* wrangler path to a
+SELECT result against production, which is why the diagnostics live in
+`/api/health` instead. That is a better home anyway.
+
+## A wrong diagnosis, recorded on purpose
+
+The 24 missing repos were first blamed on `repository.pushed_at` arriving as a
+Unix epoch integer on `push` events, which would sort below every ISO date and
+read as dormant. The reasoning fit: the missing repos were the actively pushed
+ones, and they disappeared one webhook after being correct.
+
+It was wrong. `reposWithEpochPushedAt` came back 0 and the repair migration
+updated 0 rows. The real cause was the stale-repo cutoff, which needed no epoch
+to do the same damage.
+
+The normalisation was kept — it is correct defensively and costs nothing — but
+it fixed nothing, and the counter added to disprove it is the part that earned
+its place. Worth remembering that a theory fitting the symptom is not evidence,
+which is the same lesson as the handoff's push-payload claim, arriving from the
+other direction.

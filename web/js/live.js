@@ -21,27 +21,33 @@ import { state } from "./state.js";
 
 /**
  * Panels the Worker can serve. Anything not listed keeps coming from the built
- * file: ciHealth and byLabel, which need facts D1 has never been told, plus
- * whatever is still mid-port.
+ * file — which is now only `ciHealth`, still waiting on `workflow_run` to be
+ * captured the way `push` and `release` are.
  *
- * `needsRelease` and `depUpdates` are implemented and the Worker answers for
- * both, and they are still absent from this list on purpose. The webhook only
- * captures commits and releases going forward, so until the daily build has
- * backfilled the history they answer correctly from a store that barely holds
- * anything — a repo whose last release predates the capture window has no row
- * at all and reads as up to date.
+ * All five Dream Panel cards are here. Each was held back until it reconciled
+ * against the build rather than merely returning rows, because the tint makes a
+ * wrong answer *more* dangerous rather than less: blue means "this is current",
+ * and a confidently wrong blue is worse than the amber it replaced. What that
+ * discipline caught, in order — a `commitsAhead` that was counting the sweep
+ * window instead of commits, floors reading 102 days where the truth was 365,
+ * seven private repos withheld from a page that publishes them, and a
+ * stale-repo cutoff dropping 25 repos that had commits from last week.
  *
- * Listing them now would tint both cards blue over a near-empty answer, which
- * is precisely the failure the tint exists to make visible: amber and red are
- * the same stale data with opposite meanings, and a *confidently wrong* blue is
- * worse than either. Add them here once `npm run backfill:commits` has run
- * against production and the counts look right.
+ * Where they still differ from the build, and it is worth knowing before
+ * trusting a number: `needsRelease` compares commit *dates* against a release,
+ * because a release webhook carries no tag SHA, while the Node panel compares
+ * *ancestry* (`tagSha...headSha`). The two agree until a tag is cut from an
+ * older commit — three repos at last count, where the card reads low or omits
+ * the repo. `Calculations.md` has the detail.
  */
 const LIVE_PANELS = [
   "contributors",
   "analytics",
   "approvedUnmerged",
   "changesRequested",
+  "needsRelease",
+  "depUpdates",
+  "byLabel",
 ];
 
 /**
