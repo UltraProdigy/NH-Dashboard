@@ -21,6 +21,16 @@
 
 -- ---------------------------------------------------------------- repositories
 
+-- commits_since records how far back the backfill actually swept this repo's
+-- history, and it is per repo rather than per run because the sweep is not
+-- uniform: most repos get the flat lookback, while a repo whose last release
+-- predates that gets walked back to the release instead, so its commit count
+-- can be a count rather than "however many the window caught".
+--
+-- Both release panels read it as "how far back can we see here", which is a
+-- different question from "how far back do this repo's rows go". A repo with a
+-- gap in its history is not a repo we cannot see into, and reading the oldest
+-- stored row as the horizon reported a 102-day floor where the truth was 365.
 CREATE TABLE IF NOT EXISTS repos (
   name              TEXT PRIMARY KEY,
   full_name         TEXT NOT NULL,
@@ -28,7 +38,8 @@ CREATE TABLE IF NOT EXISTS repos (
   archived          INTEGER NOT NULL DEFAULT 0,
   default_branch    TEXT,
   pushed_at         TEXT,
-  updated_at        TEXT
+  updated_at        TEXT,
+  commits_since     TEXT
 );
 
 -- Restricted repos are opted *into* by queries rather than filtered out, so a
