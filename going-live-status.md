@@ -647,17 +647,34 @@ opposite meanings, and the tint exists so an outage cannot hide among the
 legitimately-amber half of this dashboard. A confidently wrong blue defeats that
 more thoroughly than either.
 
-Order to bring them up:
+Order to bring them up. **All of it from `worker/`, and the order is load-bearing
+for the first two** — see below.
 
 ```
-cd worker && npx wrangler d1 execute nh-dashboard --remote \
-  --file migrations/001-commits-and-releases.sql   # adds merge_commit_sha
+cd worker
+
+npx wrangler d1 execute nh-dashboard --remote --file migrations/001-commits-and-releases.sql
 npx wrangler d1 execute nh-dashboard --remote --file schema.sql
-cd .. && npm run backfill:commits -- --out worker/backfill.sql
-cd worker && npx wrangler d1 execute nh-dashboard --remote --file backfill.sql
+
+node --env-file-if-exists=../.env backfill-commits.js --out backfill.sql
+npx wrangler d1 execute nh-dashboard --remote --file backfill.sql
+
 npx wrangler deploy
-curl -X POST ".../api/recompute?force=1"
+curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
 ```
+
+**schema.sql before the migration fails with `no such column:
+merge_commit_sha`.** `CREATE TABLE IF NOT EXISTS` sees the existing
+`pull_requests` and leaves it alone, so the new column in that definition never
+lands on an old database and the partial index on it has nothing to index. The
+migration is what adds the column. wrangler applies a file atomically, so a
+failure here leaves nothing behind and is safe to retry in the right order —
+schema.sql now carries a comment saying so at the point of failure.
+
+Note the `cd worker` is on its own line on purpose. Chaining it onto the first
+command means the whole block only works from the repo root, and pasting it
+while already inside `worker/` silently skips the migration — which is exactly
+what happened the first time.
 
 Then check `/api/health` with `cache: "no-store"` — it can serve a cached
 response and has sent an investigation down a blind alley once already — and
@@ -706,6 +723,28 @@ npm run test:parity       95   across five panels (was 60 across four)
 ```
 
 200 total, all passing.
+
+## The backfill 502'd, and why
+
+First real run returned 502 from GitHub on the opening request and kept
+returning it. A GraphQL 502 is a server-side timeout, so the client's five 5xx
+retries with exponential backoff cannot help — the request is simply too
+expensive and will be too expensive again.
+
+The cause was combining two proven queries into one. `depUpdates` reads ten
+repos of hundred-commit history with each commit's `associatedPullRequests`;
+`needsRelease` reads fifty repos of releases. Both work. Asking for both at once
+— ten repos × (100 commits + PR connections + 10 releases) — does not.
+
+It is now two sweeps: releases and repo rows at fifty a page, commit history at
+ten. The repo list is walked twice and the whole thing is faster, because the
+limit that binds is per-request cost rather than request count.
+
+The script also writes what it has on `SIGINT` or an unrecoverable error, marked
+`-- PARTIAL` in the header. A full sweep is a long run against a rate-limited
+API, and every write is an upsert on a natural key, so a partial file applied
+now and a full one applied later converge. Losing an hour of API calls to one
+Ctrl-C was avoidable.
 
 ## Still not captured
 
