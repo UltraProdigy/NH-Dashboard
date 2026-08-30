@@ -202,7 +202,37 @@ async function handleHealth(env) {
     ).first();
     counts[table] = row?.n ?? 0;
   }
-  return json({ ok: true, counts });
+
+  // The release panels read far fewer rows than the tables hold, and every
+  // stage of that narrowing has been wrong at least once: the seed wrote no
+  // repos at all, a flat lookback truncated the commit counts, and a stray
+  // `private = 0` withheld seven repos. A row count per table cannot tell any
+  // of those apart from "nothing to report", which is the failure mode this
+  // whole endpoint exists to prevent.
+  //
+  // So this reports the funnel itself. If `withCommitsInWindow` matches what
+  // the backfill wrote but a panel returns fewer rows, the rows are present and
+  // the query is dropping them — which is a different bug from a partial load,
+  // and telling those two apart from the outside is otherwise guesswork.
+  //
+  // Counts only, deliberately: repo names would put the private ones on a
+  // public endpoint, and no question here needs them.
+  const window = `date('now', '-365 days') || 'T00:00:00Z'`;
+  const scope = await env.DB.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM repos WHERE archived = 0) AS live,
+       (SELECT COUNT(*) FROM repos WHERE commits_since IS NOT NULL) AS withHorizon,
+       (SELECT COUNT(*) FROM repos
+         WHERE archived = 0
+           AND pushed_at IS NOT NULL
+           AND pushed_at < ${window}) AS droppedAsDormant,
+       (SELECT COUNT(DISTINCT repo) FROM commits) AS withCommits,
+       (SELECT COUNT(DISTINCT repo) FROM commits
+         WHERE committed_at >= ${window}) AS withCommitsInWindow,
+       (SELECT COUNT(*) FROM commits WHERE via_pr IS NULL) AS commitsAwaitingPrAnswer`,
+  ).first();
+
+  return json({ ok: true, counts, scope });
 }
 
 /**
