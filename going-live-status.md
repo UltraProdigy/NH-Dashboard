@@ -450,17 +450,89 @@ drilldown adds 26,513 issues. Paid lifts CPU, not memory. So the panels are
 reimplemented in SQL rather than moved, and the parity test is what makes that
 survivable.
 
-Still to port: `issues`, `issueMetrics`, `activeDays`, `drilldown`. Staying in
-the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
-`pullRequests` — each needs a live GitHub call, so no amount of D1 helps. That
-split is the end state, not a migration half-finished.
+**That "staying in the Node build permanently" list was wrong, and it was wrong
+twice.** It read `ciHealth`, `depUpdates`, `needsRelease`, `pullRequests` —
+"each needs a live GitHub call, so no amount of D1 helps. That split is the end
+state." It was written once, then repeated into the handoff, then repeated again
+in conversation, without anyone checking it.
+
+Two of those panels needed no new data whatsoever. `approvedUnmerged` and
+`changesRequested` — which is what `pullRequests` means on the Dream Panel —
+*ask* GitHub via one search query, because that was convenient for a panel
+running at build time. Every fact is in `pull_requests` and `reviews`. Both are
+now ported.
+
+The other three are not blocked either, only unfed. `ciHealth`, `depUpdates` and
+`needsRelease` need workflow runs, commits and release tags, and the webhook
+already subscribes `workflow_run`, `push` and `release` — `onRepoTouch` receives
+all three, upserts the repo row, and throws the payload away. That is a gap in
+what is stored, not in what can be known.
+
+The lesson worth keeping: **check what a panel needs, not what it does.** A
+panel that calls an API is not thereby a panel that requires one.
+
+Still to port: `issues`, `issueMetrics`, `activeDays`, `drilldown`, plus the
+three above once their events are captured. Genuinely outside D1's reach:
+nothing yet identified.
+
+## Reproducing GitHub's review state
+
+`approvedUnmerged` and `changesRequested` are not approval counts.
+`review:approved` is *current state* — a pull request approved and then sent
+back for changes is not in that list — so the port had to reproduce GitHub's own
+resolution: each reviewer's **latest** verdict, then aggregate.
+
+- approved: someone's latest is APPROVED and nobody's latest is CHANGES_REQUESTED
+- changes: anybody's latest is CHANGES_REQUESTED
+- COMMENTED is not a verdict and never decides
+- DISMISSED is a verdict withdrawn: it ranks as latest, then counts as neither
+
+No tiebreak on the ordering, and that is a guarantee rather than an oversight —
+`idx_reviews_key` is unique over `(repo, pr_number, author, submitted_at)`, so
+one reviewer cannot hold two verdicts in a second. The test asserts the schema
+forbids it, because the panel rests on that.
+
+Against the search API on the same seed: 10 to 9 and 31 to 33. Every shared row
+identified the same pull request, and every difference traced to the store
+lagging GitHub rather than to the logic — the incremental ingest keys on
+`updated_at`, which a review does not always move. Webhooks close that gap, so
+**the live answer is fresher than the search it replaces.**
+
+Two cosmetic regressions, both known: `authorAvatar` is dropped (nothing in
+`web/` reads it), and label chips render uncoloured, because D1 stores label
+names only and the colour lives in Label-Sync-GTNH. A label table fixes the
+second and unblocks `byLabel`.
+
+## Two rebuild tiers, and cards that say which
+
+The ten-minute cron is a debounce whose justification is `analytics` at ~2.6s on
+D1. That reasoning got applied to every panel, which was wrong: the two review
+cards measure ~68ms and ~55ms, against the ten seconds GitHub allows a delivery.
+
+They now rebuild on the delivery itself, through `ctx.waitUntil` so the work
+happens after the 200 has gone back — it cannot delay a delivery or fail one,
+which matters more than freshness because a failing webhook gets disabled
+silently. Only `pull_request` and `pull_request_review` trigger it;
+`workflow_run` fires constantly and moves neither card. `dirty` is left set, so
+the cron still owes the expensive panels their rebuild.
+
+Every card now carries its state on its border: green for instant, blue for
+cron, amber for the static build, **red for a panel that should have been live
+and whose API did not answer**. Amber and red are the same stale data and
+opposite meanings — half this dashboard is legitimately amber, so an outage
+sharing that colour would be invisible.
+
+The tier travels as an `x-refresh` header the Worker sets, not a list in the
+frontend. A second copy of the instant/cron split would be wrong the first time
+a panel moved between them, and wrong in the direction that lies to the reader.
 
 **The frontend reads live panels already.** `web/js/live.js` loads
 `data/dashboard.json` as before, then overlays the ported panels from the Worker
-and re-overlays when `/api/version` moves. Confirmed in a browser at one panel:
-the header read "1 panel live", both API calls returned 200, contributor numbers
-came from D1. `analytics` has been added to `LIVE_PANELS` but has not yet been
-seen in a browser — that needs a deploy and a recompute first.
+and re-overlays when `/api/version` moves.
+
+**Nothing from the 2026-08-30 session is deployed.** Verified against the live
+Worker: `x-refresh` returns null and `/api/panel/approvedUnmerged` 404s. The
+code is on `origin/main` — `wrangler deploy` is not git, and was never run.
 
 The static file stays the floor rather than being replaced, and that is the
 design, not a stepping stone. A Worker that is down, blocked or slow costs

@@ -1,41 +1,77 @@
-# Handoff — resuming the panel port
+# Handoff — going live
 
 Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Written 2026-08-29, end of the session that ported `analytics`.
+Written 2026-08-30.
 
 ---
 
-## The one-paragraph version
+## Do this first — nothing from the last session is deployed
 
-The ingest pipeline is live and unattended. GitHub events reach a Cloudflare
-Worker, land in D1, and a cron rebuilds cached panels every ten minutes. Two
-panels — `contributors` and `analytics` — are ported to SQL, proven identical to
-the JavaScript, and registered in `LIVE_PANELS`. `analytics` was the hard one:
-it deployed at 6.3 seconds and came down to 3.1 over two rounds. Everything
-committed is deployed and nothing is outstanding. Four panels remain, and the
-next, `issues`, is ordinary work by comparison.
+The Worker still runs code from before any of it. Verified: `x-refresh` comes
+back `null` and `/api/panel/approvedUnmerged` returns 404. The *code* is on
+`origin/main`, because `wrangler deploy` has nothing to do with git.
 
-## State of play
+```
+cd worker && npx wrangler deploy
+curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
+git push          # two commits: the freshness tint, which is frontend-only
+```
 
-Everything committed is deployed. Version 19, both panels built, nothing failed.
+The forced recompute matters — the two new panels have never been built, so
+they 404 until something builds them, and the instant path only fires on a new
+delivery.
 
-| Panel | Cached | Rebuild |
+`git push` is separate and equally necessary: `LIVE_PANELS` and the tint live in
+`web/js/`, and those only reach the site through a CI run. Deploying the Worker
+without pushing means the page never asks for the new panels; pushing without
+deploying means it asks and gets a 404. Order does not matter, both are needed.
+
+**Until the Worker ships, every live card shows red.** That is the indicator
+working: they are in `LIVE_PANELS`, they 404, and red means "should be live and
+is not". They turn green and blue on deploy.
+
+## What "live" means here
+
+Four panels are served from D1, in two tiers, and the tier is a real property of
+the pipeline rather than a label:
+
+| Panel | Tier | Latency |
 |---|---|---|
-| `contributors` | 737 KB | 437ms |
-| `analytics` | 287 KB | 3,080ms |
+| `approvedUnmerged` | instant | seconds — rebuilt on the webhook delivery |
+| `changesRequested` | instant | seconds — same |
+| `contributors` | cron | ≤10 min |
+| `analytics` | cron | ≤10 min |
 
-`analytics` started at 6,306ms and came down in two rounds. It is done being
-optimised — what is left is real work, not waste.
+The instant path runs inside `ctx.waitUntil` after the 200 has gone back to
+GitHub, so it cannot delay or fail a delivery — which matters more than the
+freshness, because a webhook that keeps failing gets disabled and does it
+silently. Only `pull_request` and `pull_request_review` trigger it.
 
-The one thing worth carrying forward: **D1 runs this workload at about 2.2× the
-local `node:sqlite` replica** — measured twice, 2,451 → 5,102 and 1,314 → 3,080.
-So the remaining panels can be tuned locally and multiplied, instead of spending
-a deploy per hypothesis, which is what the first two rounds here cost.
+The split is drawn by measurement, not category: ~68ms and ~55ms for the two
+instant panels against ~2.6s for `analytics` alone. If a panel gets cheap
+enough, move it into `INSTANT` in `worker/src/recompute.js` — the card retints
+itself, because the tier reaches the frontend as an `x-refresh` header rather
+than a second list.
 
-Not yet confirmed in a browser: the header should read "2 panels live".
+Everything else still comes from the daily build. The page loads
+`data/dashboard.json` first and the Worker's copies overlay it, so a Worker
+outage costs freshness and nothing else.
+
+## The card tint
+
+Every card carries its state on its border. `web/js/data.js` → `freshness()`.
+
+- **green** — instant
+- **blue** — cron
+- **amber** — from the static build, by design
+- **red** — should have been live, the API did not answer
+
+Amber and red are the same stale data and opposite meanings, which is the whole
+point: half this dashboard is legitimately amber, so an outage sharing that
+colour would be invisible.
 
 ## Live infrastructure
 
@@ -44,148 +80,150 @@ Not yet confirmed in a browser: the header should read "2 panels live".
 | Worker | `https://nh-dashboard.gtnh.workers.dev` |
 | D1 database | `nh-dashboard`, id `ed20adc3-f434-4f0a-8832-80862af30201` |
 | GitHub App | `NH-Dashbot`, App ID `4745300` |
-| Plan | **Workers Paid**, active |
-| Cron | `*/10 * * * *` |
+| Plan | Workers Paid |
+| Cron | `*/10 * * * *` (recompute), plus a daily `0 5 * * *` CI build |
 
 Endpoints: `/webhook`, `/api/health`, `/api/version`, `/api/panel/:name`,
-`POST /api/recompute?force=1`. All read routes send permissive CORS, which the
-dashboard needs because Pages and workers.dev are different origins.
+`POST /api/recompute?force=1`.
 
-Seeded and verified in production: 29,091 pull requests, 41,239 reviews, 26,513
-issues. `traffic_daily` is still 0 — the deferred half of the seed split.
+**The webhook pipeline works.** D1 held 29,101 PRs against a seed of 29,091,
+plus 11 new reviews and 4 new issues — writes land in seconds.
 
-## What was built this session
+**`/api/health` can serve a cached response.** It reported the bare seed counts
+once and sent a whole investigation down a blind alley. Fetch it with
+`cache: "no-store"` before concluding anything from it.
 
-- `src/shared/analytics-rules.js` — the percentile, the week/month/day keys, the
-  backlog buckets and the top-N comparator, each with its SQL twin generated
-  from the same constants. Dependency-free so Node and the Worker share one copy
-- `isBotSql` in `src/shared/contributor-rules.js`, generated from the same
-  prefix list as `BOT_PATTERN`, because SQLite has no regex
-- `worker/src/panels/analytics.js` — the panel as 33 D1 queries
-- `worker/test/analytics.parity.test.js` — 26 assertions, all passing
-- Top-N ties now break on the key, in both implementations
-- `analytics` registered in `recompute.js` and `LIVE_PANELS`
+## Next: three of five Dream Panel cards
 
-Nineteen commits this session, none pushed. Nothing has been pushed at any point.
+| Card | State |
+|---|---|
+| Approved, not merged | ported, needs the deploy above |
+| Changes requested | ported, needs the deploy above |
+| Needs a release | needs `push` + `release` payloads |
+| Time since last update | needs `push` payloads |
+| By label | needs a label table |
 
-## Next task: port `issues`
+**The events are already arriving and being thrown away.** `onRepoTouch` in
+`worker/src/handlers.js` handles `push`, `workflow_run` and `release` by
+upserting the repo row and discarding the payload. Capturing them is a table and
+a handler each, not new plumbing:
 
-`src/panels/issues.js`. Follow the pattern in `worker/src/panels/analytics.js`
-and write the parity test first — `analytics.parity.test.js` is the closer model
-of the two, since it deals with buckets and windows rather than one flat table.
+- `push` carries commits and whether each arrived via a pull request — that is
+  `depUpdates` ("last direct commit") and half of `needsRelease`
+- `release` carries the tag — the other half of `needsRelease`
+- `workflow_run` carries run conclusions — that is `ciHealth`, which was also
+  written off as impossible
 
-After `issues`: `issueMetrics`, `activeDays`, then `drilldown`. `drilldown` is
-23 MB and cannot use `panel_cache` — a D1 row caps at 2 MB. It gets
-`drilldown_contributors` and `drilldown_repos`, which already exist in the schema
-for exactly this reason.
+`byLabel` needs the managed label list from Label-Sync-GTNH, which a Worker
+cannot fetch. A `label_colors`-style table populated by the daily build fixes
+both that and the one cosmetic regression from the port: D1 stores label *names*
+only, so live chips render uncoloured. `authorAvatar` was dropped outright —
+nothing in `web/` reads it.
 
-Staying in the Node build permanently: `ciHealth`, `depUpdates`, `needsRelease`,
-`pullRequests`. Each needs a live GitHub call, so D1 cannot answer for them.
-That split is the end state, not a migration half-done.
+**Do not repeat the mistake that made this a five-card job instead of a
+two-card one.** The previous handoff said four panels "each need a live GitHub
+call, so D1 cannot answer for them", and that was carried forward twice without
+checking. Two of them needed no new data at all — they only *asked* GitHub,
+because a single search query was convenient for a panel that ran at build time.
+Check what a panel needs, not what it does.
 
-## Seven things that will bite again
+## Then: the remaining Node panels
 
-**`strftime` parses a date string, per row, per call.** It is the single
-largest cost in this panel — 43ms a query against 7ms for the equivalent string
-comparison, over 29,000 rows. Timestamps here are fixed-width and whole-second,
-so lexical order is chronological order; compare the strings and ceil the bound
-with `isoBound`. Reach for a date function only where the calendar is genuinely
-needed, as the weekday and the ISO week are.
+`issues`, `issueMetrics`, `activeDays`, `drilldown`. Groundwork for `issues` is
+already done and committed:
 
-**And if you do reach for `strftime('%s')`, cast it.** It returns TEXT, and
-SQLite orders every TEXT value above every number, so an uncast comparison is
-not approximately right, it is constant — `>=` a bound always true, `<` always
-false. Every windowed count in the first run of `analytics` came back as the
-whole table or as zero, and not one query looked wrong.
+- `src/shared/issue-rules.js` — every rule with its SQL twin, because JavaScript
+  reads a nested `closedVia` and D1 reads four flattened columns
+- `worker/test/issues.parity.test.js` — 8 assertions, passing, comparing per
+  issue rather than per total. The panel comparison skips until the panel exists
+- The core needs **no JSON support**: `unlabelled`/`unassigned` are the only
+  questions asked of those columns and every empty value is exactly `[]`. Only
+  the label breakdown needs `json_each`, which is untested on D1
 
-**Measure before rewriting, and measure the thing itself.** Two confident
-theories about this panel's 6.3 seconds — the repeated first-review grouping,
-then per-query round-trip cost — were wrong, and each cost a rewrite and a
-deploy. A temporary `/api/probe` settled the second in one deploy: round trips
-are ~9ms, `Promise.all` does overlap them, and 33 of them cost 73ms together.
-The third theory was measured locally first and was worth 40%.
+`drilldown` is 23 MB and cannot use `panel_cache` — a D1 row caps at 2 MB. It
+gets `drilldown_contributors` and `drilldown_repos`, already in the schema.
 
-The local replica predicts D1 at ~2.2×, so there is no excuse for guessing:
-profile against `node:sqlite`, and only deploy once the local number has moved.
+## Things that will bite again
+
+**`strftime` parses a date per row per call.** The single largest cost in
+`analytics` — 43ms a query against 7ms for the equivalent string comparison.
+Timestamps here are fixed-width whole seconds, so lexical order is chronological
+order; compare strings and ceil the bound with `isoBound`.
+
+**If you do use `strftime('%s')`, cast it.** It returns TEXT, and SQLite orders
+every TEXT value above every number, so an uncast comparison is not
+approximately right, it is *constant*. Every windowed count came back as the
+whole table or as zero and no query looked wrong.
 
 **±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
-`Infinity` becomes `null`, which makes every comparison NULL. All-time binds a
-finite sentinel.
-
-**A local SQLite replica proves logic, not dialect.** `node:sqlite` and D1 are
-different builds. A six-arm `UNION` passed every local test and failed on the
-first real recompute — D1 caps compound SELECT terms far below SQLite's default
-of 500, and a multi-row `VALUES` is a compound SELECT too, which is why the
-thirteen periods are columns and parameters rather than a joined period table.
-The parity test counts UNION arms; the general lesson stands.
-
-**Write the parity test before trusting the port.** It is the whole reason both
-ports are believable. On `contributors` it caught a hardcoded `truncated: 0`; on
-`analytics` it caught the TEXT comparison above, which four other kinds of
-checking had not. Two implementations of the same numbers drift invisibly — a
-median merge time of 3.5 hours and one of 4.1 look equally like a working
-dashboard.
-
-**Reusing the Node panels in the Worker does not fit.** Measured: 96 MB of heap
-to rebuild the PR store, against a 128 MB ceiling, before any accumulator and
-before issues. Paid lifted CPU, not memory.
+`Infinity` becomes `null`. Periods bind finite ISO sentinels.
 
 **A window frame defaults to RANGE, and RANGE cannot count.** The percentiles
-rank with `SUM(…) OVER (ORDER BY v ROWS UNBOUNDED PRECEDING)`; drop the explicit
-frame and every row tied on `v` shares one running total, so the count jumps
-past any rank inside a tied group and the lookup returns NULL rather than a
-number. It would show up as a median that is occasionally absent, on a panel
-where a missing median renders the same as one that has not been computed yet.
+rank with `ROWS UNBOUNDED PRECEDING`; drop it and rows tied on a value share one
+running total, so the count jumps past a rank and the lookup returns NULL — a
+median that is occasionally just absent.
+
+**A local SQLite replica proves logic, not dialect.** A six-arm `UNION` passed
+every local test and failed on the first real recompute. A multi-row `VALUES` is
+a compound SELECT too, which is why periods are columns rather than a joined
+table.
+
+**But it does predict cost: D1 runs about 2.2× the local replica.** Measured
+twice. Profile locally and multiply rather than spending a deploy per
+hypothesis — two confident theories about `analytics` were wrong, and the one
+that was measured first was worth 40%.
+
+**Write the parity test before the port.** It caught a hardcoded `truncated: 0`,
+the TEXT comparison above, and a `closerUnknown` rule that the real store cannot
+exercise at all. Two implementations of the same numbers drift invisibly.
+
+**Do not name a CTE after a real table.** `worker/src/scope.js` rewrites
+`FROM issues` and friends into a filtered subquery; a CTE with one of those
+names would be rewritten too.
 
 ## Commands
 
 ```
-npm run test:handlers     # 31 assertions, webhook handlers
-npm run test:recompute    # 17 assertions, the cron's contract
-npm run test:parity       # both panels, SQL vs JS
-npm run test:parity:analytics
+npm run test:freshness    # 14, the card tint
+npm run test:exclusion    # 17, the ingest exclusion
+npm run test:handlers     # 31, webhook handlers
+npm run test:recompute    # 26, the cron and the instant path
+npm run test:parity       # 60 across four panels
 
 cd worker && npx wrangler deploy
-npx wrangler tail                                    # live delivery log
+npx wrangler tail
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
-npx wrangler d1 execute nh-dashboard --remote --command "SELECT key, value FROM meta"
+node worker/seed.js --out worker/seed.sql     # regenerate from the local store
 ```
 
 Every suite builds its own SQLite replica from `schema.sql` + `seed.sql` and
-skips politely when those are absent, which they are in CI. Neither is
-committed.
+skips politely when those are absent, which they are in CI.
 
-Deploys must run from a machine logged in to Cloudflare — the credentials are
-local to the operator and `node_modules` holds platform-specific `workerd`
-binaries.
+Deploys must run from a machine logged in to Cloudflare.
 
-## Two loose ends
+## Parked, deliberately
 
-**`data/dashboard.json` has six empty panels** — approvedUnmerged,
-changesRequested, byLabel, needsRelease, depUpdates, ciHealth. A build ran
-without a token. `npm run build` with one restores them. Nothing is lost, and
-the file was deliberately kept out of every commit.
+**The ingest exclusion.** `NH_INGEST_EXCLUDE` is applied in code and covered by
+`npm run test:exclusion`, but CI has no repo secret, so a CI build still
+republishes the excluded repo. The decision was to settle it when the repo moves
+into the org. Detail in `going-live-status.md`.
 
-**`git rm -r --cached data/` still waits** on someone confirming the new
-workflow's post-job cache save actually appears — and is now also a blocker for
-moving the repo into the org, because the move makes the repo public and `data/`
-is in the history. See the ingest-exclusion section of `going-live-status.md`.
+**Traffic.** `npm run ingest:traffic` runs by hand and nothing renders it. The
+window is 14 days, so unrun for two weeks the data is gone permanently — it is
+the one thing here that cannot be backfilled. Loading it into D1 is the fix.
 
-**The ingest exclusion is parked, on purpose, until the org move.** It is fixed
-in code and covered by `npm run test:exclusion`, but the repo secret CI needs is
-not set, so a CI build still republishes the excluded repo. Deliberate: the
-decision was to settle it as part of moving into the org rather than now.
+**The Leaderboard sorts by all-time under a subtitle claiming the selected
+period.** Predates all of this. One line either way; which line is a product
+question.
 
-## Parked for QA, not forgotten
-
-The Leaderboard orders by all-time activity under a subtitle claiming the
-selected period. Predates the port; breaking ties by login made it visible.
-Detailed in `going-live-status.md`.
+**`git rm -r --cached data/`.** `data/` is tracked and committed.
 
 ---
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md` in the repo, then port the
-> `issues` panel to D1, following the pattern in
-> `worker/src/panels/analytics.js`. Write the parity test first.
+> Read `handoff.md` and `going-live-status.md`. Deploy the worker and push
+> first — nothing from the last session is live. Then capture the `push`,
+> `release` and `workflow_run` payloads the webhook already receives and
+> discards, so Needs-a-release and Time-since-last-update can come off the daily
+> build. Parity test first.
