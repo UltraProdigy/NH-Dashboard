@@ -8,10 +8,13 @@ Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install s
 
 **Hosted (no setup):** the build workflow deploys to
 [GitHub Pages](https://ultraprodigy.github.io/NH-Dashboard/), so the dashboard
-is just a URL — nothing to install or run. Data refreshes when the
+is just a URL — nothing to install or run. The seven ported panels refresh
+themselves from the Worker, within seconds or within ten minutes depending on
+the tier. The rest refresh when the
 [build workflow](https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml)
-runs: on every push to `main`, or on demand via **Run workflow**. This is the
-way to read it from any machine.
+crawls the org: daily at 05:00 UTC, or on demand via **Run workflow**. A push to
+`main` redeploys the site without recrawling. This is the way to read it from
+any machine.
 
 **Locally (fresh data on demand):** double-click `Dashboard.command` in Finder.
 It builds, starts the server, and opens your browser. Closing the Terminal
@@ -87,34 +90,65 @@ remembering.
 
 ### Builds and Pages
 
-`.github/workflows/build.yml` runs on push to `main` and on manual dispatch. It
-ingests, builds, and deploys `web/` plus the built JSON to GitHub Pages.
+`.github/workflows/build.yml` holds three jobs, and the split between the first
+two is the thing to understand.
+
+| Job | Runs on | Costs | Does |
+|---|---|---|---|
+| `data` | schedule, dispatch | 15–25 min | Ingests, builds `data/*.json`, caches them |
+| `site` | everything | seconds | Restores the built JSON, stages `_site` |
+| `deploy` | everything | seconds | Publishes to Pages |
+
+**A push runs `site` and `deploy` only.** Rebuilding the data means crawling the
+org — an incremental ingest, `ciHealth` sweeping 252 repos, `needsRelease`'s
+per-repo GraphQL, `depUpdates`' year-long look-back, a search per tracked label
+— and it is bound by GitHub's API, not by anything here. Deploying means copying
+`web/` and four JSON files. Welding them into one job meant a CSS change cost a
+full org crawl to republish byte-identical data, and that is the whole reason
+pushes took twenty minutes. The built JSON comes back out of the cache the last
+`data` run left behind, so a push publishes today's frontend against last
+night's numbers — which is exactly what the freshness tints already say.
+
+Use **Run workflow** with `deploy_only` **unchecked** to force a fresh crawl,
+**checked** to redeploy from cache without one.
+
+**The daily run is not a fallback.** `issues` and `drilldown` have no panel in
+`worker/src/panels/` yet and `ciHealth` needs `workflow_run` captured — between
+them that is 32 of the dashboard's 53 cards. The seven ported panels are also
+rebuilt here, but only as the floor the page falls back to when the Worker is
+unreachable, which is the difference between an amber card and a red one.
 
 Nothing is committed. The ingest store used to be, so each run could resume from
 the last watermark, but that made every run a push into an org that broadcasts
 push events — which is why the schedule sat parked. State now rides the Actions
 cache instead, and the workflow holds `contents: read`.
 
-**The schedule is still off, for a different reason than before.** Commits are
-no longer the problem; minutes are. A build costs 15–90 minutes because the
-ingest walks all-time history, and while this repo is private that bills against
-the 2,000/month Free allowance rather than the unlimited public-repo pool. Even
-a daily run is 450–2,700 minutes a month. Moving the repo into the org makes
-those minutes free; webhooks make the job reconciliation rather than the
-freshness mechanism. Either change makes a schedule affordable, and both are
-coming.
-
-**Runs are never cancelled in flight.** With builds sometimes exceeding an hour,
-cancelling on a new trigger would kill a long run before it reached the cache
-save — the watermarks would never advance and each replacement would redo the
-same work indefinitely. GitHub keeps at most one run pending per concurrency
-group, so letting them queue cannot pile up.
+**Runs are never cancelled in flight.** Cancelling on a new trigger would kill a
+long crawl before it reached the cache save — the watermarks would never advance
+and each replacement would redo the same work indefinitely. GitHub keeps at most
+one run pending per concurrency group, so letting them queue cannot pile up.
+`data` and `deploy` hold separate groups now, so a fast push-deploy never waits
+behind a crawl.
 
 **The cache key must be unique per run.** Entries are immutable, so a stable key
 like `ingest-v1` restores on every run and then silently skips the save, freezing
 the watermarks at whatever the first run wrote. `ingest-${{ github.run_id }}`
 with `restore-keys: ingest-` never hits exactly, so the newest prefix match is
-restored and the post-job save always writes a fresh entry.
+restored and the post-job save always writes a fresh entry. `site-data-` carries
+the built JSON on the same scheme, for the same reason.
+
+**Both jobs delete `data/*.json` after checkout.** `data/` is gitignored, but
+gitignore does not untrack what was already committed, and six files from before
+the switch to the cache are still in the tree — `data/dashboard.json` among
+them. Checkout materialises it, where it would pass the `site` job's
+did-the-data-come-back guard and get published: a stale dashboard, with no
+`drilldown.json` beside it because that one was never tracked. Deleting it makes
+the cache the only thing that can be deployed.
+
+**A cache miss fails the deploy rather than publishing a blank page.** Reachable
+once — the first push after this split, before any `data` run has written the
+entry — and after a seven-day gap, which is when GitHub evicts an unused cache.
+The daily schedule keeps it warm. The error names the fix.
 
 **The deploy copies `data/*.json`, not `data/`.** The raw store in `data/ingest`
 is far larger than anything the page reads and, with private repos in scope, not

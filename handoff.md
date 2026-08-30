@@ -57,7 +57,17 @@ Seven panels are served from D1. Five are the whole Dream Panel.
 | `depUpdates` | cron | ≤10 min |
 | `byLabel` | cron | ≤10 min |
 
-Only **`ciHealth`** still comes from the daily build.
+Three panels still come from the daily build, and they are 32 of the 53 cards —
+so "only ciHealth is left" undersells what remains by a wide margin.
+
+| Panel | Cards | Blocked on |
+|---|---|---|
+| `drilldown` | 22 — both drilldown pages | No `worker/src/panels/drilldown.js`. The `drilldown_contributors` and `drilldown_repos` tables are already in `schema.sql` |
+| `issues` | 10 — Issue Analytics | No `worker/src/panels/issues.js`. The `issues` table is in the schema and `worker/test/issues.parity.test.js` is written and skipping politely until the panel exists |
+| `ciHealth` | the Actions-load card, plus the CI section on every repo drilldown | `workflow_run` isn't captured the way `push` and `release` are |
+
+`issues` is the next one to do: the parity test is already written against it,
+which is the same order the other six went in.
 
 The instant path runs inside `ctx.waitUntil` after the 200 has gone back to
 GitHub, so it cannot delay or fail a delivery — which matters more than the
