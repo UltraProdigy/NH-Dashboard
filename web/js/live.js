@@ -21,17 +21,25 @@ import { state } from "./state.js";
 
 /**
  * Panels the Worker can serve. Anything not listed keeps coming from the built
- * file — which is now only `ciHealth`, still waiting on `workflow_run` to be
- * captured the way `push` and `release` are.
+ * file — which is now `issues` and `drilldown`, neither of which has a panel in
+ * `worker/src/panels/` yet. Between them they are 32 of the 53 cards, so most of
+ * this page is still static.
  *
- * All five Dream Panel cards are here. Each was held back until it reconciled
- * against the build rather than merely returning rows, because the tint makes a
- * wrong answer *more* dangerous rather than less: blue means "this is current",
- * and a confidently wrong blue is worse than the amber it replaced. What that
- * discipline caught, in order — a `commitsAhead` that was counting the sweep
- * window instead of commits, floors reading 102 days where the truth was 365,
- * seven private repos withheld from a page that publishes them, and a
- * stale-repo cutoff dropping 25 repos that had commits from last week.
+ * Each entry was held back until it reconciled against the build rather than
+ * merely returning rows, because the tint makes a wrong answer *more* dangerous
+ * rather than less: blue means "this is current", and a confidently wrong blue
+ * is worse than the amber it replaced. What that discipline caught, in order —
+ * a `commitsAhead` that was counting the sweep window instead of commits, floors
+ * reading 102 days where the truth was 365, seven private repos withheld from a
+ * page that publishes them, a stale-repo cutoff dropping 25 repos that had
+ * commits from last week, and six repos with no commits at all vanishing
+ * entirely.
+ *
+ * `ciHealth` is the newest and the only one whose reconciliation was exact to
+ * the last integer — 252 repos, 3,156 sampled runs, and a pass rate agreeing to
+ * sixteen decimal places. Its one divergence is 10.4 minutes of sampled time out
+ * of 11,569, from six repos at the 20-run cap whose sample slid between the
+ * build and the backfill. That is live running ahead of the build.
  *
  * Where they still differ from the build, and it is worth knowing before
  * trusting a number: `needsRelease` compares commit *dates* against a release,
@@ -48,6 +56,7 @@ const LIVE_PANELS = [
   "needsRelease",
   "depUpdates",
   "byLabel",
+  "ciHealth",
 ];
 
 /**
