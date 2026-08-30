@@ -32,6 +32,31 @@ function login(user) {
   return user?.login ?? null;
 }
 
+/**
+ * A repository timestamp, whichever of the two forms GitHub sent.
+ *
+ * `repository.pushed_at` arrives as an ISO string on most events and as a Unix
+ * **epoch integer** on `push`. Written straight into a TEXT column the integer
+ * becomes `'1756568400'`, and every comparison in this store is a string
+ * comparison — `'1'` sorts below `'2'`, so an epoch value lands beneath every
+ * ISO date there has ever been.
+ *
+ * The damage that does is invisible and backwards: `pushed_at >= <a year ago>`
+ * becomes false, so the repo is read as *dormant* and drops out of both release
+ * panels. The repos affected are exactly the ones being pushed to — the most
+ * active in the org — and they disappear one webhook after they were correct.
+ *
+ * Seconds and milliseconds are told apart by magnitude rather than by trusting
+ * either payload shape: anything below ~Sep 2001 read as milliseconds is
+ * epoch-seconds. Same reasoning as `utcSeconds` — a timestamp that does not
+ * compare correctly is worse than one that is missing, because it is wrong
+ * quietly.
+ */
+const repoTime = (value) => {
+  if (typeof value !== "number") return utcSeconds(value);
+  return utcSeconds(value < 1e11 ? value * 1000 : value);
+};
+
 async function upsertRepo(db, repo) {
   if (!repo?.name) return;
   await db
@@ -52,8 +77,8 @@ async function upsertRepo(db, repo) {
       repo.private ? 1 : 0,
       repo.archived ? 1 : 0,
       repo.default_branch ?? null,
-      repo.pushed_at ?? null,
-      repo.updated_at ?? null,
+      repoTime(repo.pushed_at),
+      repoTime(repo.updated_at),
     )
     .run();
 }

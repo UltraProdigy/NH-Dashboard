@@ -402,6 +402,46 @@ check(
   0,
 );
 
+// A push payload sends repository.pushed_at as an epoch integer where every
+// other event sends an ISO string. Stored raw it becomes '1756568400', which
+// sorts below every ISO date, so the repo fails `pushed_at >= <a year ago>` and
+// reads as dormant — dropping the most actively pushed repos out of both
+// release panels, one webhook after they were correct.
+await handleEvent(
+  db,
+  "push",
+  push({
+    repository: { ...REPO, pushed_at: 1788027873, updated_at: 1788027873 },
+    commits: [{ id: "9".repeat(40), message: "x", timestamp: "2026-08-30T13:00:00Z" }],
+  }),
+);
+check(
+  "an epoch pushed_at is stored as an ISO date",
+  row("SELECT pushed_at FROM repos WHERE name='GT5-Unofficial'").pushed_at,
+  "2026-08-29T18:24:33Z",
+);
+// The property the whole stale-repo filter rests on.
+check(
+  "and it therefore sorts above a year-old bound",
+  row("SELECT pushed_at FROM repos WHERE name='GT5-Unofficial'").pushed_at >
+    "2025-08-30T00:00:00Z",
+  true,
+);
+
+await handleEvent(
+  db,
+  "push",
+  push({
+    repository: { ...REPO, pushed_at: "2026-08-29T10:00:00Z" },
+    commits: [],
+  }),
+);
+check(
+  "an ISO pushed_at still passes through",
+  row("SELECT pushed_at FROM repos WHERE name='GT5-Unofficial'").pushed_at,
+  "2026-08-29T10:00:00Z",
+);
+
 // --- release ----------------------------------------------------------------
 
 console.log("\nrelease writes tags");
