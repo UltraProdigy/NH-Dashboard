@@ -25,6 +25,7 @@ data/
 # data/ already excludes, and every PR title in the org along with them.
 worker/seed.sql
 worker/backfill.sql
+worker/labels.sql
 worker/.wrangler/
 
 node_modules/

@@ -240,6 +240,32 @@ CREATE TABLE IF NOT EXISTS releases (
 -- just cut an rc is not a repo needing a release.
 CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases (repo, published_at DESC);
 
+-- --------------------------------------------------------------------- labels
+
+-- The managed label set from Label-Sync-GTNH, which is the org's source of
+-- truth for labels and lives in another repo entirely.
+--
+-- This table exists because a Worker cannot go and read that file. It is the
+-- one input in this store that is neither a webhook payload nor derivable from
+-- one — GitHub does not deliver an event when a label config is edited in a
+-- repo the dashboard does not watch — so it is written by a script and read by
+-- everything else.
+--
+-- It answers two questions that were previously stuck. `byLabel` needs to know
+-- which labels are worth a column at all, and every panel rendering a label
+-- chip needs its colour: D1 stores label *names* on pull requests and issues,
+-- so live chips have been rendering uncoloured since the port.
+--
+-- `position` preserves the order the config declares, because MAX_TRACKED_LABELS
+-- takes the first N and "first" has to mean something stable. Sorting by name
+-- would silently change which labels get tracked when the cap bites.
+CREATE TABLE IF NOT EXISTS labels (
+  name              TEXT PRIMARY KEY,
+  color             TEXT,
+  description       TEXT,
+  position          INTEGER NOT NULL DEFAULT 0
+);
+
 -- -------------------------------------------------------------------- traffic
 
 CREATE TABLE IF NOT EXISTS traffic_daily (
