@@ -1125,3 +1125,46 @@ instructive. The first push after it landed failed outright — "No cached
 data/dashboard.json" — and the workflow had a comment saying that would happen
 exactly once. That one announced itself and was fixed in a minute by a dispatch
 run. This one said success.
+
+## The reconciliation, and it passes
+
+Applied and deployed the same evening. Live against the corrected build:
+
+| | build | live |
+|---|---|---|
+| repos | 252 | 252 |
+| `projectedFrom` | 236 | 236 |
+| `runsPerMonth` | 8,862 | 8,862 |
+| `hoursPerMonth` | 361.8 | 361.8 |
+| `meanRunMinutes` | 3.7 | 3.7 |
+| `sampledRuns` | 3,156 | 3,156 |
+| `decisive` / `failures` | 3,029 / 185 | 3,029 / 185 |
+| `passRate` | 0.9389237372069991 | 0.9389237372069991 |
+| runs discarded | 53, 29 repos | 53, 29 repos |
+| `sampledMinutes` | 11,569.3 | **11,579.7** |
+
+The repo name sets are identical. `passRate` agreeing to sixteen digits is worth
+more than any of the round numbers above it — it is a ratio of two independently
+computed integers over independently selected rows.
+
+**One number differs, by 10.4 minutes on 11,569 — 0.09% — and it is attributable
+rather than tolerated.** Bucketing per-repo `totalMinutes` by first letter
+located it in six repos, every one of them sitting at the 20-run cap:
+
+```
+ServerUtilities   38.7 -> 42.0     StevesAddons   33.8 -> 38.6
+Galacticraft      92.0 -> 93.2     GTNH-Guide-Pack 7.8 -> 8.2
+StructureLib      54.0 -> 54.2     (rest is sub-0.1 rounding)
+```
+
+The backfill ran about fifteen minutes after the build. On a repo already at the
+cap, a run completing in that window slides the sample: one run in, one out.
+`sampledRuns` cannot move because the window is capped, and `decisive` did not
+move because every swap happened to be success-for-success — which at a 94% pass
+rate over six swaps is unremarkable rather than lucky.
+
+So live is running slightly ahead of the build, which is the port working. It is
+the same divergence already recorded for the release cards, arriving on the one
+panel where it can be measured to a tenth of a minute.
+
+**Verdict: it reconciles.** `ciHealth` can go into `LIVE_PANELS`.
