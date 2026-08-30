@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS pull_requests (
 -- commit joins back to the PR that produced it through this column. Exact for
 -- squash merges and merge commits; a rebase merge replays commits under fresh
 -- SHAs and matches nothing, which the read path treats as "direct".
+--
+-- ┌─ "no such column: merge_commit_sha" when running this file? ──────────────┐
+-- │ This file is being applied to a database created before that column       │
+-- │ existed. CREATE TABLE IF NOT EXISTS saw pull_requests already there and   │
+-- │ left it exactly as it found it, so the column above was never added and   │
+-- │ the index below has nothing to index.                                     │
+-- │                                                                           │
+-- │ Run migrations/001-commits-and-releases.sql FIRST, then this file again.  │
+-- │ wrangler applies a file atomically, so the failure left nothing behind.   │
+-- └───────────────────────────────────────────────────────────────────────────┘
 CREATE INDEX IF NOT EXISTS idx_pr_merge_sha ON pull_requests (merge_commit_sha)
   WHERE merge_commit_sha IS NOT NULL;
 
