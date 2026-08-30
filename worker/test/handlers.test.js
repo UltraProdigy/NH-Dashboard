@@ -19,14 +19,22 @@ class Shim {
   constructor(db) {
     this.db = db;
   }
-  prepare(sql) {
+  /**
+   * `bind` returns a *new* statement, which is D1's actual contract and not a
+   * detail worth glossing.
+   *
+   * A shim whose bind mutated one shared object read identically for every
+   * chained `prepare().bind().run()` in this file, and silently broke the one
+   * caller that prepares once and binds per row to build a batch — every row
+   * would have run with the last row's parameters, writing one commit N times.
+   */
+  prepare(sql, bound = []) {
     const db = this.db;
-    let bound = [];
-    const api = {
-      bind(...args) {
-        bound = args;
-        return api;
-      },
+    const shim = this;
+    return {
+      sql,
+      bound,
+      bind: (...args) => shim.prepare(sql, args),
       async run() {
         db.prepare(sql).run(...bound);
         return { success: true };
@@ -34,8 +42,16 @@ class Shim {
       async first() {
         return db.prepare(sql).get(...bound) ?? null;
       },
+      async all() {
+        return { results: db.prepare(sql).all(...bound) };
+      },
     };
-    return api;
+  }
+  async batch(statements) {
+    for (const statement of statements) {
+      this.db.prepare(statement.sql).run(...statement.bound);
+    }
+    return statements.map(() => ({ success: true }));
   }
 }
 
@@ -247,6 +263,237 @@ check(
   "issue untouched",
   row("SELECT comments FROM issues WHERE number=991").comments,
   6,
+);
+
+// --- push -------------------------------------------------------------------
+
+console.log("\npush writes default-branch commits");
+
+const REPO = {
+  name: "GT5-Unofficial",
+  full_name: "GTNewHorizons/GT5-Unofficial",
+  default_branch: "master",
+  private: false,
+  archived: false,
+};
+
+const push = (over = {}) => ({
+  ref: "refs/heads/master",
+  deleted: false,
+  repository: REPO,
+  commits: [],
+  ...over,
+});
+
+await handleEvent(
+  db,
+  "push",
+  push({
+    commits: [
+      {
+        id: "a".repeat(40),
+        message: "fix the thing\n\nwith a body",
+        timestamp: "2026-08-29T12:00:00+02:00",
+        author: { username: "alice", name: "Alice" },
+      },
+      {
+        id: "b".repeat(40),
+        message: "second",
+        timestamp: "2026-08-29T13:00:00Z",
+        author: { name: "No Account" },
+      },
+    ],
+  }),
+);
+
+check(
+  "both commits stored",
+  row("SELECT COUNT(*) AS n FROM commits").n,
+  2,
+);
+// The property both release panels order by. An offset left unnormalised sorts
+// below every Z value sharing its date, and MAX(committed_at) quietly stops
+// meaning "newest".
+check(
+  "an offset timestamp is normalised to Z",
+  row("SELECT committed_at FROM commits WHERE sha=?", "a".repeat(40)).committed_at,
+  "2026-08-29T10:00:00Z",
+);
+check(
+  "only the message headline is kept",
+  row("SELECT message FROM commits WHERE sha=?", "a".repeat(40)).message,
+  "fix the thing",
+);
+check(
+  "the account login is preferred over the git name",
+  row("SELECT author FROM commits WHERE sha=?", "a".repeat(40)).author,
+  "alice",
+);
+check(
+  "a commit with no account falls back to the git name",
+  row("SELECT author FROM commits WHERE sha=?", "b".repeat(40)).author,
+  "No Account",
+);
+// The whole reason via_pr is nullable. A push payload has no pull-request
+// field, so 0 would be an assertion this handler cannot make.
+check(
+  "via_pr is null, not zero",
+  row("SELECT via_pr FROM commits WHERE sha=?", "a".repeat(40)).via_pr,
+  null,
+);
+
+await handleEvent(
+  db,
+  "push",
+  push({
+    ref: "refs/heads/some-feature",
+    commits: [{ id: "c".repeat(40), message: "x", timestamp: "2026-08-29T14:00:00Z" }],
+  }),
+);
+check("a topic branch is skipped", row("SELECT COUNT(*) AS n FROM commits").n, 2);
+
+await handleEvent(
+  db,
+  "push",
+  push({
+    ref: "refs/tags/v1.2.3",
+    commits: [{ id: "d".repeat(40), message: "x", timestamp: "2026-08-29T14:00:00Z" }],
+  }),
+);
+check("a tag push is skipped", row("SELECT COUNT(*) AS n FROM commits").n, 2);
+
+await handleEvent(
+  db,
+  "push",
+  push({
+    deleted: true,
+    commits: [{ id: "e".repeat(40), message: "x", timestamp: "2026-08-29T14:00:00Z" }],
+  }),
+);
+check("a deleted ref is skipped", row("SELECT COUNT(*) AS n FROM commits").n, 2);
+
+// A force-push replays commits already stored. The one thing that must survive
+// is a via_pr the daily build has since resolved.
+raw.prepare("UPDATE commits SET via_pr = 1 WHERE sha = ?").run("a".repeat(40));
+await handleEvent(
+  db,
+  "push",
+  push({
+    commits: [
+      { id: "a".repeat(40), message: "fix the thing", timestamp: "2026-08-29T12:00:00+02:00" },
+    ],
+  }),
+);
+check(
+  "a redelivered commit does not clobber a resolved via_pr",
+  row("SELECT via_pr FROM commits WHERE sha=?", "a".repeat(40)).via_pr,
+  1,
+);
+
+check(
+  "a commit with an unparseable timestamp is dropped, not stored unsorted",
+  (
+    await handleEvent(
+      db,
+      "push",
+      push({ commits: [{ id: "f".repeat(40), message: "x", timestamp: "not a date" }] }),
+    )
+  ).written,
+  0,
+);
+
+// --- release ----------------------------------------------------------------
+
+console.log("\nrelease writes tags");
+
+const release = (over = {}, action = "published") => ({
+  action,
+  repository: REPO,
+  release: {
+    tag_name: "v1.0.0",
+    published_at: "2026-08-20T10:00:00Z",
+    created_at: "2026-08-20T09:00:00Z",
+    draft: false,
+    prerelease: false,
+    ...over,
+  },
+});
+
+await handleEvent(db, "release", release());
+check(
+  "the release is stored",
+  row("SELECT published_at, draft, prerelease FROM releases WHERE tag_name='v1.0.0'"),
+  { published_at: "2026-08-20T10:00:00Z", draft: 0, prerelease: 0 },
+);
+
+// A draft published later arrives as a second delivery on the same tag, which
+// is why drafts are stored rather than filtered on the way in.
+await handleEvent(db, "release", release({ tag_name: "v2.0.0", draft: true, published_at: null }));
+check(
+  "a draft is stored with no published_at",
+  row("SELECT draft, published_at FROM releases WHERE tag_name='v2.0.0'"),
+  { draft: 1, published_at: null },
+);
+await handleEvent(db, "release", release({ tag_name: "v2.0.0" }));
+check(
+  "publishing a draft updates the same row",
+  row("SELECT draft, published_at FROM releases WHERE tag_name='v2.0.0'"),
+  { draft: 0, published_at: "2026-08-20T10:00:00Z" },
+);
+
+await handleEvent(db, "release", release({ tag_name: "v2.0.0" }, "deleted"));
+check(
+  "a deleted release is removed, not tombstoned",
+  row("SELECT COUNT(*) AS n FROM releases WHERE tag_name='v2.0.0'").n,
+  0,
+);
+
+// --- merge_commit_sha -------------------------------------------------------
+
+console.log("\nmerge_commit_sha is the link back to a pull request");
+
+await handleEvent(db, "pull_request", {
+  action: "closed",
+  repository: REPO,
+  pull_request: {
+    number: 4821,
+    title: "Fix crash on world load",
+    user: { login: "someone" },
+    created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-08-29T16:00:00Z",
+    merged_at: "2026-08-29T16:00:00Z",
+    merged: true,
+    state: "closed",
+    merge_commit_sha: "a".repeat(40),
+  },
+});
+check(
+  "merge_commit_sha is recorded",
+  row("SELECT merge_commit_sha FROM pull_requests WHERE number=4821").merge_commit_sha,
+  "a".repeat(40),
+);
+
+// GitHub sends null on a later edit. Overwriting would orphan every commit the
+// PR produced, and they would silently start reading as direct pushes.
+await handleEvent(db, "pull_request", {
+  action: "edited",
+  repository: REPO,
+  pull_request: {
+    number: 4821,
+    title: "Fix crash on world load (edited)",
+    user: { login: "someone" },
+    created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-08-29T17:00:00Z",
+    merged_at: "2026-08-29T16:00:00Z",
+    merged: true,
+    state: "closed",
+    merge_commit_sha: null,
+  },
+});
+check(
+  "a null merge_commit_sha does not erase the stored one",
+  row("SELECT merge_commit_sha FROM pull_requests WHERE number=4821").merge_commit_sha,
+  "a".repeat(40),
 );
 
 console.log("\nunknown events are ignored, not errors");

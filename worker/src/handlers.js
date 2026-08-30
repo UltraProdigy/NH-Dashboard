@@ -16,6 +16,8 @@
  * with SELECT *, and nothing is written by spreading an object.
  */
 
+import { commitAuthor, headline, utcSeconds } from "../../src/shared/commit-rules.js";
+
 /** The store uses OPEN / MERGED / CLOSED; payloads say open / closed + merged. */
 function prState(pr) {
   if (pr.merged || pr.merged_at) return "MERGED";
@@ -72,8 +74,8 @@ async function onPullRequest(db, payload) {
       `INSERT INTO pull_requests (
          repo, number, title, author, created_at, updated_at, merged_at,
          closed_at, state, is_draft, additions, deletions, changed_files,
-         commits, comments, labels, assignees, review_requests
-       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+         commits, comments, labels, assignees, review_requests, merge_commit_sha
+       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
        ON CONFLICT (repo, number) DO UPDATE SET
          title = excluded.title,
          updated_at = excluded.updated_at,
@@ -88,7 +90,12 @@ async function onPullRequest(db, payload) {
          comments = excluded.comments,
          labels = excluded.labels,
          assignees = excluded.assignees,
-         review_requests = excluded.review_requests`,
+         review_requests = excluded.review_requests,
+         -- COALESCE, not excluded: GitHub sets merge_commit_sha on merge and
+         -- may send null on a later edit. Overwriting would erase the only
+         -- link between a stored commit and the PR that produced it, and the
+         -- commits it orphans would silently start reading as direct pushes.
+         merge_commit_sha = COALESCE(excluded.merge_commit_sha, pull_requests.merge_commit_sha)`,
     )
     .bind(
       repo,
@@ -109,6 +116,7 @@ async function onPullRequest(db, payload) {
       names(pr.labels),
       names(pr.assignees),
       names(pr.requested_reviewers),
+      pr.merge_commit_sha ?? null,
     )
     .run();
 
@@ -225,14 +233,141 @@ async function onRepository(db, payload) {
 }
 
 /**
- * push, workflow_run, release — these feed panels that are still computed from
- * the live API, so there is nothing to write yet. They still mark the aggregates
- * dirty, because "a release happened" changes what the needs-release panel says
- * even though no row moved.
+ * workflow_run — still feeds a panel computed from the live API, so there is
+ * nothing to write yet. It still marks the aggregates dirty, because a run
+ * finishing changes what the CI card says even though no row moved.
  */
 async function onRepoTouch(db, payload) {
   await upsertRepo(db, payload.repository);
   return { touched: payload.repository?.name ?? null };
+}
+
+/**
+ * push — default-branch commits.
+ *
+ * Three filters before anything is written, in the order that discards fastest:
+ *
+ *   A deleted ref carries no commits and means the opposite of a push.
+ *
+ *   Branches other than the default are skipped, because that is what the two
+ *   panels mean. A topic branch's commits would inflate "commits ahead" with
+ *   work that gets squashed into one commit on merge, and would date a
+ *   dependency bump to the branch it was written on rather than the day it
+ *   landed. `default_branch` is read from the payload rather than assumed —
+ *   this org runs both `master` and `main`.
+ *
+ *   Tag pushes land on `refs/tags/…` and fail the same test, which is what we
+ *   want: a tag is the release event's business.
+ *
+ * `via_pr` is written NULL, not 0. The payload has no pull-request field on a
+ * commit — the full list is `id, tree_id, distinct, message, timestamp, url,
+ * author, committer, added, removed, modified` — so 0 would be an assertion
+ * this handler is in no position to make, and one the read path could not tell
+ * from a real answer. NULL means "ask the join", and the daily build later
+ * overwrites it with GitHub's own.
+ *
+ * ON CONFLICT DO NOTHING because a SHA is immutable and a force-push replaying
+ * history re-delivers commits already stored. The one thing that must not be
+ * clobbered is a `via_pr` the build has since resolved.
+ */
+async function onPush(db, payload) {
+  await upsertRepo(db, payload.repository);
+
+  const repo = payload.repository?.name;
+  const branch = payload.repository?.default_branch;
+  if (!repo || payload.deleted) return { skipped: "deleted or no repo" };
+  if (!branch || payload.ref !== `refs/heads/${branch}`) {
+    return { skipped: "not the default branch", ref: payload.ref };
+  }
+
+  const commits = payload.commits ?? [];
+  if (!commits.length) return { table: "commits", repo, written: 0 };
+
+  const statement = db.prepare(
+    `INSERT INTO commits (repo, sha, committed_at, author, message, via_pr)
+     VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+     ON CONFLICT (repo, sha) DO NOTHING`,
+  );
+
+  // One batch rather than a loop of awaits: a push of a few hundred commits is
+  // ordinary here, and the delivery has ten seconds before GitHub calls it
+  // failed. Commits without a parseable timestamp are dropped rather than
+  // stored unsorted — `committed_at` is the column both panels order by.
+  const rows = [];
+  for (const commit of commits) {
+    const at = utcSeconds(commit.timestamp);
+    if (!commit.id || !at) continue;
+    rows.push(
+      statement.bind(
+        repo,
+        commit.id,
+        at,
+        commitAuthor(commit),
+        headline(commit.message),
+      ),
+    );
+  }
+
+  if (rows.length) await db.batch(rows);
+
+  return {
+    table: "commits",
+    repo,
+    written: rows.length,
+    // The payload caps at 2048 commits and says so only by being short. A push
+    // that hits the cap has history this store will never see, and the count
+    // is the only way anyone would notice.
+    truncated: commits.length >= 2048,
+  };
+}
+
+/**
+ * release — published, edited, deleted, prereleased, released.
+ *
+ * `published_at` is null on a draft, and the panel orders by it, so a draft
+ * sorts as having no date rather than as the newest release. `created_at` is
+ * kept alongside because it is the only date a draft has.
+ *
+ * A deleted release is removed rather than flagged: "the latest release" is a
+ * question about what exists now, and a tombstone row would have to be
+ * excluded by every query that asks.
+ */
+async function onRelease(db, payload) {
+  await upsertRepo(db, payload.repository);
+
+  const release = payload.release;
+  const repo = payload.repository?.name;
+  if (!release?.tag_name || !repo) return { skipped: "no release or repo" };
+
+  if (payload.action === "deleted") {
+    await db
+      .prepare("DELETE FROM releases WHERE repo = ?1 AND tag_name = ?2")
+      .bind(repo, release.tag_name)
+      .run();
+    return { table: "releases", repo, tag: release.tag_name, action: "deleted" };
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO releases (repo, tag_name, published_at, created_at, draft, prerelease)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT (repo, tag_name) DO UPDATE SET
+         published_at = excluded.published_at,
+         created_at = excluded.created_at,
+         draft = excluded.draft,
+         prerelease = excluded.prerelease`,
+    )
+    .bind(
+      repo,
+      release.tag_name,
+      utcSeconds(release.published_at),
+      utcSeconds(release.created_at),
+      release.draft ? 1 : 0,
+      release.prerelease ? 1 : 0,
+    )
+    .run();
+
+  return { table: "releases", repo, tag: release.tag_name, action: payload.action };
 }
 
 const HANDLERS = {
@@ -241,9 +376,9 @@ const HANDLERS = {
   issues: onIssues,
   issue_comment: onIssueComment,
   repository: onRepository,
-  push: onRepoTouch,
+  push: onPush,
   workflow_run: onRepoTouch,
-  release: onRepoTouch,
+  release: onRelease,
 };
 
 export async function handleEvent(db, event, payload) {
