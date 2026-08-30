@@ -1,22 +1,23 @@
 name: Build and deploy dashboard
 
 on:
-  # Still parked, but no longer for the original reason. Committing data/ was
-  # what made a schedule expensive, and that's gone — the store rides the cache
-  # now and nothing here writes to the repo.
+  # Daily, and no more often than that on purpose.
   #
-  # What keeps it off is minutes. This repo is private, so Actions bills against
-  # the 2,000/month Free allowance rather than the unlimited public pool, and a
-  # build costs 15-90 minutes because the ingest walks all-time history. Even
-  # daily runs sit between 450 and 2,700 minutes a month. Half-hourly is roughly
-  # ten times the budget at best case.
+  # This job was parked for a long time on the belief that Actions minutes were
+  # billed. They are not — the repo is public, so the minutes come from the
+  # unlimited pool and a 15-90 minute build costs nothing. That belief is the
+  # only thing that kept the dashboard on manual builds.
   #
-  # Two things change the answer: moving the repo into the org makes it public
-  # and the minutes free, and webhooks make this job reconciliation rather than
-  # the freshness mechanism — daily, not 48 times a day.
+  # Daily rather than half-hourly because the webhook pipeline is what keeps the
+  # ported panels fresh. This run exists for the four that D1 can never answer —
+  # ciHealth, depUpdates, needsRelease and pullRequests each need a live GitHub
+  # call — and for keeping the static file that the page falls back to from
+  # drifting too far behind.
   #
-  # schedule:
-  #   - cron: "0 5 * * *"
+  # 05:00 UTC is outside the org's active hours, so a long run does not overlap
+  # the traffic it would otherwise be measuring.
+  schedule:
+    - cron: "0 5 * * *"
   workflow_dispatch: {}
   push:
     branches: [main]

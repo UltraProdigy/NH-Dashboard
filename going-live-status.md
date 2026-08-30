@@ -92,12 +92,22 @@ that resists a Worker, it is 6,818 rows waiting for `WHERE login = ?`. The
 recompute materialises them into `drilldown_contributors`; `/api/contributor/
 {login}` serves one. Same for `drilldown_repos` at 3.3 MB.
 
-**The schedule stays off, for a new reason.** Committing `data/` was what made a
-cron expensive, and that is fixed. What keeps it parked now is minutes: the repo
-is private, so Actions bills against 2,000/month rather than the unlimited public
-pool, and a build costs 15–90 minutes because the ingest walks all-time history.
-Half-hourly is roughly ten times the budget. Moving the repo into the org, or
-webhooks making this job reconcile-only, each fix it.
+**The schedule can go back on — the reason it was parked was wrong.** Two
+successive reasons were recorded here: first that committing `data/` made a cron
+expensive, which was fixed; then that minutes were the constraint, "because the
+repo is private, so Actions bills against 2,000/month".
+
+**The repo is not private and never was billed.** It is public, so the minutes
+come from the unlimited public pool and a 15–90 minute build costs nothing. The
+constraint was imaginary, and it is what has kept the dashboard on manual builds.
+
+Nothing now blocks a schedule. Webhooks already make this job reconciliation
+rather than the freshness mechanism for the ported panels, so the sensible
+cadence is daily rather than 48 times a day — the cron exists for the four
+panels D1 can never answer, not for the ones it can.
+
+Note `cancel-in-progress: false`, below: that was set for exactly this, and has
+to stay false whatever cadence is chosen.
 
 **`cancel-in-progress` was a latent deadlock.** With builds sometimes exceeding
 an hour, a 30-minute cron would kill each run before its cache save and the
