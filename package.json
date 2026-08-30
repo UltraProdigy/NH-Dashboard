@@ -16,6 +16,7 @@
     "webhook:test": "node scripts/send-test-webhook.js",
     "backfill:commits": "node --env-file-if-exists=.env worker/backfill-commits.js",
     "backfill:labels": "node --env-file-if-exists=.env worker/backfill-labels.js",
+    "backfill:runs": "node --env-file-if-exists=.env worker/backfill-runs.js",
     "test:exclusion": "node --experimental-sqlite --env-file-if-exists=.env test/exclusion.test.js",
     "test:handlers": "node --experimental-sqlite worker/test/handlers.test.js",
     "test:recompute": "node --experimental-sqlite worker/test/recompute.test.js",
