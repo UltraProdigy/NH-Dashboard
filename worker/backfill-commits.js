@@ -44,6 +44,24 @@ const ROWS_PER_STATEMENT = 200;
 const REPOS_PER_SWEEP = 10;
 const PAGE = 100;
 
+/**
+ * Releases are swept separately, fifty repos at a time.
+ *
+ * The first version of this file asked for commits and releases in one query,
+ * on the reasoning that it was sweeping the same repos either way. GitHub
+ * returned 502 on the first request and kept returning it — a GraphQL 502 here
+ * means the query timed out server-side, and no amount of the client's
+ * exponential backoff fixes a request that is simply too expensive.
+ *
+ * The two Node panels each proved a shape that works: `depUpdates` reads ten
+ * repos of hundred-commit history with their pull-request connections, and
+ * `needsRelease` reads fifty repos of releases. Combining them produced
+ * something heavier than either, which is the whole lesson — these limits are
+ * per-request cost, so two cheap sweeps beat one expensive one even though the
+ * repo list is walked twice.
+ */
+const RELEASE_REPOS_PER_SWEEP = 50;
+
 const args = new Map();
 for (let i = 2; i < process.argv.length; i++) {
   const arg = process.argv[i];
@@ -65,11 +83,18 @@ function q(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-const SWEEP = `
-  query($org: String!, $cursor: String, $since: GitTimestamp!) {
+/**
+ * Sweep one — repos and their releases. Cheap, so fifty at a time.
+ *
+ * This is also where every `repos` row comes from, which matters more than it
+ * looks: `seed.sql` never wrote one, so without this sweep both panels join an
+ * almost-empty table and say nothing about most of the org.
+ */
+const RELEASES = `
+  query($org: String!, $cursor: String) {
     organization(login: $org) {
       repositories(
-        first: ${REPOS_PER_SWEEP}
+        first: ${RELEASE_REPOS_PER_SWEEP}
         after: $cursor
         isArchived: false
         orderBy: { field: PUSHED_AT, direction: DESC }
@@ -82,6 +107,30 @@ const SWEEP = `
           updatedAt
           isPrivate
           isArchived
+          defaultBranchRef { name }
+          releases(first: 10, orderBy: { field: CREATED_AT, direction: DESC }) {
+            nodes { tagName publishedAt createdAt isDraft isPrerelease }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Sweep two — commit history. Ten at a time, the shape `depUpdates` proved. */
+const SWEEP = `
+  query($org: String!, $cursor: String, $since: GitTimestamp!) {
+    organization(login: $org) {
+      repositories(
+        first: ${REPOS_PER_SWEEP}
+        after: $cursor
+        isArchived: false
+        orderBy: { field: PUSHED_AT, direction: DESC }
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          name
+          pushedAt
           defaultBranchRef {
             name
             target {
@@ -98,9 +147,6 @@ const SWEEP = `
                 }
               }
             }
-          }
-          releases(first: 10, orderBy: { field: CREATED_AT, direction: DESC }) {
-            nodes { tagName publishedAt createdAt isDraft isPrerelease }
           }
         }
       }
@@ -211,87 +257,30 @@ function* statements(table, columns, rows, conflict, updates) {
   }
 }
 
-async function main() {
-  const since = new Date(Date.now() - LOOKBACK * DAY).toISOString();
-  const staleCutoff =
-    STALE_REPO_CUTOFF_DAYS === null ? null : Date.now() - STALE_REPO_CUTOFF_DAYS * DAY;
+/**
+ * Collected at module scope so an interrupt can still write them.
+ *
+ * A full sweep is a long run against a rate-limited API, and losing all of it
+ * to one Ctrl-C or a 502 that outlasts the client's five retries means starting
+ * over. Everything gathered up to that point is still valid — the writes are
+ * upserts keyed on natural keys, so a partial file applied now and a full one
+ * applied later converge.
+ */
+const commits = [];
+const releases = [];
+const repos = [];
 
-  const commits = [];
-  const releases = [];
-  const repos = [];
-  const pending = [];
+let written = false;
 
-  let cursor = null;
-  let scanned = 0;
-  let hitStaleCutoff = false;
-
-  console.log(`\nBackfilling ${ORG} — commits since ${since.slice(0, 10)}\n`);
-
-  while (!hitStaleCutoff) {
-    const data = await graphql(SWEEP, { org: ORG, cursor, since });
-    const page = data.organization?.repositories;
-    if (!page) break;
-
-    for (const node of page.nodes) {
-      scanned++;
-
-      // Ordered by pushedAt desc, so the first dormant repo means every repo
-      // after it is dormant too. Both panels drop these anyway.
-      if (staleCutoff && new Date(node.pushedAt).getTime() < staleCutoff) {
-        hitStaleCutoff = true;
-        break;
-      }
-
-      const repo = repoRow(node);
-      if (repo) repos.push(repo);
-
-      for (const release of node.releases?.nodes ?? []) {
-        const row = releaseRow(node.name, release);
-        if (row) releases.push(row);
-      }
-
-      const history = node.defaultBranchRef?.target?.history;
-      if (!history) continue;
-
-      for (const commit of history.nodes) {
-        const row = commitRow(node.name, commit);
-        if (row) commits.push(row);
-      }
-
-      if (history.pageInfo.hasNextPage) {
-        pending.push({ repo: node.name, cursor: history.pageInfo.endCursor });
-      }
-    }
-
-    if (!page.pageInfo.hasNextPage) break;
-    cursor = page.pageInfo.endCursor;
-  }
-
-  console.log(
-    `  swept ${scanned} repos → ${repos.length} repo rows, ${commits.length} commits, ` +
-      `${releases.length} releases` +
-      (pending.length ? `, ${pending.length} needing a deeper walk` : ""),
-  );
-
-  for (const item of pending) {
-    let at = item.cursor;
-    for (let page = 1; page < MAX_PAGES; page++) {
-      const data = await graphql(MORE, { org: ORG, repo: item.repo, cursor: at, since });
-      const history = data.repository?.defaultBranchRef?.target?.history;
-      if (!history) break;
-
-      for (const commit of history.nodes) {
-        const row = commitRow(item.repo, commit);
-        if (row) commits.push(row);
-      }
-
-      if (!history.pageInfo.hasNextPage) break;
-      at = history.pageInfo.endCursor;
-    }
-  }
+async function write({ partial = false } = {}) {
+  if (written) return;
+  written = true;
 
   const out = createWriteStream(OUT);
   out.write(`-- Generated by worker/backfill-commits.js on ${new Date().toISOString()}\n`);
+  if (partial) {
+    out.write("-- PARTIAL: the sweep did not finish. Safe to apply and re-run.\n");
+  }
   out.write(
     `-- ${repos.length} repos, ${commits.length} commits, ${releases.length} releases\n\n`,
   );
@@ -330,12 +319,128 @@ async function main() {
   await new Promise((resolve) => out.end(resolve));
 
   console.log(
-    `\n  wrote ${repos.length + commits.length + releases.length} rows to ${OUT}\n\n` +
-      `  cd worker && npx wrangler d1 execute nh-dashboard --remote --file ${OUT.replace(/^worker\//, "")}\n`,
+    `\n  wrote ${repos.length + commits.length + releases.length} rows to ${OUT}` +
+      (partial ? "  (partial)" : "") +
+      `\n\n  npx wrangler d1 execute nh-dashboard --remote --file ${OUT.replace(/^worker\//, "")}\n` +
+      `  (run from the worker/ directory)\n`,
   );
 }
 
-main().catch((err) => {
-  console.error(err);
+process.on("SIGINT", async () => {
+  console.log("\n\n  interrupted — writing what was gathered\n");
+  await write({ partial: true });
+  process.exit(130);
+});
+
+async function main() {
+  const since = new Date(Date.now() - LOOKBACK * DAY).toISOString();
+  const staleCutoff =
+    STALE_REPO_CUTOFF_DAYS === null ? null : Date.now() - STALE_REPO_CUTOFF_DAYS * DAY;
+
+  const pending = [];
+
+  let cursor = null;
+  let scanned = 0;
+  let hitStaleCutoff = false;
+
+  console.log(`\nBackfilling ${ORG} — commits since ${since.slice(0, 10)}\n`);
+
+  // Sweep one: repos and releases.
+  while (!hitStaleCutoff) {
+    const data = await graphql(RELEASES, { org: ORG, cursor });
+    const page = data.organization?.repositories;
+    if (!page) break;
+
+    for (const node of page.nodes) {
+      scanned++;
+
+      // Ordered by pushedAt desc, so the first dormant repo means every repo
+      // after it is dormant too. Both panels drop these anyway.
+      if (staleCutoff && new Date(node.pushedAt).getTime() < staleCutoff) {
+        hitStaleCutoff = true;
+        break;
+      }
+
+      const repo = repoRow(node);
+      if (repo) repos.push(repo);
+
+      for (const release of node.releases?.nodes ?? []) {
+        const row = releaseRow(node.name, release);
+        if (row) releases.push(row);
+      }
+    }
+
+    if (!page.pageInfo.hasNextPage) break;
+    cursor = page.pageInfo.endCursor;
+  }
+
+  console.log(`  ${repos.length} repos, ${releases.length} releases`);
+
+  // Sweep two: commit history over the same repos, in smaller pages.
+  cursor = null;
+  hitStaleCutoff = false;
+  let walked = 0;
+
+  while (!hitStaleCutoff) {
+    const data = await graphql(SWEEP, { org: ORG, cursor, since });
+    const page = data.organization?.repositories;
+    if (!page) break;
+
+    for (const node of page.nodes) {
+      if (staleCutoff && new Date(node.pushedAt).getTime() < staleCutoff) {
+        hitStaleCutoff = true;
+        break;
+      }
+
+      walked++;
+      const history = node.defaultBranchRef?.target?.history;
+      if (!history) continue;
+
+      for (const commit of history.nodes) {
+        const row = commitRow(node.name, commit);
+        if (row) commits.push(row);
+      }
+
+      if (history.pageInfo.hasNextPage) {
+        pending.push({ repo: node.name, cursor: history.pageInfo.endCursor });
+      }
+    }
+
+    if (page.pageInfo.hasNextPage) cursor = page.pageInfo.endCursor;
+    else break;
+
+    if (walked % 50 < REPOS_PER_SWEEP) {
+      console.log(`  ${walked} repos walked, ${commits.length} commits so far`);
+    }
+  }
+
+  console.log(
+    `  ${walked} repos walked → ${commits.length} commits` +
+      (pending.length ? `, ${pending.length} needing a deeper walk` : ""),
+  );
+
+  for (const item of pending) {
+    let at = item.cursor;
+    for (let page = 1; page < MAX_PAGES; page++) {
+      const data = await graphql(MORE, { org: ORG, repo: item.repo, cursor: at, since });
+      const history = data.repository?.defaultBranchRef?.target?.history;
+      if (!history) break;
+
+      for (const commit of history.nodes) {
+        const row = commitRow(item.repo, commit);
+        if (row) commits.push(row);
+      }
+
+      if (!history.pageInfo.hasNextPage) break;
+      at = history.pageInfo.endCursor;
+    }
+  }
+
+  await write();
+}
+
+main().catch(async (err) => {
+  console.error(`\n  sweep failed: ${err.message}\n`);
+  await write({ partial: true });
   process.exit(1);
 });
