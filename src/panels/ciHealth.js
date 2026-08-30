@@ -19,9 +19,17 @@
 import { graphql, rest } from "../github/client.js";
 import { CI_RUN_SAMPLE, ORG, STALE_REPO_CUTOFF_DAYS } from "../config.js";
 import { round1 } from "../shared/analytics-rules.js";
+import {
+  isDecisive,
+  isPass,
+  median,
+  runMinutes,
+  runStart,
+  spanDays,
+  summarizeOrg,
+} from "../shared/ci-rules.js";
 
 const DAY = 86_400_000;
-const MINUTE = 60_000;
 
 const SWEEP = `
   query($org: String!, $cursor: String) {
@@ -44,49 +52,32 @@ const SWEEP = `
 `;
 
 /**
- * Conclusions that represent a real pass/fail verdict.
- *
- * `cancelled`, `skipped` and `action_required` say something about the humans,
- * not the code — counting them as failures would make every repo where someone
- * cancels a slow run look broken.
- */
-const PASS = new Set(["success"]);
-const FAIL = new Set(["failure", "timed_out", "startup_failure"]);
-
-function median(nums) {
-  if (!nums.length) return null;
-  const s = [...nums].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)];
-}
-
-/**
  * Reduce a repo's recent runs to the numbers the Health tab shows.
  *
  * Pure and exported so the arithmetic can be tested against fixtures without
- * a token or a network.
+ * a token or a network — and so the D1 port has a boundary to be checked
+ * against rather than a whole panel.
+ *
+ * Every rule it applies lives in `shared/ci-rules.js`, paired with the SQL that
+ * reads it the same way. Nothing about a run is decided here.
  */
 export function summarizeRuns(runs) {
   // The API returns newest first; don't rely on it, since one out-of-order
   // response would silently mislabel "latest".
   const ordered = [...runs].sort(
-    (a, b) => new Date(b.run_started_at ?? b.created_at) - new Date(a.run_started_at ?? a.created_at)
+    (a, b) => Date.parse(runStart(b)) - Date.parse(runStart(a))
   );
 
-  const decisive = ordered.filter(
-    (r) => PASS.has(r.conclusion) || FAIL.has(r.conclusion)
-  );
+  const decisive = ordered.filter(isDecisive);
 
-  const durations = ordered
-    .map((r) => {
-      const start = new Date(r.run_started_at ?? r.created_at).getTime();
-      const end = new Date(r.updated_at).getTime();
-      const mins = (end - start) / MINUTE;
-      return Number.isFinite(mins) && mins >= 0 ? mins : null;
-    })
-    .filter((m) => m != null);
+  // `runMinutes` returns null for a run whose timestamps cannot be believed —
+  // most often an old run whose `updated_at` GitHub bumped a year later. Those
+  // stay in `runs` and drop out of `timedRuns`, which is what stops a discarded
+  // duration reading as a zero-minute one.
+  const durations = ordered.map(runMinutes).filter((m) => m != null);
 
   const latest = ordered[0] ?? null;
-  const passes = decisive.filter((r) => PASS.has(r.conclusion)).length;
+  const passes = decisive.filter(isPass).length;
 
   return {
     // What the badge shows. Null when the only runs were cancelled/skipped.
@@ -124,7 +115,9 @@ export function summarizeRuns(runs) {
 
        `timedRuns` rather than `runs` as the denominator, because a run missing
        a usable timestamp contributes nothing to the total and would otherwise
-       drag the average down. */
+       drag the average down. That gap is not rare: GitHub bumps `updated_at`
+       on runs that finished a year ago, so roughly one sampled run in seven has
+       no believable duration. See CI_MAX_RUN_MINUTES. */
     totalMinutes: durations.length
       ? round1(durations.reduce((n, m) => n + m, 0))
       : null,
@@ -143,80 +136,13 @@ export function summarizeRuns(runs) {
   };
 }
 
-/** Days between the oldest and newest run in a sample. Null if it has no width. */
-function spanDays(ordered) {
-  if (ordered.length < 2) return null;
-  const at = (r) => new Date(r.run_started_at ?? r.created_at).getTime();
-  const span = (at(ordered[0]) - at(ordered[ordered.length - 1])) / DAY;
-  return span > 0 ? round1(span) : null;
-}
-
 /**
- * Project the sampled runs onto the whole org, per 30 days.
- *
- * Nothing here costs a request: every repo's sample was already fetched for the
- * pass rate and the median duration. Each repo contributes a rate — runs in the
- * sample divided by the days that sample covers — and the org figure is the sum
- * of those rates over a 30-day month.
- *
- * The honest caveats, which the panel repeats rather than hiding:
- *
- *   - It's an *estimate from a recent sample*. A repo that ran CI hard last
- *     week and has been quiet since projects a month that won't happen.
- *   - Only default-branch runs are sampled, and `exclude_pull_requests=true`
- *     drops PR-triggered runs entirely. On most repos that is the majority of
- *     all CI activity, so this is a floor, not a total.
- *   - Minutes are wall-clock, not GitHub's billable minutes — a matrix of
- *     eight parallel jobs bills roughly eight times what it took on the clock,
- *     and macOS bills 10x. See the note on `totalMinutes` above.
- *   - There is no job count anywhere in this data. `/actions/runs` returns
- *     runs, not jobs; jobs need one more request per run (~1,500 a build), so
- *     the panel reports runs and says plainly that it can't report jobs.
+ * The org-wide roll-up. Defined in `shared/ci-rules.js` because the Worker
+ * needs the same arithmetic over the same per-repo shape and cannot import this
+ * file — it reaches for a GitHub client and for `config.js`, which shells out.
+ * Re-exported rather than moved so existing importers keep working.
  */
-export function summarizeOrg(perRepo) {
-  const repos = Object.values(perRepo);
-
-  let runsPerMonth = 0;
-  let minutesPerMonth = 0;
-  let projected = 0; // repos whose sample had enough width to extrapolate from
-
-  let sampledRuns = 0;
-  let sampledMinutes = 0;
-  let decisive = 0;
-  let passes = 0;
-
-  for (const r of repos) {
-    sampledRuns += r.runs;
-    sampledMinutes += r.totalMinutes ?? 0;
-    decisive += r.decisive;
-    passes += r.decisive - r.failures;
-
-    if (!r.sampleSpanDays || !r.timedRuns) continue;
-    const perDay = r.runs / r.sampleSpanDays;
-    const meanMinutes = (r.totalMinutes ?? 0) / r.timedRuns;
-    runsPerMonth += perDay * 30;
-    minutesPerMonth += perDay * 30 * meanMinutes;
-    projected++;
-  }
-
-  return {
-    repos: repos.length,
-    projectedFrom: projected,
-    // Whole numbers: the precision implied by "4,138.7 runs a month" is not
-    // there, and printing it invites the figure to be trusted more than it
-    // deserves.
-    runsPerMonth: Math.round(runsPerMonth),
-    minutesPerMonth: Math.round(minutesPerMonth),
-    hoursPerMonth: round1(minutesPerMonth / 60),
-    // What the estimate is actually built on, so the panel can show its work.
-    sampledRuns,
-    sampledMinutes: round1(sampledMinutes),
-    meanRunMinutes: sampledRuns ? round1(sampledMinutes / sampledRuns) : null,
-    passRate: decisive ? passes / decisive : null,
-    decisive,
-    failures: decisive - passes,
-  };
-}
+export { summarizeOrg };
 
 export async function ciHealth() {
   const cutoff =

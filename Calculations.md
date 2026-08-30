@@ -1224,15 +1224,29 @@ store.
 
 ## CI health metrics
 
-`src/panels/ciHealth.js`. The one panel that asks the API rather than reading a
-store.
+`src/panels/ciHealth.js` from the API, `worker/src/panels/ci-health.js` from D1.
+Both apply the rules in `src/shared/ci-rules.js`, which is the only place any of
+them is written down.
 
 **The sample** is the most recent `CI_RUN_SAMPLE = 20` **completed** workflow
-runs on each repo's **default branch**, with `exclude_pull_requests=true`.
+runs on each repo's **default branch**.
 
 That sampling frame is the biggest caveat on this whole section: PR-triggered
-runs are excluded outright, and on most repos those are the majority of all CI
-activity. Every number below is a floor.
+runs are left out, and on most repos those are the majority of all CI activity.
+Every number below is a floor.
+
+**It is the branch filter that leaves them out, not `exclude_pull_requests`.**
+This documented the parameter as dropping PR-triggered runs, which it does not
+do. Measured against the API on GT5-Unofficial, `exclude_pull_requests=true` and
+`false` return a byte-identical set — 89,979 runs either way, including all 57
+`pull_request`-triggered ones — and the parameter's only effect is to empty each
+run's `pull_requests` array. Adding `branch=<default>` is what takes the sample
+to `push` and `workflow_run` events only. The frame was right; the reason given
+for it was wrong, and the SQL port filters on the branch alone because of it.
+
+Note the corollary, which is easy to misread the other way: runs triggered by
+*other workflows completing* are **in** the sample. On GT5-Unofficial they are
+42 of 100.
 
 ### Pass rate
 
@@ -1254,16 +1268,56 @@ very different and must not render the same.
 
 ```
 duration(run) = (updated_at − (run_started_at or created_at)) / 60,000   minutes
+                                                        # null if > CI_MAX_RUN_MINUTES
 ```
 
-Kept only if finite and non-negative. `medianMinutes` is the middle element of
-the sorted list — note this uses `s[floor(length/2)]`, a plain midpoint, not the
-shared `pct()` helper. On an even-sized sample it takes the upper middle, same
-as `pct` would.
+Kept only if finite, non-negative, and **at most `CI_MAX_RUN_MINUTES = 360`**.
+`medianMinutes` is the middle element of the sorted list — note this uses
+`s[floor(length/2)]`, a plain midpoint, not the shared `pct()` helper. On an
+even-sized sample it takes the upper middle, same as `pct` would.
 
 `totalMinutes` is the sum over the sampled runs; `timedRuns` is how many
 contributed. A run missing a usable timestamp contributes nothing and is not
 counted in the denominator.
+
+#### Why there is a ceiling
+
+There is no end timestamp on a workflow run. `/actions/runs` returns
+`run_started_at` and `updated_at`, and the only endpoint carrying a real
+duration is `/actions/runs/{id}/timing`, at one request per run.
+
+`updated_at` is the run's **last-touched** time, not its end time, and GitHub
+bumps it long after a run finishes — log expiry, artifact cleanup, one job
+re-run. For a recent run the difference is invisible; for an old one it is the
+whole value.
+
+Measured, and this is what the ceiling was added for:
+
+| | |
+|---|---|
+| EnderStorage runs started Jul 2025, `updated_at` Aug 2026 | 3 |
+| what each read as | ~580,000 minutes |
+| what each actually took | ~5 minutes |
+| share of that repo's reported Actions time | 99.99% |
+| org-wide `sampledMinutes` before | 22,630,939 |
+| org-wide `hoursPerMonth` before | ~33,654 |
+
+The cutoff is 360 because that is GitHub's own per-job execution limit, and
+because it sits in an empty band rather than through a distribution. Across 201
+sampled runs on 14 repos the longest believable duration was **44.5 minutes**
+and the shortest unbelievable one was **exactly 1,440** — the 24-hour mark where
+GitHub terminates a job left queued, which is queue time rather than compute and
+does not belong in the total under any ceiling. Nothing falls between the two,
+so the number can move a long way either way without changing a verdict.
+
+**Discarded, not clamped.** A clamp invents a number and hides that it did.
+Dropping leaves the run counted in `runs` and absent from `timedRuns`, which is
+a denominator the panel already reports. Roughly one sampled run in seven is
+discarded this way, so `timedRuns < runs` is normal rather than a symptom.
+
+This is the one defect found during the port that made the org look **worse**
+than it was rather than healthier. The direction differs; the cause does not —
+a number nothing in the panel's own output could contradict.
 
 **This is wall-clock time, not GitHub's billable minutes.** Billing is per job: a
 matrix of eight jobs in parallel bills roughly eight times what the run took on
@@ -1328,6 +1382,14 @@ copies has drifted.
 
 **What this figure is not:** a bill, a total, or a job count. The runs endpoint
 returns runs, not jobs.
+
+Note `meanRunMinutes` dividing by `sampledRuns` matters more now than it did.
+With the duration ceiling discarding roughly one run in seven, the gap between
+that denominator and `timedRuns` is no longer negligible, and it biases the
+org-wide mean **downwards** — the opposite direction from the bug the ceiling
+fixed. Left as it is because the per-repo and org-wide figures answering
+slightly different questions is the existing behaviour, and changing it would
+move a number for a reason unrelated to the port.
 
 ---
 

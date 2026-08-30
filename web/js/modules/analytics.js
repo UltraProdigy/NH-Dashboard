@@ -357,8 +357,8 @@ export const analyticsModules = {
       // apology rather than a measurement.
       const caveats = [
         `<strong>These are estimates, not a bill.</strong> Each repo contributes a rate — the runs in its sample divided by the days that sample covers — and the org figure is the sum of those rates over a 30-day month. A repo that hammered CI last week and has been quiet since projects a month that won't happen.`,
-        `<strong>It's a floor, not a total.</strong> Only completed runs on each repo's default branch are sampled, and PR-triggered runs are excluded outright. On most repos those are the majority of all CI activity.`,
-        `<strong>Wall-clock, not billable minutes.</strong> Billing is per job: a run with eight matrix jobs in parallel bills roughly eight times what it took on the clock, and macOS bills 10x, Windows 2x. Use this to see the trend and compare periods, not to reconcile an invoice.`,
+        `<strong>It's a floor, not a total.</strong> Only completed runs on each repo's default branch are sampled, which leaves out runs triggered by pull requests — on most repos the majority of all CI activity.`,
+        `<strong>Wall-clock, not billable minutes.</strong> Billing is per job: a run with eight matrix jobs in parallel bills roughly eight times what it took on the clock, and macOS bills 10x, Windows 2x. Use this to see the trend and compare periods, not to reconcile an invoice. Runs whose recorded duration can't be believed — GitHub bumps a run's timestamp long after it finishes — are counted but not timed, so the sampled-run count runs ahead of the timed one.`,
         `<strong>No job counts.</strong> The runs endpoint returns runs, not jobs — a job breakdown needs one more request per run, roughly 1,500 per build, which would cost more than every other panel combined. The org's real billed total is one request to <code>/orgs/${esc(state.data.org)}/settings/billing/actions</code>, but that needs <code>admin:org</code> and has no per-repo breakdown.`,
       ];
       const notes = (n) => caveats.slice(0, n)
