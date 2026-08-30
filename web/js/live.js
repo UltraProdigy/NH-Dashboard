@@ -21,11 +21,15 @@ import { state } from "./state.js";
 
 /**
  * Panels the Worker can serve. Anything not listed keeps coming from the built
- * file, which includes everything needing a live GitHub call — ciHealth,
- * depUpdates, needsRelease, the pull request panels — since D1 cannot answer
- * for those at all.
+ * file: ciHealth, depUpdates, needsRelease and byLabel, which need facts D1 has
+ * never been told, plus whatever is still mid-port.
  */
-const LIVE_PANELS = ["contributors", "analytics"];
+const LIVE_PANELS = [
+  "contributors",
+  "analytics",
+  "approvedUnmerged",
+  "changesRequested",
+];
 
 /**
  * Where the API lives.

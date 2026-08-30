@@ -16,10 +16,11 @@
     "test:exclusion": "node --experimental-sqlite --env-file-if-exists=.env test/exclusion.test.js",
     "test:handlers": "node --experimental-sqlite worker/test/handlers.test.js",
     "test:recompute": "node --experimental-sqlite worker/test/recompute.test.js",
-    "test:parity": "npm run test:parity:contributors && npm run test:parity:analytics && npm run test:parity:issues",
+    "test:parity": "npm run test:parity:contributors && npm run test:parity:analytics && npm run test:parity:issues && npm run test:parity:review-state",
     "test:parity:contributors": "node --experimental-sqlite worker/test/contributors.parity.test.js",
     "test:parity:analytics": "node --experimental-sqlite worker/test/analytics.parity.test.js",
-    "test:parity:issues": "node --env-file-if-exists=.env --experimental-sqlite worker/test/issues.parity.test.js"
+    "test:parity:issues": "node --env-file-if-exists=.env --experimental-sqlite worker/test/issues.parity.test.js",
+    "test:parity:review-state": "node --experimental-sqlite worker/test/review-state.parity.test.js"
   },
   "engines": {
     "node": ">=20.6"

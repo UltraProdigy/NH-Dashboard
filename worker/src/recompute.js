@@ -12,17 +12,30 @@
 
 import { analytics } from "./panels/analytics.js";
 import { contributors } from "./panels/contributors.js";
+import {
+  approvedUnmerged,
+  changesRequested,
+} from "./panels/review-state.js";
 import { scopedDb } from "./scope.js";
 
 /**
  * Panels served from `panel_cache`, by name.
  *
- * Only the ones whose inputs are entirely in D1 can live here. `ciHealth`,
- * `depUpdates`, `needsRelease` and the pull-request panels each need a live
- * GitHub call, so they stay in the Node build and reach the frontend the old
- * way. That split is expected to persist, not a migration half-done.
+ * Only the ones whose inputs are entirely in D1 can live here.
+ *
+ * That list is larger than it first looked. `approvedUnmerged` and
+ * `changesRequested` were assumed to need GitHub because they *ask* it — the
+ * search API answers `review:approved` in one query, which was convenient for a
+ * build-time panel. Every fact they need is in `pull_requests` and `reviews`.
+ *
+ * Still outside: `ciHealth`, `depUpdates`, `needsRelease` and `byLabel`. The
+ * first three need facts D1 has never been told — workflow runs, commits,
+ * release tags — though the webhook already receives `push`, `workflow_run` and
+ * `release` and currently discards their payloads, so that is a gap in what is
+ * stored rather than one in what can be known. `byLabel` needs the managed
+ * label list, which lives in another repo.
  */
-const PANELS = { contributors, analytics };
+const PANELS = { contributors, analytics, approvedUnmerged, changesRequested };
 
 export async function recompute(env, { force = false } = {}) {
   const dirty = await env.DB.prepare(
