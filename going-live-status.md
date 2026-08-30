@@ -128,9 +128,33 @@ would carry it.
 
 **`Dupes-Exploits-GTNH` is excluded at ingest**, via `NH_INGEST_EXCLUDE` in
 `.env` and never in committed source. With the display filter dropped, this
-exclusion is now the *only* thing keeping that repo out of a public artefact, so
-it is load-bearing rather than provisional. GitHub retains PR and issue history
+exclusion is the *only* thing keeping that repo out of a public artefact, so it
+is load-bearing rather than provisional. GitHub retains PR and issue history
 either way, so only that repo's traffic is lost while it stays excluded.
+
+**It was not actually applied, and the repo reached the public site.** Found
+while mapping the `issues` port. `isIngestExcluded` was called from the traffic
+ingest and from nowhere else, so 352 issues were walked, stored, seeded into
+production D1, and published in `data/dashboard.json` — including exploit titles
+in the three triage lists. The paragraph above asserted the protection, and
+`config.js` asserted it in more detail, for as long as it did not exist.
+
+Nothing failed, because a filter that is never called cannot fail. The only
+symptom was data quietly present, in a file nobody re-reads.
+
+Fixed in both ingests, at both the repo list and `readStore` — the second so an
+already-polluted store goes clean on the next build rather than after an hour of
+re-walking. `npm run test:exclusion` asserts the wiring *and* the behaviour, and
+fails on both counts if either regresses.
+
+Cleanup done locally: the issue store is 26,513 → 26,161, and `state.json`,
+`issues-state.json`, `issue-labels.json`, `worker/seed.sql` and the miniflare
+replica are purged. **Still outstanding: production D1, and the rebuilt
+`dashboard.json` / `drilldown.json` on Pages.** Until those land, the public copy
+still carries it.
+
+Worth carrying: a control whose failure mode is silence needs a test, not care.
+This one had a comment instead.
 
 **Labels and assignees stay JSON, not link tables.** Reversible in-database with
 no API calls if a panel ever needs to filter by label at scale.

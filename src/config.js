@@ -90,9 +90,19 @@ export function isReleaseExcluded(repoName) {
  * Repos that never enter the store at all.
  *
  * Different in kind from RELEASE_EXCLUDED_REPOS above, which only suppresses a
- * repo from one panel. This one is applied at ingest: excluded repos are never
- * fetched, so nothing about them reaches data/ or the deployed site, and a new
- * panel that forgets to filter cannot leak them.
+ * repo from one panel. This one is applied at ingest, in two places per store:
+ * the repo list is filtered before anything is walked, and `readStore` filters
+ * again on the way out. So nothing about an excluded repo reaches data/ or the
+ * deployed site, and a new panel that forgets to filter cannot leak them.
+ *
+ * The second layer is not redundancy. The list can grow after a repo is already
+ * in the store, and re-walking all-time history to honour it costs an hour —
+ * filtering on read makes the next build clean without one.
+ *
+ * This comment previously described all of that as fact while the exclusion was
+ * wired into the traffic ingest alone, and 352 issues from an excluded repo
+ * reached the public site. `npm run test:exclusion` now asserts every claim
+ * made here, because a filter that is never called cannot fail on its own.
  *
  * Deliberately env-only, with nothing listed in committed source. For most
  * repos a name in a config file is harmless, but the existence of some private
