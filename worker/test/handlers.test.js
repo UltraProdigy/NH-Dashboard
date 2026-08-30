@@ -536,6 +536,115 @@ check(
   "a".repeat(40),
 );
 
+// --- workflow_run -----------------------------------------------------------
+
+console.log("\nworkflow_run writes completed default-branch runs");
+
+const wfRun = (over = {}, action = "completed") => ({
+  action,
+  repository: REPO,
+  workflow_run: {
+    id: 900_001,
+    name: "Build and test",
+    head_branch: "master",
+    event: "push",
+    conclusion: "success",
+    run_started_at: "2026-08-29T10:00:00Z",
+    updated_at: "2026-08-29T10:05:00Z",
+    html_url: "https://github.com/GTNewHorizons/GT5-Unofficial/actions/runs/900001",
+    ...over,
+  },
+});
+
+await handleEvent(db, "workflow_run", wfRun());
+check(
+  "a completed run is stored",
+  row("SELECT conclusion, head_branch, event FROM workflow_runs WHERE run_id=900001"),
+  { conclusion: "success", head_branch: "master", event: "push" },
+);
+
+// This event fires three times per run and is the noisiest subscription here.
+// The other two actions carry no conclusion and no end time, so writing them
+// would triple the write rate to store rows that are read as NULL.
+await handleEvent(db, "workflow_run", wfRun({ id: 900_002 }, "requested"));
+await handleEvent(db, "workflow_run", wfRun({ id: 900_003 }, "in_progress"));
+check(
+  "only completed runs are written",
+  row("SELECT COUNT(*) AS n FROM workflow_runs WHERE run_id IN (900002, 900003)").n,
+  0,
+);
+
+// A pull request's head_branch is its source branch, which is what actually
+// keeps PR-triggered runs off this card — `exclude_pull_requests=true` does not,
+// whatever its name suggests.
+await handleEvent(
+  db,
+  "workflow_run",
+  wfRun({ id: 900_004, head_branch: "some-topic-branch", event: "pull_request" }),
+);
+check(
+  "a run on another branch is skipped",
+  row("SELECT COUNT(*) AS n FROM workflow_runs WHERE run_id=900004").n,
+  0,
+);
+
+// A run triggered by another workflow completing is a default-branch run like
+// any other, and the build counts it — 42 of 100 on GT5-Unofficial.
+await handleEvent(db, "workflow_run", wfRun({ id: 900_005, event: "workflow_run" }));
+check(
+  "a workflow_run-triggered run on the default branch is kept",
+  row("SELECT event FROM workflow_runs WHERE run_id=900005").event,
+  "workflow_run",
+);
+
+// Re-running a failed job delivers the same run_id with a new verdict. The
+// newer one is what the badge should show.
+await handleEvent(
+  db,
+  "workflow_run",
+  wfRun({ conclusion: "failure", updated_at: "2026-08-29T11:00:00Z" }),
+);
+check(
+  "a re-run updates the verdict rather than duplicating the row",
+  row("SELECT COUNT(*) AS n FROM workflow_runs WHERE run_id=900001").n,
+  1,
+);
+check(
+  "the newer conclusion wins",
+  row("SELECT conclusion FROM workflow_runs WHERE run_id=900001").conclusion,
+  "failure",
+);
+
+// Same reason as commits: every comparison and every ORDER BY in this store is
+// a string compare, and an offset sorts below Z.
+await handleEvent(
+  db,
+  "workflow_run",
+  wfRun({
+    id: 900_006,
+    run_started_at: "2026-08-29T12:34:56+02:00",
+    updated_at: "2026-08-29T12:40:56.789+02:00",
+  }),
+);
+check(
+  "timestamps are normalised to whole UTC seconds",
+  row("SELECT run_started_at, updated_at FROM workflow_runs WHERE run_id=900006"),
+  { run_started_at: "2026-08-29T10:34:56Z", updated_at: "2026-08-29T10:40:56Z" },
+);
+
+// `run_started_at` is absent on old runs, where created_at is the only start
+// there is. Resolved on the way in so the column holds one kind of value.
+await handleEvent(
+  db,
+  "workflow_run",
+  wfRun({ id: 900_007, run_started_at: undefined, created_at: "2026-08-28T09:00:00Z" }),
+);
+check(
+  "created_at stands in for a missing run_started_at",
+  row("SELECT run_started_at FROM workflow_runs WHERE run_id=900007").run_started_at,
+  "2026-08-28T09:00:00Z",
+);
+
 console.log("\nunknown events are ignored, not errors");
 check("unhandled event", await handleEvent(db, "star", {}), { ignored: "star" });
 

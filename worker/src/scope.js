@@ -42,6 +42,7 @@ const TABLES = [
   "traffic_daily",
   "commits",
   "releases",
+  "workflow_runs",
 ];
 
 const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${TABLES.join("|")})\\b`, "g");

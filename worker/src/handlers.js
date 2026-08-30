@@ -258,13 +258,96 @@ async function onRepository(db, payload) {
 }
 
 /**
- * workflow_run — still feeds a panel computed from the live API, so there is
- * nothing to write yet. It still marks the aggregates dirty, because a run
- * finishing changes what the CI card says even though no row moved.
+ * An event whose payload carries nothing this store keeps. Nothing subscribes
+ * to one today; kept because the next event added will want it before its
+ * table exists, and a repo row is always worth the upsert.
  */
 async function onRepoTouch(db, payload) {
   await upsertRepo(db, payload.repository);
   return { touched: payload.repository?.name ?? null };
+}
+
+/**
+ * workflow_run — requested, in_progress, completed.
+ *
+ * Two filters, and both discard far more than they keep.
+ *
+ *   **Only `completed`.** This event fires three times per run and is the
+ *   noisiest subscription here by a wide margin. The other two actions carry no
+ *   conclusion and no end timestamp, so there is nothing in them the panel
+ *   reads — writing them would triple the write rate to store rows that are
+ *   immediately overwritten.
+ *
+ *   **Only the default branch**, which is what the card means by CI health: a
+ *   topic branch's runs answer a question about work in progress rather than
+ *   about whether the branch releases are cut from is green. `default_branch`
+ *   comes from the payload rather than being assumed — this org runs both
+ *   `master` and `main`.
+ *
+ * There is deliberately **no filter on `event`**, and that is a correction
+ * rather than an omission. The Node panel passes `exclude_pull_requests=true`
+ * and its comment says that drops PR-triggered runs; measured against the API,
+ * that parameter returns a byte-identical set of runs and only empties the
+ * `pull_requests` array on each one. What excludes PR runs is the branch
+ * filter, here and there — a pull request's `head_branch` is its source branch,
+ * so it does not match. Adding an event filter would make this stricter than
+ * the panel it reproduces, on a case measured at 0 of 100 runs.
+ *
+ * `run_started_at` is absent on old runs, where `created_at` is the only start
+ * that exists. Resolved here rather than at read time so the column holds one
+ * kind of value and the index over it means one thing.
+ *
+ * ON CONFLICT DO UPDATE rather than DO NOTHING: a re-run of a failed job
+ * delivers the same `run_id` again with a new conclusion, and the newer verdict
+ * is the one the badge should show.
+ */
+async function onWorkflowRun(db, payload) {
+  await upsertRepo(db, payload.repository);
+
+  const run = payload.workflow_run;
+  const repo = payload.repository?.name;
+  if (!run?.id || !repo) return { skipped: "no run or repo" };
+
+  if (payload.action !== "completed") {
+    return { skipped: "not completed", action: payload.action };
+  }
+
+  const branch = payload.repository?.default_branch;
+  if (!branch || run.head_branch !== branch) {
+    return { skipped: "not the default branch", branch: run.head_branch };
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO workflow_runs (
+         repo, run_id, name, head_branch, event, conclusion,
+         run_started_at, updated_at, html_url
+       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+       ON CONFLICT (repo, run_id) DO UPDATE SET
+         conclusion = excluded.conclusion,
+         updated_at = excluded.updated_at,
+         name = excluded.name,
+         html_url = excluded.html_url`,
+    )
+    .bind(
+      repo,
+      run.id,
+      run.name ?? null,
+      run.head_branch ?? null,
+      run.event ?? null,
+      run.conclusion ?? null,
+      utcSeconds(run.run_started_at ?? run.created_at),
+      utcSeconds(run.updated_at),
+      run.html_url ?? null,
+    )
+    .run();
+
+  return {
+    table: "workflow_runs",
+    repo,
+    run: run.id,
+    conclusion: run.conclusion ?? null,
+  };
 }
 
 /**
@@ -402,7 +485,7 @@ const HANDLERS = {
   issue_comment: onIssueComment,
   repository: onRepository,
   push: onPush,
-  workflow_run: onRepoTouch,
+  workflow_run: onWorkflowRun,
   release: onRelease,
 };
 

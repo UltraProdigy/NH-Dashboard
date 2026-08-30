@@ -240,6 +240,52 @@ CREATE TABLE IF NOT EXISTS releases (
 -- just cut an rc is not a repo needing a release.
 CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases (repo, published_at DESC);
 
+-- -------------------------------------------------------------- workflow runs
+
+-- Default-branch Actions runs, one row per run.
+--
+-- Only **completed** runs are written, and that is a volume decision rather
+-- than a modelling one. `workflow_run` fires three times for every run —
+-- requested, in_progress, completed — and it is by a distance the noisiest
+-- event this webhook subscribes to. A run that has not finished has no
+-- conclusion and no end timestamp, so it contributes to nothing the panel
+-- computes; storing it would triple the write rate to hold rows that are read
+-- as NULL and then overwritten. There is deliberately no `status` column for
+-- the same reason: it would read 'completed' on every row in the table.
+--
+-- `head_branch` is stored rather than filtered on the way in, because the
+-- default branch is a property of the repo and repos rename theirs. Filtering
+-- at write time against the branch of the day would leave rows that can never
+-- match again, and no query would look wrong.
+--
+-- Two columns exist only to be believed cautiously. `updated_at` is the run's
+-- last-touched time, not its end time — GitHub bumps it on log expiry and on a
+-- job re-run, months or years later — so the duration derived from it passes
+-- through the ceiling in shared/ci-rules.js. And `run_started_at` is absent on
+-- very old runs, where `created_at` is the only start there is; the handler
+-- resolves that before writing so the column holds one kind of value.
+--
+-- Timestamps are Z-normalised whole seconds like every other time column here,
+-- so ordering is a string compare.
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  repo              TEXT NOT NULL,
+  run_id            INTEGER NOT NULL,
+  name              TEXT,
+  head_branch       TEXT,
+  event             TEXT,
+  conclusion        TEXT,
+  run_started_at    TEXT,
+  updated_at        TEXT,
+  html_url          TEXT,
+  PRIMARY KEY (repo, run_id)
+);
+
+-- The panel reads one repo's newest runs and nothing else, which is exactly
+-- this index. Kept DESC to match the read rather than relying on SQLite to walk
+-- it backwards.
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_repo_time
+  ON workflow_runs (repo, run_started_at DESC);
+
 -- --------------------------------------------------------------------- labels
 
 -- The managed label set from Label-Sync-GTNH, which is the org's source of
