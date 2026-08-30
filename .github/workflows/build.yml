@@ -224,6 +224,24 @@ jobs:
 
   deploy:
     needs: site
+    # `always()` here too, and it is not redundant with the one on `site`.
+    #
+    # A skip propagates down the whole graph, not just one edge. `data` is
+    # skipped on a push; `site` survives that because of its own `always()`; and
+    # `deploy` then inherits the skip through `site` even though `site` itself
+    # succeeded. Its default condition is `success()`, which a chain containing a
+    # skipped job does not satisfy.
+    #
+    # The failure is silent and reads as the opposite of what happened: `site`
+    # stages the page and uploads the artifact, `deploy` is skipped, and the run
+    # is **green** while Pages still serves whatever the last non-push run
+    # published. Observed once — the push of the ciHealth port built an artifact
+    # nothing ever deployed, and the only symptom was the site's Last-Modified
+    # staying at the previous run's timestamp.
+    #
+    # The explicit result check is what keeps the guard honest: `always()` alone
+    # would deploy on top of a failed `site`.
+    if: always() && needs.site.result == 'success'
     runs-on: ubuntu-latest
     # Pages allows one deploy at a time and cancelling one mid-flight can leave
     # the site on a half-published state, so a second deploy queues behind the
