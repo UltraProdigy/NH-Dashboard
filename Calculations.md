@@ -1333,6 +1333,16 @@ returns runs, not jobs.
 
 ## Repository state panels
 
+Both panels in this section have a **second implementation in SQL**, in
+`worker/src/panels/releases.js`, reading D1 rather than GitHub. The definitions
+below describe the Node originals; where the SQL asks a different question, it
+is called out inline and the reason is always the same one — a webhook payload
+carries less than a GraphQL query does.
+
+The shared half of both rules lives in `src/shared/commit-rules.js`, paired with
+its SQL twin the way `issue-rules.js` is, and `worker/test/releases.parity.test.js`
+asserts the two readings agree.
+
 ### Needs a release
 
 `src/panels/needsRelease.js`. Four filters, applied in order — cheap ones first,
@@ -1365,6 +1375,26 @@ null` and skips the PR test, rather than being dropped on a guess.
 Repos matching `RELEASE_EXCLUDED_REPOS` (glob patterns, `!` re-includes, later
 rules win, case-insensitive) are filtered before the compare call, so an
 excluded repo costs nothing.
+
+**In SQL, step 2 asks a different question.** The candidate test above compares
+the release's tag commit SHA against the default branch's HEAD SHA. A `release`
+webhook carries no tag SHA — it has `tag_name` and `target_commitish`, and the
+latter is normally a branch name — so the D1 version asks instead:
+
+```
+is there any commit on the default branch with
+  committed_at > latest_release.published_at
+```
+
+which has the same meaning over the data the store holds, and behaves better on
+a repo whose tag was force-moved. `commitsAhead` then falls out as `COUNT(*)` of
+those same rows rather than a REST `compare`, and the failure mode above — a
+`compare` that fails and leaves `commitsAhead: null` — cannot arise, because
+there is no second call to fail. `draft = 0 AND published_at IS NOT NULL` is
+what "non-draft" becomes; prereleases still count as releases.
+
+Step 4's PR test is the one that loses accuracy. See **Pull-request association**
+below.
 
 ### Dep updates
 
@@ -1402,6 +1432,56 @@ walk ran out reports `approx: true` and a floor value:
 Sort is `daysSinceDirect` descending, then exact answers before approximate
 ones, then repo name — among things that cannot be dated exactly, the quietest
 is the better guess at worst.
+
+**In SQL, the floor means something narrower.** The Node walk knows it reached
+the lookback horizon and reports 365 for it. The D1 version cannot claim that:
+it only knows how far back `commits` happens to go for that repo, which since
+the webhook captures forward is the capture window until a backfill has run. So
+its floor is `min(365, age of the oldest commit stored for that repo)`, and it
+under-claims rather than asserting a horizon it never reached.
+
+### Pull-request association
+
+Both panels above turn on one question — did this commit arrive through a pull
+request — and they read it in opposite directions. `needsRelease` wants at least
+one commit that did; `depUpdates` wants the newest that did not.
+
+| Source | How it answers | Exact? |
+|---|---|---|
+| GraphQL (Node build, backfill) | `associatedPullRequests.totalCount` | yes |
+| `push` webhook | **cannot** — no such field exists on the payload | — |
+| D1 read path | `commits.sha = pull_requests.merge_commit_sha` | mostly |
+
+A push payload's commit carries exactly `id, tree_id, distinct, message,
+timestamp, url, author, committer, added, removed, modified`. There is no
+pull-request field, which is why `commits.via_pr` is **nullable**: 0 and 1 mean
+the build resolved it, NULL means a delivery wrote it and the read must fall
+back to the `merge_commit_sha` join.
+
+That join is exact for squash merges and merge commits, and misses a **rebase
+merge**, whose commits GitHub replays under fresh SHAs that no PR row names.
+The residual error is one-directional:
+
+- On `depUpdates`, a missed PR commit reads as *direct*, dating the repo younger
+  than it is — staleness hidden, never invented.
+- On `needsRelease`, it can only add a repo that should not be listed, never
+  drop one that should.
+
+It is also temporary: the backfill overwrites `via_pr` with GitHub's own answer
+on its next pass, which is why re-running it is a repair and not just a top-up.
+
+### Timestamp normalisation
+
+Everything in D1 is Z-normalised whole seconds, and both panels compare
+timestamps as **strings** — `strftime` parses a date per row per call and
+measured 43ms against 7ms for the equivalent compare in `analytics`.
+
+A push payload breaks that assumption if written through unchanged: its commit
+timestamps carry the committer's UTC offset (`2026-08-30T12:34:56+02:00`), and
+`+02:00` sorts below `Z`, so an unnormalised commit sinks beneath every commit
+sharing its date and `MAX(committed_at)` silently stops meaning "newest".
+`utcSeconds` in `src/shared/commit-rules.js` normalises on the way in; the
+handler and parity tests both assert it.
 
 ### Search-backed PR panels
 

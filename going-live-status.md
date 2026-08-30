@@ -577,3 +577,140 @@ without a token. `npm run build` with one restores them; nothing is lost.
 
 **First CI run of the new workflow needs checking** — confirm the post-job cache
 save appears. Until it does, `git rm -r --cached data/` should wait.
+
+---
+
+## The release cards, and two claims that were wrong
+
+`needsRelease` and `depUpdates` are ported. `worker/src/panels/releases.js`,
+registered on the cron, with `commits` and `releases` tables and real `push` and
+`release` handlers behind them.
+
+The handoff said this was a table and a handler each, "not new plumbing",
+because `push` "carries commits and whether each arrived via a pull request" and
+`release` "carries the tag". Both halves were checked against GitHub's payload
+documentation before any of it was built, and both are wrong in exactly the
+place the panels depend on.
+
+**A push commit has no pull-request field.** The payload's commit schema is
+`id, tree_id, distinct, message, timestamp, url, author, committer, added,
+removed, modified` — that is the complete list, and the whole `push` section
+contains no occurrence of "pull request" at all. Yet the PR test is the entire
+point of both panels: `needsRelease` stage 3 keeps a repo only if some commit in
+the range has a PR attached, and `depUpdates` is *defined* as the newest commit
+without one.
+
+**A release payload has no tag SHA.** It carries `tag_name` and
+`target_commitish`, and the latter is normally a branch name. The Node panel's
+candidate test is `release.tagCommit.oid === head.oid`; that comparison cannot
+be reconstructed from what arrives.
+
+Neither was fatal, and the substitutions are in `Calculations.md`. The SHA test
+became "any default-branch commit newer than the latest release", which is the
+same question over data the store holds and is better behaved on a force-moved
+tag. The PR test became a join on `pull_requests.merge_commit_sha` — a column
+that did not exist and now does, populated from the `pull_request` payload,
+exact for squash and merge commits and blind to a rebase merge.
+
+The lesson is the one already in this file, arriving a third time: **check what
+a payload carries, not what a panel needs it to.** The previous entry says to
+check what a panel needs rather than what it does, and that was right and did
+not go far enough — this time the panel's needs were read correctly and the
+*source* was assumed.
+
+## The dependency nobody had noticed: `repos` is nearly empty
+
+Both new panels join `repos`, and `seed.sql` never wrote a single row to it. Its
+147 statements load `pull_requests`, `reviews`, `issues`, `traffic_daily` and
+`ingest_state` — no repos. In production that table therefore holds only what a
+webhook has upserted since the Worker went live, because every handler calls
+`upsertRepo` and nothing else ever has.
+
+This is worse than an empty `commits` table, because it is invisible in the same
+way the ingest exclusion was: a repo that is absent and a repo that is up to
+date produce the same empty card, and no query looks wrong. `/api/health` now
+counts `repos`, `commits` and `releases` alongside the others, so the difference
+between "the backfill has not run" and "nothing needs a release" is at least
+observable.
+
+`worker/backfill-commits.js` writes all three tables for this reason.
+
+## Why the cards are not live yet
+
+`LIVE_PANELS` in `web/js/live.js` is deliberately unchanged. The Worker answers
+for both panels, but the webhook captures forward only — until the backfill has
+run, both would answer correctly from a store holding almost nothing.
+
+Listing them now would tint both cards **blue over a near-empty answer**, and
+blue means "this is current". Amber and red are the same stale data with
+opposite meanings, and the tint exists so an outage cannot hide among the
+legitimately-amber half of this dashboard. A confidently wrong blue defeats that
+more thoroughly than either.
+
+Order to bring them up:
+
+```
+cd worker && npx wrangler d1 execute nh-dashboard --remote \
+  --file migrations/001-commits-and-releases.sql   # adds merge_commit_sha
+npx wrangler d1 execute nh-dashboard --remote --file schema.sql
+cd .. && npm run backfill:commits -- --out worker/backfill.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file backfill.sql
+npx wrangler deploy
+curl -X POST ".../api/recompute?force=1"
+```
+
+Then check `/api/health` with `cache: "no-store"` — it can serve a cached
+response and has sent an investigation down a blind alley once already — and
+only then add the two names to `LIVE_PANELS` and push.
+
+## Measurements
+
+On 295 repos and 80,285 synthetic commits against the real seed:
+
+| Panel | Local | Projected on D1 (2.2×) |
+|---|---|---|
+| `needsRelease` | ~5ms | ~12ms |
+| `depUpdates` | ~36ms | ~79ms |
+
+Both are the same order as the two instant review cards (~68ms, ~55ms) and
+nowhere near `analytics` (~2.6s), so **the cron tier is not a cost decision for
+these two**. Promoting them would mean firing the instant path on `push`, which
+arrives far more often than `pull_request` does, for cards whose ten-minute
+staleness nobody is watching. The numbers are recorded so that trade can be made
+on evidence if it ever comes up.
+
+## A shim that was lying
+
+`worker/test/handlers.test.js`'s D1 shim had `prepare().bind()` mutate one shared
+object and return itself. Every existing test chains
+`prepare().bind().run()` immediately, so all 31 passed and would have kept
+passing.
+
+Real D1 returns a *new* statement from `bind`, which is what makes
+`prepare` once, `bind` per row, `batch` the lot a legal pattern — and it is the
+pattern `onPush` needs, because a push of a few hundred commits inside a
+ten-second delivery budget cannot be a loop of awaits. Under the old shim every
+row in that batch would have run with the last row's parameters, writing one
+commit N times, and the test suite would have reported success.
+
+The shim now matches D1's contract. 48 assertions, up from 31.
+
+## Test counts
+
+```
+npm run test:freshness    14
+npm run test:exclusion    17
+npm run test:handlers     48   (was 31)
+npm run test:recompute    26
+npm run test:parity       95   across five panels (was 60 across four)
+```
+
+200 total, all passing.
+
+## Still not captured
+
+`workflow_run` is still on `onRepoTouch`, so `ciHealth` is unchanged and remains
+the last of the three events the webhook receives and discards. It is the
+biggest of them — run conclusions need their own table shape, and the panel
+aggregates per repo and per branch rather than picking one row — which is why it
+was left rather than rushed in alongside these two.
