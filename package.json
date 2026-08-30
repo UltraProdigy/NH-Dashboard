@@ -20,7 +20,8 @@
     "test:parity:contributors": "node --experimental-sqlite worker/test/contributors.parity.test.js",
     "test:parity:analytics": "node --experimental-sqlite worker/test/analytics.parity.test.js",
     "test:parity:issues": "node --env-file-if-exists=.env --experimental-sqlite worker/test/issues.parity.test.js",
-    "test:parity:review-state": "node --experimental-sqlite worker/test/review-state.parity.test.js"
+    "test:parity:review-state": "node --experimental-sqlite worker/test/review-state.parity.test.js",
+    "test:freshness": "node test/freshness.test.js"
   },
   "engines": {
     "node": ">=20.6"

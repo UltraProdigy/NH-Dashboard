@@ -61,6 +61,29 @@ async function getJSON(path, ms = 8000) {
 }
 
 /**
+ * A panel plus what the Worker says about its freshness.
+ *
+ * `x-refresh` is the Worker's own account of how the panel is rebuilt, and
+ * `x-computed-at` when it last was. Both are read here rather than inferred,
+ * because a list of which panels are fast would be a second copy of a split
+ * that lives in the recompute — and it would be wrong the first time a panel
+ * moves between tiers.
+ */
+async function getPanel(name, ms = 8000) {
+  const stop = AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined;
+  const res = await fetch(`${API}/api/panel/${name}`, {
+    cache: "no-store",
+    signal: stop,
+  });
+  if (!res.ok) throw new Error(`${name} → ${res.status}`);
+  return {
+    data: await res.json(),
+    refresh: res.headers.get("x-refresh") ?? "cron",
+    computedAt: res.headers.get("x-computed-at") ?? null,
+  };
+}
+
+/**
  * Replace the ported panels in `state.data` with the Worker's copies.
  *
  * Returns the panels that actually changed. Each is fetched and applied
@@ -74,8 +97,15 @@ async function overlay() {
   await Promise.all(
     LIVE_PANELS.map(async (name) => {
       try {
-        const data = await getJSON(`/api/panel/${name}`);
-        state.data.panels[name] = { ok: true, error: null, data, live: true };
+        const { data, refresh, computedAt } = await getPanel(name);
+        state.data.panels[name] = {
+          ok: true,
+          error: null,
+          data,
+          live: true,
+          refresh,
+          computedAt,
+        };
         applied.push(name);
       } catch {
         // Leave whatever the built file had. Silent because this is expected

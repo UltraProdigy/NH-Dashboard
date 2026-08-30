@@ -111,3 +111,35 @@
 .kpi .v.date { font-size: calc(var(--kpi-val, 24px) * .72); letter-spacing: -.01em; }
 .kpi .d { font-size: 12px; color: var(--muted); }
 .up { color: var(--good); } .down { color: var(--bad); } .flat { color: var(--muted); }
+
+/* ---------- freshness ----------
+
+   How recently a card's numbers could have changed, as a tint on its edge.
+
+   Three tiers, and they describe the pipeline rather than the data: green is
+   rebuilt on the webhook delivery, blue on the ten-minute recompute, amber is
+   the static build the page loads before any of that. Amber also appears when
+   the live overlay could not reach the API, which is the case worth seeing —
+   a dashboard silently serving yesterday's numbers looks identical to a fresh
+   one.
+
+   Deliberately quiet. This is ambient state on every card at once, not an
+   alert on one of them: a ring at 30-40% alpha and a hairline border, no fill,
+   no glow, nothing that competes with a red number inside the card. The border
+   colour is set alongside the ring so the effect survives a forced-colours or
+   high-contrast mode, where box-shadow is dropped.
+
+   `--fresh` carries the colour so the three rules below differ by one line. */
+.card[class*="fresh-"] {
+  border-color: color-mix(in srgb, var(--fresh) 45%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fresh) 35%, transparent);
+}
+.card.fresh-instant { --fresh: var(--good); }
+.card.fresh-cron    { --fresh: var(--accent); }
+.card.fresh-build   { --fresh: var(--warn); }
+
+/* Older browsers without color-mix get the plain border back rather than an
+   invalid value, which would fall through to no border at all. */
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .card[class*="fresh-"] { border-color: var(--border); box-shadow: none; }
+}

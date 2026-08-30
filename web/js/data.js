@@ -6,6 +6,56 @@ import { esc } from "./format.js";
    ========================================================================== */
 
 const panel = id => state.data?.panels?.[id];
+
+/* ==========================================================================
+   Freshness
+   ========================================================================== */
+
+/**
+ * Which panel a card's numbers come from.
+ *
+ * Cards on the Dream Panel name theirs directly. The rest are whole pages built
+ * from one panel each — every Analytics card reads `analytics`, every Issues
+ * card reads `issues` — so the page is the answer, and listing thirty modules
+ * individually would be thirty chances to forget one.
+ *
+ * The two drilldown pages read `drilldown`, which is not ported and has no live
+ * copy; they resolve to it anyway so they read as "built" rather than as
+ * unknown, which is the truth.
+ */
+const PAGE_PANEL = {
+  analytics: "analytics",
+  issues: "issues",
+  people: "contributors",
+  contributor: "drilldown",
+  repo: "drilldown",
+};
+
+const sourcePanel = (m, id) => m?.panelId ?? PAGE_PANEL[m?.page] ?? null;
+
+/**
+ * How fresh a card's data can be — `instant`, `cron`, or `build`.
+ *
+ * Reported per render rather than per panel, because it describes what actually
+ * happened on this page load and not what was supposed to. A panel the Worker
+ * would have served in one second reads `build` if the overlay could not reach
+ * it, which is exactly what a reader needs to know: the number in front of them
+ * came from the last nightly build because the live path was unavailable.
+ *
+ * `overlay()` sets `refresh` from the Worker's own header. Anything it did not
+ * touch is still the built file.
+ */
+function freshness(m, id) {
+  const name = sourcePanel(m, id);
+  if (!name) return null;
+  const p = panel(name);
+  if (!p?.ok) return null;
+  return {
+    panel: name,
+    tier: p.live ? (p.refresh ?? "cron") : "build",
+    computedAt: p.computedAt ?? null,
+  };
+}
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
@@ -225,6 +275,7 @@ export {
   activeWindow,
   dayLimitNote,
   delta,
+  freshness,
   issuePeople,
   labelRepoList,
   labelReposInView,

@@ -56,6 +56,22 @@ const PANELS = { contributors, analytics, approvedUnmerged, changesRequested };
 const INSTANT = { approvedUnmerged, changesRequested };
 
 /**
+ * How fresh a panel can be, as the Worker's own statement about itself.
+ *
+ * The frontend tints each card by this, and the temptation is to keep the list
+ * in the frontend where the rendering is. That would be a second copy of the
+ * split above, and it would be wrong the first time a panel is promoted from
+ * the cron to the delivery path — the card would keep claiming ten minutes
+ * while the data arrived in one second, or worse, the reverse.
+ *
+ * So the Worker answers it. `/api/panel/:name` carries the tier in a header,
+ * because the thing that knows how a panel is rebuilt is the code that rebuilds
+ * it.
+ */
+export const refreshTier = (name) =>
+  name in INSTANT ? "instant" : name in PANELS ? "cron" : "build";
+
+/**
  * Rebuild the cheap panels now, for one delivery.
  *
  * Called from `ctx.waitUntil`, so it runs after the 200 has already gone back

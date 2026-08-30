@@ -5,6 +5,7 @@ import {
   A,
   I,
   activeWindow,
+  freshness,
   issuePeople,
   labelRows,
   panel,
@@ -447,7 +448,7 @@ function card(id) {
   // "See all →" rather than an up-and-right arrow: this opens the card's own
   // tab on the same page, and ↗ is the mark this dashboard uses for links that
   // leave it — "View on GitHub ↗" sits three lines above it on the drilldowns.
-  return `<section class="card" style="--span:${m.span}">
+  return `<section class="card${freshClass(m, id)}" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
       ${cardSub(m, false)}
@@ -459,11 +460,31 @@ function card(id) {
   </section>`;
 }
 
+/**
+ * The freshness tint, as a class on the card.
+ *
+ * Three tiers, and they are a real property of the pipeline rather than a
+ * decoration: `instant` is rebuilt on the webhook delivery, `cron` on the
+ * ten-minute recompute, `build` is the static file the page loads first.
+ *
+ * `build` is not only "not yet ported". A card the Worker would have served in
+ * one second shows it whenever the overlay could not reach the API, because
+ * `overlay()` falls back silently and keeps the built data. That is precisely
+ * when a reader most needs telling — a dashboard quietly showing day-old
+ * numbers during an outage looks exactly like one that is up to date.
+ *
+ * Nothing is drawn for a card with no panel behind it.
+ */
+function freshClass(m, id) {
+  const f = freshness(m, id);
+  return f ? ` fresh-${f.tier}` : "";
+}
+
 /** One card of an opened tab, full width. */
 function expandedCard(id, grouped) {
   const m = MODULES[id];
   const body = bodyOf(m, id, true);
-  return `<section class="card" style="--span:12">
+  return `<section class="card${freshClass(m, id)}" style="--span:12">
     <header><h2>${esc(m.label)}</h2>${cardSub(m, true)}${cardControls(m, grouped)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;

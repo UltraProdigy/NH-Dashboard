@@ -17,7 +17,7 @@
  */
 
 import { handleEvent } from "./handlers.js";
-import { recompute, refreshInstant } from "./recompute.js";
+import { recompute, refreshInstant, refreshTier } from "./recompute.js";
 
 /**
  * The read API is public and cross-origin by necessity — the dashboard is
@@ -34,9 +34,10 @@ const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": "content-type",
-  // Without this the browser hides x-computed-at from cross-origin JavaScript,
-  // and the page cannot tell how stale the panel it is showing actually is.
-  "access-control-expose-headers": "x-computed-at",
+  // Without this the browser hides these from cross-origin JavaScript, and the
+  // page cannot tell how stale the panel it is showing actually is, nor how
+  // fresh it was entitled to expect.
+  "access-control-expose-headers": "x-computed-at, x-refresh",
   "access-control-max-age": "86400",
 };
 
@@ -206,7 +207,13 @@ async function handlePanel(env, name) {
   if (!row) return json({ error: "no such panel, or never computed" }, 404);
 
   return new Response(row.json, {
-    headers: { ...JSON_HEADERS, "x-computed-at": row.computed_at },
+    headers: {
+      ...JSON_HEADERS,
+      "x-computed-at": row.computed_at,
+      // How this panel is rebuilt, so the card can say so without the frontend
+      // keeping its own copy of the split. See `refreshTier`.
+      "x-refresh": refreshTier(name),
+    },
   });
 }
 
