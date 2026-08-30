@@ -87,10 +87,11 @@ function addRepo(db, name, extra = {}) {
   db.prepare(
     `INSERT INTO repos (name, full_name, private, archived, default_branch, pushed_at,
                         updated_at, commits_since)
-     VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     name,
     `GTNewHorizons/${name}`,
+    extra.private ? 1 : 0,
     extra.archived ? 1 : 0,
     extra.defaultBranch ?? "master",
     extra.pushedAt ?? ago(1),
@@ -255,6 +256,15 @@ console.log("\nneedsRelease");
   addRelease(db, "Archived", "v8.0", 30);
   addCommit(db, "Archived", 5, { viaPr: 1 });
 
+  // A private repo is included, matching the build. Withholding it here made
+  // the Worker quietly stricter than the page it was replacing — seven repos
+  // that the build publishes were missing from the live card, which reads as a
+  // broken port rather than as a policy. NH_INGEST_EXCLUDE is the lever, and it
+  // is applied in scope.js across every table at once.
+  addRepo(db, "PrivateRepo", { private: true });
+  addRelease(db, "PrivateRepo", "v10.0", 30);
+  addCommit(db, "PrivateRepo", 5, { viaPr: 1 });
+
   // Dormant for longer than STALE_REPO_CUTOFF_DAYS. "Nobody has released this
   // in two years" is not news about a repo nobody has touched in two years.
   addRepo(db, "Dormant", { pushedAt: ago(500) });
@@ -289,6 +299,11 @@ console.log("\nneedsRelease");
   check("a prerelease counts as a release", !got.JustCutRc);
   check("an archived repo is dropped", !got.Archived);
   check("a dormant repo is dropped", !got.Dormant);
+  check(
+    "a private repo is included, as the build includes it",
+    Boolean(got.PrivateRepo),
+    "the exclusion lever is NH_INGEST_EXCLUDE, not a predicate in this panel",
+  );
 
   check(
     "the frontend's fields are all present",

@@ -69,6 +69,24 @@ const staleBound = (now) =>
  * along with it — which is why this is `live` and why the file that does the
  * rewriting says so in its own header.
  *
+ * **There is deliberately no `private = 0` here**, and it is worth saying why,
+ * because the schema says the opposite. `idx_repos_public` exists so restricted
+ * repos are opted *into* by queries rather than filtered out — a panel that
+ * forgets the predicate then returns public data instead of leaking, which is
+ * the right default for a table that might hold anything.
+ *
+ * It is the wrong default for these two. The org's recorded decision is that
+ * private repo data ships publicly and there is no display filter; the Node
+ * build has always published these repos, and the exclusion that actually
+ * protects anything is `NH_INGEST_EXCLUDE`, applied in `scope.js` to every
+ * table at once. Filtering here as well made the Worker quietly stricter than
+ * the build it replaces — seven repos present on the page and absent from the
+ * live card, which reads as a bug in the port rather than as a policy.
+ *
+ * If that policy changes, the lever is `NH_INGEST_EXCLUDE`, not a predicate
+ * added back here — one place, all panels, rather than a rule each panel has to
+ * remember.
+ *
  * **Both panels are only as complete as this table**, which is worth knowing
  * because it is the least obvious dependency either has. `seed.sql` never wrote
  * a `repos` row — it loaded pull requests, reviews, issues and traffic — so in
@@ -88,7 +106,6 @@ const LIVE = `
     SELECT name, default_branch, commits_since
       FROM repos
      WHERE archived = 0
-       AND private = 0
        AND (pushed_at IS NULL OR pushed_at >= ?1)
   )`;
 
