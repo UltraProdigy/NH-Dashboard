@@ -1391,6 +1391,39 @@ fixed. Left as it is because the per-repo and org-wide figures answering
 slightly different questions is the existing behaviour, and changing it would
 move a number for a reason unrelated to the port.
 
+### The store's reading
+
+`worker/src/panels/ci-health.js` computes all of the above from `workflow_runs`
+rather than from the API. Every rule is shared rather than translated — the
+selection is SQL, the arithmetic is `shared/ci-rules.js`, and `summarizeOrg` is
+reused outright because it is pure arithmetic over 250 small objects.
+
+Three places the SQL has to reproduce a JavaScript answer explicitly rather than
+by doing the obvious thing:
+
+```
+median position   rank floor(n / 2) + 1 over the timed runs only
+                  # a discarded duration is not a zero-minute run and must not
+                  # sort to the bottom
+sample span       null on one run
+                  # MAX − MIN over a single row is 0, and 0 is what divides
+sample cap        ORDER BY run_started_at DESC, run_id DESC
+                  # two runs can share a start to the second; without the second
+                  # key the cap takes an arbitrary one and the median moves
+```
+
+Durations use `strftime`, which every other panel here refuses. The distinction
+is that elsewhere it appears in *window comparisons*, where a string compare
+answers the same question for a sixth of the cost; a duration is arithmetic on
+two timestamps, which a string compare cannot do at all. The `CAST` to INTEGER
+is still mandatory — `strftime` returns TEXT and SQLite orders every TEXT value
+above every number.
+
+`worker/test/ci-health.parity.test.js` runs both implementations over the same
+fixture and compares every field. It is the only true parity test in this repo:
+the others compare two readings of one store, this one compares two readings of
+one input.
+
 ---
 
 ## Repository state panels

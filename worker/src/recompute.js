@@ -18,6 +18,7 @@ import {
 } from "./panels/review-state.js";
 import { byLabel } from "./panels/by-label.js";
 import { depUpdates, needsRelease } from "./panels/releases.js";
+import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -43,8 +44,16 @@ import { scopedDb } from "./scope.js";
  * what a panel needed — Label-Sync-GTNH is a file in another repo, and no
  * webhook fires when it changes.
  *
- * Still outside: `ciHealth`, which needs `workflow_run` captured the way `push`
- * and `release` now are.
+ * `ciHealth` joined last, once `workflow_run` stopped being discarded. It
+ * carries the same caveat the release panels do and more sharply: the webhook
+ * captures forward only, and this panel's sample is the newest twenty runs per
+ * repo, so until the backfill has run a repo reads as having however few runs
+ * have arrived since the Worker went live. That is why it is registered here
+ * before it is listed in `LIVE_PANELS` — the cache can be built and inspected
+ * without the card claiming to be current.
+ *
+ * Still outside: `issues`, `issueMetrics`, `activeDays` and `drilldown`, none of
+ * them blocked on data.
  */
 const PANELS = {
   contributors,
@@ -54,6 +63,7 @@ const PANELS = {
   needsRelease,
   depUpdates,
   byLabel,
+  ciHealth,
 };
 
 /**
@@ -179,6 +189,17 @@ export async function recompute(env, { force = false } = {}) {
     }
   }
 
+  // Bound the one table that grows without limit. After the rebuild rather than
+  // before it, so a run that would have been trimmed still contributed to the
+  // panel it was trimmed for — and on the raw handle, because `scope.js`
+  // rewrites `FROM workflow_runs` and `DELETE FROM (SELECT …)` is not SQL.
+  let pruned = 0;
+  try {
+    ({ pruned } = await pruneWorkflowRuns(env.DB));
+  } catch (err) {
+    failed.pruneWorkflowRuns = String(err);
+  }
+
   // Clear first, bump second. A delivery landing between the two sets `dirty`
   // again and gets picked up next run. The reverse order could clear a flag set
   // by work this run did not see.
@@ -191,5 +212,5 @@ export async function recompute(env, { force = false } = {}) {
     "SELECT value FROM meta WHERE key = 'version'",
   ).first();
 
-  return { version: Number(version?.value ?? 0), built, failed, at };
+  return { version: Number(version?.value ?? 0), built, failed, pruned, at };
 }
