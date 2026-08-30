@@ -116,12 +116,15 @@
 
    How recently a card's numbers could have changed, as a tint on its edge.
 
-   Three tiers, and they describe the pipeline rather than the data: green is
-   rebuilt on the webhook delivery, blue on the ten-minute recompute, amber is
-   the static build the page loads before any of that. Amber also appears when
-   the live overlay could not reach the API, which is the case worth seeing —
-   a dashboard silently serving yesterday's numbers looks identical to a fresh
-   one.
+   Four states, describing the pipeline rather than the data: green is rebuilt
+   on the webhook delivery, blue on the ten-minute recompute, amber is the
+   static build the page loads before either.
+
+   Red is the one that is not a tier. It marks a card that should have been
+   live and whose API did not answer — the data underneath is the same stale
+   build as amber, but amber is by design and red is a fault. A dashboard
+   silently serving yesterday's numbers looks identical to a fresh one, and
+   that is exactly what this is for.
 
    Deliberately quiet. This is ambient state on every card at once, not an
    alert on one of them: a ring at 30-40% alpha and a hairline border, no fill,
@@ -129,7 +132,9 @@
    colour is set alongside the ring so the effect survives a forced-colours or
    high-contrast mode, where box-shadow is dropped.
 
-   `--fresh` carries the colour so the three rules below differ by one line. */
+   `--fresh` carries the colour so the tiers differ by one line each. The base
+   rule and the `fresh-down` override have equal specificity, so the override
+   wins on source order — keep it last. */
 .card[class*="fresh-"] {
   border-color: color-mix(in srgb, var(--fresh) 45%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--fresh) 35%, transparent);
@@ -137,6 +142,14 @@
 .card.fresh-instant { --fresh: var(--good); }
 .card.fresh-cron    { --fresh: var(--accent); }
 .card.fresh-build   { --fresh: var(--warn); }
+
+/* Red carries a little more weight than the other three. They are ambient
+   state on every card at once; this one is something that is wrong. */
+.card.fresh-down {
+  --fresh: var(--bad);
+  border-color: color-mix(in srgb, var(--fresh) 60%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fresh) 50%, transparent);
+}
 
 /* Older browsers without color-mix get the plain border back rather than an
    invalid value, which would fall through to no border at all. */

@@ -103,14 +103,23 @@ async function overlay() {
           error: null,
           data,
           live: true,
+          down: false,
           refresh,
           computedAt,
         };
         applied.push(name);
       } catch {
-        // Leave whatever the built file had. Silent because this is expected
-        // whenever the Worker is unreachable, and a console full of failures
-        // on every poll would bury the errors that matter.
+        // Keep whatever the built file had — stale data beats none. But record
+        // that this panel *should* have been live and was not, because those
+        // are different states and only one of them is anybody's fault: a card
+        // that is built by design and a card whose API stopped answering look
+        // identical otherwise, and the second is the one worth seeing.
+        //
+        // Still silent in the console. This is expected whenever the Worker is
+        // unreachable, and a failure logged on every poll would bury the errors
+        // that matter.
+        const p = state.data.panels[name];
+        if (p) p.down = true;
       }
     }),
   );

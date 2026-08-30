@@ -34,27 +34,29 @@ const PAGE_PANEL = {
 const sourcePanel = (m, id) => m?.panelId ?? PAGE_PANEL[m?.page] ?? null;
 
 /**
- * How fresh a card's data can be — `instant`, `cron`, or `build`.
+ * How fresh a card's data can be — `instant`, `cron`, `build`, or `down`.
  *
  * Reported per render rather than per panel, because it describes what actually
- * happened on this page load and not what was supposed to. A panel the Worker
- * would have served in one second reads `build` if the overlay could not reach
- * it, which is exactly what a reader needs to know: the number in front of them
- * came from the last nightly build because the live path was unavailable.
+ * happened on this page load and not what was supposed to.
  *
- * `overlay()` sets `refresh` from the Worker's own header. Anything it did not
- * touch is still the built file.
+ * The distinction that matters is between the last two. `build` is a panel
+ * served from the static file *by design* — nothing has ported it yet, and the
+ * number is as fresh as it was ever going to be. `down` is a panel that should
+ * have been live and whose API did not answer: same stale data, entirely
+ * different meaning, and only one of them is a fault. Collapsing them would
+ * make an outage indistinguishable from the normal state of half the dashboard,
+ * which is the failure this whole indicator exists to prevent.
+ *
+ * `overlay()` marks both: `refresh` from the Worker's own header on success,
+ * `down` when a panel it asked for did not come back.
  */
 function freshness(m, id) {
   const name = sourcePanel(m, id);
   if (!name) return null;
   const p = panel(name);
   if (!p?.ok) return null;
-  return {
-    panel: name,
-    tier: p.live ? (p.refresh ?? "cron") : "build",
-    computedAt: p.computedAt ?? null,
-  };
+  const tier = p.down ? "down" : p.live ? (p.refresh ?? "cron") : "build";
+  return { panel: name, tier, computedAt: p.computedAt ?? null };
 }
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;

@@ -52,9 +52,17 @@ t({ page: "nosuchpage" },          null,      "a card with no panel gets no tint
 state.data.panels.changesRequested.refresh = "instant";
 t({ panelId: "changesRequested" }, "instant", "promoting a panel needs no frontend change");
 
-// And an outage must read as build, not as the tier it would have had.
-state.data.panels.approvedUnmerged = { ok: true, data: [] };
-t({ panelId: "approvedUnmerged" }, "build", "an unreachable API reads build, not instant");
+// An outage is not the same as being built by design, and the whole point of
+// the indicator is that those two look different.
+state.data.panels.approvedUnmerged = { ok: true, data: [], down: true };
+t({ panelId: "approvedUnmerged" }, "down", "a panel whose API failed reads down");
+t({ panelId: "needsRelease" }, "build", "a panel built by design stays amber");
+
+// A panel that came back fine on a later poll must stop reading as down.
+state.data.panels.approvedUnmerged = {
+  ok: true, data: [], live: true, down: false, refresh: "instant",
+};
+t({ panelId: "approvedUnmerged" }, "instant", "a recovered panel clears down");
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
