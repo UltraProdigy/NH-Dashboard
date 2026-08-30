@@ -42,7 +42,7 @@ import {
   runMinutesSql,
   spanBetween,
 } from "../../src/shared/ci-rules.js";
-import { ciHealth } from "../src/panels/ci-health.js";
+import { CI_RUN_RETAIN, ciHealth, pruneWorkflowRuns } from "../src/panels/ci-health.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA = path.join(HERE, "..", "schema.sql");
@@ -75,10 +75,23 @@ const d1 = (db) => ({
       bind: (...p) => at(p),
       async all() { return { results: db.prepare(sql).all(...params) }; },
       async first() { return db.prepare(sql).get(...params) ?? null; },
+      async run() {
+        const r = db.prepare(sql).run(...params);
+        return { meta: { changes: Number(r.changes ?? 0) } };
+      },
     });
     return at([]);
   },
 });
+
+/**
+ * The *unscoped* handle, which is what the prune has to be given.
+ *
+ * `scope.js` rewrites `FROM workflow_runs` into a filtered subquery, and
+ * `DELETE FROM (SELECT …)` is not a statement. Spelled as a separate name here
+ * so the test cannot accidentally prove that a scoped handle works.
+ */
+const d1w = d1;
 
 function blank() {
   const db = new DatabaseSync(":memory:");
@@ -393,6 +406,50 @@ console.log("\nrepos that must not appear");
     "an empty panel still carries an org roll-up",
     got.org && got.org.repos === 0,
     JSON.stringify(got.org),
+  );
+
+  db.close();
+}
+
+// ---------------------------------------------------------------- the prune
+
+console.log("\ntrimming the table");
+
+{
+  const db = blank();
+  addRepo(db, "Busy2");
+  addRepo(db, "Quiet");
+
+  for (let i = CI_RUN_RETAIN + 25; i >= 1; i--) {
+    addRun(db, "Busy2", { daysAgo: i, minutes: 5 });
+  }
+  addRun(db, "Quiet", { daysAgo: 400, minutes: 5 });
+
+  const before = await ciHealth(d1(db), NOW);
+  const { pruned } = await pruneWorkflowRuns(d1w(db));
+  const after = await ciHealth(d1(db), NOW);
+
+  check("the excess is deleted", pruned === 25, String(pruned));
+  check(
+    "the cap is per repo, not overall",
+    db.prepare("SELECT COUNT(*) AS n FROM workflow_runs WHERE repo='Quiet'").get().n === 1,
+  );
+  check(
+    `each repo keeps ${CI_RUN_RETAIN}`,
+    db.prepare("SELECT COUNT(*) AS n FROM workflow_runs WHERE repo='Busy2'").get().n ===
+      CI_RUN_RETAIN,
+  );
+  // The whole reason the retention cap is a multiple of the sample: pruning
+  // must never be able to move a number on the card.
+  check(
+    "pruning moves nothing the panel reports",
+    JSON.stringify(after.repos.Busy2) === JSON.stringify(before.repos.Busy2),
+  );
+  check(
+    "the runs kept are the newest ones",
+    db
+      .prepare("SELECT MIN(run_started_at) AS oldest FROM workflow_runs WHERE repo='Busy2'")
+      .get().oldest === ago(CI_RUN_RETAIN),
   );
 
   db.close();

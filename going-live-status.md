@@ -1028,7 +1028,7 @@ function over an array of run objects, and the store holds those same runs as
 rows, so the fixture is built once and handed to both. Every field of the output
 is compared, per repo, plus the org roll-up.
 
-33 assertions. It was green on the first run, which this file has learned to
+38 assertions, five of them on the prune. It was green on the first run, which this file has learned to
 distrust, so eight deliberate mutations of the panel were checked against it:
 
 | mutation | caught by |
@@ -1042,7 +1042,7 @@ distrust, so eight deliberate mutations of the panel were checked against it:
 | branch filter removed | org roll-up |
 | duration ceiling removed in SQL only | six assertions |
 
-All eight fail it. Suites now total **275**.
+All eight fail it. Suites now total **280**.
 
 ## Retention, and the volume question
 

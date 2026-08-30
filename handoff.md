@@ -10,7 +10,8 @@ Rewritten 2026-08-30, after the `ciHealth` port.
 
 ## Do this first — nothing from this session is deployed or applied
 
-Five commits are on `main` and none of their effects exist anywhere yet. The
+The ciHealth port is committed on `main` and none of its effects exist
+anywhere yet. The
 oracle needs rebuilding, the table needs creating, the history needs sweeping,
 and the Worker needs deploying — in that order, because each step depends on the
 one above it.
@@ -275,9 +276,9 @@ npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     59   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      152   across seven panels
+npm run test:parity      157   across seven panels
                         ----
-                         275
+                         280
 
 npm run rebuild:ci             one panel, ~2 min, instead of a 592s build
 cd worker && npx wrangler deploy
