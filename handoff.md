@@ -4,39 +4,48 @@ Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Written 2026-08-30.
+Rewritten 2026-08-30, after the five Dream Panel cards went live.
 
 ---
 
-## Do this first — nothing from the last session is deployed
-
-The Worker still runs code from before any of it. Verified: `x-refresh` comes
-back `null` and `/api/panel/approvedUnmerged` returns 404. The *code* is on
-`origin/main`, because `wrangler deploy` has nothing to do with git.
+## Do this first — one Worker change is committed but not deployed
 
 ```
 cd worker && npx wrangler deploy
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
-git push          # two commits: the freshness tint, which is frontend-only
+git push          # handoff.md only, no deploy implication
 ```
 
-The forced recompute matters — the two new panels have never been built, so
-they 404 until something builds them, and the instant path only fires on a new
-delivery.
+`depUpdates` currently returns **270**; it should return **276**. The difference
+is six repos with no commits at all, which used to vanish and now get a
+365-day floor — the last commit to `worker/src/panels/releases.js` changed
+`JOIN seen` to `LEFT JOIN`, and that commit landed after the most recent deploy.
 
-`git push` is separate and equally necessary: `LIVE_PANELS` and the tint live in
-`web/js/`, and those only reach the site through a CI run. Deploying the Worker
-without pushing means the page never asks for the new panels; pushing without
-deploying means it asks and gets a 404. Order does not matter, both are needed.
+This is the failure mode worth internalising, because it has now happened in
+both directions in one session: **`wrangler deploy` and `git push` are
+independent, and neither implies the other.** Deploying without pushing means
+the page never asks for the new panels; pushing without deploying means it asks
+and gets a stale answer. `origin/main` being current says nothing about what the
+Worker is running.
 
-**Until the Worker ships, every live card shows red.** That is the indicator
-working: they are in `LIVE_PANELS`, they 404, and red means "should be live and
-is not". They turn green and blue on deploy.
+Confirm afterwards:
 
-## What "live" means here
+```
+curl -s "https://nh-dashboard.gtnh.workers.dev/api/health" | jq .scope
+```
 
-Four panels are served from D1, in two tiers, and the tier is a real property of
-the pipeline rather than a label:
+`reposWithEpochPushedAt` should be 0, and `withCommitsInWindow` (270) plus the
+six floor rows should equal `/api/panel/depUpdates`' length (276). On the page,
+the three new cards should tint **blue**, not amber and not red.
+
+Note the failure mode this replaced: deploying the Worker without pushing means
+the page never asks for the new panels, and pushing without deploying means it
+asks and gets a 404. Both are needed, and neither implies the other —
+`wrangler deploy` has nothing to do with git.
+
+## What is live
+
+Seven panels are served from D1. Five are the whole Dream Panel.
 
 | Panel | Tier | Latency |
 |---|---|---|
@@ -44,21 +53,23 @@ the pipeline rather than a label:
 | `changesRequested` | instant | seconds — same |
 | `contributors` | cron | ≤10 min |
 | `analytics` | cron | ≤10 min |
+| `needsRelease` | cron | ≤10 min |
+| `depUpdates` | cron | ≤10 min |
+| `byLabel` | cron | ≤10 min |
+
+Only **`ciHealth`** still comes from the daily build.
 
 The instant path runs inside `ctx.waitUntil` after the 200 has gone back to
 GitHub, so it cannot delay or fail a delivery — which matters more than the
-freshness, because a webhook that keeps failing gets disabled and does it
-silently. Only `pull_request` and `pull_request_review` trigger it.
+freshness, because a webhook that keeps failing gets disabled silently. Only
+`pull_request` and `pull_request_review` trigger it.
 
-The split is drawn by measurement, not category: ~68ms and ~55ms for the two
-instant panels against ~2.6s for `analytics` alone. If a panel gets cheap
-enough, move it into `INSTANT` in `worker/src/recompute.js` — the card retints
-itself, because the tier reaches the frontend as an `x-refresh` header rather
-than a second list.
-
-Everything else still comes from the daily build. The page loads
-`data/dashboard.json` first and the Worker's copies overlay it, so a Worker
-outage costs freshness and nothing else.
+`needsRelease` and `depUpdates` measure 15ms and 44ms on D1, well inside the
+instant budget. They are on the cron anyway: promoting them means firing the
+instant path on `push`, which arrives far more often than `pull_request`, for
+cards nobody reads to the minute. The numbers are the argument if that ever
+changes; the tier reaches the frontend as an `x-refresh` header, so a card
+retints itself when it moves.
 
 ## The card tint
 
@@ -69,9 +80,10 @@ Every card carries its state on its border. `web/js/data.js` → `freshness()`.
 - **amber** — from the static build, by design
 - **red** — should have been live, the API did not answer
 
-Amber and red are the same stale data and opposite meanings, which is the whole
-point: half this dashboard is legitimately amber, so an outage sharing that
-colour would be invisible.
+Amber and red are the same stale data and opposite meanings. Blue is the
+dangerous one: it asserts *this is current*, so a wrong blue is worse than the
+amber it replaced. That is the whole reason each card was held back until it
+reconciled against the build rather than merely returning rows.
 
 ## Live infrastructure
 
@@ -86,131 +98,211 @@ colour would be invisible.
 Endpoints: `/webhook`, `/api/health`, `/api/version`, `/api/panel/:name`,
 `POST /api/recompute?force=1`.
 
-**The webhook pipeline works.** D1 held 29,101 PRs against a seed of 29,091,
-plus 11 new reviews and 4 new issues — writes land in seconds.
+## Read production through /api/health, not wrangler
 
-**`/api/health` can serve a cached response.** It reported the bare seed counts
-once and sent a whole investigation down a blind alley. Fetch it with
-`cache: "no-store"` before concluding anything from it.
+**`wrangler --command` is refused by this account** — code 7403 on the `/query`
+endpoint — and **`--file` goes through the import endpoint, which executes
+statements and throws away result rows.** A five-statement diagnostic reported
+"30,563 rows read" and printed nothing. There is currently no wrangler path to a
+SELECT result against production. `--file` still applies migrations fine.
 
-## Next: three of five Dream Panel cards
+So `/api/health` carries the diagnostics, and it reports the *funnel* rather
+than just row counts, because every bug this port produced was invisible in a
+count and obvious in the funnel:
 
-| Card | State |
-|---|---|
-| Approved, not merged | ported, needs the deploy above |
-| Changes requested | ported, needs the deploy above |
-| Needs a release | needs `push` + `release` payloads |
-| Time since last update | needs `push` payloads |
-| By label | needs a label table |
+```
+counts: repos, pull_requests, reviews, issues, commits, releases, traffic_daily
+scope:  live, withHorizon, droppedAsDormant, withCommits,
+        withCommitsInWindow, commitsAwaitingPrAnswer, reposWithEpochPushedAt
+```
 
-**The events are already arriving and being thrown away.** `onRepoTouch` in
-`worker/src/handlers.js` handles `push`, `workflow_run` and `release` by
-upserting the repo row and discarding the payload. Capturing them is a table and
-a handler each, not new plumbing:
+`withCommitsInWindow` should equal `depUpdates`' row count. When it did not, the
+rows were present and a predicate was eating them — a different investigation
+from a store that never loaded, and not distinguishable any other way.
 
-- `push` carries commits and whether each arrived via a pull request — that is
-  `depUpdates` ("last direct commit") and half of `needsRelease`
-- `release` carries the tag — the other half of `needsRelease`
-- `workflow_run` carries run conclusions — that is `ciHealth`, which was also
-  written off as impossible
+**Fetch it `no-store`.** It can serve a cached response and has sent one
+investigation down a blind alley already.
 
-`byLabel` needs the managed label list from Label-Sync-GTNH, which a Worker
-cannot fetch. A `label_colors`-style table populated by the daily build fixes
-both that and the one cosmetic regression from the port: D1 stores label *names*
-only, so live chips render uncoloured. `authorAvatar` was dropped outright —
-nothing in `web/` reads it.
+## Filling the store
 
-**Do not repeat the mistake that made this a five-card job instead of a
-two-card one.** The previous handoff said four panels "each need a live GitHub
-call, so D1 cannot answer for them", and that was carried forward twice without
-checking. Two of them needed no new data at all — they only *asked* GitHub,
-because a single search query was convenient for a panel that ran at build time.
-Check what a panel needs, not what it does.
+Three writers, on three different clocks.
+
+```
+npm run backfill:commits -- --out worker/backfill.sql   # history; slow, ~15k rows
+npm run backfill:labels  -- --out worker/labels.sql     # 20 rows; when labels change
+node worker/seed.js --out worker/seed.sql               # from the local ingest store
+```
+
+Each emits SQL; apply with `wrangler d1 execute nh-dashboard --remote --file`.
+None needs Cloudflare credentials to *generate*, which is why CI can never run
+them — the daily workflow has no Cloudflare secret at all, and adding one is a
+decision nobody has made.
+
+`backfill-commits.js` sweeps in three passes: releases and repo rows at 50 a
+page, commit history at 10, then a deeper walk for the few repos whose last
+release predates the lookback. Combining the first two into one query returned
+502 forever — a GraphQL 502 is a server-side timeout, so retries cannot help.
+It writes what it has on `SIGINT`, marked `-- PARTIAL`, and every write is an
+upsert on a natural key, so partial and full runs converge.
+
+## Next: ciHealth, the last discarded event
+
+`workflow_run` is still on `onRepoTouch` — received, repo row upserted, payload
+thrown away. It is the last of the three events that were being discarded;
+`push` and `release` are now captured.
+
+`src/panels/ciHealth.js` is the target. What makes it tractable:
+
+- **`summarizeRuns(runs)` is already exported and pure.** It takes an array of
+  run objects and returns the panel's per-repo shape. That is the SQL twin
+  boundary, already drawn — write the parity test against it first.
+- The Node version asks for `CI_RUN_SAMPLE` (20) most recent **completed** runs
+  per repo, on the **default branch**, with `exclude_pull_requests=true`.
+- A `workflow_run` payload carries everything that needs: `conclusion`,
+  `run_started_at`, `updated_at`, `html_url`, `name`, `head_branch`, `event`.
+  The three filters above become a WHERE clause.
+- Output is `{ repos: {...}, org: {...} }` — nested deliberately, so a repo
+  named `org` cannot shadow the roll-up.
+
+A `workflow_runs` table wants `(repo, run_id)` as its key, a `head_branch`, and
+enough of a bound that it does not grow without limit — the panel only ever
+reads the newest 20 per repo, so anything older can be pruned.
+
+**`workflow_run` fires constantly.** It is the one event volume matters for.
+Do not put it on the instant path, and check what a busy day costs in D1 writes
+before deciding how much history to keep.
+
+A backfill is needed too, for the same reason as commits: the webhook only
+captures forward, and 20 runs × ~250 active repos is one REST call each.
 
 ## Then: the remaining Node panels
 
-`issues`, `issueMetrics`, `activeDays`, `drilldown`. Groundwork for `issues` is
-already done and committed:
+`issues`, `issueMetrics`, `activeDays`, `drilldown`.
 
-- `src/shared/issue-rules.js` — every rule with its SQL twin, because JavaScript
-  reads a nested `closedVia` and D1 reads four flattened columns
-- `worker/test/issues.parity.test.js` — 8 assertions, passing, comparing per
-  issue rather than per total. The panel comparison skips until the panel exists
-- The core needs **no JSON support**: `unlabelled`/`unassigned` are the only
-  questions asked of those columns and every empty value is exactly `[]`. Only
-  the label breakdown needs `json_each`, which is untested on D1
+`issues` has its groundwork committed already: `src/shared/issue-rules.js` pairs
+every rule with its SQL twin, and `worker/test/issues.parity.test.js` passes 8
+assertions comparing per issue rather than per total. The core needs **no JSON
+support** — `unlabelled`/`unassigned` are the only questions asked of those
+columns and every empty value is exactly `[]`. Only the label breakdown needs
+`json_each`, which is still untested on D1.
 
 `drilldown` is 23 MB and cannot use `panel_cache` — a D1 row caps at 2 MB. It
 gets `drilldown_contributors` and `drilldown_repos`, already in the schema.
 
+## The bug this port keeps producing
+
+Every defect found while going live made the org look **healthier** than it was.
+
+- `commitsAhead` counted the sweep window, not commits — 20 where the truth was
+  106, on the repos furthest behind
+- `depUpdates` floors read 102 days where the truth was 365, because the horizon
+  came from the oldest stored row rather than from how far the sweep looked
+- Seven private repos were withheld from a page that publishes them
+- A stale-repo cutoff dropped 25 repos that had commits from last week
+- Six repos with no commits at all vanished entirely — the strongest form of the
+  thing the card looks for, answered by omission
+
+None was visible from the panel's own output. Every one needed a second
+implementation to disagree with. **Keep the Node panels after porting; do not
+delete them.** They are the only oracle this project has.
+
 ## Things that will bite again
 
-**`strftime` parses a date per row per call.** The single largest cost in
-`analytics` — 43ms a query against 7ms for the equivalent string comparison.
-Timestamps here are fixed-width whole seconds, so lexical order is chronological
-order; compare strings and ceil the bound with `isoBound`.
+**`strftime` parses a date per row per call** — 43ms against 7ms for the
+equivalent string comparison. Timestamps are fixed-width whole seconds, so
+lexical order is chronological order. Compare strings, ceil the bound with
+`isoBound`, and normalise anything arriving from a payload with `utcSeconds` —
+a push commit's timestamp carries the committer's offset, and `+02:00` sorts
+below `Z`.
 
 **If you do use `strftime('%s')`, cast it.** It returns TEXT, and SQLite orders
-every TEXT value above every number, so an uncast comparison is not
-approximately right, it is *constant*. Every windowed count came back as the
-whole table or as zero and no query looked wrong.
+every TEXT value above every number, so an uncast comparison is *constant*.
 
 **±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
-`Infinity` becomes `null`. Periods bind finite ISO sentinels.
+`Infinity` becomes `null`. Bind finite sentinels.
 
-**A window frame defaults to RANGE, and RANGE cannot count.** The percentiles
-rank with `ROWS UNBOUNDED PRECEDING`; drop it and rows tied on a value share one
-running total, so the count jumps past a rank and the lookup returns NULL — a
-median that is occasionally just absent.
+**A window frame defaults to RANGE, and RANGE cannot count.** Percentiles rank
+with `ROWS UNBOUNDED PRECEDING`; without it, rows tied on a value share one
+running total and the lookup returns NULL.
 
 **A local SQLite replica proves logic, not dialect.** A six-arm `UNION` passed
-every local test and failed on the first real recompute. A multi-row `VALUES` is
-a compound SELECT too, which is why periods are columns rather than a joined
-table.
+every local test and failed on the first real recompute. **But it does predict
+cost: D1 runs about 2.2× the local replica.** Profile locally and multiply
+rather than spending a deploy per hypothesis.
 
-**But it does predict cost: D1 runs about 2.2× the local replica.** Measured
-twice. Profile locally and multiply rather than spending a deploy per
-hypothesis — two confident theories about `analytics` were wrong, and the one
-that was measured first was worth 40%.
-
-**Write the parity test before the port.** It caught a hardcoded `truncated: 0`,
-the TEXT comparison above, and a `closerUnknown` rule that the real store cannot
-exercise at all. Two implementations of the same numbers drift invisibly.
+**Write the parity test before the port.** It has caught a hardcoded
+`truncated: 0`, the TEXT comparison above, a `closerUnknown` rule the real store
+cannot exercise, and a shim whose `bind()` mutated shared state — that last one
+let 31 assertions pass while silently breaking the one caller that batches.
 
 **Do not name a CTE after a real table.** `worker/src/scope.js` rewrites
-`FROM issues` and friends into a filtered subquery; a CTE with one of those
-names would be rewritten too.
+`FROM commits`, `FROM repos` and friends into filtered subqueries; a CTE with
+one of those names would be rewritten too.
+
+**`CREATE TABLE IF NOT EXISTS` will not add a column.** New columns on existing
+tables need a file in `worker/migrations/`, applied before `schema.sql`. New
+*tables* need nothing — `schema.sql` is idempotent.
+
+**A theory that fits the symptom is not evidence.** Twenty-four repos vanished
+and the cause looked certain: `repository.pushed_at` is an epoch integer on
+`push` events, which would sort below every ISO date. Every detail fit. It was
+wrong — the counter added to prove it came back 0. Check before writing it down
+as fact, which is the same lesson the previous handoff's push-payload claim
+taught from the other direction.
+
+## Known divergences from the build
+
+Live and the build disagree on three repos, all in `needsRelease`, all from one
+cause: **a release webhook carries no tag SHA**, so the panel compares commit
+*dates* against `published_at` where the Node version compares *ancestry*
+(`tagSha...headSha`). They agree until a tag is cut from an older commit.
+
+| Repo | Build | Live |
+|---|---|---|
+| BugTorch | 79 ahead | 35 |
+| TinkersGregworks | 50 ahead | absent |
+| Variable-Horizons | 2 ahead | absent |
+
+Two fail by dropping a repo silently. The fix is to have the daily build resolve
+each tag to its commit and store it; deliberately not done at three repos.
+Worth re-checking whether it is still three.
+
+`depUpdates` reconciles exactly at 276 — 270 repos with commits inside the
+window, plus the 6 with none, which report a 365-day floor. If it reads 270, the
+deploy at the top of this file has not been run.
 
 ## Commands
 
 ```
 npm run test:freshness    # 14, the card tint
 npm run test:exclusion    # 17, the ingest exclusion
-npm run test:handlers     # 31, webhook handlers
+npm run test:handlers     # 51, webhook handlers
 npm run test:recompute    # 26, the cron and the instant path
-npm run test:parity       # 60 across four panels
+npm run test:parity       # 118 across six panels
 
 cd worker && npx wrangler deploy
 npx wrangler tail
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
-node worker/seed.js --out worker/seed.sql     # regenerate from the local store
 ```
 
 Every suite builds its own SQLite replica from `schema.sql` + `seed.sql` and
 skips politely when those are absent, which they are in CI.
 
-Deploys must run from a machine logged in to Cloudflare.
+Deploys must run from a machine logged in to Cloudflare. **Run wrangler commands
+from `worker/`** — chaining `cd worker &&` onto the first line of a block means
+pasting it while already there silently skips that step, which has now cost two
+rounds.
 
 ## Parked, deliberately
 
+**Traffic.** `npm run ingest:traffic` runs by hand and nothing renders it. The
+store holds 2026-08-13 → 08-28; GitHub's window is 14 days, so **Aug 29 becomes
+unrecoverable around Sept 12** if it is not run before then. It is the one
+dataset here that cannot be backfilled. Loading it into D1 is the fix.
+
 **The ingest exclusion.** `NH_INGEST_EXCLUDE` is applied in code and covered by
 `npm run test:exclusion`, but CI has no repo secret, so a CI build still
-republishes the excluded repo. The decision was to settle it when the repo moves
-into the org. Detail in `going-live-status.md`.
-
-**Traffic.** `npm run ingest:traffic` runs by hand and nothing renders it. The
-window is 14 days, so unrun for two weeks the data is gone permanently — it is
-the one thing here that cannot be backfilled. Loading it into D1 is the fix.
+republishes the excluded repo. Settle it when the repo moves into the org.
 
 **The Leaderboard sorts by all-time under a subtitle claiming the selected
 period.** Predates all of this. One line either way; which line is a product
@@ -222,8 +314,10 @@ question.
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md`. Deploy the worker and push
-> first — nothing from the last session is live. Then capture the `push`,
-> `release` and `workflow_run` payloads the webhook already receives and
-> discards, so Needs-a-release and Time-since-last-update can come off the daily
-> build. Parity test first.
+> Read `handoff.md` and `going-live-status.md`. Capture `workflow_run`, the last
+> event the webhook receives and discards, and port `ciHealth` off the daily
+> build. Parity test first, against
+> `summarizeRuns`. Reconcile the result against `data/dashboard.json` before
+> adding it to `LIVE_PANELS` — every defect this port has produced made the org
+> look healthier than it was, and none was visible without a second
+> implementation to disagree with.
