@@ -37,6 +37,67 @@ import { scopedDb } from "./scope.js";
  */
 const PANELS = { contributors, analytics, approvedUnmerged, changesRequested };
 
+/**
+ * Panels cheap enough to rebuild on the delivery path itself.
+ *
+ * The ten-minute cron is a debounce, and the reason for it is `analytics` at
+ * ~2.6 seconds on D1 — rebuilding that per delivery would redo the same work
+ * three hundred times an hour for an answer nobody is watching that closely.
+ *
+ * That reasoning was then applied to every panel, which was wrong. These two
+ * measure ~68ms and ~55ms: about 120ms together, against the ten seconds GitHub
+ * allows before it calls a delivery failed. They are the cards an admin is
+ * actually looking at when they press Merge, and making them wait out a cron
+ * tick for a number the database already knows was never a real constraint.
+ *
+ * So they rebuild immediately and the expensive ones stay on the cron. `dirty`
+ * is deliberately *not* cleared here — the cron still owes the others a rebuild.
+ */
+const INSTANT = { approvedUnmerged, changesRequested };
+
+/**
+ * Rebuild the cheap panels now, for one delivery.
+ *
+ * Called from `ctx.waitUntil`, so it runs after the 200 has already gone back
+ * to GitHub. Nothing it does can slow a delivery down or fail one — which
+ * matters more than the freshness, because a webhook that keeps failing gets
+ * disabled and that failure is silent.
+ */
+export async function refreshInstant(env) {
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const db = scopedDb(env.DB, env);
+  const built = {};
+
+  for (const [name, fn] of Object.entries(INSTANT)) {
+    const started = Date.now();
+    try {
+      const json = JSON.stringify(await fn(db, now));
+      await env.DB.prepare(
+        `INSERT INTO panel_cache (name, json, computed_at, ms)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET
+           json = excluded.json,
+           computed_at = excluded.computed_at,
+           ms = excluded.ms`,
+      )
+        .bind(name, json, at, Date.now() - started)
+        .run();
+      built[name] = Date.now() - started;
+    } catch (err) {
+      console.error(JSON.stringify({ instant: name, error: String(err) }));
+    }
+  }
+
+  // Bump the version so a browser polling `/api/version` picks these up within
+  // its next minute rather than at the next cron tick.
+  await env.DB.prepare(
+    "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
+  ).run();
+
+  return built;
+}
+
 export async function recompute(env, { force = false } = {}) {
   const dirty = await env.DB.prepare(
     "SELECT value FROM meta WHERE key = 'dirty'",

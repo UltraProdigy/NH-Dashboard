@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
-import { recompute } from "../src/recompute.js";
+import { recompute, refreshInstant } from "../src/recompute.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SEED = path.join(HERE, "..", "seed.sql");
@@ -141,6 +141,45 @@ async function main() {
   check("the other panels still built", !!afterFail.built?.analytics);
   check("dirty still cleared", get(db, "dirty") === "0");
   check("previous blob still served", !!db.prepare("SELECT json FROM panel_cache WHERE name='contributors'").get()?.json);
+
+  console.log("\nthe instant path rebuilds only the cheap panels");
+  // The delivery path rebuilds these two and leaves the rest to the cron, so
+  // the thing to assert is what it does *not* touch: an analytics blob that
+  // still carries its old timestamp is the evidence that the expensive panel
+  // was skipped rather than quietly rebuilt on every webhook.
+  const before = db
+    .prepare("SELECT name, computed_at, ms FROM panel_cache ORDER BY name")
+    .all();
+  await new Promise((r) => setTimeout(r, 1100));
+  const versionBefore = Number(get(db, "version"));
+  const built = await refreshInstant(env);
+
+  check("approvedUnmerged rebuilt", "approvedUnmerged" in built);
+  check("changesRequested rebuilt", "changesRequested" in built);
+  check("analytics not rebuilt", !("analytics" in built));
+  check("contributors not rebuilt", !("contributors" in built));
+
+  const after = new Map(
+    db.prepare("SELECT name, computed_at FROM panel_cache").all()
+      .map((r) => [r.name, r.computed_at]),
+  );
+  const wasAnalytics = before.find((r) => r.name === "analytics")?.computed_at;
+  check("the expensive blob is untouched", after.get("analytics") === wasAnalytics);
+  check(
+    "the cheap blobs moved",
+    after.get("approvedUnmerged") !==
+      before.find((r) => r.name === "approvedUnmerged")?.computed_at,
+  );
+  check("version bumped so browsers notice",
+        Number(get(db, "version")) === versionBefore + 1);
+  // `dirty` must survive: the cron still owes the other panels a rebuild.
+  setDirty(db, 1);
+  await refreshInstant(env);
+  check("dirty is left set for the cron", get(db, "dirty") === "1");
+
+  const totalMs = Object.values(built).reduce((n, v) => n + v, 0);
+  check(`both cheap panels inside a delivery's budget (${totalMs}ms local)`,
+        totalMs < 2000, "GitHub allows 10s, and waitUntil runs after the 200");
 
   db.close();
   try {

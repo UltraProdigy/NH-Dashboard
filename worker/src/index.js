@@ -7,12 +7,17 @@
  *
  * GitHub gives a delivery ten seconds before it counts as failed, and a failing
  * endpoint eventually gets its subscription disabled. So the handler verifies,
- * writes, and returns — anything expensive belongs in the debounced recompute,
- * not here.
+ * writes, and returns.
+ *
+ * Two cheap panels are then rebuilt through `ctx.waitUntil`, which runs after
+ * the response has already gone back — so they cost the delivery nothing and
+ * cannot fail one. Everything expensive stays on the debounced cron. The line
+ * is drawn by measurement rather than by category: ~120ms for both of those
+ * against ~2.6 seconds for analytics alone.
  */
 
 import { handleEvent } from "./handlers.js";
-import { recompute } from "./recompute.js";
+import { recompute, refreshInstant } from "./recompute.js";
 
 /**
  * The read API is public and cross-origin by necessity — the dashboard is
@@ -97,7 +102,10 @@ async function markDirty(db) {
     .run();
 }
 
-async function handleWebhook(request, env) {
+/** Deliveries that can change the approved / changes-requested cards. */
+const REVIEW_EVENTS = new Set(["pull_request", "pull_request_review"]);
+
+async function handleWebhook(request, env, ctx) {
   const secret = env.GITHUB_WEBHOOK_SECRET;
   if (!secret) return json({ error: "webhook secret not configured" }, 500);
 
@@ -142,6 +150,21 @@ async function handleWebhook(request, env) {
   }
 
   console.log(JSON.stringify({ event, action, repo, delivery, result }));
+
+  // The cards an admin watches while merging cost ~120ms together, so they are
+  // rebuilt now rather than at the next cron tick. `waitUntil` runs it after
+  // this response has gone back to GitHub, so it cannot delay the delivery or
+  // fail it — a webhook that keeps failing gets disabled, and silently.
+  //
+  // Only for events that can change them. A `workflow_run` fires constantly and
+  // moves nothing on these two.
+  if (ctx && REVIEW_EVENTS.has(event)) {
+    ctx.waitUntil(
+      refreshInstant(env).catch((err) =>
+        console.error(JSON.stringify({ instant: "failed", error: String(err) })),
+      ),
+    );
+  }
 
   return json({ ok: true, event, action, repo, result });
 }
@@ -188,7 +211,7 @@ async function handlePanel(env, name) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -197,7 +220,7 @@ export default {
 
     if (url.pathname === "/webhook") {
       if (request.method !== "POST") return json({ error: "POST only" }, 405);
-      return handleWebhook(request, env);
+      return handleWebhook(request, env, ctx);
     }
 
     if (url.pathname === "/api/version") return handleVersion(env);
