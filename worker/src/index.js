@@ -178,9 +178,25 @@ async function handleVersion(env) {
   return json({ version: Number(row?.value ?? 0) });
 }
 
+/**
+ * `repos`, `commits` and `releases` are counted here because their emptiness is
+ * invisible everywhere else.
+ *
+ * The seed never wrote a `repos` row, and the two release panels join it — so
+ * "the backfill has not run" and "no repo needs a release" produce the same
+ * empty card. A count is the only place the difference shows.
+ */
 async function handleHealth(env) {
   const counts = {};
-  for (const table of ["pull_requests", "reviews", "issues", "traffic_daily"]) {
+  for (const table of [
+    "repos",
+    "pull_requests",
+    "reviews",
+    "issues",
+    "commits",
+    "releases",
+    "traffic_daily",
+  ]) {
     const row = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM ${table}`,
     ).first();
