@@ -6,7 +6,7 @@ true, and where the two disagree, this file wins.
 Temporary, like the plan. Both get deleted when the migration lands and whatever
 survives moves into `documentation.md`.
 
-Last updated 2026-08-29.
+Last updated 2026-08-30.
 
 ---
 
@@ -103,8 +103,10 @@ constraint was imaginary, and it is what has kept the dashboard on manual builds
 
 Nothing now blocks a schedule. Webhooks already make this job reconciliation
 rather than the freshness mechanism for the ported panels, so the sensible
-cadence is daily rather than 48 times a day — the cron exists for the four
-panels D1 can never answer, not for the ones it can.
+cadence is daily rather than 48 times a day. The cron exists for the panels D1
+cannot answer *yet* — see the correction further down, that list was never as
+long as it claimed — and to keep the static file the page falls back to from
+drifting.
 
 Note `cancel-in-progress: false`, below: that was set for exactly this, and has
 to stay false whatever cadence is chosen.
