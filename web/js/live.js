@@ -21,8 +21,21 @@ import { state } from "./state.js";
 
 /**
  * Panels the Worker can serve. Anything not listed keeps coming from the built
- * file: ciHealth, depUpdates, needsRelease and byLabel, which need facts D1 has
- * never been told, plus whatever is still mid-port.
+ * file: ciHealth and byLabel, which need facts D1 has never been told, plus
+ * whatever is still mid-port.
+ *
+ * `needsRelease` and `depUpdates` are implemented and the Worker answers for
+ * both, and they are still absent from this list on purpose. The webhook only
+ * captures commits and releases going forward, so until the daily build has
+ * backfilled the history they answer correctly from a store that barely holds
+ * anything — a repo whose last release predates the capture window has no row
+ * at all and reads as up to date.
+ *
+ * Listing them now would tint both cards blue over a near-empty answer, which
+ * is precisely the failure the tint exists to make visible: amber and red are
+ * the same stale data with opposite meanings, and a *confidently wrong* blue is
+ * worse than either. Add them here once `npm run backfill:commits` has run
+ * against production and the counts look right.
  */
 const LIVE_PANELS = [
   "contributors",

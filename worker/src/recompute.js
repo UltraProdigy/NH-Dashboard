@@ -16,6 +16,7 @@ import {
   approvedUnmerged,
   changesRequested,
 } from "./panels/review-state.js";
+import { depUpdates, needsRelease } from "./panels/releases.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -28,14 +29,24 @@ import { scopedDb } from "./scope.js";
  * search API answers `review:approved` in one query, which was convenient for a
  * build-time panel. Every fact they need is in `pull_requests` and `reviews`.
  *
- * Still outside: `ciHealth`, `depUpdates`, `needsRelease` and `byLabel`. The
- * first three need facts D1 has never been told — workflow runs, commits,
- * release tags — though the webhook already receives `push`, `workflow_run` and
- * `release` and currently discards their payloads, so that is a gap in what is
- * stored rather than one in what can be known. `byLabel` needs the managed
- * label list, which lives in another repo.
+ * `needsRelease` and `depUpdates` joined once `push` and `release` stopped
+ * being discarded. They carry a caveat the others do not: the webhook only
+ * captures forward, so both are only as good as how far back `commits` and
+ * `releases` have been filled. Until the daily build has backfilled them, these
+ * answer from a partial history — a repo whose release predates the capture
+ * window has no row and simply does not appear, which reads as "up to date".
+ *
+ * Still outside: `ciHealth`, which needs `workflow_run` captured the same way,
+ * and `byLabel`, which needs the managed label list from another repo.
  */
-const PANELS = { contributors, analytics, approvedUnmerged, changesRequested };
+const PANELS = {
+  contributors,
+  analytics,
+  approvedUnmerged,
+  changesRequested,
+  needsRelease,
+  depUpdates,
+};
 
 /**
  * Panels cheap enough to rebuild on the delivery path itself.
