@@ -78,21 +78,41 @@ const CURRENT = `
 const OPEN = `p.state = 'OPEN' AND p.merged_at IS NULL AND COALESCE(p.is_draft, 0) = 0`;
 
 /**
+ * Label name → colour, from the managed set.
+ *
+ * One small query rather than a join, because the palette is twenty rows and
+ * the labels themselves live inside a JSON column — joining would mean
+ * `json_each` per pull request to match names that a Map matches for free.
+ *
+ * An empty table is not an error. It means `backfill-labels.js` has not run,
+ * and every chip renders uncoloured exactly as it did before the table existed.
+ */
+async function labelColours(db) {
+  try {
+    const { results } = await db
+      .prepare("SELECT name, color FROM labels WHERE color IS NOT NULL").all();
+    return new Map(results.map((r) => [r.name, r.color]));
+  } catch {
+    // The table may not exist yet on a database that predates it. Uncoloured
+    // chips are a cosmetic loss; a panel that throws is an outage.
+    return new Map();
+  }
+}
+
+/**
  * The row shape the frontend renders.
  *
  * `authorAvatar` is dropped: the search version carried it and nothing in
  * `web/` reads it.
- *
- * Label colours are carried as null. D1 stores label *names* only, and the
- * colour lives in Label-Sync-GTNH, which a Worker cannot fetch. The chip's
- * `border-color:#null` is invalid CSS and is ignored, so chips render
- * uncoloured rather than broken — the one visible regression from going live,
- * and the fix is a label table the daily build can populate.
  */
-function row(r, now) {
+export function row(r, now, colours = new Map()) {
   const labels = JSON.parse(r.labels || "[]").map((name) => ({
     name,
-    color: null,
+    // Unmanaged labels are not in Label-Sync's config and have no colour here.
+    // Null renders as `border-color:#null`, which is invalid CSS and ignored,
+    // so those chips stay uncoloured rather than breaking — the same outcome
+    // every chip had before this table existed.
+    color: colours.get(name) ?? null,
   }));
 
   return {
@@ -124,6 +144,7 @@ const SELECT = `
  * `repo` and `number` breaking the ties that whole-day ages produce constantly.
  */
 export async function approvedUnmerged(db, now = Date.now()) {
+  const colours = await labelColours(db);
   const { results } = await db
     .prepare(
       `WITH ${CURRENT}
@@ -133,7 +154,7 @@ export async function approvedUnmerged(db, now = Date.now()) {
     )
     .all();
 
-  return results.map((r) => row(r, now));
+  return results.map((r) => row(r, now, colours));
 }
 
 /**
@@ -143,6 +164,7 @@ export async function approvedUnmerged(db, now = Date.now()) {
  * quiet, not what is old.
  */
 export async function changesRequested(db, now = Date.now()) {
+  const colours = await labelColours(db);
   const { results } = await db
     .prepare(
       `WITH ${CURRENT}
@@ -152,7 +174,7 @@ export async function changesRequested(db, now = Date.now()) {
     )
     .all();
 
-  return results.map((r) => row(r, now));
+  return results.map((r) => row(r, now, colours));
 }
 
 export const REVIEW_STATE_PANELS = { approvedUnmerged, changesRequested };
