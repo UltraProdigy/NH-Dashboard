@@ -168,18 +168,33 @@ Note for whoever adds a panel: **do not name a CTE after a real table.** The
 rewrite fires on `FROM`/`JOIN` followed by `pull_requests`, `reviews`, `issues`
 or `traffic_daily`, and a CTE with one of those names would be rewritten too.
 
-Cleanup done locally: the issue store is 26,513 → 26,161, and `state.json`,
-`issues-state.json`, `issue-labels.json` and the miniflare replica are purged;
-`worker/seed.sql` was regenerated from the filtered store.
+Cleanup done: the issue store is 26,513 → 26,161, `state.json`,
+`issues-state.json`, `issue-labels.json` and the miniflare replica are purged,
+and `worker/seed.sql` was regenerated from the filtered store. **`dashboard.json`
+and `drilldown.json` have been rebuilt and contain zero references to the repo.**
+All four suites are green: 100 assertions.
 
-**Still outstanding: the rebuilt `dashboard.json` / `drilldown.json` on Pages.**
-Until those land, the public copy still carries it.
+The rebuild took 592s and 409 API requests, which is the cost of a clean
+artefact and worth knowing before anyone treats a rebuild as free.
 
-**The contributors parity test fails until that rebuild happens**, and the
-failure is expected: every difference is `activeDays` or `activeDenom`, always
-lower in SQL, because the seed no longer has the 352 issues that
-`dashboard.json` was built from. No PR-derived field moved. It goes green again
-once the baseline is rebuilt.
+**Outstanding:**
+
+- **Pages has not been redeployed.** The build only wrote the files locally, so
+  the public copy is the old one until Pages picks the new one up. This is the
+  last thing standing between the fix and the exposure being over.
+- **`NH_INGEST_EXCLUDE` is not set as a Worker secret.** The deployed Worker has
+  the scoping code and an empty list, so it is currently unfiltered. Harmless
+  while only `contributors` and `analytics` are served — both PR-based, and the
+  repo has no PRs — but it **must** be set before `issues` goes live, or the
+  scoped handle protects nothing:
+
+      cd worker && npx wrangler secret put NH_INGEST_EXCLUDE
+
+For the record, the contributors parity test failed in between, and the failure
+was the stale baseline rather than a regression: every difference was
+`activeDays` or `activeDenom`, always lower in SQL, because the seed had lost
+352 issues the old `dashboard.json` still counted. It went green on the rebuild,
+which is the diagnosis confirming itself.
 
 Worth carrying: a control whose failure mode is silence needs a test, not care.
 This one had a comment instead.
