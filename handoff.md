@@ -8,13 +8,28 @@ Rewritten 2026-08-30, after the `ciHealth` port.
 
 ---
 
-## Do this first — nothing from this session is deployed or applied
+## Do this first — the port is pushed and none of it is in effect
 
-The ciHealth port is committed on `main` and none of its effects exist
-anywhere yet. The
-oracle needs rebuilding, the table needs creating, the history needs sweeping,
-and the Worker needs deploying — in that order, because each step depends on the
-one above it.
+`origin/main` is current. That changed nothing anybody can see, and it is worth
+being precise about why, because three separate things all look like "shipping"
+here and none of them implies another:
+
+| | state |
+|---|---|
+| `origin/main` | current |
+| Pages | **stale** — the push built an artifact and skipped the deploy, see below |
+| D1 | no `workflow_runs` table, no run history |
+| Worker | running the code from before the port |
+| `data/dashboard.json` | still the pre-ceiling numbers, locally and published |
+
+**A push builds the site and does not deploy it**, and the run goes green.
+Fixed in the commit after the push, so that fix is itself unpushed — pushing it
+is what makes the next push work. Detail in "The green run that deployed
+nothing" below.
+
+The oracle needs rebuilding, the table needs creating, the history needs
+sweeping, and the Worker needs deploying — in that order, because each step
+depends on the one above it.
 
 **All of it from the repo root.** The `cd worker` lines are on their own on
 purpose: chaining `cd worker &&` onto the first line of a block means pasting it
@@ -57,6 +72,36 @@ Then reconcile — the section below says against what — and only then add
 other.** Deploying without pushing means the page never asks for the new panel;
 pushing without deploying means it asks and gets a 404. `origin/main` being
 current says nothing about what the Worker is running.
+
+## The green run that deployed nothing
+
+Splitting the crawl out of the deploy (`c56a934`) left `deploy` unreachable on a
+push, and the symptom is the worst available: **success**.
+
+A skip propagates down the whole graph rather than one edge. `data` is skipped
+on a push by design; `site` survives that on its own `always()`; `deploy` then
+inherits the skip *through* `site`, because its default `success()` condition is
+not satisfied by a chain containing a skipped job — even though `site` itself
+succeeded and uploaded the artifact.
+
+So the run is twelve seconds and green, and Pages keeps serving whatever the
+last `schedule` or `workflow_dispatch` run published. The only visible tell is
+the site's `Last-Modified` not moving:
+
+```
+run 33323694945   push 6fac37b   success   site ✓  data ⊘  deploy ⊘
+served /js/modules/analytics.js   Last-Modified 16:23:36   (the 16:03 dispatch)
+```
+
+`if: always() && needs.site.result == 'success'` on `deploy` fixes it. The
+result check is not decoration — `always()` alone would deploy on top of a
+failed `site`.
+
+Worth knowing the neighbouring case too, because it also fired today and looks
+similar: the **first** push after the split failed outright with "No cached
+data/dashboard.json". That one is honest and self-announcing, and the workflow
+predicted it in a comment. A `workflow_dispatch` run populated the cache and it
+has not recurred.
 
 ## Read production through /api/health, and bust the cache
 

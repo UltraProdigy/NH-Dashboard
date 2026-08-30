@@ -1084,3 +1084,38 @@ More than a row count, because two of these would pass one:
 - **`web/js/dream.js` reads `ciHealth.data.repos` as the org's repo list** for
   the exclusion popup — `orgRepos()`. It is the only consumer of this panel that
   is not about CI, and a shorter list quietly shortens that menu.
+
+## A green run that deployed nothing
+
+Found immediately after pushing the port, and it is the same shape as the
+ciHealth duration bug in the way that matters: the failure reports success.
+
+Splitting the crawl out of the deploy left `deploy` unreachable on a push. **A
+skip propagates down the whole job graph, not one edge.** `data` is skipped on a
+push by design, `site` survives that on its own `always()`, and `deploy` then
+inherits the skip *through* `site` — its default condition is `success()`, which
+a chain containing a skipped job does not satisfy, regardless of `site` having
+succeeded.
+
+```
+run 33323694945   push 6fac37b   conclusion: success   12 seconds
+  data    skipped     (by design)
+  site    success     staged the page, uploaded the artifact
+  deploy  skipped     ← nothing was published
+```
+
+The artifact is built and thrown away, the run is green, and Pages keeps serving
+whatever the last `schedule` or `workflow_dispatch` published. The only symptom
+available from outside is the site's `Last-Modified` not moving — which is how
+this was caught: the deployed `analytics.js` still carried the caveat text the
+push had replaced.
+
+`if: always() && needs.site.result == 'success'` on `deploy`. The result check
+matters as much as the `always()`: without it the job would deploy on top of a
+failed `site`, which is the thing `site`'s own guard exists to prevent.
+
+The split's *other* predicted failure also fired today, and the contrast is
+instructive. The first push after it landed failed outright — "No cached
+data/dashboard.json" — and the workflow had a comment saying that would happen
+exactly once. That one announced itself and was fixed in a minute by a dispatch
+run. This one said success.
