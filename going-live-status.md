@@ -147,11 +147,39 @@ already-polluted store goes clean on the next build rather than after an hour of
 re-walking. `npm run test:exclusion` asserts the wiring *and* the behaviour, and
 fails on both counts if either regresses.
 
+**The data stays in D1, deliberately.** The decision taken was that the concern
+is the repo appearing in the published dashboard, not the rows existing in a
+database only the operator can query. So there is no D1 purge. What changed
+instead:
+
+- `readStore` filters, so the Node build never sees it and `dashboard.json`
+  comes out clean
+- the Worker is handed a **scoped database handle** that rewrites
+  `FROM issues` into `FROM (SELECT * FROM issues WHERE not excluded)` before
+  preparing anything. `/api/panel/:name` is public with permissive CORS, and a
+  SQL panel reads D1 directly, so `readStore` protects nothing there
+
+The wrapper rather than a predicate per query is the whole point: there are
+thirty-odd queries across two panels with four more to come, and forgetting one
+produces a repo on a public page rather than an error. There is no unscoped
+handle for a panel to reach for.
+
+Note for whoever adds a panel: **do not name a CTE after a real table.** The
+rewrite fires on `FROM`/`JOIN` followed by `pull_requests`, `reviews`, `issues`
+or `traffic_daily`, and a CTE with one of those names would be rewritten too.
+
 Cleanup done locally: the issue store is 26,513 → 26,161, and `state.json`,
-`issues-state.json`, `issue-labels.json`, `worker/seed.sql` and the miniflare
-replica are purged. **Still outstanding: production D1, and the rebuilt
-`dashboard.json` / `drilldown.json` on Pages.** Until those land, the public copy
-still carries it.
+`issues-state.json`, `issue-labels.json` and the miniflare replica are purged;
+`worker/seed.sql` was regenerated from the filtered store.
+
+**Still outstanding: the rebuilt `dashboard.json` / `drilldown.json` on Pages.**
+Until those land, the public copy still carries it.
+
+**The contributors parity test fails until that rebuild happens**, and the
+failure is expected: every difference is `activeDays` or `activeDenom`, always
+lower in SQL, because the seed no longer has the 352 issues that
+`dashboard.json` was built from. No PR-derived field moved. It goes green again
+once the baseline is rebuilt.
 
 Worth carrying: a control whose failure mode is silence needs a test, not care.
 This one had a comment instead.
