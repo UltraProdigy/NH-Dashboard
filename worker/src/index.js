@@ -195,6 +195,7 @@ async function handleHealth(env) {
     "issues",
     "commits",
     "releases",
+    "workflow_runs",
     "traffic_daily",
   ]) {
     const row = await env.DB.prepare(
@@ -236,7 +237,18 @@ async function handleHealth(env) {
        -- the symptom is a repo quietly missing from a card.
        (SELECT COUNT(*) FROM repos
          WHERE pushed_at IS NOT NULL
-           AND pushed_at NOT GLOB '*[^0-9]*') AS reposWithEpochPushedAt`,
+           AND pushed_at NOT GLOB '*[^0-9]*') AS reposWithEpochPushedAt,
+       -- The CI panel's own funnel. A run is stored with the branch it ran on,
+       -- and the panel keeps only runs matching the repo's *current* default
+       -- branch — so a repo that renames master to main keeps every row it had
+       -- and shows nothing at all. These two counts are the only place that
+       -- difference is visible: reposWithRuns holds steady while
+       -- reposWithRunsOnDefault drops, and the card just goes quiet.
+       (SELECT COUNT(DISTINCT repo) FROM workflow_runs) AS reposWithRuns,
+       (SELECT COUNT(DISTINCT r.repo) FROM workflow_runs r
+          JOIN repos p ON p.name = r.repo
+         WHERE p.archived = 0
+           AND p.default_branch = r.head_branch) AS reposWithRunsOnDefault`,
   ).first();
 
   return json({ ok: true, counts, scope });
