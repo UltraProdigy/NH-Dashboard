@@ -167,7 +167,14 @@ without a token. `npm run build` with one restores them. Nothing is lost, and
 the file was deliberately kept out of every commit.
 
 **`git rm -r --cached data/` still waits** on someone confirming the new
-workflow's post-job cache save actually appears.
+workflow's post-job cache save actually appears — and is now also a blocker for
+moving the repo into the org, because the move makes the repo public and `data/`
+is in the history. See the ingest-exclusion section of `going-live-status.md`.
+
+**The ingest exclusion is parked, on purpose, until the org move.** It is fixed
+in code and covered by `npm run test:exclusion`, but the repo secret CI needs is
+not set, so a CI build still republishes the excluded repo. Deliberate: the
+decision was to settle it as part of moving into the org rather than now.
 
 ## Parked for QA, not forgotten
 

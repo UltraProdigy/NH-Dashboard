@@ -188,7 +188,19 @@ Neither step was passed `NH_INGEST_EXCLUDE`, so the next push would have
 re-walked the excluded repo and republished it, and everything local would have
 kept looking correct.
 
-Both steps now pass it, and the test asserts they do. What remains:
+**Deliberately parked** — the decision is to deal with this when the repo moves
+into the org, not before. Nothing below is urgent on its own; the state is the
+one that has held for months.
+
+**But it becomes urgent at the org move, and that is the same event.** Moving in
+means making the repo public, which is the point of the move — Actions minutes.
+`data/` is tracked, so the git *history* goes public too, including the
+`dashboard.json` versions carrying the excluded repo's issue titles and now the
+ndjson as well. So this has to be settled *before* the move completes, and it is
+the same job as the `git rm -r --cached data/` already on the loose-ends list:
+untracking `data/` going forward does not remove what is already in history.
+
+Both CI steps now pass the variable, and the test asserts they do. What remains:
 
 - **Add `NH_INGEST_EXCLUDE` as a repo secret** — Settings → Secrets and
   variables → Actions. Value is the same as in `.env`. **Do this before
