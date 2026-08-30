@@ -746,13 +746,11 @@ API, and every write is an upsert on a natural key, so a partial file applied
 now and a full one applied later converge. Losing an hour of API calls to one
 Ctrl-C was avoidable.
 
-## Still not captured
+## ~~Still not captured~~ — `workflow_run` is captured now
 
-`workflow_run` is still on `onRepoTouch`, so `ciHealth` is unchanged and remains
-the last of the three events the webhook receives and discards. It is the
-biggest of them — run conclusions need their own table shape, and the panel
-aggregates per repo and per branch rather than picking one row — which is why it
-was left rather than rushed in alongside these two.
+*Was: `workflow_run` is still on `onRepoTouch`, the last of the three events the
+webhook receives and discards.* Done — see the section at the end of this file.
+All three are now stored.
 
 ---
 
@@ -907,3 +905,182 @@ it fixed nothing, and the counter added to disprove it is the part that earned
 its place. Worth remembering that a theory fitting the symptom is not evidence,
 which is the same lesson as the handoff's push-payload claim, arriving from the
 other direction.
+
+---
+
+# The ciHealth port
+
+Written 2026-08-30, the same day as the Dream Panel section above. Nothing here
+is deployed yet — see `handoff.md` for the ordered block that brings it up.
+
+## The panel's oracle was wrong before the port started
+
+The directive was to parity-test against `summarizeRuns`. Checking it first
+turned out to be the whole of the morning, because it does not measure what it
+says it measures.
+
+A workflow run has no end timestamp. `/actions/runs` returns `run_started_at`
+and `updated_at`, and the only endpoint carrying a real duration is
+`/actions/runs/{id}/timing` at one request per run. So the panel infers
+`updated_at - run_started_at` — and **`updated_at` is the run's last-touched
+time, which GitHub bumps long after the run finishes.**
+
+Confirmed against the live API rather than reasoned about, which is the habit
+this file keeps recommending and this is the case that most repaid it:
+
+| EnderStorage run | started | `updated_at` | reads as |
+|---|---|---|---|
+| 1 | 2025-07-17 | 2026-08-25 | 580,751 min |
+| 2 | 2025-07-18 | 2026-08-25 | 580,574 min |
+| 3 | 2025-07-18 | 2026-08-25 | 580,313 min |
+
+Real duration on each: about five minutes. Those three were **99.99%** of that
+repo's reported Actions time, and the pattern held org-wide — `sampledMinutes`
+22,630,939 against a reality in the tens of thousands, and an Actions-load card
+claiming **~33,654 wall-clock hours a month**.
+
+**The fix is a ceiling, and the ceiling is evidentiary rather than chosen.**
+Across 201 runs sampled from 14 repos the distribution is bimodal with nothing
+in the gap:
+
+```
+longest believable duration       44.5 minutes
+shortest unbelievable one      1,440 minutes   (exactly 24h)
+```
+
+360 — GitHub's own per-job execution limit — sits in the empty band, so it can
+move a long way in either direction without changing a verdict. The 1,440
+cluster is its own tell: that is where GitHub terminates a job left queued, so
+those runs measure queue time rather than compute and do not belong in the total
+under any ceiling.
+
+Over the ceiling a duration is **discarded, not clamped**. A clamp invents a
+number and hides that it did; dropping leaves the run in `runs` and out of
+`timedRuns`, a denominator the panel already reports. Roughly one run in seven
+is discarded, so `timedRuns < runs` is now normal rather than a symptom.
+
+**This is the first defect here that made the org look *worse* than it was.**
+Every one before it flattered — commits ahead, floors, dropped repos. The
+direction is opposite and the cause identical: a number nothing in the panel's
+own output could contradict. That is the argument for the second implementation,
+and it does not depend on which way the error points.
+
+## And a second claim that was wrong, in the same panel
+
+`ciHealth` passes `exclude_pull_requests=true` and both the panel comment and
+`Calculations.md` said that drops PR-triggered runs entirely. Measured on
+GT5-Unofficial:
+
+| | runs returned | `pull_request` events among them |
+|---|---|---|
+| `exclude_pull_requests=true` | 89,979 | 57 |
+| `exclude_pull_requests=false` | 89,979 | 57 |
+
+The parameter's only effect is to empty each run's `pull_requests` array. What
+actually excludes PR runs is `branch=<default>` — a pull request's `head_branch`
+is its source branch. The sampling frame was right; the reason given for it was
+not, and the difference matters the moment someone writes the filter in SQL.
+
+Corollary worth knowing, because it reads the other way: runs triggered by
+*other workflows completing* are **in** the sample. On GT5-Unofficial they are
+42 of 100 default-branch runs.
+
+That is now three times running that a payload or parameter was assumed rather
+than checked — the push commits' PR field, the release tag SHA, and this. The
+lesson is not new; the frequency is the finding.
+
+## What was built
+
+**`src/shared/ci-rules.js`** — every rule in both languages: `PASS`/`FAIL` and
+their SQL, `runMinutes` and `runMinutesSql`, `median`, `spanBetween`,
+`CI_MAX_RUN_MINUTES`, and `summarizeOrg` moved here so the Worker can use it
+without importing `config.js`.
+
+**`onWorkflowRun`** replaces `onRepoTouch` for the event. Completed runs on the
+default branch only: the event fires three times per run and is the noisiest
+subscription here, and the other two actions carry no conclusion and no end
+time. No `status` column — it would read `completed` on every row.
+
+**`worker/src/panels/ci-health.js`** — the selection is SQL, the arithmetic is
+the shared rules, and `summarizeOrg` is reused outright rather than translated.
+It is pure arithmetic over 250 small objects, which is nothing like the 96 MB
+heap that made reusing the *store*-shaped panels impossible.
+
+**`worker/backfill-runs.js`** — one REST request per repo, ~260 in total, no
+pagination. Cheap next to the commits sweep. Writes repo rows too so it does not
+silently depend on `backfill-commits.js`, but **not `commits_since`** — that
+column is the release panels' record of how far back *their* sweep walked, and
+this one walks no commits at all.
+
+**`scripts/rebuild-ci-health.js`** (`npm run rebuild:ci`) — patches one key in
+`dashboard.json` in ~2 minutes rather than rebuilding every panel in 592
+seconds. It leaves `generatedAt` alone deliberately: a rebuild stamp on a file
+whose other panels did not rebuild would be a lie about all of them.
+
+## The parity test is the first real one
+
+Every previous parity test compares **two readings of one store**. The release
+cards could not even manage that — the JavaScript reads GitHub and the SQL reads
+a half-filled store, so their baseline had to be hand-built rules.
+
+This one compares **two readings of one input**. `summarizeRuns(runs)` is a pure
+function over an array of run objects, and the store holds those same runs as
+rows, so the fixture is built once and handed to both. Every field of the output
+is compared, per repo, plus the org roll-up.
+
+33 assertions. It was green on the first run, which this file has learned to
+distrust, so eight deliberate mutations of the panel were checked against it:
+
+| mutation | caught by |
+|---|---|
+| median rank off by one | Busy field comparison |
+| `timedRuns` counts all runs | org roll-up |
+| median ranks discarded durations | Ordinary field comparison |
+| sample takes the oldest runs | latest-run assertion |
+| sample cap raised | cap assertion + Busy |
+| `passRate` 0 instead of null | the null assertion |
+| branch filter removed | org roll-up |
+| duration ceiling removed in SQL only | six assertions |
+
+All eight fail it. Suites now total **275**.
+
+## Retention, and the volume question
+
+The handoff asked what a busy day costs before deciding how much history to
+keep. It is not much: default-branch completed runs are ~9,600 a month org-wide,
+so ~320 rows a day and roughly 1,600 billed writes with indexes, against a
+100,000/day free ceiling. Deliveries are larger — every run, all branches, three
+actions each — but still a few thousand a day against 100,000.
+
+So the cap is not a cost control, it is a bound on the one table here that
+otherwise grows forever. The recompute trims to **100 runs per repo**, five
+times what the panel samples, so pruning can never move a number on the card and
+`CI_RUN_SAMPLE` has room to be raised without a re-sweep. It runs on the raw
+handle: `scope.js` rewrites `FROM workflow_runs`, and `DELETE FROM (SELECT …)`
+is not a statement.
+
+## Not in LIVE_PANELS, on purpose
+
+Registered in `recompute.js`, absent from `LIVE_PANELS`. Same reasoning as the
+release cards: the webhook captures forward only and this panel's every figure
+is computed over the newest twenty runs, so before the backfill a quiet repo
+shows one run and a pass rate of 100%. That is a confidently wrong **blue**,
+which the tint exists specifically to prevent.
+
+## What the reconciliation has to check
+
+More than a row count, because two of these would pass one:
+
+- **252 repos** in the build's `ciHealth`. A live figure materially below that
+  means the backfill did not reach some repos, not that they have no CI.
+- **`runsPerMonth` should barely move.** The ceiling drops durations, not runs.
+  If it moves, the *sample selection* differs, which is a different bug from the
+  one just fixed.
+- **`hoursPerMonth` should collapse** from ~33,654 to something in the low
+  hundreds. If it does not, the ceiling is not being applied on the live side.
+- **`timedRuns < runs` on most repos**, by roughly a seventh. Equality means the
+  ceiling is not firing; a much larger gap means the store's timestamps are not
+  what the API's were.
+- **`web/js/dream.js` reads `ciHealth.data.repos` as the org's repo list** for
+  the exclusion popup — `orgRepos()`. It is the only consumer of this panel that
+  is not about CI, and a shorter list quietly shortens that menu.
