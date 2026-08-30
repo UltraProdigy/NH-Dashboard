@@ -210,6 +210,18 @@ export async function needsRelease(db, now = Date.now()) {
  * date, matching the Node panel's `approx: true` — the card renders those
  * differently, as "more than N days" rather than a link to a commit.
  *
+ * **A repo with no commits at all gets a floor too**, which is why `seen` is a
+ * LEFT JOIN. Requiring a commit row dropped six repos the build listed, and
+ * they were the worst ones on the card: no commits inside the lookback is the
+ * strongest possible version of "nothing has touched this", and the panel was
+ * answering by omitting them. That is the same flattering direction as the
+ * shallow floors above, and it is the one this card exists to catch.
+ *
+ * The cost is a handful of repos that hold no code at all — issue-only trackers
+ * — reporting a 365-day floor. That is noise in the right direction: a true
+ * statement about a repo nobody needed to look at, rather than silence about
+ * one they did.
+ *
  * **The floor is how far back the store can see, not how far back this repo's
  * rows happen to go.** The first version used `MIN(committed_at)` per repo and
  * was wrong in the flattering direction: DummyCore's oldest stored commit is
@@ -253,7 +265,7 @@ export async function depUpdates(db, now = Date.now()) {
               d.message        AS message,
               s.oldest         AS oldest
          FROM live l
-         JOIN seen s ON s.repo = l.name
+         LEFT JOIN seen s ON s.repo = l.name
          LEFT JOIN direct d ON d.repo = l.name AND d.rn = 1`,
     )
     .bind(since)

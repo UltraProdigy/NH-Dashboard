@@ -383,6 +383,12 @@ console.log("\ndepUpdates");
   addRepo(db, "Archived2", { archived: true });
   addCommit(db, "Archived2", 5);
 
+  // No commits at all. Requiring a commit row dropped six repos the build
+  // listed, and they were the worst ones on the card — "nothing inside the
+  // lookback" is the strongest form of the thing this panel looks for, and it
+  // was being answered by omission.
+  addRepo(db, "NoCommitsAtAll", { commitsSince: ago(365) });
+
   const rows = await depUpdates(d1(db), NOW);
   const got = byRepo(rows);
 
@@ -404,6 +410,11 @@ console.log("\ndepUpdates");
   check("a repo with only PR commits is a floor", got.AllPrs?.approx === true);
   check("a floor row has no commit to link", got.AllPrs?.commitUrl === null);
   check("an archived repo is dropped", !got.Archived2);
+  check(
+    "a repo with no commits at all is a floor, not an omission",
+    got.NoCommitsAtAll?.approx === true && got.NoCommitsAtAll?.daysSinceDirect === 365,
+    JSON.stringify(got.NoCommitsAtAll),
+  );
 
   check(
     "sorted oldest first",
