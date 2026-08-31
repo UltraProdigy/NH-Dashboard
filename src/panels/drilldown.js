@@ -55,6 +55,12 @@ import { readStore } from "../ingest/pullRequests.js";
 import { readStore as readIssueStore } from "../ingest/issues.js";
 import { ISSUE_STALE_DAYS } from "../config.js";
 import { isBot } from "../shared/contributor-rules.js";
+import {
+  byAge,
+  byCount,
+  byInvolvement,
+  byRecency,
+} from "../shared/drilldown-rules.js";
 import { monthKey, pct, round1 } from "../shared/analytics-rules.js";
 import { WINDOWS } from "./contributors.js";
 import { activeDayIndex } from "./activeDays.js";
@@ -257,7 +263,7 @@ function packResolved(list) {
   const repos = [];
   const seen = new Map();
   const rows = list
-    .sort((a, b) => b.at.localeCompare(a.at))
+    .sort(byRecency((r) => r.at))
     .map((r) => {
       let i = seen.get(r.repo);
       if (i === undefined) {
@@ -284,12 +290,19 @@ function packResolved(list) {
   return { repos, rows };
 }
 
-/** Ranked list from a login/name -> count map. */
+/**
+ * Ranked list from a login/name -> count map.
+ *
+ * Mapped to objects before sorting rather than after, because the comparator is
+ * shared with the SQL side and reads the shape the list actually ships in. The
+ * slice happens last: a tail cut before the tiebreak is a cut on the wrong
+ * order.
+ */
 const topN = (map, key, n = TOP_N) =>
   [...map.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, n)
-    .map(([k, count]) => ({ [key]: k, count }));
+    .map(([k, count]) => ({ [key]: k, count }))
+    .sort(byCount(key))
+    .slice(0, n);
 
 /**
  * The window-keyed ranked lists, with empty windows left out.
@@ -431,7 +444,7 @@ function packRows(list, fields, sortBy = (r) => r.at ?? "") {
   const repos = [];
   const seen = new Map();
   const rows = list
-    .sort((a, b) => String(sortBy(b)).localeCompare(String(sortBy(a))))
+    .sort(byRecency(sortBy))
     .map((r) => {
       let i = seen.get(r.repo);
       if (i === undefined) {
@@ -558,19 +571,19 @@ export const ISSUE_OUTCOMES = ["completed", "notPlanned", "duplicate"];
 const outcomeOf = (i) =>
   i.stateReason === "NOT_PLANNED" ? 1 : i.stateReason === "DUPLICATE" ? 2 : 0;
 
-function finishSeries(months, oldestKey, row) {
+function finishSeries(months, oldestKey, row, now) {
   // Nothing to chart. Emitted as null rather than 240 nulls in a row: with
   // issue reporters now among the subjects there are thousands of people with
   // no pull request history at all, and an empty chart's worth of padding each
   // was the single largest thing in this file.
   if (!months.size) return null;
 
-  const now = new Date();
+  const asOf = new Date(now);
   const v = [];
   let from = null;
 
   for (let i = SERIES_MONTHS - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const d = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - i, 1));
     const key = monthKey(d);
     // Don't invent empty months before the subject existed — a repo created
     // last March shouldn't show a year of flat zeroes leading up to it.
@@ -601,7 +614,7 @@ function rankedFor(counts, windowId, key, n = TOP_N) {
    Main
    ========================================================================== */
 
-export async function drilldown() {
+export async function drilldown(now = Date.now()) {
   const prs = await readStore();
 
   if (!prs.length) {
@@ -611,7 +624,6 @@ export async function drilldown() {
     );
   }
 
-  const now = Date.now();
 
   // Precomputed window bounds. Recomputing `now - days * DAY` inside the PR
   // loop would be 28k x 5 pointless subtractions.
@@ -1190,7 +1202,7 @@ export async function drilldown() {
       staleBuckets: stale,
       // Full list, oldest first — same reasoning as the PR backlog: truncating
       // it makes the tab's own filter lie about what it searched.
-      oldest: [...open].sort((a, b) => b.ageDays - a.ageDays),
+      oldest: [...open].sort(byAge),
     };
   };
 
@@ -1214,7 +1226,7 @@ export async function drilldown() {
       buckets,
       // Full list, sorted oldest first. It's bounded by the repo's open PR
       // count, and truncating it made the Backlog tab's own filter lie.
-      oldest: [...open].sort((a, b) => b.ageDays - a.ageDays),
+      oldest: [...open].sort(byAge),
     };
   };
 
@@ -1318,7 +1330,7 @@ export async function drilldown() {
       activeDays: activeDays.get(login)?.windows.all.days ?? 0,
       activeSpan: activeDays.get(login)?.windows.all.denom ?? 0,
       windows: windowsOut(s),
-      series: finishSeries(s._months, firstMonth(s._months), prRow),
+      series: finishSeries(s._months, firstMonth(s._months), prRow, now),
       topRepos: rankedWindows(s._counts, "opened", "repo"),
       reviewRepos: rankedWindows(s._counts, "reviewed", "repo"),
       reviewedBy: partnersOf(s._partners, "by"),
@@ -1365,7 +1377,7 @@ export async function drilldown() {
       last: s.last,
       totalPRs: s.total,
       windows: windowsOut(s),
-      series: finishSeries(s._months, firstMonth(s._months), prRow),
+      series: finishSeries(s._months, firstMonth(s._months), prRow, now),
       topAuthors: rankedWindows(s._counts, "author", "login"),
       topReviewers: rankedWindows(s._counts, "reviewer", "login"),
       grossing: grossingLists(s._gross),
@@ -1409,7 +1421,7 @@ export async function drilldown() {
         i: involvementOf(s),
         last: s.last,
       }))
-      .sort((a, b) => b.n + b.a + b.i - (a.n + a.a + a.i)),
+      .sort(byInvolvement((s) => s.n + s.a + s.i)),
     repos: [...repos.values()]
       .map((s) => ({
         id: s.repo,
@@ -1419,7 +1431,7 @@ export async function drilldown() {
         iOpen: s._iopen.length,
         last: s.last,
       }))
-      .sort((a, b) => b.n + b.i - (a.n + a.i)),
+      .sort(byInvolvement((s) => s.n + s.i)),
   };
 
   let openTotal = 0, reviewRequestsKnown = 0, assigneesKnown = 0, labelsKnown = 0;
@@ -1473,7 +1485,7 @@ export async function drilldown() {
     // message from "this subject has no issue activity" and gets a different one.
     issueData: hasIssueData,
     closerCoverage,
-    generatedAt: new Date().toISOString(),
+    generatedAt: new Date(now).toISOString(),
     index,
     contributors: contributorsOut,
     repos: reposOut,
