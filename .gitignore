@@ -26,6 +26,7 @@ data/
 worker/seed.sql
 worker/backfill.sql
 worker/labels.sql
+worker/traffic.sql
 worker/.wrangler/
 
 node_modules/
