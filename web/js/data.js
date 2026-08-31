@@ -31,7 +31,30 @@ const PAGE_PANEL = {
   repo: "drilldown",
 };
 
-const sourcePanel = (m, id) => m?.panelId ?? PAGE_PANEL[m?.page] ?? null;
+/**
+ * Which panel a card's numbers actually came from.
+ *
+ * Three sources, in order, and the first exists because the other two were not
+ * enough. `panelId` means "this card's rows *are* that panel's array" — it
+ * drives the tab badge in `render.js` as well as the tint, so a card that
+ * merely reads a panel cannot borrow it without also claiming its row count.
+ * `PAGE_PANEL` then assumes every card on a page reads that page's panel.
+ *
+ * Two cards on the analytics page do not: Label mix reads `byLabel` and Actions
+ * load reads `ciHealth`. Both were tinted from `analytics`.
+ *
+ * **That is currently right by coincidence and not by construction.** All three
+ * panels are live on the cron, so all three cards are blue and the blue is
+ * true. It stops being true the moment the tiers diverge, and the case that
+ * matters is an outage: if `ciHealth` does not answer while `analytics` does,
+ * the card keeps a confident blue where it owes a red. An outage that paints
+ * only some of a page is exactly the situation this indicator was built for,
+ * and deriving a card's tint from its neighbour defeats it — as does promoting
+ * either panel to `instant`, which the card would not notice.
+ *
+ * `reads` says where the data comes from and claims nothing else.
+ */
+const sourcePanel = (m, id) => m?.reads ?? m?.panelId ?? PAGE_PANEL[m?.page] ?? null;
 
 /**
  * How fresh a card's data can be — `instant`, `cron`, `build`, or `down`.
@@ -275,6 +298,7 @@ export {
   IW,
   W,
   activeWindow,
+  sourcePanel,
   dayLimitNote,
   delta,
   freshness,

@@ -13,7 +13,7 @@
  */
 
 const { state } = await import("../web/js/state.js");
-const { freshness } = await import("../web/js/data.js");
+const { freshness, sourcePanel: sourceOf } = await import("../web/js/data.js");
 
 let pass = 0, fail = 0;
 const check = (n, ok, d="") => { ok ? (pass++, console.log("  ok    "+n))
@@ -86,16 +86,27 @@ state.data.panels.changesRequested = {
 };
 state.data.panels.depUpdates = { ok: true, data: [], live: true, refresh: "cron" };
 state.data.panels.byLabel = { ok: true, data: {}, live: true, refresh: "cron" };
+// Deliberately *not* production, which is the point. In production `ciHealth`
+// is live and so is `analytics`, so the mis-tinted card was blue over blue data
+// and nothing looked wrong. This fixture is the divergence that exposes it —
+// the case the tint exists for, and the one no amount of looking at the running
+// dashboard would have shown.
+state.data.panels.ciHealth = { ok: true, data: {} };
 // needsRelease stays un-overlaid from the fixture above, which makes the Dream
 // Panel the one page carrying three tiers at once.
 
 const modulesOf = id => PAGES.find(p => p.id === id).modules;
 
+// The analytics page is not one panel. Nine of its eleven cards read
+// `analytics`; Label mix reads `byLabel` and Actions load reads `ciHealth`, and
+// both were tinted from the page's panel until they said so. The old assertion
+// here — eleven of eleven, one tier — was not merely loose, it was the thing
+// that made the bug invisible: it asserted the wrong behaviour and passed.
 const analytics = tierCounts(modulesOf("analytics"));
 check(
-  "one panel behind a whole page counts once per card",
-  analytics.cron === modulesOf("analytics").length,
-  `got ${analytics.cron} of ${modulesOf("analytics").length}`,
+  "a page's cards count against the panel each of them reads",
+  analytics.cron === 10 && analytics.build === 1,
+  JSON.stringify(analytics),
 );
 
 const dream = tierCounts(modulesOf("dream"));
@@ -122,9 +133,58 @@ state.page = "analytics";
 check("empty tiers are absent rather than zero",
   !("instant" in analytics) && !("down" in analytics), JSON.stringify(analytics));
 
+// An outage is per panel, not per page. `analytics` going down must not repaint
+// the two cards whose data came from somewhere that is still answering — a red
+// border on a card that is fine is the same class of lie as a blue one on a
+// card that is not.
 state.data.panels.analytics.down = true;
-check("an outage moves the page's cards into the down count",
-  tierCounts(modulesOf("analytics")).down === modulesOf("analytics").length);
+const out = tierCounts(modulesOf("analytics"));
+check("an outage moves only the cards that read the failed panel",
+  out.down === 9 && out.cron === 1 && out.build === 1, JSON.stringify(out));
+
+/* ==========================================================================
+   Every card, not just the ones someone thought to test
+
+   The two mis-tinted cards were found by reading the source, and they had been
+   wrong since `ciHealth` was registered. Nothing here would have caught them:
+   every assertion above names a panel or a page, and the cards that go wrong
+   are exactly the ones nobody thought to name. So these walk all 53.
+   ========================================================================== */
+
+const { MODULES } = await import("../web/js/modules/index.js");
+const ids = Object.keys(MODULES);
+
+console.log(`\nevery card: ${ids.length} of them\n`);
+
+// A card with no resolvable panel gets no border at all, which reads as "this
+// is fine" and is the quietest of the four failures. The `dream` page has no
+// PAGE_PANEL entry and survives only because all five of its cards carry a
+// panelId; a sixth added without one would land here.
+const untinted = ids.filter((id) => !sourceOf(MODULES[id]));
+check("every card resolves to a panel", untinted.length === 0, untinted.join(", "));
+
+// The real assertion: a card must be tinted by the panel it reads. Read off the
+// source rather than declared here, so a card that starts reading a second
+// panel fails this until it says so.
+const readsOf = (id) =>
+  [...(MODULES[id].render?.toString() ?? "").matchAll(/panel\("([A-Za-z]+)"\)/g)].map((m) => m[1]);
+
+const lying = [];
+for (const id of ids) {
+  const named = readsOf(id);
+  if (!named.length) continue;
+  const tint = sourceOf(MODULES[id]);
+  if (!named.includes(tint)) lying.push(`${id} reads ${named.join("+")} and tints from ${tint}`);
+}
+check(
+  "a card that names a panel in its own render is tinted by it",
+  lying.length === 0,
+  lying.join("; "),
+);
+check(
+  "and the two that read across pages say so",
+  MODULES.labels?.reads === "byLabel" && MODULES.actions?.reads === "ciHealth",
+);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -270,7 +270,7 @@ export const analyticsModules = {
   },
 
   labels: {
-    page: "analytics", label: "Label mix", span: 6,
+    page: "analytics", label: "Label mix", span: 6, reads: "byLabel",
     sub: () => "open PRs per tracked label",
     render(expanded) {
       const p = panel("byLabel");
@@ -335,6 +335,7 @@ export const analyticsModules = {
    */
   actions: {
     page: "analytics", label: "Actions load", span: 12, tabControls: ["filter"],
+    reads: "ciHealth",
     sub: () => "estimated org-wide, projected from sampled runs",
     render(expanded) {
       const p = panel("ciHealth");
