@@ -152,6 +152,50 @@ hand it one subject's rows, and the agreement with the build is structural
 rather than tested. That is the difference between porting 1,500 lines and
 calling them.
 
+## What the index is, exactly
+
+Read off `src/panels/drilldown.js` rather than guessed, because this is the one
+part that has to be rebuilt in SQL — the per-subject payloads reuse the Node
+functions, but the index is an aggregate over every subject and cannot.
+
+**A contributor exists** if `person(login)` was ever called for them, and it is
+called from exactly four places, each already excluding bots: a PR's author, an
+*approver* of any PR, anyone involved in an issue (author, first responder,
+closer, fixer, assignee), and the reviewer bookkeeping in the window loop.
+`activeDayIndex` deliberately does **not** create subjects — the comment there
+is explicit that routing active days through `person()` would promote several
+thousand people whose whole trace is one drive-by review into full subjects.
+That is a trap worth not re-springing.
+
+| Field | Contributor | Repo |
+|---|---|---|
+| `n` | PRs authored, bots excluded | PRs in the repo, bots included |
+| `a` | all-time approvals given | — |
+| `open` | — | PRs open and unmerged |
+| `i` | `filed + responses + closed + fixed` | issues filed |
+| `iOpen` | — | open issues |
+| `last` | see below | MAX of PR `created_at`, issue `created_at`, issue `closed_at` |
+
+**`last` for a contributor is a MAX over four things and not one more**, from the
+five `touch()` calls that reach a person:
+
+- `created_at` of PRs they authored
+- `submitted_at` of their approvals — and it is the *approval* date, not any
+  review date. A COMMENTED review does not move it
+- `created_at` of issues they filed
+- `first_response_at` where they are the first responder
+- `closed_at` where they closed **or** fixed
+
+**Two rules that differ from their neighbours and will be read past.**
+`approversOf` excludes bots but **not self-approvals**, while `firstReviewAt`
+and `latestReviewsOf` exclude both. So `a` counts a self-approval and the review
+latency does not. And an approval is one per reviewer per PR dated to their
+*earliest*, because re-approving after a round of changes is one act — the
+partner lists next to it use the same pair but skip self.
+
+Then `substantial()` decides full record against slim, which is a separate
+question from existence and does not touch the index.
+
 ## The write cost, which the design above retires
 
 Kept because the arithmetic is worth having if anyone reaches for a full pass.
@@ -573,15 +617,20 @@ panel header so the trade can be made on evidence.
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md`. `issues` is ported and
-> registered in `recompute.js` but not in `LIVE_PANELS` — deploy, force a
-> recompute, and diff `/api/panel/issues` against `data/dashboard.json` before
-> adding it, expecting live to run slightly ahead on day counts. Load
-> `worker/traffic.sql` into D1 while you are there; `traffic_daily` still holds
-> zero rows. Then port `drilldown`, which is the last panel from the build and
-> the only one that cannot be a cached blob: 23 MB against a 2 MB row cap, so it
-> uses the `drilldown_contributors` and `drilldown_repos` tables already in
-> `schema.sql` plus a per-row endpoint, and it is the first port that needs a
-> frontend change. Write the parity test first and try to break it — every
-> defect this port has produced was invisible in the panel's own output, and the
-> most common one by far is a list sorted on a metric with no tiebreak.
+> Read `handoff.md` and `going-live-status.md`. Two things are waiting on a
+> machine logged in to Cloudflare: load `worker/traffic.sql` into D1, and apply
+> `worker/migrations/004-normalise-state-reason.sql` then deploy, which is what
+> unblocks adding `"issues"` to `LIVE_PANELS` — the reconciliation against
+> production is done and found one defect, the webhook storing REST's lowercase
+> `not_planned` against the seed's `NOT_PLANNED`. Then the `drilldown`, which is
+> all that remains. Its orderings and column orders are already in
+> `src/shared/drilldown-rules.js` and `npm run test:parity:drilldown` guards
+> them; what is left is the panel itself. Do not try to materialise every
+> subject in the recompute — that is measured as impossible on three separate
+> limits and the file says so. It is a read-through cache: one subject computed
+> on the request from five indexed queries, reusing the Node panel's own
+> functions rather than translating them, since one subject is 5.9 MB against
+> the 96 MB that made reuse impossible for the whole store. The index is the
+> only part that has to be rebuilt in SQL, and its exact definitions are written
+> down. Write the panel comparison half of the parity test before trusting any
+> of it.
