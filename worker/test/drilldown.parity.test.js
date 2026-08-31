@@ -45,6 +45,26 @@
  * commits earlier: a value has to be checked against something that did not
  * come from the same place it did.
  *
+ * The panel half was broken nine ways in turn and all nine fail it:
+ *
+ *   each of the three existence-only sources removed   subject membership
+ *   self-approvals excluded from the approval count    13 people's `a`
+ *   COMMENTED counted as an approval                   487 fields, 8 subjects
+ *   every APPROVED review counted rather than one      67 fields
+ *     per reviewer per pull request
+ *   an approval dated to the latest, not the earliest  one person, by 8 minutes
+ *   repo pull request counts excluding bots            137 fields
+ *   a repo's `last` ignoring issue close dates         9 repos
+ *   involvement dropping the fixer                     388 fields
+ *
+ * The tenth attempt is worth recording because it was a bad mutation rather
+ * than a survivor: replacing `MIN(submitted_at)` with a bare `submitted_at`
+ * while leaving the `GROUP BY` in place passed, and looked at first like a hole.
+ * SQLite picks an arbitrary row's value for a bare column under a GROUP BY, so
+ * the count never moved and nothing was actually being tested. 148 reviewer/PR
+ * pairs in the seed do carry more than one approval; the two mutations above
+ * exercise them properly.
+ *
  * Needs `data/drilldown.json`, and skips without it. Rebuild it with
  * `npm run rebuild:drilldown` before believing a failure here: it pins its
  * clock to `dashboard.json`'s `generatedAt`, and a stale oracle reports a fix
@@ -79,6 +99,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..", "..");
 const ORACLE = path.join(ROOT, "data", "drilldown.json");
 const PANEL = path.join(HERE, "..", "src", "panels", "drilldown.js");
+const SEED = path.join(HERE, "..", "seed.sql");
+const SCHEMA = path.join(HERE, "..", "schema.sql");
 
 /** D1's per-row ceiling. A payload over this cannot be stored at all. */
 const ROW_CAP = 2 * 1024 * 1024;
@@ -442,11 +464,85 @@ const idOf = (x) => `${x.repo ?? x.login ?? x.id ?? ""}#${x.number ?? ""}`;
    name on both sides, never by position.
    ========================================================================== */
 
-if (!existsSync(PANEL)) {
-  console.log("\n  worker/src/panels/drilldown.js does not exist yet — panel comparison skipped");
+if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
+  console.log("\n  no panel or no seed — panel comparison skipped");
 } else {
-  console.log("\n  panel comparison is not written yet");
-  failures.push("panel comparison");
+  const { DatabaseSync } = await import("node:sqlite");
+  const { drilldown } = await import(PANEL);
+
+  const raw = new DatabaseSync(":memory:");
+  raw.exec(readFileSync(SCHEMA, "utf8"));
+  raw.exec("BEGIN");
+  raw.exec(readFileSync(SEED, "utf8"));
+  raw.exec("COMMIT");
+
+  // The Worker's D1 surface, over node:sqlite. `all()` returns `{results}`,
+  // which is what the panel destructures.
+  const db = {
+    prepare(sql) {
+      return {
+        async all() {
+          return { results: raw.prepare(sql).all() };
+        },
+      };
+    },
+  };
+
+  const built = await drilldown(db, Date.parse(d.generatedAt));
+
+  console.log("\npanel: the index, against the build");
+
+  for (const [side, sum] of [
+    ["contributors", (s) => s.n + s.a + s.i],
+    ["repos", (s) => s.n + s.i],
+  ]) {
+    const mine = built.index[side];
+    const theirs = d.index[side];
+
+    const a = new Set(mine.map((x) => x.id));
+    const b = new Set(theirs.map((x) => x.id));
+    const missing = [...b].filter((x) => !a.has(x));
+    const extra = [...a].filter((x) => !b.has(x));
+    check(
+      `${side}: the same subjects exist`,
+      missing.length === 0 && extra.length === 0,
+      `${missing.length} missing (${missing.slice(0, 3)}), ${extra.length} extra (${extra.slice(0, 3)})`,
+    );
+
+    const byId = new Map(mine.map((x) => [x.id, x]));
+    const fields = side === "contributors" ? ["n", "a", "i", "last"] : ["n", "open", "i", "iOpen", "last"];
+    const wrong = [];
+    for (const t of theirs) {
+      const m = byId.get(t.id);
+      if (!m) continue;
+      for (const f of fields) {
+        if ((m[f] ?? null) !== (t[f] ?? null)) {
+          wrong.push(`${t.id}.${f}: ${m[f]} against ${t[f]}`);
+          break;
+        }
+      }
+    }
+    check(`${side}: every field agrees`, wrong.length === 0, `${wrong.length}, first: ${wrong[0]}`);
+
+    const order = mine.filter((x, i) => x.id !== theirs[i]?.id).length;
+    check(`${side}: in the same order`, order === 0, `${order} of ${theirs.length} positions`);
+
+    // The sort is the shared comparator on both sides, so agreeing on the
+    // ordering only means something if the values it sorts on also agree —
+    // which the field check above establishes. This one catches the reverse:
+    // a comparator applied to the right values in the wrong direction.
+    const sorted = [...mine].every((x, i) => i === 0 || sum(mine[i - 1]) >= sum(x));
+    check(`${side}: descends by involvement`, sorted);
+  }
+
+  const keys = [
+    "windows", "seriesFields", "resolvedFields", "issueSeriesFields",
+    "issueWindowFields", "backlogBuckets", "filedFields", "closedFields",
+    "issueOutcomes", "reviewFields", "reviewStates", "assignedFields",
+    "prOutcomes",
+  ];
+  const drifted = keys.filter((k) => JSON.stringify(built[k]) !== JSON.stringify(d[k]));
+  check("every schema key matches the build", drifted.length === 0, drifted.join(", "));
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed\n`);

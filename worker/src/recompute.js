@@ -20,6 +20,7 @@ import { byLabel } from "./panels/by-label.js";
 import { depUpdates, needsRelease } from "./panels/releases.js";
 import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
+import { drilldown } from "./panels/drilldown.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -61,8 +62,16 @@ import { scopedDb } from "./scope.js";
  * and answering is what lets it be diffed against `data/dashboard.json` before
  * any card claims to be current.
  *
- * Still outside: `issueMetrics`, `activeDays` and `drilldown`, none of them
- * blocked on data.
+ * `drilldown` is here as *half* a panel, and the half that is missing is the
+ * point. What this entry builds is the two picker indexes and the schema keys —
+ * 16 queries, 475 KB, ~344ms projected. The 7,047 per-subject payloads are
+ * deliberately not here: building them all in one invocation fails on the
+ * isolate's memory ceiling, on D1's 1,000 queries per invocation, and on the
+ * monthly write allowance, independently. They are a read-through cache keyed
+ * on `version`, computed one subject at a time on the request. `handoff.md`
+ * carries the measurements.
+ *
+ * Still outside: `issueMetrics` and `activeDays`, neither blocked on data.
  */
 const PANELS = {
   contributors,
@@ -74,6 +83,7 @@ const PANELS = {
   byLabel,
   ciHealth,
   issues,
+  drilldown,
 };
 
 /**
