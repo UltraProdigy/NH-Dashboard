@@ -36,12 +36,14 @@
  * field appended without a value, a ragged row, an oversized payload, and two
  * adjacent picker entries swapped.
  *
- * **One survivor, named where it sits.** Swapping two field names that neither
- * the sort key nor the arity touches — `additions` against `deletions` in
- * `resolvedFields` — passes everything here, because this half of the file
- * checks the shape of one implementation rather than the values of two. That is
- * the gap the panel comparison below closes, and the reason it decodes rows by
- * field name on both sides instead of comparing them by position.
+ * That last one had a survivor until the column orders moved into
+ * `drilldown-rules.js`: swapping two field names that neither the sort key nor
+ * the arity touches — `additions` against `deletions` in `resolvedFields` —
+ * passed everything, because nothing here had a second opinion about what the
+ * order should be. Now the shipped list is compared against the shared module's
+ * and the swap fails. It is the same lesson as the state_reason bug three
+ * commits earlier: a value has to be checked against something that did not
+ * come from the same place it did.
  *
  * Needs `data/drilldown.json`, and skips without it. Rebuild it with
  * `npm run rebuild:drilldown` before believing a failure here: it pins its
@@ -54,6 +56,17 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import {
+  ASSIGNED_FIELDS,
+  CLOSED_FIELDS,
+  FILED_FIELDS,
+  ISSUE_OUTCOMES,
+  ISSUE_SERIES_FIELDS,
+  ISSUE_WINDOW_FIELDS,
+  PR_OUTCOMES,
+  RESOLVED_FIELDS,
+  REVIEW_FIELDS,
+  REVIEW_STATES,
+  SERIES_FIELDS,
   byAge,
   byCount,
   byInvolvement,
@@ -322,6 +335,50 @@ const idOf = (x) => `${x.repo ?? x.login ?? x.id ?? ""}#${x.number ?? ""}`;
   check(
     "the shared file lists what it exports",
     ORDERINGS.length === 5 && ORDERINGS.includes("byRecord"),
+  );
+}
+
+/* ==========================================================================
+   The column orders
+
+   The payload states each field list at its head and the frontend expands rows
+   against that copy, so the shipped lists and the shared module's have to be
+   the same lists in the same order. This is what makes a reordered field list
+   fail loudly: without it, swapping two names that neither the sort key nor the
+   arity touches passes everything, which is the survivor this file's header
+   names.
+   ========================================================================== */
+
+{
+  const pairs = [
+    ["resolvedFields", RESOLVED_FIELDS],
+    ["filedFields", FILED_FIELDS],
+    ["closedFields", CLOSED_FIELDS],
+    ["reviewFields", REVIEW_FIELDS],
+    ["assignedFields", ASSIGNED_FIELDS],
+    ["seriesFields", SERIES_FIELDS],
+    ["reviewStates", REVIEW_STATES],
+    ["prOutcomes", PR_OUTCOMES],
+    ["issueOutcomes", ISSUE_OUTCOMES],
+  ];
+  const wrong = pairs.filter(([key, list]) => JSON.stringify(d[key]) !== JSON.stringify(list));
+  check(
+    "every column order in the payload is the shared module's, in order",
+    wrong.length === 0,
+    wrong.map(([k]) => k).join(", "),
+  );
+
+  const nested = [
+    ["issueSeriesFields", ISSUE_SERIES_FIELDS],
+    ["issueWindowFields", ISSUE_WINDOW_FIELDS],
+  ];
+  const wrongNested = nested.filter(
+    ([key, obj]) => JSON.stringify(d[key]) !== JSON.stringify(obj),
+  );
+  check(
+    "and the two that are keyed by subject type",
+    wrongNested.length === 0,
+    wrongNested.map(([k]) => k).join(", "),
   );
 }
 

@@ -95,9 +95,11 @@ is out. The shape is what makes it tractable:
 
 So it is not a blob that resists a Worker, it is 6,749 rows waiting for
 `WHERE login = ?`. `drilldown_contributors` and `drilldown_repos` are **already
-in `schema.sql`** for exactly this; the recompute materialises them and
-`/api/contributor/{login}` serves one. The `index` and the schema keys together
-are 470 KB, comfortably an ordinary cached blob.
+in `schema.sql`** for exactly this, and they are a read-through cache rather
+than something the recompute fills — see the section below, which measures why
+filling them in one pass cannot work. The `index` and the schema keys together
+are 470 KB and *are* an ordinary cached blob, on the cron like every other
+panel.
 
 **No single payload comes near the row cap, but watch the top of the list.**
 Largest contributor is Dream-Master at 759 KB and largest repo is
