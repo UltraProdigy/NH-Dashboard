@@ -1292,3 +1292,96 @@ Suites: **313**, up from 280.
 - The label taxonomy had drifted into a second identical copy in
   `issueMetrics.js`, underneath the comment explaining why the percentile and
   bucket keys were merged for exactly that reason.
+
+## The reconciliation against production, 2026-08-31
+
+Fifteen keys, live against `data/dashboard.json` as rebuilt by
+`npm run rebuild:issues`. Six match byte for byte — `windows`, `personFields`,
+`peopleCap`, `labelFocus`, `labelGroupOrder`, `labelSeriesMin`. The other nine
+differ, and all but one difference is the build being a day and a half old:
+
+- **Day boundaries.** Every `ageDays` is one higher, `series.dayFrom` has rolled
+  from `2024-08-30` to `2024-08-31`, and the age buckets have shifted 27 issues
+  from *1–3 months* into *3–12 months*. Both bucket lists still sum to their own
+  `open`.
+- **Fourteen new issues**, six of them still open. `opened` 26,161 → 26,175,
+  `closed` 23,675 → 23,683, and `open` + `closed` reconciles on both sides.
+- **`repos` reordered by one place.** InventoryBogoSorter went from 22 open to
+  23 and overtook WDMla. The list sorts on `open` descending and the ties around
+  it — 22 against GTNHLib, 23 against WDMla — are broken alphabetically on both
+  sides, so the tiebreak is doing its job.
+
+**`mostDiscussed`, `triage` and `labelSeries` each hash differently at exactly
+the same serialised length**, which is worth knowing as a tell: same shape, same
+digit widths, values moved. In all three it was `ageDays`.
+
+## And one real defect, which is the reason for the gate
+
+`unknownReason` read **0 in the build and 9 live**, and `notPlanned` went
+*down* by one while every other count went up. Nothing else in the panel moved
+backwards, and freshness cannot explain a decrease.
+
+**The webhook handler was writing `state_reason` in the payload's own casing.**
+GraphQL returns the enum `NOT_PLANNED`; REST and the webhook payloads return
+`not_planned`; `handlers.js` bound it raw, on the line directly below the
+`.toUpperCase()` it applies to `state`. Every rule that reads the column is a
+case-sensitive SQLite string compare, so a lowercase row fails
+`state_reason IN ('NOT_PLANNED', 'DUPLICATE')` and **an issue closed as "not
+planned" is counted as fixed** — the flattering direction again, and the ninth
+time it has gone that way.
+
+Nine rows at the time of writing, growing by roughly one webhook close a day. It
+would have crossed a thousand inside three years without anything erroring.
+
+Three things about how it hid, because none of them is specific to this bug:
+
+- **The parity test structurally could not see it.** Every parity suite here
+  compares two readings of *one seed*, and the seed comes from the GraphQL walk.
+  The webhook write path is not in that loop at all. Reconciling against
+  production is the only thing that reads what the handler actually wrote.
+- **The handler test asserted the defect.** `check("state_reason written", …,
+  "completed")` was written from the payload's shape rather than from the
+  store's contract, and passed for exactly that reason. A test that copies its
+  expectation out of the input cannot fail.
+- **The panel half-announces it and the card renders the announcement.**
+  `unknownReason` exists precisely so the completed-by-default assumption is
+  visible if it ever fires, and `web/js/modules/issues.js` turns it into a hint
+  reading "*N* closed issues carry no recorded reason at all". That hint would
+  have shipped, and it would have been false: the reason was recorded, it was
+  spelled wrong.
+
+Fixed at the source — `stateReason()` in `src/shared/issue-rules.js`, used by
+both `handlers.js` and `issuesBulk.js`, which had its own private copy of the
+same normaliser and the comment explaining why. The existing rows are repaired
+by `worker/migrations/004-normalise-state-reason.sql`, which is `UPPER()` under
+a guard and therefore idempotent and order-independent against the deploy.
+
+The new test asserts the **rule**, not the column: a `not_planned` close is fed
+in and counted through `unresolvedSql()`. Checking that the column reads
+`NOT_PLANNED` would pass on a store nothing reads that way. Both assertions were
+confirmed to fail with the old line put back. Suites: **314**.
+
+## Found while auditing the two writers, not fixed
+
+The handler and the ingest disagree on two more columns, neither of which the
+reconciliation flagged because neither moves a number:
+
+- **Titles are truncated by the ingest and not by the handler.** Both ingest
+  paths cut at 160 characters — `MAX_TITLE` exists in four separate files, one
+  of them with a comment saying records from both walks must be identical — and
+  the webhook stores the full string. Cosmetic today. The fix is a fifth writer
+  agreeing with the other four, which means one shared constant rather than five.
+- **`first_response_at` is never filled forward.** By design: it is derived by
+  walking comments in order and `onIssueComment` deliberately refuses to guess
+  it from a single delivery. But nothing reconciles it into D1 short of a manual
+  reseed, so every webhook-created issue counts as never answered forever.
+  That is visible already — `neverAnswered` rose by exactly the fourteen new
+  issues. At ~10 issues a day it is ~0.1% of `neverAnswered` per month, and it
+  errs *unflatteringly*, which is the safer direction but still wrong.
+
+## Verdict
+
+The panel reconciles once the migration is applied. `issues` can go into
+`LIVE_PANELS` after the deploy and the migration, not before — the nine rows are
+in production now, and listing the panel first would tint the card blue over
+them.

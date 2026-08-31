@@ -4,7 +4,8 @@ Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Rewritten 2026-08-30, after the `issues` port.
+Rewritten 2026-08-30, after the `issues` port. Updated 2026-08-31, after
+reconciling it against production.
 
 ---
 
@@ -30,8 +31,8 @@ it is safely re-runnable and overlapping runs replace rather than duplicate.
 ## Where the port stands
 
 **Nine of the ten panels can now be served from D1.** `issues` was the last
-substantial one and it is done: fifteen keys, every one reconciling against the
-build leaf for leaf.
+substantial one and it is done: fifteen keys, six identical to the build byte
+for byte and the rest differing only by a day and a half of freshness.
 
 | Panel | Tier | Note |
 |---|---|---|
@@ -43,37 +44,39 @@ build leaf for leaf.
 | `depUpdates` | cron | ≤10 min |
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
-| `issues` | cron | **registered, not yet in `LIVE_PANELS`** |
+| `issues` | cron | **deployed and reconciled; blocked on migration 004** |
 | `drilldown` | — | the last one still from the build |
 
-`issues` is deliberately held back. Every key reconciles against the build on the
-**seed**, and the seed is not production. `ciHealth` went through the same gate.
+`issues` has now been reconciled against production as well as the seed, and the
+gate earned its keep: it found the `state_reason` casing bug below, which no
+parity test here could have seen. It goes live once migration 004 has repaired
+the nine rows that bug already wrote.
 
 **After `issues` goes live, `drilldown` is the whole of what remains** — 22 of the
 53 cards, both drilldown pages.
 
 ## Do these in order
 
-1. **Push.** Nine commits are sitting unpushed.
-2. **Clean the repo's junk.** A session's git ran in an environment that could
-   create lock files but not unlink them, and worked around it by renaming them
-   aside. `find .git -name '*.abandoned' -delete`. Inert, but noisy.
-3. **Load traffic**, as above.
-4. **Deploy and reconcile `issues`:**
+1. **Push.** The junk files are gone and the Worker carrying `issues` is already
+   deployed; what is unpushed is the `state_reason` fix below.
+2. **Load traffic**, as above.
+3. **Repair `state_reason`, then promote `issues`.** The reconciliation is done
+   — see `going-live-status.md` — and it found one defect: the webhook handler
+   was storing the payload's lowercase `not_planned` where the seed holds
+   `NOT_PLANNED`, so nine closed issues were being read as completed. Fixed in
+   `handlers.js`; the rows already in D1 need the migration.
 
 ```
 cd worker
+npx wrangler d1 execute nh-dashboard --remote --file migrations/004-normalise-state-reason.sql
 npx wrangler deploy
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
-curl -s "https://nh-dashboard.gtnh.workers.dev/api/panel/issues?$(date +%s)" > /tmp/live.json
 ```
 
-   Diff that against `data/dashboard.json`'s `panels.issues.data`. Expect live to
-   run slightly **ahead** on day counts — that is the port working, the same
-   divergence the release cards and `ciHealth` both showed. Then add `"issues"`
-   to `LIVE_PANELS` and push.
+   Then check `/api/panel/issues` reads `unknownReason: 0` and `notPlanned:
+   5105` again, add `"issues"` to `LIVE_PANELS`, and push.
 
-5. **Then `drilldown`.** See below.
+4. **Then `drilldown`.** See below.
 
 ## Next: `drilldown`, and it is not shaped like the others
 
@@ -267,6 +270,17 @@ arm.
 SELECT, so `isUnanswered` saw `undefined` and reclassified every issue whose
 comment sample merely ran out. Nothing errored.
 
+**A parity test cannot see the webhook write path.** Every suite here compares
+two readings of one seed, and the seed comes from the GraphQL walk. The handler
+writes REST's spelling — `not_planned` against the seed's `NOT_PLANNED` — and no
+parity test can reach it. Reconciling against production is the only check that
+reads what the handler actually wrote, and it is what caught this.
+
+**Do not write a test's expectation out of its input.** `check("state_reason
+written", …, "completed")` fed a payload in and asserted the payload came back.
+It passed for three weeks over a column the panel could not read. Assert the
+rule the store exists to answer, not the value you just bound.
+
 **Rebuild the oracle before believing a parity failure.** When a rule changes,
 the shipped `dashboard.json` is a stale baseline and the test reports a fix as a
 regression. That has cost two investigations now. `npm run rebuild:issues`
@@ -378,11 +392,11 @@ yet been compared against production.
 ```
 npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
-npm run test:handlers     59   webhook handlers
+npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
 npm run test:parity      190   across eight panels
                         ----
-                         313
+                         314
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
