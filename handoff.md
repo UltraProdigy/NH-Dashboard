@@ -154,8 +154,46 @@ have to fetch a row on demand instead. Budget for that rather than discovering i
 Two things already known about the content: `src/panels/drilldown.js` computes
 `people` differently by subject type, and the resolved-PR rows are positional
 arrays like the issue panel's people rows — `resolvedFields` and friends are the
-column orders, and they belong in a shared module before a second implementation
-packs them.
+column orders, and they still want moving into `drilldown-rules.js` beside the
+comparators before a second implementation packs them.
+
+## The orderings are done, and they were the biggest instance yet
+
+The recurring bug — a list sorted on its metric alone, ties left in store
+order — was in **every ordered list this panel produces.** Measured on the file
+as it shipped, before anything was changed:
+
+| Where | Ties |
+|---|---|
+| `index.contributors` | **6,538 of 6,748 adjacent pairs** — 97% of the picker |
+| `index.repos` | 187 of 297 |
+| ranked lists | 95,671 ties across 13,490 lists; 10,659 contain one |
+| backlog `oldest` | 1,490 ties on `ageDays`, which is a whole number of days |
+| resolved PR rows | 9,664 of 25,719 tie on the timestamp |
+
+Fixing them moved **67,811 positions across 5,474 lists**, and 1,207 of those
+were *membership* changes — a tie at a capped list's cut line meant an entry was
+in or out by nothing at all. Every one of those would have shown up as a parity
+failure during the port with no bug behind it, because store order is not
+something SQL reproduces.
+
+The comparators live in `src/shared/drilldown-rules.js` as comparator/SQL pairs,
+the same arrangement `issue-rules.js` uses. `byRecord` is deliberately `(repo,
+number)` compared as parts and **not** the `"repo#number"` string the frontend
+renders — switching it to the string form fails the test in 91 real lists, so
+the digit-count trap the issue panel documents is live in this data too.
+
+`npm run test:parity:drilldown` is the test, written before the port and broken
+ten ways to check it bites. It has one named survivor: swapping two field names
+that neither the sort nor the arity touches passes, because that half of the
+file checks one implementation's shape rather than two implementations' values.
+Closing it is the panel comparison's job, which is why that half decodes rows by
+field name on both sides rather than by position.
+
+`npm run rebuild:drilldown` is the oracle. It pins `now` to `dashboard.json`'s
+`generatedAt` for the same reason `rebuild:issues` does — half this file is ages
+and staleness measured from an instant, so rebuilding at wall clock puts a panel
+counting from today next to one counting from the build.
 
 ## Then, and these are decisions rather than work
 
@@ -442,12 +480,13 @@ npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      190   across eight panels
+npm run test:parity      203   across eight panels, plus the drilldown orderings
                         ----
-                         314
+                         327
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
+npm run rebuild:drilldown      the whole file, ~3s, no token
 cd worker && npx wrangler deploy
 npx wrangler tail
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
