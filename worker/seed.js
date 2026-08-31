@@ -16,6 +16,26 @@
 
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Store paths resolve against the repo, not the working directory.
+ *
+ * They used to be bare relative strings, and each reader returns quietly when
+ * its file is absent — which is right when a store genuinely has not been
+ * built, and silent in exactly the wrong way when the file is there and the
+ * process simply started somewhere else. Run from `worker/`, the whole thing
+ * found nothing, wrote a valid SQL file containing no rows, and exited 0.
+ * `wrangler d1 execute --file` would then apply it and report success.
+ *
+ * That is the same failure shape as the workflow run that deployed nothing:
+ * the thing that went wrong announced itself as the thing going right. The
+ * `--out` path stays relative to the working directory, because that one is
+ * the caller's to choose and a wrong guess there is visible immediately.
+ */
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const store = (rel) => join(ROOT, rel);
 
 const ROWS_PER_STATEMENT = 200;
 
@@ -116,7 +136,7 @@ const TRAFFIC_COLUMNS = [
 ];
 
 async function seedPullRequests(w) {
-  const path = "data/ingest/prs.ndjson";
+  const path = store("data/ingest/prs.ndjson");
   if (!existsSync(path)) return;
 
   w.begin("pull_requests", PR_COLUMNS);
@@ -147,7 +167,7 @@ async function seedPullRequests(w) {
 }
 
 async function seedIssues(w) {
-  const path = "data/ingest/issues.ndjson";
+  const path = store("data/ingest/issues.ndjson");
   if (!existsSync(path)) return;
 
   w.begin("issues", ISSUE_COLUMNS);
@@ -167,7 +187,7 @@ async function seedIssues(w) {
 }
 
 async function seedTraffic(w) {
-  const path = "data/ingest/traffic.ndjson";
+  const path = store("data/ingest/traffic.ndjson");
   if (!existsSync(path)) return;
 
   w.begin("traffic_daily", TRAFFIC_COLUMNS);
@@ -180,7 +200,7 @@ async function seedTraffic(w) {
 }
 
 async function seedState(w) {
-  const path = "data/ingest/state.json";
+  const path = store("data/ingest/state.json");
   if (!existsSync(path)) return;
 
   const { readFileSync } = await import("node:fs");
