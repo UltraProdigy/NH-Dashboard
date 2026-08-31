@@ -4,74 +4,119 @@ Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Rewritten 2026-08-30, after `ciHealth` went live.
+Rewritten 2026-08-30, after the `issues` port.
 
 ---
 
-## The one deadline in this project
+## Nothing here is on a deadline any more
 
-**Traffic. Aug 29 becomes unrecoverable around Sept 12.**
+Traffic was the one clock-bound thing and it has been caught up. The store holds
+**Aug 13–29 dense, 5,405 rows**; the one-row hole on Aug 28 is filled and Aug 29
+is captured. Aug 30 is deliberately absent — the ingest discards the current day
+because GitHub counts it as it goes.
 
-`npm run ingest:traffic` runs by hand, the store holds 2026-08-13 → 08-28, and
-GitHub's traffic window is 14 days with no backfill. It is the only dataset here
-where delay costs something permanent — PRs, issues, commits and runs can all be
-re-walked whenever. `traffic_daily` is in the schema and holds **0 rows**; it was
-the deferred half of the original seed split and has been parked ever since.
+What is left is not a deadline but it is still the only copy: **`traffic_daily`
+holds 0 rows in D1**, and the store on one laptop is all there is. The SQL is
+generated and gitignored:
 
-Nothing else in this file is urgent. This is.
+```
+cd worker
+npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
+```
+
+Re-run `npm run ingest:traffic` first if more than a few days have passed —
+it is safely re-runnable and overlapping runs replace rather than duplicate.
 
 ## Where the port stands
 
-Eight panels served from D1, and every event the App subscribes to is now
-captured — `workflow_run` was the last one being received and discarded.
+**Nine of the ten panels can now be served from D1.** `issues` was the last
+substantial one and it is done: fifteen keys, every one reconciling against the
+build leaf for leaf.
 
-| Panel | Tier | Latency |
+| Panel | Tier | Note |
 |---|---|---|
-| `approvedUnmerged` | instant | seconds — rebuilt on the webhook delivery |
-| `changesRequested` | instant | seconds — same |
+| `approvedUnmerged` | instant | rebuilt on the webhook delivery |
+| `changesRequested` | instant | same |
 | `contributors` | cron | ≤10 min |
 | `analytics` | cron | ≤10 min |
 | `needsRelease` | cron | ≤10 min |
 | `depUpdates` | cron | ≤10 min |
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
+| `issues` | cron | **registered, not yet in `LIVE_PANELS`** |
+| `drilldown` | — | the last one still from the build |
 
-**The panel count flatters it.** Two panels still come from the daily build and
-they are **32 of the 53 cards**, so most of this page is still static:
+`issues` is deliberately held back. Every key reconciles against the build on the
+**seed**, and the seed is not production. `ciHealth` went through the same gate.
 
-| Panel | Cards | Blocked on |
+**After `issues` goes live, `drilldown` is the whole of what remains** — 22 of the
+53 cards, both drilldown pages.
+
+## Do these in order
+
+1. **Push.** Nine commits are sitting unpushed.
+2. **Clean the repo's junk.** A session's git ran in an environment that could
+   create lock files but not unlink them, and worked around it by renaming them
+   aside. `find .git -name '*.abandoned' -delete`. Inert, but noisy.
+3. **Load traffic**, as above.
+4. **Deploy and reconcile `issues`:**
+
+```
+cd worker
+npx wrangler deploy
+curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
+curl -s "https://nh-dashboard.gtnh.workers.dev/api/panel/issues?$(date +%s)" > /tmp/live.json
+```
+
+   Diff that against `data/dashboard.json`'s `panels.issues.data`. Expect live to
+   run slightly **ahead** on day counts — that is the port working, the same
+   divergence the release cards and `ciHealth` both showed. Then add `"issues"`
+   to `LIVE_PANELS` and push.
+
+5. **Then `drilldown`.** See below.
+
+## Next: `drilldown`, and it is not shaped like the others
+
+Every panel so far was "compute a blob, cache it, overlay it". This one cannot
+be, and it is the only remaining piece of the migration.
+
+`data/drilldown.json` is 23 MB, against a **2 MB D1 row cap**, so `panel_cache`
+is out. The shape is what makes it tractable:
+
+| Part | Size | Notes |
 |---|---|---|
-| `drilldown` | 22 — both drilldown pages | No `worker/src/panels/drilldown.js`. `drilldown_contributors` and `drilldown_repos` are already in `schema.sql` |
-| `issues` | 10 — Issue Analytics | No `worker/src/panels/issues.js`. The `issues` table is in the schema and `worker/test/issues.parity.test.js` is written and skipping politely until the panel exists |
+| `contributors` | 18.4 MB | 6,749 entries keyed by login |
+| `repos` | 3.2 MB | 298 entries keyed by repo |
+| `index` | 0.5 MB | what the pickers need up front |
+| 17 schema keys | tiny | field-name lists, windows, buckets |
 
-Neither is blocked on data. Both are blocked on someone writing the panel.
+So it is not a blob that resists a Worker, it is 6,749 rows waiting for
+`WHERE login = ?`. `drilldown_contributors` and `drilldown_repos` are **already
+in `schema.sql`** for exactly this; the recompute materialises them and
+`/api/contributor/{login}` serves one. The `index` and the schema keys are small
+enough to be an ordinary cached blob.
 
-## Next: the `issues` port
+**This is the first one that needs a frontend change.** Every other panel was one
+entry in `LIVE_PANELS`. The drilldown pages load one 23 MB file today and would
+have to fetch a row on demand instead. Budget for that rather than discovering it.
 
-The groundwork is committed and it is the same shape the other eight went in.
-
-`src/shared/issue-rules.js` pairs every rule with its SQL twin, and
-`worker/test/issues.parity.test.js` already passes 8 assertions comparing per
-issue rather than per total. The core needs **no JSON support** —
-`unlabelled`/`unassigned` are the only questions asked of those columns and every
-empty value is exactly `[]`. Only the label breakdown needs `json_each`, which is
-still untested on D1.
-
-After that: `issueMetrics`, `activeDays`, `drilldown`. `drilldown` is 23 MB and
-cannot use `panel_cache` — a D1 row caps at 2 MB — which is why it gets its own
-materialised tables, already in the schema.
+Two things already known about the content: `src/panels/drilldown.js` computes
+`people` differently by subject type, and the resolved-PR rows are positional
+arrays like the issue panel's people rows — `resolvedFields` and friends are the
+column orders, and they belong in a shared module before a second implementation
+packs them.
 
 ## Then, and these are decisions rather than work
 
 - **Step 10 of Phase D: deploying the Worker from Actions.** Not done. The daily
-  workflow has no Cloudflare secret at all and adding one is a call nobody has
-  made. Every deploy today is manual, from a machine logged in to Cloudflare.
+  workflow has no Cloudflare secret and adding one is a call nobody has made.
+  Every deploy today is manual, from a machine logged in to Cloudflare.
 - **Phase E — App auth and the private backfill.** Unblocked since the decision
-  that private repo data ships publicly. `getToken()` swaps to the App flow,
-  then the ingest walks the 12 private repos for the first time.
-- **Phase F — cleanup.** Retire `GH_DASHBOARD_TOKEN`, move the repo into the
-  org, and decide what to do about 96 MB of git history. The org move is the
-  event that forces the `NH_INGEST_EXCLUDE` question below.
+  that private repo data ships publicly. `getToken()` swaps to the App flow, then
+  the ingest walks the 12 private repos for the first time.
+- **Phase F — cleanup.** Retire `GH_DASHBOARD_TOKEN`, move the repo into the org,
+  decide what to do about 96 MB of git history. The org move is the event that
+  forces the `NH_INGEST_EXCLUDE` question below.
 
 ## Live infrastructure
 
@@ -100,7 +145,7 @@ This has cost time in three different directions now, so it is a table.
 
 `origin/main` being current says nothing about what the Worker is running.
 Deploying the Worker without pushing means the page never asks for a new panel.
-And **a local `npm run build` or `npm run rebuild:ci` never reaches Pages** — the
+And **a local `npm run build` or `npm run rebuild:*` never reaches Pages** — the
 workflow restores `data/*.json` from its own Actions cache, so a clean file on
 your disk proves nothing about the deployed one. Only a `data` run (the 05:00
 cron, or `gh workflow run build.yml`) republishes numbers.
@@ -128,10 +173,7 @@ scope:  live, withHorizon, droppedAsDormant, withCommits,
         reposWithRuns, reposWithRunsOnDefault
 ```
 
-`reposWithRuns` against `reposWithRunsOnDefault` is the newest pair and catches
-the CI panel's quietest failure: a repo that renames `master` to `main` keeps
-every run row it had and shows nothing, because runs are stored with the branch
-they ran on and the panel matches the *current* default branch.
+`traffic_daily` reading 0 is how you will know the load above has not run.
 
 ## The card tint
 
@@ -160,102 +202,158 @@ npm run backfill:commits -- --out worker/backfill.sql   # history; slow, ~15k ro
 npm run backfill:runs    -- --out worker/runs.sql       # ~260 requests, one per repo
 npm run backfill:labels  -- --out worker/labels.sql     # 20 rows; when labels change
 node worker/seed.js --out worker/seed.sql               # from the local ingest store
+node worker/seed.js --only=traffic --out worker/traffic.sql
 ```
 
 None needs Cloudflare credentials to *generate*, which is why CI can never run
 them. All are upserts on natural keys, so a partial file applied now and a full
-one later converge.
+one later converge. `seed.js` resolves store paths against the repo, so it works
+from any directory — it used to find nothing when run from `worker/` and write a
+valid empty file.
 
 `backfill-runs.js` writes `repos` rows but deliberately **not `commits_since`**:
 that column is the release panels' record of how far back *their* sweep walked,
 and this sweep walks no commits. Writing NULL over it would shallow the
-`depUpdates` floors — a bug that card already had once, arriving from a script
-with nothing to do with it.
+`depUpdates` floors.
 
 ## The bug this port keeps producing
 
-Every defect found while going live made the org look **healthier** than it was,
-until the last one, which pointed the other way.
+Two families now, and the second one turned out to be much the larger.
 
-- `commitsAhead` counted the sweep window, not commits — 20 where the truth was
-  106, on the repos furthest behind
-- `depUpdates` floors read 102 days where the truth was 365
-- Seven private repos were withheld from a page that publishes them
-- A stale-repo cutoff dropped 25 repos with commits from last week
-- Six repos with no commits at all vanished entirely
-- **`ciHealth` durations read ~580,000 minutes where the truth was five**, which
-  made the org look busier and more expensive rather than healthier
-- **A green workflow run deployed nothing at all**, and said success
+**Every defect made the org look healthier than it was** — until `ciHealth`,
+which pointed the other way. `commitsAhead` counted the sweep window rather than
+commits, 20 against a true 106. `depUpdates` floors read 102 days where the truth
+was 365. Seven private repos were withheld from a page that publishes them. A
+stale-repo cutoff dropped 25 repos with commits from last week. Six repos with no
+commits vanished entirely. `ciHealth` durations read ~580,000 minutes where the
+truth was five. A green workflow run deployed nothing at all, and said success.
 
-The direction varies; the cause does not. None was visible from the thing's own
-output. **Keep the Node panels after porting; do not delete them.** They are the
+**And a list sorted on a metric alone leaves its ties in store order.** This one
+turned up in *seven* places and was never once cosmetic, because store order is
+not something SQL can reproduce — the two implementations disagree by
+construction, on the rows nobody looks at closely:
+
+| Where | What it was deciding |
+|---|---|
+| `people` (by-contributor) | 256 people level on involvement 1 in `m1`, 74 fit. **79 rows replaced** |
+| window top-N lists | 8 of 42 changed, **6 changed membership** |
+| label tables | 86 of 314 rows level on group, open and total |
+| `oldest`/`quietest`/`ignored` | 9 open issues share the boundary age, 6 fit |
+| `mostDiscussed` | tiebroke on `number`, unique per repo and not across them |
+| per-repo issue rows | 7 repo pairs tie on both counts |
+| leaderboard, `topRepos`/`topAuthors`/`topReviewers` | fixed earlier, same cause |
+
+The orderings now live in `src/shared/issue-rules.js` as comparator/SQL pairs.
+**If you add a list, give it a total order in the shared file**, and note that
+`firstIssueOrderSql` is deliberately *not* `(repo, number)` — it mirrors a
+JavaScript compare of `"repo#number"` strings, and the two disagree whenever two
+numbers in one repo differ in digit count.
+
+The direction varies; the cause does not. **None was visible from the thing's own
+output. Keep the Node panels after porting; do not delete them.** They are the
 only oracle this project has.
 
 ## Things that will bite again
 
+**A `CASE WHEN` whose condition is NULL falls through to `ELSE`.**
+`closedByHand` read 21,495 against a true 19,011 because
+`NOT (closed_at >= ? AND closed_at < ?)` is NULL for an open issue, so all 2,484
+of them landed in `ELSE 1`. The all-time version of the same count was right the
+whole time because it leads with `closed_at IS NULL THEN 0`. Lead with the NULL
+arm.
+
+**A column left out of a projection is a rule quietly changed.** `people` read
+`filedUnanswered` one high because `response_unknown` was missing from the
+SELECT, so `isUnanswered` saw `undefined` and reclassified every issue whose
+comment sample merely ran out. Nothing errored.
+
+**Rebuild the oracle before believing a parity failure.** When a rule changes,
+the shipped `dashboard.json` is a stale baseline and the test reports a fix as a
+regression. That has cost two investigations now. `npm run rebuild:issues`
+patches one panel in under a second and needs no token — and it pins `now` to the
+file's own `generatedAt`, because a panel counting from today inside a file whose
+others count from the build differs everywhere for no reason.
+
 **Check what a payload or a parameter actually carries.** Three times: the push
 payload's non-existent PR field, the release payload's non-existent tag SHA, and
 `exclude_pull_requests`, which returns a byte-identical set of runs and only
-empties each one's `pull_requests` array — the branch filter is the whole of the
-exclusion. Each was documented confidently before being checked.
+empties each one's `pull_requests` array.
 
 **Do not extrapolate a rate from a sample chosen for its outliers.** The discard
-rate went into three files as "about one in seven", from fourteen repos picked
-as the worst offenders. Measured org-wide it is 1.7% — 53 of 3,156 runs.
+rate went into three files as "about one in seven", from fourteen repos picked as
+the worst offenders. Measured org-wide it is 1.7%.
 
-**A skip propagates down the whole job graph, not one edge.** `data` is skipped
-on a push; `site` survives on its own `always()`; `deploy` inherited the skip
-*through* `site` and was itself skipped while the run reported success. Both
-`site` and `deploy` now carry `if: always() && needs.<dep>.result == 'success'`.
-The result check is not decoration — `always()` alone would deploy over a failed
-`site`.
+**A skip propagates down the whole job graph, not one edge.** Both `site` and
+`deploy` carry `if: always() && needs.<dep>.result == 'success'`. The result
+check is not decoration — `always()` alone would deploy over a failed `site`.
 
 **`updated_at` on a workflow run is not an end time.** GitHub bumps it on log
-expiry and job re-runs, months later. Durations over `CI_MAX_RUN_MINUTES` are
-discarded, so `timedRuns < runs` on a minority of repos is normal.
+expiry and job re-runs, months later.
 
 **`strftime` parses a date per row per call** — 43ms against 7ms for the
 equivalent string comparison. Timestamps are fixed-width whole seconds, so
 lexical order is chronological order. Compare strings, ceil the bound with
-`isoBound`, normalise anything from a payload with `utcSeconds`. The one
-legitimate use is a *duration*, which arithmetic requires; even there the `CAST`
-is mandatory, because `strftime` returns TEXT and SQLite orders every TEXT value
-above every number.
+`isoBound`, normalise anything from a payload with `utcSeconds`.
 
 **±Infinity cannot cross the D1 wire.** Parameters serialise as JSON and
-`Infinity` becomes `null`. Bind finite sentinels.
+`Infinity` becomes `null`. Bind finite sentinels — `NEVER`/`FOREVER` in
+`worker/src/periods.js`.
 
 **A window frame defaults to RANGE, and RANGE cannot count.** Percentiles rank
-with `ROWS UNBOUNDED PRECEDING`; without it, rows tied on a value share one
-running total and the lookup returns NULL.
+with `ROWS UNBOUNDED PRECEDING`.
 
 **D1 rejects a compound SELECT with more than a few arms.** A six-arm `UNION`
 passed every local test and failed on the first real recompute. A local replica
 proves logic, never dialect — **but it does predict cost: D1 runs about 2.2× the
-local replica.** Profile locally and multiply rather than spending a deploy per
-hypothesis.
+local replica.** The widest query in production is 39 columns; nothing has tested
+further, so do not assume a 150-column one works.
 
-**Write the parity test before the port, then try to break it.** The `ciHealth`
-one was green on its first run, which meant nothing until eight deliberate
-mutations of the panel were each confirmed to fail it.
+**Write the parity test before the port, then try to break it.** Green on the
+first run means nothing. The `issues` port ran 32 deliberate mutations across
+four slices; four found real gaps in the *test*, including one where deleting a
+rule from `fixerSql` passed everything because the store happens never to
+exercise it. Where a survivor is a branch no row takes, it is named where it sits
+and given a synthetic row.
+
+**A tiebreak that is missing is invisible from the output.** Deleting the repo
+name from the `repos` sort changed nothing, because SQLite happened to group in
+name order. The parity test now re-sorts a *shuffled* copy, which only passes if
+the comparator alone decides the order.
 
 **Do not name a CTE after a real table.** `worker/src/scope.js` rewrites
-`FROM commits`, `FROM workflow_runs` and friends into filtered subqueries. For
-the same reason a **write** must use the raw handle: `DELETE FROM (SELECT …)` is
-not a statement, which is why `pruneWorkflowRuns` takes `env.DB`.
+`FROM issues` and friends into filtered subqueries. For the same reason a
+**write** must use the raw handle.
 
 **`CREATE TABLE IF NOT EXISTS` will not add a column.** New columns need a file
 in `worker/migrations/`, applied before `schema.sql`. New *tables* need nothing.
 
 **A theory that fits the symptom is not evidence.** Twenty-four repos vanished
-and the cause looked certain — an epoch `pushed_at` sorting below every ISO date.
-Every detail fit. The counter added to prove it came back 0.
+and the cause looked certain. The counter added to prove it came back 0.
+
+## Two rules that were re-measured rather than inherited
+
+Both were right when written and wrong to apply here, and the difference was a
+measurement each.
+
+**"Aggregate in SQL, never in the isolate"** exists because rebuilding the store
+in a Worker cost 96 MB against a 128 MB ceiling — a finding about *pull
+requests*. Issues are smaller: the whole store is 32 MB. So `people` feeds the
+Node panel's own `foldPerson` accumulators rather than reimplementing 32 fields
+per person per window in SQL, and the agreement is structural instead of tested.
+It is scoped to the 553 people who can make a cut, because accumulators for all
+6,450 are 45,150 objects and 66.5 MB.
+
+**`json_each` was never needed.** It gated five keys and could not be probed
+through wrangler. Measured against expanding the JSON columns in the isolate:
+9.3ms versus ~56ms locally, on 0.76 MB. The isolate route needs nothing D1 has
+never been asked to do, so the untested feature never had to be tested. The
+drilldown port should reach for the same trick before assuming it needs SQL.
 
 ## Known divergences from the build
 
-**`needsRelease`** — three repos, one cause: a release webhook carries no tag
-SHA, so the panel compares commit *dates* against `published_at` where the Node
-version compares *ancestry*. They agree until a tag is cut from an older commit.
+**`needsRelease`** — three repos, one cause: a release webhook carries no tag SHA,
+so the panel compares commit *dates* against `published_at` where the Node
+version compares *ancestry*.
 
 | Repo | Build | Live |
 |---|---|---|
@@ -266,18 +364,14 @@ version compares *ancestry*. They agree until a tag is cut from an older commit.
 Two fail by dropping a repo silently. The fix is to have the daily build resolve
 each tag to its commit and store it; deliberately not done at three repos.
 
-**`depUpdates` reconciles at 279**, not the 276 an earlier handoff predicted.
-244 exact rows + 35 floors, and `withCommitsInWindow` (270) + 9 repos with no
-commits = 279. Live is a strict superset of the build; the three extra —
-`Mobile-Issues-Tracker`, `ao-issue-tracker`, `nac-issue-tracker` — are issue-only
-repos holding no code, exactly the noise `releases.js` predicted the `LEFT JOIN`
-would add. It errs unflattering, which is the safe direction.
+**`depUpdates` reconciles at 279**, not 276. Live is a strict superset of the
+build; the three extra are issue-only repos holding no code. It errs unflattering.
 
-**`ciHealth` reconciles exactly** on 252 repos, 3,156 sampled runs, 3,029
-decisive, 185 failures, and a pass rate matching to sixteen decimal places. The
-only difference is 10.4 minutes of sampled time out of 11,569, traced to six
-repos at the 20-run cap whose sample slid in the fifteen minutes between the
-build and the backfill.
+**`ciHealth` reconciles exactly** on 252 repos and 3,156 sampled runs, with a
+pass rate matching to sixteen decimal places.
+
+**`issues` reconciles exactly against the seed** on all fifteen keys. It has not
+yet been compared against production.
 
 ## Commands
 
@@ -286,11 +380,12 @@ npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     59   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      157   across seven panels
+npm run test:parity      190   across eight panels
                         ----
-                         280
+                         313
 
-npm run rebuild:ci             one panel, ~2.5 min, instead of a 592s build
+npm run rebuild:ci             one panel, ~2.5 min
+npm run rebuild:issues         one panel, <1s, no token
 cd worker && npx wrangler deploy
 npx wrangler tail
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
@@ -301,8 +396,7 @@ Every suite builds its own SQLite replica from `schema.sql` + `seed.sql` and
 skips politely when those are absent, which they are in CI.
 
 **Run wrangler from `worker/`.** Chaining `cd worker &&` onto the first line of a
-block means pasting it while already there silently skips that step, which has
-now cost three rounds across two sessions.
+block means pasting it while already there silently skips that step.
 
 ## Parked, deliberately
 
@@ -313,29 +407,45 @@ by `npm run test:exclusion`, but **CI has no repo secret**, so a CI build still
 republishes the repo. Add it under Settings → Secrets and variables → Actions
 *before* the next `data` run.
 
-That becomes urgent at the org move rather than before it: moving in means the
-repo goes public, `data/` is in the git *history*, and that history includes
-`dashboard.json` versions carrying the excluded repo's issue titles. Untracking
-`data/` going forward did not remove what is already there.
+That becomes urgent at the org move: moving in means the repo goes public,
+`data/` is in the git *history*, and that history includes `dashboard.json`
+versions carrying the excluded repo's issue titles.
+
+**`src/panels/issues.js` commits as a binary diff.** It carries a NUL as the
+label key separator, so git will not diff it. A `.gitattributes` line fixes it.
+The NUL is belt-and-braces either way — GitHub repo names cannot contain spaces,
+so a plain separator could not collide.
+
+**`worker/runs.sql` is tracked and its four siblings are not.** Same kind of
+generated file. Looks like an oversight rather than a decision.
 
 **The org-wide `meanRunMinutes` divides by `sampledRuns` while each repo's own
-mean divides by `timedRuns`.** With 1.7% of runs untimed that bias is real but
-roughly a thousandth of the bug the ceiling fixed. Existing behaviour; changing
-it would move a number for an unrelated reason.
+mean divides by `timedRuns`.** Existing behaviour; changing it would move a
+number for an unrelated reason.
 
 **The Leaderboard sorts by all-time under a subtitle claiming the selected
 period.** Predates all of this. One line either way; which line is a product
 question.
 
+**The `firsts` CTE is rebuilt four times in the issue panel** — once per series
+grain and once for `byWindow`, ~220ms local and ~490ms on D1. The largest single
+piece of waste there, left alone because `analytics` spent three deploys on
+theories about its own hot spots and was wrong twice. The numbers are in the
+panel header so the trade can be made on evidence.
+
 ---
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md`. Load `traffic_daily` into D1 —
-> the store holds through Aug 28, GitHub's window is 14 days, and it is the only
-> dataset here that cannot be backfilled. Then port `issues` off the daily
-> build, which already has its parity test written against
-> `src/shared/issue-rules.js`. Parity test first, and try to break it before
-> trusting it; reconcile against `data/dashboard.json` before adding anything to
-> `LIVE_PANELS`. Every defect this port has produced was invisible in the
-> panel's own output and needed a second implementation to disagree with.
+> Read `handoff.md` and `going-live-status.md`. `issues` is ported and
+> registered in `recompute.js` but not in `LIVE_PANELS` — deploy, force a
+> recompute, and diff `/api/panel/issues` against `data/dashboard.json` before
+> adding it, expecting live to run slightly ahead on day counts. Load
+> `worker/traffic.sql` into D1 while you are there; `traffic_daily` still holds
+> zero rows. Then port `drilldown`, which is the last panel from the build and
+> the only one that cannot be a cached blob: 23 MB against a 2 MB row cap, so it
+> uses the `drilldown_contributors` and `drilldown_repos` tables already in
+> `schema.sql` plus a per-row endpoint, and it is the first port that needs a
+> frontend change. Write the parity test first and try to break it — every
+> defect this port has produced was invisible in the panel's own output, and the
+> most common one by far is a list sorted on a metric with no tiebreak.

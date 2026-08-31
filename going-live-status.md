@@ -1168,3 +1168,127 @@ the same divergence already recorded for the release cards, arriving on the one
 panel where it can be measured to a tenth of a minute.
 
 **Verdict: it reconciles.** `ciHealth` can go into `LIVE_PANELS`.
+
+---
+
+# The issues port
+
+Written 2026-08-30. Fifteen keys, the largest panel here. All of it reconciles
+against the build; none of it is in `LIVE_PANELS`, for the reason `ciHealth` was
+held back — the comparison is against the seed, and the seed is not production.
+
+## Traffic is caught up
+
+`npm run ingest:traffic` ran. The store held Aug 13–27 densely with a *one-row*
+Aug 28 — the handoff said "through Aug 28", which flattered it — and now holds
+**Aug 13–29, 5,405 rows**. Nothing was lost; Aug 28 was still inside GitHub's
+window when it was re-walked. `worker/traffic.sql` is generated and gitignored,
+and `traffic_daily` still holds 0 rows in D1.
+
+## The recurring bug is not the one this file has been recording
+
+Every entry above says the same thing: each defect made the org look healthier
+than it was, and none was visible from the panel's own output. That is true and
+it is not the most common failure here.
+
+**A list sorted on its metric alone leaves ties in store order**, and this port
+found it in seven places at once. It was never cosmetic, because store order is
+reproducible from the store and not from SQL — the two implementations disagree
+by construction, on exactly the rows nobody checks:
+
+| Where | Ties | Effect |
+|---|---|---|
+| `people` | 256 level on involvement 1 in `m1`, 74 fit | **79 rows replaced** across seven windows |
+| window top-N | — | 8 of 42 lists changed, **6 changed membership** |
+| label tables | 86 of 314 level on group/open/total | a quarter of the table |
+| triage lists | 9 open issues share the boundary age, 6 fit | 3 excluded by nothing |
+| `mostDiscussed` | 723 pairs share `(comments, number)` | one adjacent pair swapped |
+| per-repo rows | 7 repo pairs tie on both counts | invisible until shuffled |
+
+`topRepos`/`topAuthors`/`topReviewers` and the leaderboard had already been fixed
+for the same reason, which makes seven. The orderings now live in
+`issue-rules.js` as comparator/SQL pairs.
+
+The subtle one: **a missing tiebreak is invisible from the output.** Deleting the
+repo name from the `repos` sort changed nothing, because SQLite happened to
+group in name order — right by an accident SQL does not share. The parity test
+now re-sorts a *shuffled* copy, which passes only if the comparator alone decides
+the order.
+
+## Two things the parity test caught before they shipped
+
+**`closedByHand` read 21,495 against a true 19,011.** With a NULL close date the
+period test `NOT (closed_at >= ? AND closed_at < ?)` is NULL, and `CASE WHEN
+NULL` does not match — so all 2,484 *open* issues fell through every arm into
+`ELSE 1`. The all-time version of the same count was right the whole time
+because it leads with `closed_at IS NULL THEN 0`. The panel's own comment warns
+about this trap; adding a period predicate on top reintroduced it.
+
+**`filedUnanswered` read one high** on the busiest reporter, because
+`response_unknown` was missing from a SELECT. `isUnanswered` saw `undefined` and
+reclassified every issue whose comment sample merely ran out as one nobody
+answered. A column left out of a projection is a rule quietly changed.
+
+## Two rules re-measured rather than inherited
+
+**`json_each` was never needed.** It gated five keys, could not be probed through
+wrangler, and was going to cost a deploy to answer. Measured against expanding
+the JSON columns in the isolate: 9.3ms versus ~56ms locally over 0.76 MB. The
+isolate route needs nothing D1 has never been asked to do, so the one untested
+feature never had to be tested. `drilldown` should try the same before assuming
+it needs SQL.
+
+**"Aggregate in SQL, never in the isolate" did not apply to `people`.** The
+finding behind that rule was 96 MB for pull requests against a 128 MB ceiling.
+Re-measured for issues:
+
+```
+26,161 fetched rows              32.3 MB
+553 x 7 scoped accumulators       3.1 MB  ->  35.4 MB
+6,450 x 7, the version rejected  34.2 MB  ->  66.5 MB
+```
+
+So `people` feeds `foldPerson` directly rather than reimplementing 32 fields per
+person per window in SQL, and the agreement is structural instead of tested.
+Two passes: the first counts only involvement and picks the 553 who can make a
+cut, because it is the accumulators rather than the rows that are expensive —
+94% of issues involve somebody in some window's top 200.
+
+## Cost
+
+44 queries, 1,913ms local, **~4.2s projected on D1** at the established 2.2×.
+655 KB cached against a 2 MB row cap, 35.4 MB working set against 128 MB. That
+makes it the most expensive panel; with `analytics` the recompute is now ~7s of
+a ten-minute cron. Headroom is recorded in the panel header — the `firsts` CTE
+is rebuilt four times, ~490ms of D1 time — and deliberately not taken, because
+`analytics` spent three deploys on theories about its own hot spots and was
+wrong twice.
+
+## Verification
+
+32 mutations across the four slices. The ones that survived are each a branch no
+row in the store takes, and each is named where it sits: `closer_known` is 1 on
+every record, no bot has ever been a first responder (`firstResponse()` in the
+ingest refuses to pick one) or an assignee, no open labelled issue has
+`response_unknown` set, and `pctRankSql`'s clamp is dead code below p=100.
+
+Four mutations found real gaps in the *test* rather than the panel, and those
+got synthetic rows: a `commit` close that names an author, a bot assignee, a
+same-second issue pair with differing digit counts, and the shuffle check.
+
+Suites: **313**, up from 280.
+
+## Also done
+
+- `worker/src/periods.js` — the period helpers lifted out of `analytics.js`
+  rather than copied. That machinery cost three deploys to get right.
+- `npm run rebuild:issues` — patches one panel into `dashboard.json` in under a
+  second, no token. It pins `now` to the file's own `generatedAt`; rebuilding at
+  wall-clock time drops a panel counting from today into a file whose other
+  fourteen count from the build, which looks exactly like a broken port.
+- `seed.js` resolves store paths against the repo. Run from `worker/` it used to
+  find nothing and write a valid empty file, which wrangler would then apply and
+  report success for.
+- The label taxonomy had drifted into a second identical copy in
+  `issueMetrics.js`, underneath the comment explaining why the percentile and
+  bucket keys were merged for exactly that reason.
