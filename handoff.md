@@ -559,9 +559,9 @@ npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      203   across eight panels, plus the drilldown orderings
+npm run test:parity      205   across eight panels, plus the drilldown orderings
                         ----
-                         327
+                         329
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
