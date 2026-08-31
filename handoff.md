@@ -106,9 +106,53 @@ Dream-Master is already 37% of the cap and grows with the org, so it is the row
 that decides whether this design lasts — worth a test asserting it rather than
 finding out from a failed recompute.
 
-## The recompute cannot materialise every subject every tick
+## The recompute cannot materialise every subject at all
 
-Measured before the port rather than after, because it changes the shape of it.
+Measured before the port rather than after, and the answer is stronger than the
+write-cost note below it: a full materialisation is not expensive, it is
+**impossible**, and it fails on three limits independently. Any one of them
+would settle it.
+
+| | Full pass | One subject on demand |
+|---|---|---|
+| rows touched | 96,491 | 14,088 worst case (Dream-Master) |
+| JSON before a single accumulator | **35.3 MB** | 5.9 MB |
+| local time | 236 ms | 44 ms → ~97 ms projected on D1 |
+| D1 queries | ~35,000 | **5** |
+| rows written | 7,047 | 1, and only when someone looks |
+
+1. **Memory.** 35.3 MB of raw rows is only the input. Bucketing them needs an
+   accumulator per subject per window, and 6,749 × 7 was already measured at
+   34.2 MB *for the issue side alone* — the version this file rejected. With the
+   PR side on top it is past the isolate's 128 MB ceiling before the payloads
+   are serialised.
+2. **Queries.** D1 allows **1,000 per Worker invocation** on Paid. Five queries
+   per subject across 7,047 subjects is ~35,000, so the per-subject shape cannot
+   be looped inside one recompute either. Neither shape fits.
+3. **Writes**, which is the section below, and the least of the three.
+
+**So the drilldown is computed per subject, on the request, and cached.**
+`/api/contributor/{login}` reads `drilldown_contributors`, serves the payload if
+its `version` matches the current one, and otherwise computes that one subject
+from five indexed queries and writes the row back. `version` is already a column
+on both tables; nothing needs a migration.
+
+The worst subject in the org costs ~97 ms projected, and the median is nearer
+10 ms. A cache that lives one cron tick means repeat views inside ten minutes
+are a single indexed read.
+
+**And it is the argument for reusing the Node panel rather than translating it.**
+"Rebuild the store in the isolate and call the proven function" was rejected at
+96 MB for pull requests — a finding about *the whole store*. One subject is
+5.9 MB. So the same trade the issue panel made for `people` applies here and
+more strongly: extract a per-subject entry point from `src/panels/drilldown.js`,
+hand it one subject's rows, and the agreement with the build is structural
+rather than tested. That is the difference between porting 1,500 lines and
+calling them.
+
+## The write cost, which the design above retires
+
+Kept because the arithmetic is worth having if anyone reaches for a full pass.
 
 `drilldown_contributors` and `drilldown_repos` are 7,047 rows between them, each
 with a TEXT primary key, so a full pass is **7,047 rows plus 7,047 index entries
@@ -131,21 +175,10 @@ being one `panel_cache` blob — the write cost scales with the panel count, not
 with the data. This is the one panel where it scales with the data, which is
 exactly what the pattern note in `going-live-status.md` warned about.
 
-**Write only what changed.** Hash each payload, keep the hash in a column
-alongside it, read back `SELECT login, hash` (7,047 tiny rows, and reads are
-effectively free at 25 billion a month), and write only the subjects whose hash
-moved. Steady state is a few hundred contributors and repos touched a day, so
-this is roughly four orders of magnitude cheaper and the cron cadence stops
-mattering.
-
-That needs a `hash` column, and **`CREATE TABLE IF NOT EXISTS` will not add one
-to a table that already exists** — so it is a file in `worker/migrations/`,
-applied before `schema.sql`, the same trap `merge_commit_sha` fell into.
-
-The alternative — leaving the write full and moving this panel to the daily
-cron — costs 14,100 writes a day, which is also fine, but it makes the drilldown
-a day stale while every other card is ten minutes fresh, and the tint has no
-colour for that.
+On-demand computation reduces this to one row written per subject actually
+viewed, which is a few hundred a day at most and needs no hash column and no
+migration. The `hash`-and-diff scheme that was going to be needed for a full
+pass is not, because there is no full pass.
 
 **This is the first one that needs a frontend change.** Every other panel was one
 entry in `LIVE_PANELS`. The drilldown pages load one 23 MB file today and would
