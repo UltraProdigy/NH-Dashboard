@@ -127,9 +127,114 @@ export function splitLabel(name) {
  */
 export const GROUP_ORDER = ["Status", "Bug", "Type", "Platform", "Mod", "Other"];
 
+/**
+ * Only labels with at least this many issues get a monthly series. The long
+ * tail of `Mod:` labels carrying three issues each would triple the payload to
+ * draw a chart that is two dots and a gap.
+ */
+export const SERIES_MIN = 20;
+
+/** How far back per-label monthly series reach. */
+export const SERIES_MONTHS = 60;
+
 export const groupRank = (g) => {
   const i = GROUP_ORDER.indexOf(g);
   return i === -1 ? GROUP_ORDER.length : i;
+};
+
+/* ==========================================================================
+   Ordering the triage lists
+
+   `oldest`, `quietest`, `ignored` and `mostDiscussed` are top-40 and top-25
+   cuts of a much longer list, sorted on a metric that ties constantly: the
+   first three rank on a whole *day* count, so every issue filed in the same
+   day is level. Nine open issues share the boundary age of the current
+   `oldest` list and six of them fit, which means the other three are excluded
+   by nothing but the order the store happened to yield.
+
+   That is the same latent bug already fixed on `topRepos`, `topAuthors`,
+   `topReviewers` and the leaderboard, arriving in a fourth place. Sorting on
+   the metric alone leaves the tail in store order, which reshuffles whenever
+   the ingest re-walks — and once the panel exists in two languages it stops
+   being cosmetic, because store order is not something SQL can reproduce at
+   all. The two would disagree by construction, on the six rows nobody looks
+   at closely.
+
+   `mostDiscussed` had a tiebreak already and it is not a total one: it breaks
+   on `number`, which is unique per repo and not across them. 723 pairs of
+   issues in this store share a `(comments, number)`, so the order of any two
+   of those was still the store's to decide.
+
+   Ties therefore break on the repo and then the number, which is unique by
+   primary key and so can never leave two rows level.
+   ========================================================================== */
+
+/** Metric descending, then `(repo, number)` ascending. A total order. */
+export const byMetricThenIssue = (metricOf) => (a, b) => {
+  const diff = (metricOf(b) ?? 0) - (metricOf(a) ?? 0);
+  if (diff !== 0) return diff;
+  if (a.repo !== b.repo) return a.repo < b.repo ? -1 : 1;
+  return a.number - b.number;
+};
+
+/**
+ * The same order as an `ORDER BY` body.
+ *
+ * `number` is compared numerically on both sides. Note this is deliberately
+ * *not* the `repo || '#' || number` string used to pick a reporter's first
+ * issue below — that one has to stay a string compare because the JavaScript
+ * it mirrors compares `id` strings, and the two orderings differ whenever two
+ * numbers in one repo have different digit counts.
+ */
+export const issueOrderSql = (metric) => `${metric} DESC, repo ASC, number ASC`;
+
+/**
+ * An issue's identity as one string. `repo#number`.
+ *
+ * Used to decide which of two issues filed in the same second was somebody's
+ * first ever, which is what `newReporters` counts. GitHub stamps to the second
+ * and three authors in this store have filed more than one inside one, so with
+ * no tiebreak "is this their first?" is true of *all* of them — which is how
+ * the all-time first-time-reporter total once came out higher than the reporter
+ * total it is a subset of.
+ */
+export const issueId = (repo, number) => `${repo}#${number}`;
+
+/**
+ * The same order in SQL: earliest `created_at`, then the smallest `id`.
+ *
+ * A string comparison of `repo || '#' || number`, matching `issueId` — and
+ * deliberately not `(repo, number)`, which sorts `#10` after `#9` where the
+ * string sorts it before. The two agree on every row in the store today,
+ * because no two same-second issues in one repo differ in digit count, so the
+ * parity test constructs a pair that does. This lived inline in the Worker
+ * panel until it was needed twice, which is the unwatched second copy of a
+ * definition that this file exists to prevent.
+ */
+export const firstIssueOrderSql = () => `created_at, repo || '#' || number`;
+
+/**
+ * The order of the per-repo label table: group, then busiest, then the name.
+ *
+ * Groups lead because they are different questions rather than one long list —
+ * `Status:` is a triage pipeline, `Mod:` is a hundred components — and within a
+ * group the busiest label is the one worth seeing.
+ *
+ * The name is the tiebreak, and it is not decoration: 86 of the 314 label rows
+ * are level on both `open` and `total` inside their own group, because most
+ * labels carry one issue. Without it that quarter of the table sits in store
+ * order, which the SQL side cannot reproduce.
+ *
+ * Compared with `<` rather than `localeCompare` throughout, including the group
+ * name, so two runtimes in two locales cannot disagree about the answer.
+ */
+export const byLabelGroupThenOpen = (a, b) => {
+  const rank = groupRank(a.group) - groupRank(b.group);
+  if (rank !== 0) return rank;
+  if (a.group !== b.group) return a.group < b.group ? -1 : 1;
+  if (b.open !== a.open) return b.open - a.open;
+  if (b.total !== a.total) return b.total - a.total;
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 };
 
 /**

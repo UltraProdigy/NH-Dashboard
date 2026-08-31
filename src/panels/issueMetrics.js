@@ -34,6 +34,12 @@ export const HOUR = 3_600_000;
 // only one copy can own.
 export { isBot, pct, round1, monthKey, weekKey, dayKey };
 
+// The label taxonomy went the same way, and had already drifted into a second
+// copy here before anyone noticed — identical to the one in `issue-rules.js`,
+// which is where the Worker reads it from. Two identical copies is the state
+// just before two different ones.
+export { GROUP_ORDER, groupRank, splitLabel } from "../shared/issue-rules.js";
+
 /**
  * Close reasons that mean "this was never fixed".
  *
@@ -57,32 +63,6 @@ export const round3 = (n) => (n == null ? null : Math.round(n * 1000) / 1000);
 
 const sorted = (a) => a.sort((x, y) => x - y);
 export const median = (arr) => round1(pct(sorted(arr), 50));
-
-/**
- * Labels on the modpack follow a "Prefix: Value" convention — `Mod: GT`,
- * `Status: Stale`, `Type: Recipe` — and the prefixes are different questions,
- * not one long list. `Status:` is a triage pipeline, `Mod:` is 174 components
- * with a long tail, `Type:` is a taxonomy. Flattening them into one ranked
- * chart buries the nine labels that describe where work is stuck under a
- * hundred that describe what it's about.
- */
-const LABEL_PREFIX = /^([A-Za-z0-9][A-Za-z0-9 ]*):\s*(.+)$/;
-
-export function splitLabel(name) {
-  const m = LABEL_PREFIX.exec(name);
-  return m ? { group: m[1], short: m[2] } : { group: "Other", short: name };
-}
-
-/**
- * Groups in the order they answer an admin's questions: where is it stuck,
- * how bad is it, what kind of thing is it, which component, everything else.
- * Anything unlisted sorts after these, alphabetically.
- */
-export const GROUP_ORDER = ["Status", "Bug", "Type", "Platform", "Mod", "Other"];
-export const groupRank = (g) => {
-  const i = GROUP_ORDER.indexOf(g);
-  return i === -1 ? GROUP_ORDER.length : i;
-};
 
 /* ==========================================================================
    Credit for a close
@@ -359,6 +339,54 @@ export function summarizePersonPeriod(a) {
     helped: a.helped.size,
   };
 }
+
+/**
+ * How many people the by-contributor table carries per window.
+ *
+ * The store holds 6,450 distinct issue participants, nearly all of them someone
+ * who filed one bug in 2019 — a full per-window table of those would be most of
+ * a megabyte in dashboard.json, which every page pays for on load. Two hundred
+ * is deep enough that the whole triage crew and every regular reporter is on it,
+ * and anyone who falls off still has a complete record on their own drilldown,
+ * which is where you go when you want one person rather than a ranking.
+ */
+export const PEOPLE_CAP = 200;
+
+/**
+ * Column order for the packed per-window people rows. Positional to keep the
+ * table affordable — the same trick the drilldown's resolved-PR rows use, and
+ * for the same reason: thirty repeated key names per person per window is most
+ * of the cost of shipping this at all.
+ */
+export const PERSON_FIELDS = [
+  "filed", "filedOpen", "filedClosed", "filedCompleted", "filedUnresolved",
+  "acceptedShare", "filedAnswered", "filedUnanswered", "answeredShare",
+  "commentsReceived", "medianWaitHours", "p90WaitHours",
+  "responses", "medianResponseLagHours", "p90ResponseLagHours",
+  "closed", "closedCompleted", "closedUnresolved", "closedOwn",
+  "closedForOthers", "closedByTheirPR", "closedByHand",
+  "medianCloseLagHours", "p90CloseLagHours",
+  "fixed", "assigned", "assignedOpen",
+  "triage", "involvement", "repos", "filedRepos", "helped",
+];
+
+/** Shares are rendered as whole percentages, so full float precision is noise. */
+const SHARE_FIELDS = new Set([
+  "acceptedShare", "answeredShare", "filedLabeledShare",
+]);
+
+/**
+ * One person's window as a positional row.
+ *
+ * Lives here rather than in the org panel because the Worker packs the same
+ * rows from the same accumulators, and a column order that existed twice would
+ * be a silent reshuffle of every number in the table the first time one copy
+ * gained a field.
+ */
+export const packPerson = (login, s) => [
+  login,
+  ...PERSON_FIELDS.map((f) => (SHARE_FIELDS.has(f) ? round3(s[f]) : s[f] ?? null)),
+];
 
 /**
  * Fold one issue into one person's period, from whichever side they were on.
