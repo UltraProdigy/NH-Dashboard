@@ -36,6 +36,23 @@ export const UNRESOLVED = ["NOT_PLANNED", "DUPLICATE"];
 
 const quoted = UNRESOLVED.map((r) => `'${r}'`).join(", ");
 
+/**
+ * The one spelling of `state_reason` every writer has to store.
+ *
+ * GraphQL returns the enum — `NOT_PLANNED` — and REST and the webhook payloads
+ * return `not_planned`. Every comparison below is a plain SQLite string compare,
+ * which is case-sensitive, so a lowercase row fails `IN ('NOT_PLANNED', …)` and
+ * is read as completed. That is the flattering direction, and it is invisible:
+ * the row is present, the count is plausible, and only `unknownReason` moving
+ * off zero says anything at all.
+ *
+ * So normalisation belongs to whoever writes the row, not to whoever reads it —
+ * a reader that tolerated both spellings would let the two writers keep
+ * disagreeing about what is in the column.
+ */
+export const stateReason = (value) =>
+  value ? String(value).toUpperCase() : null;
+
 /** `state_reason` says this close resolved nothing. */
 export const unresolvedSql = (col = "state_reason") =>
   `(${col} IN (${quoted}))`;

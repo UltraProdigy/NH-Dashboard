@@ -12,6 +12,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { handleEvent } from "../src/handlers.js";
+import { unresolvedSql } from "../../src/shared/issue-rules.js";
 
 // --- minimal D1 shim --------------------------------------------------------
 
@@ -211,7 +212,38 @@ let issue = row("SELECT * FROM issues WHERE repo='GT5-Unofficial' AND number=991
 check("state CLOSED", issue.state, "CLOSED");
 check("closed_by from sender", issue.closed_by, "a-maintainer");
 check("closer_known set", issue.closer_known, 1);
-check("state_reason written", issue.state_reason, "completed");
+check("state_reason normalised to the enum", issue.state_reason, "COMPLETED");
+
+// The assertion with teeth. COMPLETED going in lowercase only moves
+// `unknownReason`; not_planned going in lowercase fails `unresolvedSql` and an
+// issue nobody ever intended to fix is counted as fixed. This asserts the rule
+// rather than the column, because the column agreeing is not the point.
+console.log("\n  a lowercase close reason still reads as unresolved");
+await handleEvent(db, "issues", {
+  action: "closed",
+  repository: { name: "GT5-Unofficial" },
+  sender: { login: "a-maintainer" },
+  issue: {
+    number: 992,
+    title: "Wontfix",
+    state: "closed",
+    state_reason: "not_planned",
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-08-29T13:00:00Z",
+    closed_at: "2026-08-29T13:00:00Z",
+    user: { login: "reporter" },
+    labels: [],
+    assignees: [],
+    comments: 0,
+  },
+});
+check(
+  "not_planned counted as unresolved",
+  row(
+    `SELECT COUNT(*) n FROM issues WHERE number=992 AND ${unresolvedSql()}`,
+  ).n,
+  1,
+);
 
 console.log("\n  reconcile-only fields must survive");
 check("first_response_at preserved", issue.first_response_at, "2026-07-01T06:00:00Z");

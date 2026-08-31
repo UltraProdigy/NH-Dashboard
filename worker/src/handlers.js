@@ -17,6 +17,7 @@
  */
 
 import { commitAuthor, headline, utcSeconds } from "../../src/shared/commit-rules.js";
+import { stateReason } from "../../src/shared/issue-rules.js";
 
 /** The store uses OPEN / MERGED / CLOSED; payloads say open / closed + merged. */
 function prState(pr) {
@@ -183,6 +184,11 @@ async function onPullRequestReview(db, payload) {
  * closer field, but the person whose action closed it is the sender. closerKnown
  * marks that as a webhook-derived guess rather than a timeline-confirmed fact,
  * and closed_via stays untouched — only reconciliation can fill it.
+ *
+ * `state` and `state_reason` are both normalised on the way in. The payload
+ * spells them `open` and `not_planned`; the store holds the GraphQL enums the
+ * seed was written with, and every rule that reads them is a case-sensitive
+ * string compare.
  */
 async function onIssues(db, payload) {
   const issue = payload.issue;
@@ -218,7 +224,7 @@ async function onIssues(db, payload) {
       issue.updated_at ?? issue.created_at,
       issue.closed_at ?? null,
       (issue.state ?? "open").toUpperCase(),
-      issue.state_reason ?? null,
+      stateReason(issue.state_reason),
       names(issue.labels),
       names(issue.assignees),
       issue.comments ?? null,

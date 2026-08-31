@@ -35,6 +35,7 @@
 
 import { rest } from "../github/client.js";
 import { BOT_PATTERN, ORG } from "../config.js";
+import { stateReason } from "../shared/issue-rules.js";
 
 const PER_PAGE = 100;
 
@@ -43,7 +44,7 @@ const MAX_TITLE = 160;
 
 const isBot = (login) => !login || BOT_PATTERN.test(login);
 
-/** "not_planned" -> "NOT_PLANNED", to match what GraphQL returns. */
+/** "open" -> "OPEN", to match what GraphQL returns. */
 const upper = (s) => (s ? String(s).toUpperCase() : null);
 
 /**
@@ -171,7 +172,7 @@ export function toRecord(repo, it, response, version) {
     updatedAt: it.updated_at,
     closedAt: it.closed_at,
     state: upper(it.state),
-    stateReason: upper(it.state_reason),
+    stateReason: stateReason(it.state_reason),
     labels: (it.labels ?? []).map((l) => (typeof l === "string" ? l : l.name)),
     // REST returns the whole label set on every issue, so unlike the GraphQL
     // walk there is no sample size to overflow.
