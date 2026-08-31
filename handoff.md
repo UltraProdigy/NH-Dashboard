@@ -47,34 +47,43 @@ for byte and the rest differing only by a day and a half of freshness.
 | `issues` | cron | ≤10 min |
 | `drilldown` | cron | **index ported and reconciled; payloads still to do** |
 
-`issues` has now been reconciled against production as well as the seed, and the
-gate earned its keep: it found the `state_reason` casing bug below, which no
-parity test here could have seen. It goes live once migration 004 has repaired
-the nine rows that bug already wrote.
+`issues` is live. Its gate earned its keep: reconciling against production found
+the `state_reason` casing bug below, which no parity test here could have seen,
+and migration 004 has repaired it — production reads `unknownReason: 0` and
+`notPlanned` back at the build's 5,105, with `completed` down the one issue that
+had been flattered.
 
-**After `issues` goes live, `drilldown` is the whole of what remains** — 22 of the
-53 cards, both drilldown pages.
+**`drilldown` is the whole of what remains** — 22 of the 53 cards, both drilldown
+pages. Its index is ported and live on the cron; the per-subject payloads are
+not, and the panel must stay out of `LIVE_PANELS` until they are.
 
 ## Do these in order
 
-1. **Push.** The junk files are gone and the Worker carrying `issues` is already
-   deployed; what is unpushed is the `state_reason` fix below.
-2. **Load traffic**, as above.
-3. **Repair `state_reason`, then promote `issues`.** The reconciliation is done
-   — see `going-live-status.md` — and it found one defect: the webhook handler
-   was storing the payload's lowercase `not_planned` where the seed holds
-   `NOT_PLANNED`, so nine closed issues were being read as completed. Fixed in
-   `handlers.js`; the rows already in D1 need the migration.
+1. **Load traffic.** The last thing on the list that is nobody else's copy.
+   `traffic_daily` still reads 0 in D1 and the store on one laptop is all there
+   is. Re-run the ingest first so the store carries yesterday, then regenerate
+   and apply:
 
 ```
+npm run ingest:traffic
+node worker/seed.js --only=traffic --out worker/traffic.sql
 cd worker
-npx wrangler d1 execute nh-dashboard --remote --file migrations/004-normalise-state-reason.sql
-npx wrangler deploy
-curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
+npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
 ```
 
-   Then check `/api/panel/issues` reads `unknownReason: 0` and `notPlanned:
-   5105` again, add `"issues"` to `LIVE_PANELS`, and push.
+   Then confirm `/api/health` shows `traffic_daily` above zero. That reading 0
+   is how you know this has not run.
+
+2. **Add `NH_INGEST_EXCLUDE` as a repo secret**, under Settings → Secrets and
+   variables → Actions, value as in `.env`. A push does not run the `data` job
+   — it is skipped by design — but **the 05:00 cron does**, and a `data` run
+   without the secret re-walks the excluded repo and republishes its issue
+   titles to a public page. This is the one item here with a clock on it.
+
+3. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
+   tiebreaks are in the pushed source but `data/` is gitignored, so the file on
+   Pages still carries the untied orderings until a `data` run rebuilds it.
+   15–90 minutes.
 
 4. **Then `drilldown`.** See below.
 
