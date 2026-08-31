@@ -44,7 +44,7 @@ for byte and the rest differing only by a day and a half of freshness.
 | `depUpdates` | cron | ≤10 min |
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
-| `issues` | cron | **deployed and reconciled; blocked on migration 004** |
+| `issues` | cron | ≤10 min |
 | `drilldown` | cron | **index ported and reconciled; payloads still to do** |
 
 `issues` has now been reconciled against production as well as the seed, and the

@@ -41,6 +41,16 @@ import { state } from "./state.js";
  * of 11,569, from six repos at the 20-run cap whose sample slid between the
  * build and the backfill. That is live running ahead of the build.
  *
+ * `issues` is the largest of them, and its gate caught the one defect that no
+ * parity test here could have: every suite compares two readings of one seed,
+ * and the seed comes from the GraphQL walk, so the webhook's own writes are
+ * outside that loop entirely. Reconciling against production found the handler
+ * storing REST's `not_planned` where the seed holds `NOT_PLANNED` — a
+ * case-sensitive compare away from counting an issue closed as "not planned" as
+ * fixed. Nine rows, growing by roughly one a day. Repaired by migration 004,
+ * and production now reads `unknownReason: 0` with `notPlanned` back at the
+ * build's 5,105.
+ *
  * Where they still differ from the build, and it is worth knowing before
  * trusting a number: `needsRelease` compares commit *dates* against a release,
  * because a release webhook carries no tag SHA, while the Node panel compares
@@ -57,6 +67,7 @@ const LIVE_PANELS = [
   "depUpdates",
   "byLabel",
   "ciHealth",
+  "issues",
 ];
 
 /**
