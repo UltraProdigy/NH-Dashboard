@@ -88,16 +88,64 @@ is out. The shape is what makes it tractable:
 
 | Part | Size | Notes |
 |---|---|---|
-| `contributors` | 18.4 MB | 6,749 entries keyed by login |
-| `repos` | 3.2 MB | 298 entries keyed by repo |
-| `index` | 0.5 MB | what the pickers need up front |
-| 17 schema keys | tiny | field-name lists, windows, buckets |
+| `contributors` | 18.3 MB | 6,749 entries keyed by login, mean 2.8 KB |
+| `repos` | 3.2 MB | 298 entries keyed by repo, mean 11.1 KB |
+| `index` | 0.46 MB | what the pickers need up front |
+| 18 schema keys | 8.3 KB | field-name lists, windows, buckets |
 
 So it is not a blob that resists a Worker, it is 6,749 rows waiting for
 `WHERE login = ?`. `drilldown_contributors` and `drilldown_repos` are **already
 in `schema.sql`** for exactly this; the recompute materialises them and
-`/api/contributor/{login}` serves one. The `index` and the schema keys are small
-enough to be an ordinary cached blob.
+`/api/contributor/{login}` serves one. The `index` and the schema keys together
+are 470 KB, comfortably an ordinary cached blob.
+
+**No single payload comes near the row cap, but watch the top of the list.**
+Largest contributor is Dream-Master at 759 KB and largest repo is
+GT-New-Horizons-Modpack at 523 KB, against 2 MB. Nothing else is above 362 KB.
+Dream-Master is already 37% of the cap and grows with the org, so it is the row
+that decides whether this design lasts — worth a test asserting it rather than
+finding out from a failed recompute.
+
+## The recompute cannot materialise every subject every tick
+
+Measured before the port rather than after, because it changes the shape of it.
+
+`drilldown_contributors` and `drilldown_repos` are 7,047 rows between them, each
+with a TEXT primary key, so a full pass is **7,047 rows plus 7,047 index entries
+— about 14,100 billed writes.** Cloudflare bills an index entry as its own
+written row; that is the same arithmetic that made the seed cost 441,640 rather
+than 97,000.
+
+At the current `*/10 * * * *` cron that is 144 passes a day:
+
+| | |
+|---|---|
+| per pass | ~14,100 writes |
+| per day | ~2.03 million |
+| per month | **~61.7 million** |
+| Workers Paid includes | 50 million / month, then $1.00 per million |
+
+So a full rewrite every tick spends the entire monthly write allowance, and then
+some, re-storing bytes that did not change. Every other panel avoids this by
+being one `panel_cache` blob — the write cost scales with the panel count, not
+with the data. This is the one panel where it scales with the data, which is
+exactly what the pattern note in `going-live-status.md` warned about.
+
+**Write only what changed.** Hash each payload, keep the hash in a column
+alongside it, read back `SELECT login, hash` (7,047 tiny rows, and reads are
+effectively free at 25 billion a month), and write only the subjects whose hash
+moved. Steady state is a few hundred contributors and repos touched a day, so
+this is roughly four orders of magnitude cheaper and the cron cadence stops
+mattering.
+
+That needs a `hash` column, and **`CREATE TABLE IF NOT EXISTS` will not add one
+to a table that already exists** — so it is a file in `worker/migrations/`,
+applied before `schema.sql`, the same trap `merge_commit_sha` fell into.
+
+The alternative — leaving the write full and moving this panel to the daily
+cron — costs 14,100 writes a day, which is also fine, but it makes the drilldown
+a day stale while every other card is ten minutes fresh, and the tint has no
+colour for that.
 
 **This is the first one that needs a frontend change.** Every other panel was one
 entry in `LIVE_PANELS`. The drilldown pages load one 23 MB file today and would
