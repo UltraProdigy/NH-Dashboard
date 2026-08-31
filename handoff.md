@@ -152,6 +152,44 @@ hand it one subject's rows, and the agreement with the build is structural
 rather than tested. That is the difference between porting 1,500 lines and
 calling them.
 
+## Do not put `drilldown` in `LIVE_PANELS` yet
+
+Registering the index on the cron created a trap that did not exist before.
+`PAGE_PANEL` in `web/js/data.js` maps both drilldown pages to the `drilldown`
+panel, so listing that name would tint **all 22 drilldown cards blue** — while
+every per-subject payload behind them still comes from the 23 MB build file.
+One entry, twenty-two confidently wrong blues, which is the largest instance of
+the failure the tint exists to prevent that this project has been one line away
+from.
+
+It goes in `LIVE_PANELS` when the payloads are served, not when the index is.
+
+## The card tint had the same bug, in a smaller way
+
+Found by reading rather than by looking, and worth recording because looking
+would not have found it. Two cards on the Analytics page read a panel that is
+not their page's: Label mix reads `byLabel`, Actions load reads `ciHealth`. Both
+took their tint from `analytics`.
+
+**It is right today, and right by coincidence.** All three panels are live on
+the cron, so all three cards are blue and the blue is true. The failure is
+latent: if `ciHealth` stops answering while `analytics` keeps answering, the
+card holds a confident blue where it owes a red — an outage painting only part
+of a page is precisely the case the four-colour scheme was built for. Promoting
+either panel to `instant` would go equally unnoticed.
+
+Cards now declare `reads`, which says where the data comes from and claims
+nothing else. That is deliberately *not* `panelId`, which additionally means
+"this card's rows are that panel's array" and drives the tab badge in
+`render.js` — borrowing it for the tint would have given two cards a row count
+they do not have.
+
+The freshness suite now walks all 53 cards and fails any whose render names a
+panel it is not tinted by, rather than testing the handful someone thought to
+name. The old assertion here was not merely loose — "eleven of eleven cards on
+one tier" asserted the wrong behaviour and passed, which is what kept this
+invisible.
+
 ## The index is ported, and it reconciles exactly
 
 `worker/src/panels/drilldown.js`, registered on the cron. **16 queries, 156ms
