@@ -45,7 +45,7 @@ for byte and the rest differing only by a day and a half of freshness.
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
 | `issues` | cron | **deployed and reconciled; blocked on migration 004** |
-| `drilldown` | — | the last one still from the build |
+| `drilldown` | cron | **index ported and reconciled; payloads still to do** |
 
 `issues` has now been reconciled against production as well as the seed, and the
 gate earned its keep: it found the `state_reason` casing bug below, which no
@@ -152,16 +152,35 @@ hand it one subject's rows, and the agreement with the build is structural
 rather than tested. That is the difference between porting 1,500 lines and
 calling them.
 
-## What the index is, exactly
+## The index is ported, and it reconciles exactly
 
-Read off `src/panels/drilldown.js` rather than guessed, because this is the one
-part that has to be rebuilt in SQL — the per-subject payloads reuse the Node
-functions, but the index is an aggregate over every subject and cannot.
+`worker/src/panels/drilldown.js`, registered on the cron. **16 queries, 156ms
+local, ~344ms projected on D1, 475 KB cached** — a quarter of the row cap and
+about a tenth of what `issues` costs. Both indexes agree with the build on
+membership, on every field, and in order.
 
-**A contributor exists** if `person(login)` was ever called for them, and it is
-called from exactly four places, each already excluding bots: a PR's author, an
-*approver* of any PR, anyone involved in an issue (author, first responder,
-closer, fixer, assignee), and the reviewer bookkeeping in the window loop.
+This is the only part of the panel rebuilt in SQL; the per-subject payloads
+reuse the Node functions. The risk it carries is not arithmetic — every number
+is a COUNT or a MAX — it is **which subjects exist at all**, and a
+reimplementation can agree on all six numbers while quietly shipping a picker
+that is missing people.
+
+**A contributor exists** if `person(login)` was ever called for it, and there
+are six call sites, not the four a first reading suggests:
+
+1. non-bot author of a pull request
+2. an *approver* of any pull request
+3. a review requestee, **only on an open unmerged one**
+4. a current reviewer, same restriction, and this one excludes self-review
+5. an assignee — pull requests in any state, and issues
+6. anyone involved in an issue: author, first responder, closer, fixer, assignee
+
+Three of those contribute no number at all and exist only to put a row in the
+list. There are **exactly three such people**, and two are Copilot accounts
+`BOT_PATTERN` does not match — which is worth knowing on its own, and is a tail
+worth reproducing rather than rounding off, since dropping either source fails
+the parity test by name.
+
 `activeDayIndex` deliberately does **not** create subjects — the comment there
 is explicit that routing active days through `person()` would promote several
 thousand people whose whole trace is one drive-by review into full subjects.
@@ -559,9 +578,9 @@ npm run test:freshness    21   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      205   across eight panels, plus the drilldown orderings
+npm run test:parity      215   across nine panels, plus the drilldown orderings
                         ----
-                         329
+                         339
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
