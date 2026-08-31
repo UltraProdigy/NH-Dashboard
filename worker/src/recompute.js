@@ -19,6 +19,7 @@ import {
 import { byLabel } from "./panels/by-label.js";
 import { depUpdates, needsRelease } from "./panels/releases.js";
 import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
+import { issues } from "./panels/issues.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -52,8 +53,16 @@ import { scopedDb } from "./scope.js";
  * before it is listed in `LIVE_PANELS` — the cache can be built and inspected
  * without the card claiming to be current.
  *
- * Still outside: `issues`, `issueMetrics`, `activeDays` and `drilldown`, none of
- * them blocked on data.
+ * `issues` joined last and is the largest — fifteen keys, 655 KB cached, ~4.2s
+ * projected on D1, which makes it the most expensive entry here. It is
+ * registered before it is listed in `LIVE_PANELS` for the same reason `ciHealth`
+ * was: every key reconciles against the build on the *seed*, and the seed is not
+ * production. Building the cache is what makes `/api/panel/issues` answerable,
+ * and answering is what lets it be diffed against `data/dashboard.json` before
+ * any card claims to be current.
+ *
+ * Still outside: `issueMetrics`, `activeDays` and `drilldown`, none of them
+ * blocked on data.
  */
 const PANELS = {
   contributors,
@@ -64,6 +73,7 @@ const PANELS = {
   depUpdates,
   byLabel,
   ciHealth,
+  issues,
 };
 
 /**
