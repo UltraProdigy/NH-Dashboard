@@ -574,13 +574,13 @@ yet been compared against production.
 ## Commands
 
 ```
-npm run test:freshness    21   the card tint
+npm run test:freshness    24   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
 npm run test:parity      215   across nine panels, plus the drilldown orderings
                         ----
-                         339
+                         342
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
