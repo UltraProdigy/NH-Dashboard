@@ -370,8 +370,8 @@ as of the last build.
 
 ### Top-N lists
 
-`topRepos`, `topAuthors` and `topReviewers` on the Analytics windows, and any
-other "top eight by count" list.
+`topRepos`, `topAuthors` and `topReviewers` on the Analytics windows, the six
+`top*` lists on each Issue window, and any other "top eight by count" list.
 
 ```
 sort by count descending, then by key ascending
@@ -387,6 +387,65 @@ the two implementations would disagree by construction.
 
 Compared with `<` rather than `localeCompare`, so two runtimes in two locales
 cannot disagree about the answer.
+
+The by-contributor table is ranked the same way — involvement descending, then
+login — and it is where this mattered most. The cap is 200 out of 6,450
+participants and involvement is a small integer, so in the one-month window
+**256 people are level on an involvement of 1 and only 74 fit**. Adding the
+tiebreak replaced 53 of that window's 200 rows, and 79 across all seven.
+
+The Issue windows' six lists were sorted on count alone until the SQL port, and
+the effect was not cosmetic: of the 42 lists across seven windows, **eight
+changed when the tiebreak was added and six of those changed membership** — a
+different person appearing on the card. `topReporters` for the last year gained
+one name and lost another. Which of two people tied on the same count appeared
+was being decided by the order the store was walked in.
+
+### Top-N lists of issues
+
+`oldest`, `quietest` and `ignored` on the triage snapshot, and `mostDiscussed`.
+
+```
+sort by the metric descending, then by repo ascending, then by number ascending
+take the first n
+```
+
+Same reasoning as above, and it bites harder here, because the first three rank
+on a whole **day** count rather than on an event count. Every issue filed on the
+same day is level: nine open issues share the boundary age of the current
+`oldest` list and only six of them fit, so three are excluded by nothing but the
+order the store happened to yield.
+
+`mostDiscussed` had a tiebreak before this and it was not a total one — it broke
+on `number`, which is unique within a repo and not across them. 723 pairs of
+issues in the store share a `(comments, number)`. The repo completes it, and
+`(repo, number)` is the primary key, so no two rows can be left level.
+
+Per-repo issue rows sort the same way: `open` descending, `total` descending,
+then the repo name. Seven pairs of repos tie on both counts.
+
+The tiebreak changed the shipped output in exactly one place — two adjacent
+entries of `mostDiscussed`, tied on 54 comments, swapping — because the store is
+walked in roughly `(repo, number)` order already. That is the point: the order
+was right by accident, and an accident the SQL side does not share.
+
+### Which of two same-second issues came first
+
+`newReporters` counts issues that were their author's first ever, so it needs a
+total order over `(createdAt, issue)`. GitHub stamps to the second, and three
+authors in the store have filed more than one issue inside one second — without
+a tiebreak "is this their first?" is true of all of them, which once made the
+all-time first-time-reporter count exceed the reporter count it is a subset of.
+
+```
+earliest createdAt, then the smallest "repo#number" as a string
+```
+
+A **string** comparison, deliberately, and it is the one ordering in the issue
+panels that is not `(repo, number)`: the two differ whenever two numbers in one
+repo have different digit counts, since `t#9` sorts after `t#10` as a string and
+before it as a number. No such pair exists in the store today, so the parity test
+constructs one rather than trusting the agreement to hold.
 
 ---
 
@@ -1007,9 +1066,9 @@ Not windowed — a statement about right now. Over all open issues:
 | `stale` | Open where `staleDays ≥ ISSUE_STALE_DAYS` (90) |
 | `ageBuckets` | Open bucketed by `ageDays` |
 | `staleBuckets` | Open bucketed by `staleDays` |
-| `oldest` | 40 highest `ageDays` |
-| `quietest` | 40 highest `staleDays` |
-| `ignored` | Unanswered open issues, 40 highest `ageDays` |
+| `oldest` | 40 highest `ageDays`, ties on `(repo, number)` |
+| `quietest` | 40 highest `staleDays`, ties on `(repo, number)` |
+| `ignored` | Unanswered open issues, 40 highest `ageDays`, ties on `(repo, number)` |
 
 `ISSUE_STALE_DAYS` is 90 rather than 30: on a modpack this size a bug report
 going quiet for a month usually means it is queued behind a release, not that it
@@ -1055,12 +1114,27 @@ date while window medians are dated by the event.
 ### Most discussed
 
 The 25 issues with the highest comment count, all time, ties broken on
-descending issue number so the list is stable across builds. Issues with zero
+`(repo, number)` ascending — see **Top-N lists of issues**. Issues with zero
 comments are excluded.
 
 Comment count is the only engagement signal available on the issue side —
 reactions were dropped from the ingest query when GitHub's abuse limit refused
 them on the org's largest tracker.
+
+### Label table ordering
+
+Per repo, the label rows sort by group rank, then group name, then `open`
+descending, then `total` descending, then the label name.
+
+The name is the tiebreak and it carries a quarter of the table: **86 of the 314
+label rows are level on both `open` and `total` inside their own group**,
+because most labels carry a single issue. Without it that quarter sits in store
+order, which the SQL side cannot reproduce.
+
+Group rank comes from `GROUP_ORDER` — Status, Bug, Type, Platform, Mod, Other —
+with anything unlisted sorting after those, alphabetically. All string
+comparisons use `<` rather than `localeCompare`, including the group name, so
+two runtimes in two locales cannot disagree.
 
 ### Per-label monthly series
 
