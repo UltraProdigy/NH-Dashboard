@@ -1,0 +1,112 @@
+name: Reconcile D1 against GitHub
+
+# The guard the store never had.
+#
+# D1 is fed by webhook deliveries and nothing else. GitHub does not re-send a
+# delivery it has already made, `handleWebhook` answers 200 even when the
+# handler threw, and `build.yml` writes data/*.json rather than D1 — so a
+# delivery that is lost or fails leaves a row wrong permanently, and the card
+# above it stays ringed green while it lies. That is not hypothetical: three
+# PRs merged in the hour between the seed's crawl and the webhook going live on
+# 2026-08-29 sat on Approved-not-merged for four days. documentation.md has the
+# table.
+#
+# This job re-reads GitHub for a rolling window and upserts what it finds. It
+# does not replace the webhook — the webhook is what makes the card green — it
+# catches what the webhook drops.
+
+on:
+  # Every six hours. The window below is three days, so each run re-covers the
+  # previous eleven, and a run that fails is corrected by the next rather than
+  # leaving a hole the width of the outage. Cheaper than it sounds: the walk
+  # stops at the window per repo, so a quiet repo costs one query.
+  #
+  # Not hourly. The crawl is ~300 GraphQL queries regardless of how little has
+  # changed, because a PR closed without merging and a review submitted both
+  # move state without pushing anything — filtering repos on pushedAt would make
+  # this fast and would also make it miss exactly the events it exists to catch.
+  schedule:
+    - cron: "0 */6 * * *"
+
+  # For a wider repair than the rolling window reaches: a row that went wrong
+  # and has been quiet since is only reachable by widening `since`.
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Reconcile PRs updated since this date (ISO, e.g. 2026-08-29). Overrides the rolling window."
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+
+    # Never overlap. Two runs walking the org at once would double the API cost
+    # to write the same rows twice, and the second would apply SQL built from a
+    # snapshot the first had already superseded.
+    concurrency:
+      group: reconcile-d1
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `npm ci`, not `npx wrangler@latest`. The wrangler version is pinned in
+      # the lockfile on purpose — a wrangler that upgrades itself mid-schedule
+      # is a deploy tool changing behaviour with nobody watching.
+      - run: npm ci
+
+      - name: Read GitHub
+        env:
+          # Not secrets.GITHUB_TOKEN — that one is scoped to this repo and
+          # cannot read GTNewHorizons. Same PAT the build uses.
+          GITHUB_TOKEN: ${{ secrets.GH_DASHBOARD_TOKEN }}
+          GITHUB_ORG: GTNewHorizons
+          # Without this the reconcile would happily write excluded repos back
+          # into a database the public panel API reads.
+          NH_INGEST_EXCLUDE: ${{ secrets.NH_INGEST_EXCLUDE }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          if [ -n "$SINCE" ]; then
+            node worker/backfill-prs.js --since "$SINCE" --out worker/prs.sql
+          else
+            node worker/backfill-prs.js --days 3 --out worker/prs.sql
+          fi
+
+      # A quiet window is the normal case, and `wrangler d1 execute` on a file
+      # of nothing but comments succeeds — which would report a reconcile that
+      # reconciled nothing as a reconcile that ran. Say which it was.
+      - name: Apply to D1
+        id: apply
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        run: |
+          if ! grep -q "^INSERT" prs.sql; then
+            echo "Nothing changed in the window. D1 left alone."
+            echo "wrote=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npx wrangler d1 execute nh-dashboard --remote --file prs.sql --yes
+          echo "wrote=true" >> "$GITHUB_OUTPUT"
+
+      # The panels are cached blobs; correcting a row underneath one changes
+      # nothing anybody can see until the cache is rebuilt. The cron would get
+      # there within ten minutes, but only because a delivery happened to set
+      # `dirty` — and if no delivery has arrived, `dirty` is 0 and the recompute
+      # returns `{ skipped: "clean" }` over rows this job just changed. Hence
+      # force: this job knows it wrote, and the flag is the only way to say so.
+      - name: Rebuild the panels
+        if: steps.apply.outputs.wrote == 'true'
+        run: |
+          curl -fsS -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1" \
+            | head -c 2000
