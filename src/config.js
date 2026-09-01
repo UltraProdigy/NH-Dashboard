@@ -174,12 +174,11 @@ export const DEP_UPDATE_MIN_DAYS = 0;
  * How long an open issue has to sit untouched before Issue Analytics calls it
  * stale.
  *
- * Ninety days rather than thirty: on a modpack this size a bug report going
- * quiet for a month usually means it's queued behind a release, not that it
- * was dropped. Three months is where "nobody has looked at this" stops being
- * a guess.
+ * Defined in `shared/issue-rules.js` and re-exported here, because this file
+ * imports `node:child_process` and the drilldown fold that reads it has to be
+ * importable by the Worker.
  */
-export const ISSUE_STALE_DAYS = 90;
+export { ISSUE_STALE_DAYS } from "./shared/issue-rules.js";
 
 /**
  * The repo whose labels the Label mix card opens on, and the only one that

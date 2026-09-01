@@ -514,6 +514,49 @@ const idOf = (x) => `${x.repo ?? x.login ?? x.id ?? ""}#${x.number ?? ""}`;
    ========================================================================== */
 
 const ENTRY = path.join(ROOT, "src", "panels", "drilldown.js");
+const FOLD = path.join(ROOT, "src", "shared", "drilldown-fold.js");
+
+/**
+ * The fold has to stay importable by a Worker.
+ *
+ * It lives under `src/shared` for one reason: the Worker computes a subject by
+ * calling it, and a Worker has no filesystem. One `node:fs` anywhere in its
+ * import graph breaks the bundle — and it breaks it at deploy time, on a
+ * machine logged in to Cloudflare, which is the worst place to find out.
+ * wrangler cannot run in CI here (`workerd` ships a platform binary), so the
+ * bundler will never be the thing that catches it. This is.
+ *
+ * Walked rather than grepped, because the import that reintroduces `node:fs`
+ * will not be in this file — it will be two hops down, in something that looked
+ * like a pure helper. That is how it got there the first time: the fold reached
+ * the ingest stores through `activeDays.js`.
+ */
+{
+  const seen = new Set();
+  const found = [];
+  const walk = (file) => {
+    const abs = path.resolve(file);
+    if (seen.has(abs)) return;
+    seen.add(abs);
+    let src;
+    try {
+      src = readFileSync(abs, "utf8");
+    } catch {
+      return;
+    }
+    for (const m of src.matchAll(/from\s+["']([^"']+)["']/g)) {
+      const spec = m[1];
+      if (spec.startsWith("node:")) found.push(`${spec} via ${path.relative(ROOT, abs)}`);
+      else if (spec.startsWith(".")) walk(path.join(path.dirname(abs), spec));
+    }
+  };
+  walk(FOLD);
+  check(
+    "the fold's import graph reaches no node builtin",
+    found.length === 0,
+    found.slice(0, 3).join(", "),
+  );
+}
 
 /**
  * Decode a packed row into named values, resolving every index against the

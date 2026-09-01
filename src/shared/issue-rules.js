@@ -32,6 +32,20 @@ import { isHumanSql } from "./contributor-rules.js";
  * towards the flattering side. Worth re-checking against live data rather than
  * trusting this to stay exhaustive.
  */
+/**
+ * How long an open issue goes quiet before it counts as stale.
+ *
+ * Ninety days rather than thirty: on a modpack this size a bug report going
+ * quiet for a month usually means it's queued behind a release, not that it was
+ * dropped. Three months is where "nobody has looked at this" stops being a
+ * guess.
+ *
+ * Here rather than in `config.js`, which reaches for `node:child_process` and
+ * so cannot be imported by a Worker. `config.js` re-exports it, the same way it
+ * does `WINDOWS` and `BACKLOG_BUCKETS`.
+ */
+export const ISSUE_STALE_DAYS = 90;
+
 export const UNRESOLVED = ["NOT_PLANNED", "DUPLICATE"];
 
 const quoted = UNRESOLVED.map((r) => `'${r}'`).join(", ");
