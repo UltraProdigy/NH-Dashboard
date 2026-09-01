@@ -495,10 +495,11 @@ function rankedFor(counts, windowId, key, n = TOP_N) {
    Main
    ========================================================================== */
 
-export async function drilldown(now = Date.now()) {
-  const prs = await readStore();
+export async function drilldown(now = Date.now(), opts = {}) {
+  const only = opts.only ?? null;
+  const prs = opts.prs ?? (await readStore());
 
-  if (!prs.length) {
+  if (!prs.length && !only) {
     throw new Error(
       "No ingested data. Run `npm run ingest` first — the all-time backfill " +
         "takes a while, but later runs are incremental."
@@ -545,12 +546,39 @@ export async function drilldown(now = Date.now()) {
   const contributors = new Map();
   const repos = new Map();
 
+  /**
+   * Scoped to one subject, every other subject's accumulator is this.
+   *
+   * The fold reaches a subject through fourteen call sites and three of them
+   * exist only to put a row in the picker, so narrowing it by skipping calls
+   * would mean auditing all fourteen and getting it right — and a missed one is
+   * a smaller number rather than an error, which is the failure mode this panel
+   * has produced nine times. Instead every call still happens and the writes for
+   * everyone else land here and are dropped, so the scoped run and the whole
+   * one execute the same statements in the same order.
+   *
+   * It accumulates garbage, which is why it is only ever handed one subject's
+   * rows. On the unscoped build there is no sink at all.
+   *
+   * One per kind, and not one shared: a person's `_iw` holds person periods and
+   * a repo's holds tracker periods, so a repo's writes landing on a person's
+   * sink throw on the first `reporters.set`. Which is the good version of that
+   * mistake — the same confusion between the two shapes anywhere it is *read*
+   * would have produced a number instead.
+   */
+  const personSink = only ? blankSubject("", "login", "person") : null;
+  const repoSink = only ? blankSubject("", "repo", "repo") : null;
+  const wantPerson = only?.kind === "contributors" ? (login) => login === only.id : () => !only;
+  const wantRepo = only?.kind === "repos" ? (name) => name === only.id : () => !only;
+
   const person = (login) => {
+    if (!wantPerson(login)) return personSink;
     if (!contributors.has(login))
       contributors.set(login, blankSubject(login, "login", "person"));
     return contributors.get(login);
   };
   const repository = (name) => {
+    if (!wantRepo(name)) return repoSink;
     if (!repos.has(name)) repos.set(name, blankSubject(name, "repo", "repo"));
     return repos.get(name);
   };
@@ -573,8 +601,13 @@ export async function drilldown(now = Date.now()) {
    * people whose entire trace is one drive-by review comment into full
    * drilldown subjects. Read here by the subjects that exist for their own
    * reasons; the rest is thrown away.
+   *
+   * The first of the two things a scoped run cannot derive from the rows it is
+   * given: this counts every review on every pull request in the org, so one
+   * subject's rows would answer a smaller question with the same shape. The
+   * caller supplies it.
    */
-  const activeDays = await activeDayIndex(WINDOWS);
+  const activeDays = opts.activeDays ?? (await activeDayIndex(WINDOWS));
 
   for (const pr of prs) {
     if (!pr.createdAt) continue;
@@ -817,7 +850,7 @@ export async function drilldown(now = Date.now()) {
      it rather than what happened to things they touched once.
      ========================================================================== */
 
-  const issueRecords = await readIssueStore();
+  const issueRecords = opts.issues ?? (await readIssueStore());
   const hasIssueData = issueRecords.length > 0;
 
   /**
@@ -836,14 +869,23 @@ export async function drilldown(now = Date.now()) {
   // matching on `repo#number` rather than on the timestamp. GitHub stamps to the
   // second and two issues filed in the same one would both look like somebody's
   // first. See the note in src/panels/issues.js.
-  const firstIssueBy = new Map();
+  //
+  // The second thing a scoped run cannot derive, and only for a repo: "first
+  // ever" is a fact about the org, and a repo's own issues would date each
+  // reporter's first to the first one they filed *here*, turning every returning
+  // reporter into a new one. A contributor's rows already contain every issue
+  // they authored, so theirs is self-sufficient and `foldPerson` never reads it
+  // anyway — the flag is only consumed by `foldTracker`.
   const issueId = (i) => `${i.repo}#${i.number}`;
-  for (const i of issueRecords) {
-    if (isBot(i.author) || !i.createdAt) continue;
-    const prev = firstIssueBy.get(i.author);
-    const id = issueId(i);
-    if (!prev || i.createdAt < prev.at || (i.createdAt === prev.at && id < prev.id))
-      firstIssueBy.set(i.author, { at: i.createdAt, id });
+  const firstIssueBy = opts.firstIssueBy ?? new Map();
+  if (!opts.firstIssueBy) {
+    for (const i of issueRecords) {
+      if (isBot(i.author) || !i.createdAt) continue;
+      const prev = firstIssueBy.get(i.author);
+      const id = issueId(i);
+      if (!prev || i.createdAt < prev.at || (i.createdAt === prev.at && id < prev.id))
+        firstIssueBy.set(i.author, { at: i.createdAt, id });
+    }
   }
 
   for (const i of issueRecords) {
@@ -1293,6 +1335,14 @@ export async function drilldown(now = Date.now()) {
   const involvementOf = (s) =>
     s._itotals.filed + s._itotals.responses + s._itotals.closed + s._itotals.fixed;
 
+  // A scoped run stops here. Everything below is the index and the coverage
+  // counts, which are facts about the whole store and belong to the cached
+  // index blob rather than to a subject.
+  if (only) {
+    const payload = only.kind === "contributors" ? contributorsOut[only.id] : reposOut[only.id];
+    return { payload: payload ?? null, labelNames };
+  }
+
   const index = {
     contributors: [...contributors.values()]
       .map((s) => ({
@@ -1371,6 +1421,84 @@ export async function drilldown(now = Date.now()) {
     contributors: contributorsOut,
     repos: reposOut,
   };
+}
+
+/**
+ * Every row that can reach one subject.
+ *
+ * The Worker computes a subject on the request rather than materialising all
+ * 7,047 — a full pass is not expensive but impossible, on three limits
+ * independently, and the numbers are in `handoff.md`. So it fetches one
+ * subject's rows and hands them to `drilldown` scoped, which runs the same fold
+ * the build runs. This is the selection, and its SQL twin is
+ * `subjectRowsSql` in `src/shared/drilldown-rules.js` for the reason every rule
+ * here is paired: a selection that is right in JavaScript and narrower in SQL
+ * loses rows in production and nowhere else.
+ *
+ * A repo is the easy half — everything filed against it. A contributor is
+ * reached six ways, and three of them contribute no number at all and exist
+ * only to put a row in the picker. Reasoning from "what did they do" drops
+ * those three people entirely, which is why the list is written out rather than
+ * derived.
+ */
+export function subjectRows(kind, id, prs, issues) {
+  if (kind === "repos") {
+    return {
+      prs: prs.filter((pr) => pr.repo === id),
+      issues: issues.filter((i) => i.repo === id),
+    };
+  }
+
+  const touchesPr = (pr) => {
+    if (pr.author === id) return true;
+    if ((pr.assignees ?? []).includes(id)) return true;
+    for (const r of pr.reviews ?? []) if (r.author === id) return true;
+    const openNow = pr.state === "OPEN" && !pr.mergedAt;
+    if (openNow && (pr.reviewRequests ?? []).includes(id)) return true;
+    return false;
+  };
+
+  const touchesIssue = (i) =>
+    i.author === id ||
+    i.firstResponder === id ||
+    closerOf(i) === id ||
+    fixerOf(i) === id ||
+    (i.assignees ?? []).includes(id);
+
+  return { prs: prs.filter(touchesPr), issues: issues.filter(touchesIssue) };
+}
+
+/**
+ * One subject, computed from its own rows.
+ *
+ * Reuses the Node fold rather than translating it. That trade was rejected for
+ * the whole store at 96 MB against a 128 MB isolate ceiling; one subject is
+ * 5.9 MB at the worst, so the same argument runs the other way and the
+ * agreement with the build is structural instead of tested.
+ *
+ * `activeDays` and `firstIssueBy` are the two things the rows cannot answer —
+ * see the comments at their use. The second is only read for a repo.
+ */
+export async function subjectPayload(kind, id, rows, ctx = {}) {
+  // Refused rather than derived. Built from a repo's own issues this dates each
+  // reporter's first to the first one they filed here, so every returning
+  // reporter counts as a new one and `newReporters` reads high — a number
+  // nothing in the panel's own output could contradict, which is how the last
+  // nine defects in this port hid.
+  if (kind === "repos" && !ctx.firstIssueBy) {
+    throw new Error(
+      "a repo subject needs firstIssueBy — first-ever is a fact about the org, " +
+        "and deriving it from one repo's issues inflates newReporters silently"
+    );
+  }
+
+  return drilldown(ctx.now ?? Date.now(), {
+    only: { kind, id },
+    prs: rows.prs,
+    issues: rows.issues,
+    activeDays: ctx.activeDays,
+    firstIssueBy: ctx.firstIssueBy,
+  });
 }
 
 /**

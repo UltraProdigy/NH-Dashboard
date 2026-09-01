@@ -623,7 +623,8 @@ if (!existsSync(ENTRY)) {
     console.log("\n  no per-subject entry point — payload comparison skipped");
     console.log("  expected src/panels/drilldown.js to export:");
     console.log("    subjectRows(kind, id, prs, issues) -> { prs, issues }");
-    console.log("    subjectPayload(kind, id, rows, { now, activeDays }) -> { payload, labelNames }");
+    console.log("    subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy })");
+    console.log("      -> { payload, labelNames }");
   } else {
     const { readStore } = await import(path.join(ROOT, "src", "ingest", "pullRequests.js"));
     const { readStore: readIssueStore } = await import(path.join(ROOT, "src", "ingest", "issues.js"));
@@ -634,6 +635,20 @@ if (!existsSync(ENTRY)) {
     const issues = await readIssueStore();
     const activeDays = await activeDayIndex(WINDOWS);
     const now = Date.parse(d.generatedAt);
+
+    // The two facts about the org a subject's own rows cannot answer. The
+    // Worker will need a query for each; here they come from the same store the
+    // build reads, which is the point — supplying them from the subject's rows
+    // instead is the mistake the entry point refuses to make for a repo.
+    const { isBot } = await import(path.join(ROOT, "src", "shared", "contributor-rules.js"));
+    const firstIssueBy = new Map();
+    for (const i of issues) {
+      if (isBot(i.author) || !i.createdAt) continue;
+      const id = `${i.repo}#${i.number}`;
+      const prev = firstIssueBy.get(i.author);
+      if (!prev || i.createdAt < prev.at || (i.createdAt === prev.at && id < prev.id))
+        firstIssueBy.set(i.author, { at: i.createdAt, id });
+    }
 
     /**
      * Which subjects to compute.
@@ -688,7 +703,7 @@ if (!existsSync(ENTRY)) {
     for (const [kind, id] of subjects) {
       const theirs = d[kind][id];
       const rows = entry.subjectRows(kind, id, prs, issues);
-      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays });
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy });
 
       if (!payload) {
         missing.push(`${kind}/${id}`);
@@ -736,7 +751,7 @@ if (!existsSync(ENTRY)) {
     {
       const [kind, id] = ["contributors", biggest(d.contributors, 1)[0]];
       const rows = entry.subjectRows(kind, id, prs, issues);
-      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays });
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy });
       const dangling = [];
       for (const [p, v] of leaves(payload)) {
         if (!/\.labels\[\d+\]$/.test(p)) continue;
