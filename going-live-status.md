@@ -1379,9 +1379,53 @@ reconciliation flagged because neither moves a number:
   issues. At ~10 issues a day it is ~0.1% of `neverAnswered` per month, and it
   errs *unflatteringly*, which is the safer direction but still wrong.
 
-## Verdict
+## Verdict: applied, and it holds
 
-The panel reconciles once the migration is applied. `issues` can go into
-`LIVE_PANELS` after the deploy and the migration, not before — the nine rows are
-in production now, and listing the panel first would tint the card blue over
-them.
+Migration 004 ran and the fixed handler is deployed. Production reads
+`unknownReason: 0` and `notPlanned: 5105`, which is the build's figure exactly,
+with `completed` down by the one issue that had been flattered into it:
+18,071 + 5,105 + 507 = 23,683 = closed. `issues` is in `LIVE_PANELS`.
+
+---
+
+# Where this stands, end of 2026-08-31
+
+This file is a log and the sections above are dated records — several were true
+when written and are not now. This one is the current state, and it is the one
+to believe.
+
+**Nine panels are live.** `contributors`, `analytics`, `approvedUnmerged`,
+`changesRequested`, `needsRelease`, `depUpdates`, `byLabel`, `ciHealth`,
+`issues`. Anything earlier in this file describing a smaller list, or saying
+nothing from a session is deployed, is a record of a moment rather than a fact.
+
+**The drilldown is half ported.** `worker/src/panels/drilldown.js` builds the
+two picker indexes and the schema keys — 16 queries, ~344 ms projected, 475 KB
+cached — and both indexes agree with the build on membership, on every field and
+in order. The 7,047 per-subject payloads are not ported and the panel is
+deliberately **not** in `LIVE_PANELS`; `PAGE_PANEL` maps both drilldown pages to
+it, so that one line would tint 22 cards blue over build data.
+
+**Every drilldown list has a total order now.** They were all sorted on their
+metric alone — 97% of the contributor picker's order was decided by nothing.
+Fixing it moved 67,811 positions across 5,474 lists and changed 1,207 list
+memberships. The comparators and the column orders live in
+`src/shared/drilldown-rules.js`.
+
+**The card tint had a latent version of the same class of bug.** Two Analytics
+cards read a panel that is not their page's and took their tint from the page.
+It is right today only because all three panels share a tier; it would have lied
+in an outage. Cards now declare `reads`, and the freshness suite walks all 53
+rather than the handful someone thought to name.
+
+**Suites: 342.**
+
+## Still outstanding, none of it code
+
+- **`NH_INGEST_EXCLUDE` is not a repo secret**, and the 05:00 `data` cron is
+  what needs it. The section above titled "It was not actually applied" is about
+  the *code* path, which is fixed and tested; CI is the half that is not.
+- **`traffic_daily` still holds 0 rows.** The store on one laptop remains the
+  only copy.
+- **`data/*.json` on Pages predates the drilldown tiebreaks.** `data/` is
+  gitignored, so only a `data` workflow run republishes them.
