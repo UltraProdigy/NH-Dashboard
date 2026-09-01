@@ -32,7 +32,8 @@
     "test:parity:review-state": "node --experimental-sqlite worker/test/review-state.parity.test.js",
     "test:parity:releases": "node --experimental-sqlite worker/test/releases.parity.test.js",
     "test:parity:by-label": "node --experimental-sqlite worker/test/by-label.parity.test.js",
-    "test:freshness": "node test/freshness.test.js"
+    "test:freshness": "node test/freshness.test.js",
+    "test:backfill-prs": "node --experimental-sqlite worker/test/backfill-prs.test.js"
   },
   "engines": {
     "node": ">=20.6"
