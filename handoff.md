@@ -5,34 +5,33 @@ map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
 Rewritten 2026-08-30, after the `issues` port. Updated 2026-08-31, after
-reconciling it against production.
+reconciling it against production, promoting `issues`, and porting the drilldown
+index.
 
 ---
 
-## Nothing here is on a deadline any more
+## One thing here has a clock on it
 
-Traffic was the one clock-bound thing and it has been caught up. The store holds
-**Aug 13–29 dense, 5,405 rows**; the one-row hole on Aug 28 is filled and Aug 29
-is captured. Aug 30 is deliberately absent — the ingest discards the current day
-because GitHub counts it as it goes.
+Not traffic, which is merely irreplaceable. **`NH_INGEST_EXCLUDE` is not a repo
+secret yet**, and the 05:00 `data` cron runs the ingest. A run without it
+re-walks `Dupes-Exploits-GTNH` and republishes its issue titles to a public
+page, which is the one failure on this list that cannot be taken back — the file
+can be removed, the copies cannot. A push does *not* trigger it, because the
+`data` job is skipped on push by design; the schedule is what does. Settings →
+Secrets and variables → Actions, value as in `.env`.
 
-What is left is not a deadline but it is still the only copy: **`traffic_daily`
-holds 0 rows in D1**, and the store on one laptop is all there is. The SQL is
-generated and gitignored:
-
-```
-cd worker
-npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
-```
-
-Re-run `npm run ingest:traffic` first if more than a few days have passed —
-it is safely re-runnable and overlapping runs replace rather than duplicate.
+Traffic is the other one, and it is not urgent so much as sole: **`traffic_daily`
+holds 0 rows in D1** and the store on one laptop is the only copy. GitHub's
+window is 14 days, so what is not captured is gone rather than delayed. The
+store holds **Aug 13–29, 5,405 rows**; the current day is always absent because
+GitHub counts it as it goes. See step 1 below — the ingest wants re-running
+first, so `worker/traffic.sql` was generated from a store that stops at Aug 29.
 
 ## Where the port stands
 
-**Nine of the ten panels can now be served from D1.** `issues` was the last
-substantial one and it is done: fifteen keys, six identical to the build byte
-for byte and the rest differing only by a day and a half of freshness.
+**All ten panels are now served from D1**, though the last of them only in
+part. Nine are live on the page; `drilldown` has its index ported and cached
+and its 7,047 per-subject payloads still coming from the build file.
 
 | Panel | Tier | Note |
 |---|---|---|
@@ -59,10 +58,15 @@ not, and the panel must stay out of `LIVE_PANELS` until they are.
 
 ## Do these in order
 
-1. **Load traffic.** The last thing on the list that is nobody else's copy.
-   `traffic_daily` still reads 0 in D1 and the store on one laptop is all there
-   is. Re-run the ingest first so the store carries yesterday, then regenerate
-   and apply:
+1. **Add `NH_INGEST_EXCLUDE` as a repo secret.** Settings → Secrets and
+   variables → Actions, value as in `.env`. First because it is the only one
+   with a deadline: the 05:00 `data` cron re-walks the excluded repo without it
+   and republishes its issue titles publicly, and that is the one item on this
+   list that cannot be undone afterwards.
+
+2. **Load traffic.** Not urgent, but sole — `traffic_daily` reads 0 in D1 and
+   the store on one laptop is the only copy. Re-run the ingest first so the
+   store carries yesterday, then regenerate and apply:
 
 ```
 npm run ingest:traffic
@@ -74,16 +78,10 @@ npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
    Then confirm `/api/health` shows `traffic_daily` above zero. That reading 0
    is how you know this has not run.
 
-2. **Add `NH_INGEST_EXCLUDE` as a repo secret**, under Settings → Secrets and
-   variables → Actions, value as in `.env`. A push does not run the `data` job
-   — it is skipped by design — but **the 05:00 cron does**, and a `data` run
-   without the secret re-walks the excluded repo and republishes its issue
-   titles to a public page. This is the one item here with a clock on it.
-
 3. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
    tiebreaks are in the pushed source but `data/` is gitignored, so the file on
    Pages still carries the untied orderings until a `data` run rebuilds it.
-   15–90 minutes.
+   15–90 minutes. Do this *after* step 1, for the same reason step 1 is first.
 
 4. **Then `drilldown`.** See below.
 
@@ -683,20 +681,30 @@ panel header so the trade can be made on evidence.
 
 ## Open the next conversation with
 
-> Read `handoff.md` and `going-live-status.md`. Two things are waiting on a
-> machine logged in to Cloudflare: load `worker/traffic.sql` into D1, and apply
-> `worker/migrations/004-normalise-state-reason.sql` then deploy, which is what
-> unblocks adding `"issues"` to `LIVE_PANELS` — the reconciliation against
-> production is done and found one defect, the webhook storing REST's lowercase
-> `not_planned` against the seed's `NOT_PLANNED`. Then the `drilldown`, which is
-> all that remains. Its orderings and column orders are already in
-> `src/shared/drilldown-rules.js` and `npm run test:parity:drilldown` guards
-> them; what is left is the panel itself. Do not try to materialise every
-> subject in the recompute — that is measured as impossible on three separate
-> limits and the file says so. It is a read-through cache: one subject computed
+> Read `handoff.md` and `going-live-status.md`. Nine panels are live and the
+> tenth, `drilldown`, is all that remains. Its index is ported, cached on the
+> cron and reconciles exactly against the build; what is left is the per-subject
+> payloads and the frontend change that stops the two drilldown pages loading a
+> 23 MB file. **Do not add `"drilldown"` to `LIVE_PANELS` until those payloads
+> are served** — `PAGE_PANEL` maps both pages to it, so that one line would tint
+> 22 cards blue over data still coming from the build.
+>
+> Do not try to materialise every subject in the recompute either. That is
+> measured as impossible on three separate limits and the file carries the
+> numbers. It is a read-through cache keyed on `version`: one subject computed
 > on the request from five indexed queries, reusing the Node panel's own
 > functions rather than translating them, since one subject is 5.9 MB against
-> the 96 MB that made reuse impossible for the whole store. The index is the
-> only part that has to be rebuilt in SQL, and its exact definitions are written
-> down. Write the panel comparison half of the parity test before trusting any
-> of it.
+> the 96 MB that made reuse impossible for the whole store. Extracting a
+> per-subject entry point from `src/panels/drilldown.js` is the first step.
+>
+> The orderings and column orders are already shared in
+> `src/shared/drilldown-rules.js` and `npm run test:parity:drilldown` guards
+> them, along with the index comparison. Write the payload half of that test
+> before trusting any of it, and try to break it — this session's two real
+> defects were both invisible from the output, and both were caught by comparing
+> against something that had not come from the same place the value did.
+>
+> Three operational items are outstanding and none needs code: the
+> `NH_INGEST_EXCLUDE` repo secret before the next 05:00 cron, loading traffic
+> into D1, and a `gh workflow run build.yml` to republish `data/*.json` so the
+> drilldown tiebreaks reach Pages.
