@@ -1531,3 +1531,126 @@ seeded spread, and the three contributors who exist for no number at all. Suites
 The largest computed payload is Dream-Master at 757 KB, 37% of the 2 MB row cap,
 which is the number that decides whether this design lasts and is now asserted
 rather than known.
+
+---
+
+# The worker route
+
+Same day. `/api/contributor/{login}` and `/api/repo/{name}` are live in the
+source, not deployed. **Suites: 359.**
+
+## The fold had to move before anything else could happen
+
+The Worker computes a subject by calling the build's own fold, and a Worker has
+no filesystem. `src/panels/drilldown.js` reached `node:fs` twice over through
+the two ingest stores and a third time through `activeDays.js`, so importing it
+would have failed the bundle — at deploy time, on a machine logged in to
+Cloudflare, which is the worst place to find out.
+
+So the fold is now `src/shared/drilldown-fold.js` and the panel is the 127-line
+wrapper that reads the stores and hands them over. `src/shared` was already the
+Worker-importable zone — every Worker import in this repo comes from there or
+from `config.js` — so this is the existing boundary rather than a new one.
+
+Three things fell out of it, all cheap:
+
+- **`ISSUE_STALE_DAYS` moved to `shared/issue-rules.js`**, re-exported from
+  `config.js` the way `WINDOWS` and `BACKLOG_BUCKETS` already are. It was the
+  only reason the fold reached a module that imports `node:child_process`.
+- **`grossing.js` and `issueMetrics.js` did not have to move.** Both are
+  fs-free, and `worker/src/panels/issues.js` already imports the second — so
+  fs-free panel modules being Worker-safe is precedent, not a new claim.
+- **The output is byte-identical across all 23.2 MB**, before and after.
+
+**And the import graph is now asserted.** `wrangler` cannot run in CI here —
+`workerd` ships a platform binary — so the bundler will never be what catches a
+reintroduced `node:fs`. The test walks the graph instead. Confirmed to bite by
+adding one to `grossing.js`, two hops down, which is where it will actually
+come from.
+
+## `activeDays` stopped being a dependency
+
+It was one of the two things a subject's rows could not answer. It is not:
+every source of an active day for a person — their pull requests, their reviews,
+the issues they filed, answered, closed or fixed — is a row that reaches them.
+Checked against the whole-store index over 120 contributors with no
+disagreement, and the payload comparison exercises the derivation on every run
+because the test deliberately stops passing it.
+
+So the Worker needs one fewer query, and `firstIssueBy` for repos is the only
+thing left that has to be supplied. The two look like the same kind of problem
+and are not, which is the part worth remembering.
+
+## The SQL only has to be a superset
+
+A deliberate departure from how every other rule here is paired. The usual
+arrangement is a JavaScript rule and its SQL twin asserted against each other,
+which works when both produce a *number*. These queries produce a *row set*, and
+`subjectRows` already decides membership exactly — so they do not have to agree
+with it, they have to **contain** it, and the JavaScript narrows what comes back.
+
+That turns "the SQL is narrower than the JavaScript" — a person quietly missing
+from their own page, this port's signature failure and always in the flattering
+direction — from a thing to test for into a thing that cannot happen. It is also
+why the assignee and review-request arms are `LIKE` against the JSON column
+rather than `json_each`: a `LIKE` that matches a login inside another login is a
+row that gets discarded, not a bug, and there was no reason to reach for an
+untested D1 feature to answer a question that does not need a precise answer.
+
+## The test found the oldest bug in this project wearing a new coat
+
+First run of the Worker comparison: `filesChanged` read **0 against a true
+19,386** on the busiest subject, in every window, of every subject. Nothing
+errored.
+
+`changed_files` was missing from the projection. That is verbatim the
+`response_unknown` bug from the issues port — *a column left out of a projection
+is a rule quietly changed* — committed again by someone who had read that
+sentence, written it into a file header, and then hand-maintained a column list
+anyway.
+
+The fix is not the column. It is that the shaper's fields are now checked
+against **the fold's own source**: the test extracts every `pr.x` and `i.x` the
+fold reads and asserts the shaped record carries each one. A list nobody
+maintains cannot go stale.
+
+## Seven mutations, and the two that did not simply fail
+
+| mutation | caught by |
+|---|---|
+| a column dropped from the projection | the leaf diff, by name |
+| `response_unknown` dropped specifically | the leaf diff |
+| the reviews arm removed from the predicate | two assertions |
+| first-ever dated within the repo | `newReporters` |
+| the cache ignoring the version | the staleness check |
+| the label table left off the cached row | *see below* |
+| the superset served without narrowing | **survived, correctly** |
+
+**The label-table mutation did fail — by crashing.** It took the decoder down
+with a TypeError halfway through the run, which counts as neither a pass nor a
+failure, and it read as a survivor until the loop asserted the table's presence
+first. Worth naming as a shape: *a check that dies is not a check that bit.*
+
+**The last one is not a gap.** Handing the fold a superset produces the same
+payload, because the fold is already scoped and sinks every row that is not about
+the subject. So `subjectRows` in the route bounds the work rather than deciding
+the answer, no test can tell the two apart, and the call site says so plainly
+rather than looking load-bearing.
+
+## The cache
+
+One row per subject per version, written through `waitUntil` so a viewer never
+pays for it and a failed write costs a recomputation rather than an error. Three
+assertions, because a cache that never writes is merely slow and one that serves
+a stale row is wrong, and a single request cannot tell them apart: a cold miss,
+a warm hit serving the same bytes, and a miss again once the version has moved.
+
+`x-refresh` is `cron` on a hit **and on a miss**. Reporting `instant` because
+the fold just ran would be a confident blue over data up to ten minutes old,
+which is the exact lie the four-colour scheme exists to prevent.
+
+## Still not in LIVE_PANELS
+
+Nothing is deployed, and the frontend still loads the 23 MB file. `PAGE_PANEL`
+maps both drilldown pages to `drilldown`, so adding that one name would tint 22
+cards blue over build data. It goes in when the pages fetch per subject.

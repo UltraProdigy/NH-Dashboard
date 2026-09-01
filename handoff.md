@@ -6,7 +6,8 @@ are temporary and get deleted when the migration lands.
 
 Rewritten 2026-08-30, after the `issues` port. Updated 2026-08-31, after
 reconciling it against production, promoting `issues`, and porting the drilldown
-index. Updated 2026-09-01, after extracting the per-subject entry point.
+index. Updated 2026-09-01, after extracting the per-subject entry point and
+building the Worker route in front of it.
 
 ---
 
@@ -25,9 +26,9 @@ it as it goes. See step 1 below — the ingest wants re-running first, so
 
 ## Where the port stands
 
-**All ten panels are now served from D1**, though the last of them only in
-part. Nine are live on the page; `drilldown` has its index ported and cached
-and its 7,047 per-subject payloads computing but not yet served.
+**All ten panels are now served from D1.** Nine are live on the page; the
+tenth answers for its index and for all 7,047 per-subject payloads, and is
+waiting on the frontend rather than on the Worker.
 
 | Panel | Tier | Note |
 |---|---|---|
@@ -40,7 +41,7 @@ and its 7,047 per-subject payloads computing but not yet served.
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
 | `issues` | cron | ≤10 min |
-| `drilldown` | cron | **index ported and reconciled; payloads compute but are not served** |
+| `drilldown` | cron | **index and payloads both served by the Worker; frontend still reads the build file** |
 
 `issues` is live. Its gate earned its keep: reconciling against production found
 the `state_reason` casing bug below, which no parity test here could have seen,
@@ -48,11 +49,12 @@ and migration 004 has repaired it — production reads `unknownReason: 0` and
 `notPlanned` back at the build's 5,105, with `completed` down the one issue that
 had been flattered.
 
-**`drilldown` is the whole of what remains** — 22 of the 53 cards, both drilldown
-pages. Its index is ported and live on the cron. The per-subject payloads now
-*compute* — `subjectPayload` in `src/panels/drilldown.js` agrees with the build
-leaf for leaf — but nothing serves them yet, so the panel must stay out of
-`LIVE_PANELS` until the Worker route and the frontend change land.
+**`drilldown` is the whole of what remains, and it is now only the frontend** —
+22 of the 53 cards, both drilldown pages. The index is live on the cron and the
+per-subject payloads are served by `/api/contributor/{login}` and
+`/api/repo/{name}`, computed on the request and cached against the version. The
+pages still load the 23 MB build file, so the panel stays out of `LIVE_PANELS`
+until they fetch per subject.
 
 ## Do these in order
 
@@ -75,8 +77,9 @@ npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
    Pages still carries the untied orderings until a `data` run rebuilds it.
    15–90 minutes.
 
-3. **Then `drilldown`.** See below. The entry point exists; what is left is the
-   Worker route in front of it and the frontend change behind it.
+3. **Then the drilldown frontend.** See below. The server side is done and
+   untested only in the one place a test cannot reach — the two pages still
+   fetch a 23 MB file.
 
 ## Next: `drilldown`, and it is not shaped like the others
 
@@ -139,11 +142,25 @@ its `version` matches the current one, and otherwise computes that one subject
 from five indexed queries and writes the row back. `version` is already a column
 on both tables; nothing needs a migration.
 
-**The entry point for that exists** — `subjectRows` and `subjectPayload` in
-`src/panels/drilldown.js`, guarded by the payload half of
-`npm run test:parity:drilldown`, which agrees with the build leaf for leaf on 67
-subjects. The whole-store output is byte-identical across all 23.2 MB, so the
-build has not moved.
+**All of that exists and is tested.** `subjectRows` and `subjectPayload` live in
+`src/shared/drilldown-fold.js` — under `shared` because a Worker has no
+filesystem and the panel reached `node:fs` three ways; `worker/src/subject-rows.js`
+fetches and shapes the rows; `worker/src/panels/drilldown-subject.js` is the
+cache. `npm run test:parity:drilldown` compares payloads against the build both
+from the store and out of D1 over the replica, and the whole-store build is
+byte-identical across all 23.2 MB.
+
+**The SQL is a superset, not a twin.** These queries return a row *set* rather
+than a number, and `subjectRows` already decides membership exactly — so they
+have to contain it, not equal it, and the JavaScript narrows what comes back.
+That makes "the SQL is narrower than the JavaScript" impossible rather than
+something to test for. Do not tighten them into an exact twin; that trades a
+guarantee for a risk.
+
+**`activeDays` is no longer a dependency.** Every source of an active day for a
+person is a row that reaches them, so the fold derives it — checked against the
+whole-store index over 120 contributors. `firstIssueBy`, for repos only, is the
+one thing still supplied.
 
 **The cost figure this file carried was wrong by 7×, and it is measured now.**
 It said ~97 ms for the worst subject, from a 44 ms measurement taken before the
@@ -642,10 +659,10 @@ npm run test:freshness    24   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      221   across nine panels, the drilldown orderings and
-                               the per-subject payloads
+npm run test:parity      232   across nine panels, the drilldown orderings, the
+                               per-subject payloads and the worker route
                         ----
-                         348
+                         359
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
@@ -702,38 +719,32 @@ panel header so the trade can be made on evidence.
 ## Open the next conversation with
 
 > Read `handoff.md` and `going-live-status.md`. Nine panels are live and the
-> tenth, `drilldown`, is all that remains. Its index is ported and reconciles
-> exactly, and **the per-subject entry point now exists** — `subjectRows` and
-> `subjectPayload` in `src/panels/drilldown.js`, agreeing with the build leaf
-> for leaf on 67 subjects, with the whole-store output byte-identical across
-> 23.2 MB. What is left is the Worker route in front of it and the frontend
-> change behind it.
+> tenth, `drilldown`, is all that remains. **The whole server side of it is
+> done**: the fold moved to `src/shared/drilldown-fold.js` so a Worker can
+> import it, `/api/contributor/{login}` and `/api/repo/{name}` compute one
+> subject on the request and cache it against the version, and the payloads
+> agree with the build leaf for leaf — both from the store and out of D1 over
+> the replica. The whole-store build is byte-identical across 23.2 MB. Suites
+> 359.
 >
-> The route is a read-through cache keyed on `version`: `/api/contributor/
-> {login}` and `/api/repo/{name}` serve `drilldown_contributors` /
-> `drilldown_repos` when the row's version matches, and otherwise fetch that one
-> subject's rows, call `subjectPayload`, and write the row back. `version` is
-> already a column on both; nothing needs a migration. The row selection is
-> `subjectRows` — a repo is everything filed against it, a contributor is
-> reached six ways and three of those contribute no number at all, so port it
-> from the function rather than from what a subject "does". Its SQL twin is the
-> piece to write next, and to exercise against the replica rather than reason
-> about.
+> **What is left is the frontend, and it is the only part with no test behind
+> it.** Both drilldown pages load `data/drilldown.json`, 23 MB, on first visit;
+> they need to fetch the picker index from `/api/panel/drilldown` and then one
+> subject at a time from the two routes above, falling back to the static file
+> the way `live.js` already falls back for every other panel. The payload each
+> route returns is the same shape as an entry in the build file, plus its own
+> `labelNames` — that difference is deliberate and is the thing to design the
+> frontend around: a cached row cannot point into a label table that the next
+> recompute renumbers underneath it.
 >
-> **Two things the rows cannot answer.** `activeDays` counts every review on
-> every PR in the org. `firstIssueBy` is needed only for a repo — derived from
-> that repo's own issues it turns every returning reporter into a new one, so
-> `subjectPayload` throws rather than guessing. Both want a query.
+> **Only then add `"drilldown"` to `LIVE_PANELS`.** `PAGE_PANEL` maps both pages
+> to it, so that one line tints 22 cards blue, and until the pages actually
+> fetch per subject those cards are blue over the build file.
 >
-> **Do not add `"drilldown"` to `LIVE_PANELS` until the payloads are served** —
-> `PAGE_PANEL` maps both pages to it, so that one line would tint 22 cards blue
-> over data still coming from the build. And do not try to materialise every
-> subject in the recompute: that is measured as impossible on three separate
-> limits and the file carries the numbers.
->
-> Size the route against the measurements in `going-live-status.md`, not against
-> the ~97 ms this file used to claim — the worst subject is a repo at ~1.3 s
-> projected, and the median is half a millisecond.
+> Nothing here is deployed. `wrangler deploy` is not git and does not run in
+> CI — `workerd` ships a platform binary — so the route exists only in the
+> source. Deploy from a machine logged in to Cloudflare, then check
+> `/api/contributor/Dream-Master` with `cache: "no-store"`.
 >
 > Two operational items are outstanding and neither needs code: loading traffic
 > into D1, and a `gh workflow run build.yml` to republish `data/*.json` so the
