@@ -164,6 +164,64 @@ it's scoped to this repo alone and can't read the GTNewHorizons org.
 GitHub Secrets are only readable from inside a workflow run, which is why local
 development needs one of the three options above rather than reusing the secret.
 
+### Deploying the worker
+
+`.github/workflows/worker.yml` deploys on any push to `main` touching
+`worker/**`, `src/shared/**`, or the lockfile. It runs the four self-contained
+suites first — handlers, recompute, backfill-prs, freshness — then
+`wrangler deploy`, then reads `/api/health`.
+
+**`src/shared/**` is in the path filter deliberately.** The panels import their
+rules from there and those modules are compiled into the bundle, so a change
+that skipped a deploy would leave the live cards computing by the old rule while
+the built file used the new one — and every parity test would pass on both,
+because each compares a D1 reading against a Node reading of the same source.
+
+**The parity suites are not in the gate.** They read `data/ingest`, which is a
+30 MB Actions cache belonging to `build.yml`. Gating a Worker deploy on the
+state of that cache would couple two things that have nothing to do with each
+other. The four that run build their own SQLite from `schema.sql`.
+
+**The health check is the point of the job, not decoration.** A Worker carries
+no version anyone can read against a commit, so a deploy that uploads and then
+answers 500 is worse than one that fails — the run is green either way. Worse,
+the first thing to notice would be a webhook delivery, and `handleWebhook`
+returns 200 no matter what the handler did. `/api/health` touches every table,
+so a broken binding fails here instead.
+
+Secrets are untouched by deploys. `GITHUB_WEBHOOK_SECRET` and the App key were
+set with `wrangler secret put` and persist; putting them in the workflow would
+make every rotation a git operation.
+
+### The reconcile
+
+`.github/workflows/reconcile.yml` runs `worker/backfill-prs.js` every six hours
+over a three-day window, applies the SQL to D1, and forces a panel rebuild.
+**Reconciling D1** below has the why; this is the shape.
+
+The window overlaps itself eleven times over, so a failed run is corrected by
+the next rather than leaving a hole the width of the outage. Use **Run
+workflow** with a `since` date for anything wider — a row that went wrong and
+has been quiet since is only reachable by widening it.
+
+**It walks every repo, and does not filter on `pushedAt`.** That would cut ~300
+GraphQL queries to ~30, and it would also skip exactly what this job exists to
+catch: a PR closed without merging and a review submitted both change state
+without pushing anything.
+
+**The forced recompute is not optional.** `recompute` returns
+`{ skipped: "clean" }` when `dirty` is 0, and `dirty` is only set by a delivery
+— so without `?force=1` this job would correct rows underneath a cache that
+never rebuilt over them. It is skipped entirely when the window was quiet, which
+is the normal case.
+
+Two new repo secrets, alongside `GH_DASHBOARD_TOKEN` and `NH_INGEST_EXCLUDE`:
+
+| Secret | Used by | Needs |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | both new workflows | Edit Cloudflare Workers, plus D1 edit on the account |
+| `CLOUDFLARE_ACCOUNT_ID` | both new workflows | The account ID from the Cloudflare dashboard sidebar |
+
 ### Traffic
 
 `npm run ingest:traffic` appends to `data/ingest/traffic.ndjson`: views and
@@ -233,6 +291,72 @@ nothing on screen to check it against.
 `visibleIds()` and `tierCounts()` in `web/js/render.js` are the two halves, both
 exported so `test/freshness.test.js` can assert the unit directly. Tiers with no
 cards print nothing rather than a zero.
+
+## Reconciling D1
+
+A green ring says the card was rebuilt seconds after GitHub delivered. It does
+not say the row underneath it is right, and for four days it wasn't.
+
+D1 was loaded once by `worker/seed.js` and every row since has come from a
+webhook delivery. That makes the store forward-only in a way worth stating
+plainly: GitHub does not re-send a delivery it has already made, `handleWebhook`
+answers 200 even when the handler threw, and the daily workflow writes
+`data/*.json` rather than D1. A delivery that never arrives — or arrives and
+fails — leaves a row wrong permanently, and nothing anywhere reports it.
+`worker/src/index.js` said the reconcile sweep would correct whatever was
+missed. There was no sweep.
+
+What that cost, on the record. The crawl behind the seed ran roughly 18:35–19:00
+UTC on 2026-08-29, the seed loaded at about 19:20, and the webhook went live at
+19:52. Three pull requests merged inside that hour:
+
+| PR | merged (UTC) | `updated_at` D1 held |
+|---|---|---|
+| Variable-Horizons#11 | 19:43:47 | 18:32:22 |
+| GT5-Unofficial#7891 | 18:40:59 | 18:33:56 |
+| Applied-Energistics-2-Unofficial#1558 | 18:54:28 | 09:22:04 |
+
+Each row froze at its last approval and stayed `OPEN` with a null `merged_at`,
+so Approved-not-merged went on listing all three long after they were merged.
+The panel SQL was correct throughout — it was answering truthfully about rows
+that were not. And because `live.js` overlays the Worker's copy on top of the
+built file, the daily build's correct answer was overwritten by the stale live
+one on every poll. The live tier is the *more* dangerous place for a wrong row
+for exactly this reason: green claims currency.
+
+`worker/backfill-prs.js` is the sweep that was missing.
+
+```
+npm run backfill:prs -- --since 2026-08-29 --out worker/prs.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file prs.sql
+```
+
+It walks each repo's pull requests newest-first, stops at the window, and emits
+upserts for the PRs and their reviews. `--days N` sets a rolling window instead
+of a date; `--repos A,B` narrows it. A PR enters the window by `updatedAt` and a
+merge always moves `updatedAt`, so anything whose state changed inside the
+window is reachable — what a window cannot reach is a row that went wrong and
+has been quiet since, which is what widening `--since` is for.
+
+Two details that would be easy to get wrong, both asserted in
+`worker/test/backfill-prs.test.js`:
+
+**Upsert, not `INSERT OR REPLACE`.** The seed uses the latter because it writes
+into an empty table. Here the rows exist and carry columns GraphQL does not
+return — `merge_commit_sha` above all, which the commit join depends on.
+Replacing a row nulls it, and the commits it orphans start reading as direct
+pushes on a card nobody would think to check.
+
+**Review lists are replaced per PR, not merged into.** `review:approved` is
+current state rather than history, and a review can be dismissed. An upsert can
+only ever add, so a review GitHub no longer reports would keep a PR on the
+approved card indefinitely. The delete is skipped when the list came back
+truncated, because deleting fifty-one reviews to reinsert fifty loses one.
+
+`.github/workflows/reconcile.yml` runs it every six hours over a three-day
+window — see **The reconcile** above. That closes the hole for pull requests and
+reviews. Every other D1-backed table is still fed by the webhook alone and
+carries the same exposure; see **Not built yet**.
 
 ## Dream Panel
 
@@ -2431,6 +2555,13 @@ hand in the meantime.
 
 ## Not built yet
 
+- **Reconciling issues, commits, releases and runs.** `reconcile.yml` covers
+  pull requests and reviews, which is where the gap was caught — not where it
+  ends. Every D1-backed table is fed by the same forward-only webhook path and
+  carries the same exposure: `onIssueComment` in particular issues a bare
+  `UPDATE`, so a comment on a PR whose `opened` delivery was lost changes no
+  rows and reports nothing. The sweep's shape generalises; each table needs its
+  own walk.
 - **Per-repo detail beyond PRs and CI** — stars, watchers, open issues, topics.
   None of it is in the ingest store. CI health opened the door to per-repo API
   enrichment, so adding these is now a matter of extending that sweep rather
