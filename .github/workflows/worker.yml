@@ -1,0 +1,87 @@
+name: Deploy the worker
+
+# The Worker was deployed by hand from a laptop. That is fine until the day the
+# thing running in production is not the thing in main, and there is no way to
+# tell from either — a Worker carries no version anyone can read against a
+# commit, so a handler fix that was written, reviewed, merged and never deployed
+# looks exactly like one that was.
+#
+# `build.yml` deploys the page. This deploys the thing that answers the page's
+# panel requests, and they are genuinely separate: a CSS change should not
+# redeploy a webhook receiver, and a handler fix should not wait on a
+# twenty-minute org crawl.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      # The panels import their rules from here — `contributor-rules.js`,
+      # `analytics-rules.js`, `issue-rules.js` and the rest are the SQL twins of
+      # what the Node build uses, and they are compiled into the Worker bundle.
+      # A change here that skipped a deploy would leave the live cards computing
+      # by the old rule while the built file used the new one, and the parity
+      # tests would pass on both.
+      - "src/shared/**"
+      - ".github/workflows/worker.yml"
+      - "package-lock.json"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # One deploy at a time, and no cancelling. A cancelled `wrangler deploy` is
+    # not a no-op — it can leave the upload half done — and two pushes in quick
+    # succession should land in order rather than racing.
+    concurrency:
+      group: worker-deploy
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Only the suites that carry their own fixtures. The parity tests compare
+      # a D1 reading against a Node one over `data/ingest`, which is an Actions
+      # cache belonging to the build job and 30 MB of NDJSON — pulling it here
+      # to gate a deploy would tie every Worker change to the state of a cache
+      # it has nothing to do with. These four build their own SQLite from
+      # schema.sql and are the ones that would actually catch a broken handler.
+      - name: Test
+        run: |
+          npm run test:handlers
+          npm run test:recompute
+          npm run test:backfill-prs
+          npm run test:freshness
+
+      # Secrets are not touched. `wrangler deploy` uploads code and bindings;
+      # GITHUB_WEBHOOK_SECRET and the rest were set with `wrangler secret put`
+      # and persist across deploys. Putting them in this workflow would mean
+      # every secret rotation was a git operation.
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        run: npx wrangler deploy
+
+      # A deploy that uploads and then answers 500 is worse than a failed one,
+      # because the run is green. `/api/health` touches D1 on every table it
+      # counts, so a broken binding fails here rather than on the first webhook
+      # delivery — which would be silent, since handleWebhook returns 200 no
+      # matter what the handler did.
+      - name: Check it answers
+        run: |
+          sleep 5
+          curl -fsS "https://nh-dashboard.gtnh.workers.dev/api/health" | head -c 2000
