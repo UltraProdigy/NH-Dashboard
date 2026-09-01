@@ -18,6 +18,8 @@
 
 import { handleEvent } from "./handlers.js";
 import { recompute, refreshInstant, refreshTier } from "./recompute.js";
+import { subject } from "./panels/drilldown-subject.js";
+import { scopedDb } from "./scope.js";
 
 /**
  * The read API is public and cross-origin by necessity — the dashboard is
@@ -37,7 +39,8 @@ const CORS = {
   // Without this the browser hides these from cross-origin JavaScript, and the
   // page cannot tell how stale the panel it is showing actually is, nor how
   // fresh it was entitled to expect.
-  "access-control-expose-headers": "x-computed-at, x-refresh",
+  "access-control-expose-headers":
+    "x-computed-at, x-refresh, x-subject-cache, x-version",
   "access-control-max-age": "86400",
 };
 
@@ -282,6 +285,48 @@ async function handlePanel(env, name) {
   });
 }
 
+/**
+ * Serve one drilldown subject.
+ *
+ * `x-refresh` is `cron` on a hit and on a miss alike, and that is honest rather
+ * than convenient: the payload is only as current as the version it was folded
+ * against, and a miss folds against that same version. Reporting `instant`
+ * because the work just happened would be a confident blue over data that is up
+ * to ten minutes old — precisely the lie the four-colour scheme exists to
+ * prevent.
+ *
+ * A missing subject is a 404 rather than an empty payload. The picker only
+ * offers subjects the index carries, so a request for one that does not exist
+ * is a stale bookmark or a typed URL, and an empty record renders as a person
+ * who has done nothing rather than as a person who is not there.
+ */
+async function handleSubject(env, ctx, kind, id) {
+  const db = scopedDb(env.DB, env);
+
+  let result;
+  try {
+    result = await subject(env, db, kind, id);
+  } catch (err) {
+    console.log(JSON.stringify({ at: "subject", kind, id, error: String(err) }));
+    return json({ error: "could not compute subject" }, 500);
+  }
+
+  if (!result.payload) return json({ error: "no such subject" }, 404);
+
+  // The cache write never blocks the response, and a failed one costs a
+  // recomputation next time rather than an error now.
+  if (result.write) ctx.waitUntil(result.write.catch(() => {}));
+
+  return new Response(result.payload, {
+    headers: {
+      ...JSON_HEADERS,
+      "x-refresh": "cron",
+      "x-subject-cache": result.hit ? "hit" : "miss",
+      "x-version": String(result.version),
+    },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -300,6 +345,15 @@ export default {
 
     const panel = url.pathname.match(/^\/api\/panel\/([a-z][a-z0-9]*)$/i);
     if (panel) return handlePanel(env, panel[1]);
+
+    // One drilldown subject. Not `/api/panel/drilldown`, which is the picker
+    // index and stays an ordinary cached blob — these two are the 7,047
+    // payloads behind it, and they are computed per request.
+    const person = url.pathname.match(/^\/api\/contributor\/(.+)$/);
+    if (person) return handleSubject(env, ctx, "contributors", decodeURIComponent(person[1]));
+
+    const repo = url.pathname.match(/^\/api\/repo\/(.+)$/);
+    if (repo) return handleSubject(env, ctx, "repos", decodeURIComponent(repo[1]));
 
     // Manual trigger, for checking a rebuild without waiting for the cron. It
     // only rebuilds and cannot destroy anything, so it is unauthenticated on

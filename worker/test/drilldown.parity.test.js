@@ -94,6 +94,44 @@
  * pairs in the seed do carry more than one approval; the two mutations above
  * exercise them properly.
  *
+ * The fourth half is the Worker path end to end: the five queries, the shaper
+ * that turns flat columns back into records, the superset narrowing and the
+ * read-through cache, run over the replica and diffed against the build. That
+ * is the only place the query text is executed before a deploy — `wrangler`
+ * cannot answer a SELECT against production and does not run in CI here at all,
+ * because `workerd` ships a platform binary.
+ *
+ * It found a real defect on its first run, and it was the oldest bug in this
+ * project wearing a new coat: `changed_files` was missing from the projection,
+ * so every `filesChanged` in every window of every subject read **0 against a
+ * true 19,386** on the busiest one. Nothing errored. That is verbatim the
+ * `response_unknown` bug from the issues port — a column left out of a
+ * projection is a rule quietly changed — and it is why the shaper's fields are
+ * now checked against the fold's own source rather than against a list somebody
+ * maintains.
+ *
+ * Seven mutations of the Worker path, and the two that did not simply fail are
+ * the interesting ones:
+ *
+ *   a column dropped from the projection            the leaf diff, by name
+ *   `response_unknown` dropped specifically         the leaf diff
+ *   the reviews arm removed from the predicate      two assertions
+ *   first-ever dated within the repo                newReporters
+ *   the cache ignoring the version                  the staleness check
+ *   the label table left off the cached row         see below
+ *   the superset served without narrowing           **survived, correctly**
+ *
+ * The label-table mutation *did* fail, by taking the decoder down with a
+ * TypeError rather than reporting — a crash counts as neither pass nor failure,
+ * and it read as a survivor until the run loop asserted the table's presence
+ * first. Worth recording as a shape: a check that dies is not a check that bit.
+ *
+ * The last one is not a gap. Handing the fold a superset produces the same
+ * payload, because the fold is already scoped and sinks every row that is not
+ * about the subject — so `subjectRows` in the route bounds the work rather than
+ * deciding the answer, and no test can tell the two apart. Kept anyway, and
+ * said plainly at its call site rather than left looking load-bearing.
+ *
  * Needs `data/drilldown.json`, and skips without it. Rebuild it with
  * `npm run rebuild:drilldown` before believing a failure here: it pins its
  * clock to `dashboard.json`'s `generatedAt`, and a stale oracle reports a fix
@@ -181,6 +219,16 @@ function shuffled(list) {
   }
   return a;
 }
+
+/** A seeded sample of subjects, and the ones whose size decides the design. */
+const spread = (map, n) => shuffled(Object.keys(map).sort()).slice(0, n);
+
+const biggest = (map, n) =>
+  Object.entries(map)
+    .map(([k, v]) => [k, JSON.stringify(v).length])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k]) => k);
 
 /* ==========================================================================
    Every ordered list, walked once
@@ -710,17 +758,6 @@ if (!existsSync(ENTRY)) {
      * the set stays true as the org changes, with the count asserted so a change
      * announces itself instead of weakening the test.
      */
-    const spread = (map, n) => {
-      const ids = Object.keys(map).sort();
-      return shuffled(ids).slice(0, n);
-    };
-    const biggest = (map, n) =>
-      Object.entries(map)
-        .map(([k, v]) => [k, JSON.stringify(v).length])
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, n)
-        .map(([k]) => k);
-
     const existenceOnly = d.index.contributors.filter((s) => s.n + s.a + s.i === 0).map((s) => s.id);
     check(
       "three contributors exist for no number at all",
@@ -913,6 +950,179 @@ if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
   ];
   const drifted = keys.filter((k) => JSON.stringify(built[k]) !== JSON.stringify(d[k]));
   check("every schema key matches the build", drifted.length === 0, drifted.join(", "));
+
+  /* ========================================================================
+     The whole Worker path, over the replica
+
+     The section above proves the fold agrees with the build when handed rows
+     from the store. This proves the *route* agrees with it when handed rows
+     from D1, which is a different claim and the one that ships.
+
+     Everything between the two is untested by anything else: five queries whose
+     dialect a local replica cannot vouch for, a superset predicate, and a
+     shaper turning twenty-odd flat columns back into a nested record. That
+     shaper is where a missing column becomes a quietly changed rule — it is
+     exactly how `filedUnanswered` read one high for three weeks — and no
+     amount of comparing the fold against itself would see it.
+
+     `wrangler` cannot answer a SELECT against production and does not run in CI
+     at all (`workerd` ships a platform binary), so this replica is the only
+     place the query text is ever executed before a deploy.
+     ======================================================================== */
+
+  const { subject } = await import(path.join(HERE, "..", "src", "panels", "drilldown-subject.js"));
+  const { fetchSubjectRows } = await import(path.join(HERE, "..", "src", "subject-rows.js"));
+
+  // D1's surface, properly: `bind` returns a *new* statement rather than
+  // mutating a shared one. The handlers suite shipped a shim that mutated, and
+  // every test passed while a batch would have written one row N times.
+  const d1 = (handle) => ({
+    prepare(sql) {
+      const make = (params) => ({
+        bind: (...next) => make(next),
+        async all() {
+          return { results: handle.prepare(sql).all(...params) };
+        },
+        async first() {
+          return handle.prepare(sql).get(...params) ?? null;
+        },
+        async run() {
+          return handle.prepare(sql).run(...params);
+        },
+      });
+      return make([]);
+    },
+  });
+
+  const wdb = d1(raw);
+  const env = { DB: wdb, NH_INGEST_EXCLUDE: "" };
+
+  console.log("\nworker: one subject at a time, out of D1");
+
+  const routed = [
+    ...biggest(d.contributors, 2).map((id) => ["contributors", id]),
+    ...d.index.contributors.filter((s) => s.n + s.a + s.i === 0).slice(0, 3).map((s) => ["contributors", s.id]),
+    ...spread(d.contributors, 25).map((id) => ["contributors", id]),
+    ...biggest(d.repos, 2).map((id) => ["repos", id]),
+    ...spread(d.repos, 12).map((id) => ["repos", id]),
+  ];
+
+  const badRoute = [];
+  const emptyRoute = [];
+  let served = 0;
+
+  for (const [kind, id] of routed) {
+    let out;
+    try {
+      out = await subject(env, wdb, kind, id, Date.parse(d.generatedAt));
+    } catch (err) {
+      badRoute.push(`${kind}/${id} threw: ${String(err).slice(0, 120)}`);
+      continue;
+    }
+
+    if (!out.payload) {
+      emptyRoute.push(`${kind}/${id}`);
+      continue;
+    }
+    served++;
+
+    const { labelNames, ...payload } = JSON.parse(out.payload);
+
+    // Asserted rather than assumed. Without it a served row that has lost its
+    // label table takes the decoder down with a TypeError halfway through the
+    // run, which reports as a crash rather than as a failure and counts as
+    // neither — a mutation that removed the table read as a survivor until this
+    // line existed.
+    if (!Array.isArray(labelNames)) {
+      badRoute.push(`${kind}/${id} carries no label table`);
+      continue;
+    }
+
+    const mine = leaves(expand(payload, kind, labelNames));
+    const oracle = leaves(expand(d[kind][id], kind, d.labelNames));
+
+    for (const p of new Set([...mine.keys(), ...oracle.keys()])) {
+      const a = mine.get(p) ?? null;
+      const b = oracle.get(p) ?? null;
+      if (JSON.stringify(a) !== JSON.stringify(b)) {
+        badRoute.push(`${kind}/${id} ${p}: ${JSON.stringify(a)} against ${JSON.stringify(b)}`);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Every field the fold reads has to survive the trip through D1.
+   *
+   * Read out of the fold's own source rather than listed here, because a list
+   * maintained by hand is the thing that was already wrong: `changed_files` was
+   * missing from the projection and every `filesChanged` in every window read
+   * zero, against a true 19,386 on the busiest subject. Nothing errored, and the
+   * payload comparison caught it only because it compares every leaf.
+   *
+   * This is the cheaper version of that catch, and it names the column.
+   */
+  {
+    const foldSrc = readFileSync(FOLD, "utf8");
+    const reads = (prefix) =>
+      new Set([...foldSrc.matchAll(new RegExp(`\\b${prefix}\\.([a-zA-Z]+)`, "g"))].map((m) => m[1]));
+
+    // Derived inside the fold rather than carried on the record.
+    const computed = new Set(["ageDays", "answered", "assigned", "stale"]);
+
+    const sample = await fetchSubjectRows(wdb, "contributors", biggest(d.contributors, 1)[0]);
+    const shaped = { pr: sample.prs[0] ?? {}, i: sample.issues[0] ?? {} };
+
+    const absent = [];
+    for (const [prefix, record] of Object.entries(shaped)) {
+      for (const field of reads(prefix)) {
+        if (computed.has(field)) continue;
+        if (!(field in record)) absent.push(`${prefix}.${field}`);
+      }
+    }
+    check(
+      "the shaper produces every field the fold reads",
+      absent.length === 0,
+      absent.join(", "),
+    );
+  }
+
+  check("every routed subject is served", emptyRoute.length === 0, emptyRoute.slice(0, 3).join(", "));
+  check(
+    `the D1 path agrees with the build on all ${served}`,
+    badRoute.length === 0,
+    `${badRoute.length}, first: ${badRoute[0]}`,
+  );
+
+  /**
+   * The cache, which is the half the payload comparison cannot see.
+   *
+   * A read-through cache that never writes is merely slow; one that serves a
+   * stale row is wrong, and both look identical from a single request. So this
+   * asks three times: a miss that computes, a hit that does not, and a miss
+   * again once the version has moved underneath it.
+   */
+  {
+    const [kind, id] = ["contributors", biggest(d.contributors, 1)[0]];
+    const at = Date.parse(d.generatedAt);
+
+    // Cold means cold. The comparison above has already served this subject and
+    // cached it, and a "miss" assertion against a warm table asserts nothing.
+    raw.exec("DELETE FROM drilldown_contributors");
+
+    const first = await subject(env, wdb, kind, id, at);
+    if (first.write) await first.write;
+    check("a cold subject is a miss", first.hit === false);
+
+    const second = await subject(env, wdb, kind, id, at);
+    check("and the next read is a hit", second.hit === true);
+    check("serving the same bytes", second.payload === first.payload);
+
+    raw.exec("UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'");
+    const third = await subject(env, wdb, kind, id, at);
+    check("a version bump invalidates it", third.hit === false);
+    check("and the row records the new version", third.version === second.version + 1);
+  }
 }
 
 console.log(`\n${pass} passed, ${failures.length} failed\n`);
