@@ -666,7 +666,7 @@ if (!existsSync(ENTRY)) {
     console.log("\n  no per-subject entry point — payload comparison skipped");
     console.log("  expected src/panels/drilldown.js to export:");
     console.log("    subjectRows(kind, id, prs, issues) -> { prs, issues }");
-    console.log("    subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy })");
+    console.log("    subjectPayload(kind, id, rows, { now, firstIssueBy })  // firstIssueBy: repos only");
     console.log("      -> { payload, labelNames }");
   } else {
     const { readStore } = await import(path.join(ROOT, "src", "ingest", "pullRequests.js"));
@@ -746,7 +746,10 @@ if (!existsSync(ENTRY)) {
     for (const [kind, id] of subjects) {
       const theirs = d[kind][id];
       const rows = entry.subjectRows(kind, id, prs, issues);
-      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy });
+      // `activeDays` is deliberately not passed for a contributor: the fold
+      // derives it from the rows, and this diff is what proves the derivation.
+      const ctx = kind === "repos" ? { now, firstIssueBy } : { now };
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, ctx);
 
       if (!payload) {
         missing.push(`${kind}/${id}`);
@@ -772,6 +775,24 @@ if (!existsSync(ENTRY)) {
       }
     }
 
+    {
+      const { deriveActiveDays } = await import(FOLD);
+      const wrongDays = [];
+      for (const [kind, id] of subjects) {
+        if (kind !== "contributors") continue;
+        const rows = entry.subjectRows(kind, id, prs, issues);
+        const mine = deriveActiveDays(id, rows.prs, rows.issues).get(id)?.windows.all ?? { days: 0, denom: 0 };
+        const theirs = activeDays.get(id)?.windows.all ?? { days: 0, denom: 0 };
+        if (mine.days !== theirs.days || mine.denom !== theirs.denom)
+          wrongDays.push(`${id}: ${mine.days}/${mine.denom} against ${theirs.days}/${theirs.denom}`);
+      }
+      check(
+        "active days derived from a subject's rows match the whole-store index",
+        wrongDays.length === 0,
+        `${wrongDays.length}, first: ${wrongDays[0]}`,
+      );
+    }
+
     check("every subject computes from its own rows", missing.length === 0, missing.slice(0, 3).join(", "));
     check(
       "and agrees with the build leaf for leaf",
@@ -794,7 +815,7 @@ if (!existsSync(ENTRY)) {
     {
       const [kind, id] = ["contributors", biggest(d.contributors, 1)[0]];
       const rows = entry.subjectRows(kind, id, prs, issues);
-      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays, firstIssueBy });
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now });
       const dangling = [];
       for (const [p, v] of leaves(payload)) {
         if (!/\.labels\[\d+\]$/.test(p)) continue;

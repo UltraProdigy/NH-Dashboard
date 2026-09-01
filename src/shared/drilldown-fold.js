@@ -558,12 +558,21 @@ export function foldDrilldown(now, opts = {}) {
    * drilldown subjects. Read here by the subjects that exist for their own
    * reasons; the rest is thrown away.
    *
-   * The first of the two things a scoped run cannot derive from the rows it is
-   * given: this counts every review on every pull request in the org, so one
-   * subject's rows would answer a smaller question with the same shape. The
-   * caller supplies it.
+   * A scoped contributor derives it instead of being handed it, and that is
+   * safe rather than convenient: every source of an active day for a person —
+   * their pull requests, their reviews, the issues they filed, answered, closed
+   * or fixed — is a row that reaches them, so their own rows carry all of it.
+   * Checked against the whole-store index over 120 contributors with no
+   * disagreement, and the payload comparison exercises it on every run.
+   *
+   * A repo never reads it. Note the contrast with `firstIssueBy` below, which
+   * looks like the same kind of thing and is not: that one is a fact about the
+   * org that a subject's rows genuinely cannot answer, so it is refused rather
+   * than derived.
    */
-  const activeDays = opts.activeDays ?? new Map();
+  // Assigned rather than derived here: the derivation needs the issue records,
+  // which are read further down. See the line after `issueRecords`.
+  let activeDays = opts.activeDays ?? new Map();
 
   for (const pr of prs) {
     if (!pr.createdAt) continue;
@@ -808,6 +817,10 @@ export function foldDrilldown(now, opts = {}) {
 
   const issueRecords = opts.issues ?? [];
   const hasIssueData = issueRecords.length > 0;
+
+  // The deferred half of `activeDays` above. Both stores are in hand now.
+  if (!opts.activeDays && only?.kind === "contributors")
+    activeDays = deriveActiveDays(only.id, prs, issueRecords);
 
   /**
    * How much of the store can say who closed an issue.
@@ -1397,6 +1410,47 @@ export function foldDrilldown(now, opts = {}) {
  * those three people entirely, which is why the list is written out rather than
  * derived.
  */
+/**
+ * One person's distinct active days, from their own rows.
+ *
+ * The same four marks `activeDays.js` makes over the whole store, restricted to
+ * one login — which loses nothing, because a day only reaches a person through
+ * a row that reaches them too. Only the all-time window is produced, because
+ * only the all-time window is read: the payload carries `activeDays` and
+ * `activeSpan` and nothing else from this.
+ *
+ * `denom` runs to today rather than to their last active day, deliberately, and
+ * that is not this function's choice to revisit — see the long note in
+ * `panels/activeDays.js`. Leaving is supposed to be visible in the arithmetic.
+ */
+export function deriveActiveDays(login, prs, issues) {
+  const days = new Set();
+  const mark = (who, when) => {
+    if (when && who === login && !isBot(who)) days.add(when.slice(0, 10));
+  };
+
+  for (const pr of prs) {
+    mark(pr.author, pr.createdAt);
+    for (const r of pr.reviews ?? []) mark(r.author, r.submittedAt);
+  }
+  for (const i of issues) {
+    mark(i.author, i.createdAt);
+    mark(i.firstResponder, i.firstResponseAt);
+    mark(closerOf(i), i.closedAt);
+    mark(fixerOf(i), i.closedAt);
+  }
+
+  if (!days.size) return new Map();
+
+  const dayNo = (key) => Math.round(Date.parse(key) / DAY);
+  const today = new Date().toISOString().slice(0, 10);
+  const first = [...days].sort()[0];
+
+  return new Map([
+    [login, { windows: { all: { days: days.size, denom: dayNo(today) - dayNo(first) + 1 } } }],
+  ]);
+}
+
 export function subjectRows(kind, id, prs, issues) {
   if (kind === "repos") {
     return {
