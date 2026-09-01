@@ -29,6 +29,35 @@
  * The second half compares the panels and skips politely until
  * `worker/src/panels/drilldown.js` exists, so this file is useful from now.
  *
+ * The third half is the per-subject payloads, and it is a different kind of
+ * check again. Those are not being ported into SQL — one subject is 5.9 MB
+ * against the 96 MB that made reusing the store impossible, so the Worker hands
+ * one subject's rows to the same Node functions the build runs and there is no
+ * second implementation to disagree with. What is left to get wrong is the
+ * extraction: a fold that could reach the whole store, handed a subset, reads
+ * something that is no longer there and returns a smaller number rather than an
+ * error. So a subject computed from its own rows is compared against the same
+ * subject computed from all of them, leaf by leaf, with labels resolved through
+ * each side's own table rather than by index. It skips politely too.
+ *
+ * That half was checked the only way it can be before the entry point exists: a
+ * throwaway shim returning the build's own payload, which passes over 67
+ * subjects, then mutated eight ways. All eight fail it:
+ *
+ *   a row dropped from a packed table            resolved.length
+ *   every label index shifted by one             the names, not the indexes
+ *   a window count moved by one                  windows.m1.opened
+ *   a positional issue window moved by one       issues.windows.all.filed
+ *   a zero written as null                       windows.all.closed
+ *   a subject returning nothing                  the existence-only three
+ *   a series with its first month dropped        series.from and every bucket
+ *   the org's label table returned unchanged     the leaf diff and the
+ *                                                self-sufficiency check
+ *
+ * The label shift is the one worth keeping: it passes if the two sides are
+ * compared by index and fails only because they are compared by name, which is
+ * the whole reason a payload carries its own table.
+ *
  * Ten deliberate mutations were run against this file and all ten fail it —
  * each of the five tiebreaks removed in turn, `byRecord` switched to the
  * `"repo#number"` string form (caught in 91 real lists, so the digit-count trap
@@ -457,11 +486,273 @@ const idOf = (x) => `${x.repo ?? x.login ?? x.id ?? ""}#${x.number ?? ""}`;
 }
 
 /* ==========================================================================
+   The per-subject payloads
+
+   Skipped politely until the entry point exists, so this half is useful from
+   now — the same arrangement the panel half below used before the SQL index was
+   written.
+
+   This does not compare two implementations either, and that is the point.
+   The design settled on for the payloads is to *reuse* the Node panel's own
+   functions rather than translate them: one subject is 5.9 MB against the 96 MB
+   that made reusing the whole store impossible, so the Worker computes a
+   subject by handing that subject's rows to the same code the build runs. There
+   is no second implementation to disagree with, and the agreement is therefore
+   structural.
+
+   What can still go wrong is the extraction. A fold that reaches the whole
+   store can read anything; the same fold handed one subject's rows can quietly
+   read something that is no longer there, and the failure looks like a smaller
+   number rather than an error. So this compares **one subject computed from its
+   own rows against the same subject computed from all of them** — the build's
+   `drilldown.json`, which is the only oracle this project has.
+
+   The row selection is half the risk and lives in `subjectRows`, shared with
+   the Worker's SQL twin for the reason every other rule here is shared: a
+   selection that is right in JavaScript and narrower in SQL is a subject that
+   silently loses rows in production and nowhere else.
+   ========================================================================== */
+
+const ENTRY = path.join(ROOT, "src", "panels", "drilldown.js");
+
+/**
+ * Decode a packed row into named values, resolving every index against the
+ * table it indexes.
+ *
+ * `labels` resolves against the payload's *own* label table, which is the thing
+ * a per-subject payload cannot inherit: the build interns every label in the org
+ * into one list at the head of a 23 MB file, and a row cached on its own has no
+ * such head to point into. So each payload carries its own table and the
+ * comparison happens on the names — the same rule as decoding rows by field
+ * name, applied one level down. Comparing the indexes would pass against two
+ * tables that disagree about what 33 means.
+ */
+const decodeRow = (row, fields, repos, labelNames, outcomes) => {
+  const out = {};
+  fields.forEach((f, i) => {
+    const v = row[i];
+    if (f === "repo") out.repo = repos[v] ?? null;
+    else if (f === "labels") out.labels = v == null ? null : v.map((ix) => labelNames[ix] ?? `?${ix}`);
+    else if (f === "state") out.state = v == null ? null : REVIEW_STATES[v] ?? `?${v}`;
+    else if (f === "outcome") out.outcome = v == null ? null : outcomes[v] ?? `?${v}`;
+    else out[f] = v;
+  });
+  return out;
+};
+
+const decodeTable = (table, fields, labelNames, outcomes) =>
+  !table || !Array.isArray(table.rows)
+    ? table ?? null
+    : table.rows.map((r) => decodeRow(r, fields, table.repos ?? [], labelNames, outcomes));
+
+const decodeNamed = (rows, labelNames) =>
+  !Array.isArray(rows)
+    ? rows ?? null
+    : rows.map((r) =>
+        r && Array.isArray(r.labels)
+          ? { ...r, labels: r.labels.map((ix) => labelNames[ix] ?? `?${ix}`) }
+          : r,
+      );
+
+const decodePositional = (v, fields) =>
+  !Array.isArray(v) ? v ?? null : Object.fromEntries(fields.map((f, i) => [f, v[i] ?? null]));
+
+/**
+ * A subject payload with every packed and interned thing expanded by name.
+ *
+ * Everything the two sides could agree on positionally and mean differently is
+ * resolved here, so the diff below compares values rather than encodings.
+ */
+function expand(s, kind, labelNames) {
+  if (!s) return s;
+  const out = { ...s };
+
+  if (s.series?.v) out.series = { from: s.series.from, v: s.series.v.map((m) => decodePositional(m, SERIES_FIELDS)) };
+  if (s.backlog?.oldest) out.backlog = { ...s.backlog, oldest: decodeNamed(s.backlog.oldest, labelNames) };
+
+  if (kind === "contributors") {
+    out.resolved = decodeTable(s.resolved, RESOLVED_FIELDS, labelNames, PR_OUTCOMES);
+    out.assigned = decodeTable(s.assigned, ASSIGNED_FIELDS, labelNames, PR_OUTCOMES);
+    if (s.reviewQueue) {
+      out.reviewQueue = {
+        requested: decodeTable(s.reviewQueue.requested, REVIEW_FIELDS, labelNames, PR_OUTCOMES),
+        reviewing: decodeTable(s.reviewQueue.reviewing, REVIEW_FIELDS, labelNames, PR_OUTCOMES),
+      };
+    }
+  }
+
+  if (s.issues) {
+    const i = s.issues;
+    const iw = ISSUE_WINDOW_FIELDS[kind];
+    const is = ISSUE_SERIES_FIELDS[kind];
+    out.issues = {
+      ...i,
+      windows: i.windows
+        ? Object.fromEntries(Object.entries(i.windows).map(([w, v]) => [w, decodePositional(v, iw)]))
+        : i.windows ?? null,
+      series: i.series
+        ? Object.fromEntries(Object.entries(i.series).map(([m, v]) => [m, decodePositional(v, is)]))
+        : i.series ?? null,
+      backlog: i.backlog ? { ...i.backlog, oldest: decodeNamed(i.backlog.oldest, labelNames) } : i.backlog ?? null,
+      filed: decodeTable(i.filed, FILED_FIELDS, labelNames, ISSUE_OUTCOMES),
+      closed: decodeTable(i.closed, CLOSED_FIELDS, labelNames, ISSUE_OUTCOMES),
+    };
+  }
+
+  return out;
+}
+
+/** Every leaf of an expanded payload, as path → value. */
+function leaves(v, at = "", into = new Map()) {
+  if (v === null || typeof v !== "object") into.set(at, v);
+  else if (Array.isArray(v)) {
+    into.set(`${at}.length`, v.length);
+    v.forEach((x, i) => leaves(x, `${at}[${i}]`, into));
+  } else {
+    for (const k of Object.keys(v).sort()) leaves(v[k], at ? `${at}.${k}` : k, into);
+  }
+  return into;
+}
+
+if (!existsSync(ENTRY)) {
+  console.log("\n  no panel source — payload comparison skipped");
+} else {
+  const entry = await import(ENTRY);
+
+  if (typeof entry.subjectPayload !== "function" || typeof entry.subjectRows !== "function") {
+    console.log("\n  no per-subject entry point — payload comparison skipped");
+    console.log("  expected src/panels/drilldown.js to export:");
+    console.log("    subjectRows(kind, id, prs, issues) -> { prs, issues }");
+    console.log("    subjectPayload(kind, id, rows, { now, activeDays }) -> { payload, labelNames }");
+  } else {
+    const { readStore } = await import(path.join(ROOT, "src", "ingest", "pullRequests.js"));
+    const { readStore: readIssueStore } = await import(path.join(ROOT, "src", "ingest", "issues.js"));
+    const { activeDayIndex } = await import(path.join(ROOT, "src", "panels", "activeDays.js"));
+    const { WINDOWS } = await import(path.join(ROOT, "src", "panels", "contributors.js"));
+
+    const prs = await readStore();
+    const issues = await readIssueStore();
+    const activeDays = await activeDayIndex(WINDOWS);
+    const now = Date.parse(d.generatedAt);
+
+    /**
+     * Which subjects to compute.
+     *
+     * The largest of each kind, because they are the ones that decide whether
+     * the design survives the row cap and the only ones whose cost is worth
+     * measuring. Then a seeded spread, because the median subject exercises
+     * paths the busiest one never reaches — an empty review queue, a null
+     * backlog, a series that starts last month.
+     *
+     * And then the three subjects that exist for no number at all. Two are
+     * Copilot accounts `BOT_PATTERN` does not match and one is a bare assignee;
+     * all three are created by a `person()` call that contributes nothing, so a
+     * row selection that reasons from "what did they do" drops them entirely
+     * and the picker quietly loses three people. Derived rather than named, so
+     * the set stays true as the org changes, with the count asserted so a change
+     * announces itself instead of weakening the test.
+     */
+    const spread = (map, n) => {
+      const ids = Object.keys(map).sort();
+      return shuffled(ids).slice(0, n);
+    };
+    const biggest = (map, n) =>
+      Object.entries(map)
+        .map(([k, v]) => [k, JSON.stringify(v).length])
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, n)
+        .map(([k]) => k);
+
+    const existenceOnly = d.index.contributors.filter((s) => s.n + s.a + s.i === 0).map((s) => s.id);
+    check(
+      "three contributors exist for no number at all",
+      existenceOnly.length === 3,
+      `${existenceOnly.length}: ${existenceOnly.slice(0, 5).join(", ")}`,
+    );
+
+    const subjects = [
+      ...new Set([...biggest(d.contributors, 2), ...existenceOnly, ...spread(d.contributors, 40)]),
+    ].map((id) => ["contributors", id]);
+    subjects.push(
+      ...[...new Set([...biggest(d.repos, 2), ...spread(d.repos, 20)])].map((id) => ["repos", id]),
+    );
+
+    console.log(`\npayloads: ${subjects.length} subjects, against the build`);
+
+    const missing = [];
+    const wrong = [];
+    const oversize = [];
+    let compared = 0;
+    let worst = ["", 0];
+
+    for (const [kind, id] of subjects) {
+      const theirs = d[kind][id];
+      const rows = entry.subjectRows(kind, id, prs, issues);
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays });
+
+      if (!payload) {
+        missing.push(`${kind}/${id}`);
+        continue;
+      }
+
+      const size = JSON.stringify(payload).length;
+      if (size > worst[1]) worst = [`${kind}/${id}`, size];
+      if (size > ROW_CAP) oversize.push(`${kind}/${id} at ${size}`);
+
+      const mine = leaves(expand(payload, kind, labelNames));
+      const built = leaves(expand(theirs, kind, d.labelNames));
+      compared++;
+
+      const paths = new Set([...mine.keys(), ...built.keys()]);
+      for (const p of paths) {
+        const a = mine.get(p) ?? null;
+        const b = built.get(p) ?? null;
+        if (JSON.stringify(a) !== JSON.stringify(b)) {
+          wrong.push(`${kind}/${id} ${p}: ${JSON.stringify(a)} against ${JSON.stringify(b)}`);
+          break;
+        }
+      }
+    }
+
+    check("every subject computes from its own rows", missing.length === 0, missing.slice(0, 3).join(", "));
+    check(
+      "and agrees with the build leaf for leaf",
+      wrong.length === 0,
+      `${wrong.length} of ${compared}, first: ${wrong[0]}`,
+    );
+
+    console.log(`  largest computed: ${worst[0]} at ${(worst[1] / 1024).toFixed(0)} KB, ${((worst[1] / ROW_CAP) * 100).toFixed(0)}% of the row cap`);
+    check("no computed payload exceeds the row cap", oversize.length === 0, oversize.slice(0, 2).join(", "));
+
+    /**
+     * The label table has to be self-sufficient.
+     *
+     * Every index a payload carries must resolve within its own table. An index
+     * inherited from the build's 323-name list would resolve to the wrong name,
+     * or to nothing, and the leaf diff above would catch it only where the two
+     * tables happen to disagree — which is most places, but not all, and "most"
+     * is not what a cache keyed on a version number can rest on.
+     */
+    {
+      const [kind, id] = ["contributors", biggest(d.contributors, 1)[0]];
+      const rows = entry.subjectRows(kind, id, prs, issues);
+      const { payload, labelNames } = await entry.subjectPayload(kind, id, rows, { now, activeDays });
+      const dangling = [];
+      for (const [p, v] of leaves(payload)) {
+        if (!/\.labels\[\d+\]$/.test(p)) continue;
+        if (typeof v === "number" && labelNames[v] === undefined) dangling.push(p);
+      }
+      check("every label index resolves in the payload's own table", dangling.length === 0, dangling.slice(0, 2).join(", "));
+      check("and the table is the subject's, not the org's", labelNames.length < d.labelNames.length);
+    }
+  }
+}
+
+/* ==========================================================================
    The panels
 
-   Skipped politely until the SQL side exists. What goes here: the same subjects,
-   the same keys per subject, and a leaf-by-leaf diff of each — decoded by field
-   name on both sides, never by position.
+   The same subjects, the same keys per subject, and a leaf-by-leaf diff of
+   each — decoded by field name on both sides, never by position.
    ========================================================================== */
 
 if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
