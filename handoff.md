@@ -27,7 +27,7 @@ it as it goes. See step 1 below — the ingest wants re-running first, so
 
 **All ten panels are now served from D1**, though the last of them only in
 part. Nine are live on the page; `drilldown` has its index ported and cached
-and its 7,047 per-subject payloads still coming from the build file.
+and its 7,047 per-subject payloads computing but not yet served.
 
 | Panel | Tier | Note |
 |---|---|---|
@@ -119,7 +119,7 @@ would settle it.
 |---|---|---|
 | rows touched | 96,491 | 14,088 worst case (Dream-Master) |
 | JSON before a single accumulator | **35.3 MB** | 5.9 MB |
-| local time | 236 ms | 44 ms → ~97 ms projected on D1 |
+| local time | 236 ms | 300 ms worst, 0.2 ms median — measured, see below |
 | D1 queries | ~35,000 | **5** |
 | rows written | 7,047 | 1, and only when someone looks |
 
