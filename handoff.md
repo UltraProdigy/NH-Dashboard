@@ -6,26 +6,22 @@ are temporary and get deleted when the migration lands.
 
 Rewritten 2026-08-30, after the `issues` port. Updated 2026-08-31, after
 reconciling it against production, promoting `issues`, and porting the drilldown
-index.
+index. Updated 2026-09-01, after extracting the per-subject entry point.
 
 ---
 
-## One thing here has a clock on it
+## Nothing here has a clock on it any more
 
-Not traffic, which is merely irreplaceable. **`NH_INGEST_EXCLUDE` is not a repo
-secret yet**, and the 05:00 `data` cron runs the ingest. A run without it
-re-walks `Dupes-Exploits-GTNH` and republishes its issue titles to a public
-page, which is the one failure on this list that cannot be taken back — the file
-can be removed, the copies cannot. A push does *not* trigger it, because the
-`data` job is skipped on push by design; the schedule is what does. Settings →
-Secrets and variables → Actions, value as in `.env`.
+`NH_INGEST_EXCLUDE` **is** a repo secret now, so the 05:00 `data` cron no longer
+re-walks `Dupes-Exploits-GTNH`. That was the one item on this list that could not
+be taken back once it had happened, and it is done.
 
-Traffic is the other one, and it is not urgent so much as sole: **`traffic_daily`
-holds 0 rows in D1** and the store on one laptop is the only copy. GitHub's
-window is 14 days, so what is not captured is gone rather than delayed. The
-store holds **Aug 13–29, 5,405 rows**; the current day is always absent because
-GitHub counts it as it goes. See step 1 below — the ingest wants re-running
-first, so `worker/traffic.sql` was generated from a store that stops at Aug 29.
+What is left of that kind is not urgent so much as sole: **`traffic_daily` holds
+0 rows in D1** and the store on one laptop is the only copy. GitHub's window is
+14 days, so what is not captured is gone rather than delayed. The store holds
+**Aug 13–29, 5,405 rows**; the current day is always absent because GitHub counts
+it as it goes. See step 1 below — the ingest wants re-running first, so
+`worker/traffic.sql` was generated from a store that stops at Aug 29.
 
 ## Where the port stands
 
@@ -44,7 +40,7 @@ and its 7,047 per-subject payloads still coming from the build file.
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
 | `issues` | cron | ≤10 min |
-| `drilldown` | cron | **index ported and reconciled; payloads still to do** |
+| `drilldown` | cron | **index ported and reconciled; payloads compute but are not served** |
 
 `issues` is live. Its gate earned its keep: reconciling against production found
 the `state_reason` casing bug below, which no parity test here could have seen,
@@ -53,18 +49,14 @@ and migration 004 has repaired it — production reads `unknownReason: 0` and
 had been flattered.
 
 **`drilldown` is the whole of what remains** — 22 of the 53 cards, both drilldown
-pages. Its index is ported and live on the cron; the per-subject payloads are
-not, and the panel must stay out of `LIVE_PANELS` until they are.
+pages. Its index is ported and live on the cron. The per-subject payloads now
+*compute* — `subjectPayload` in `src/panels/drilldown.js` agrees with the build
+leaf for leaf — but nothing serves them yet, so the panel must stay out of
+`LIVE_PANELS` until the Worker route and the frontend change land.
 
 ## Do these in order
 
-1. **Add `NH_INGEST_EXCLUDE` as a repo secret.** Settings → Secrets and
-   variables → Actions, value as in `.env`. First because it is the only one
-   with a deadline: the 05:00 `data` cron re-walks the excluded repo without it
-   and republishes its issue titles publicly, and that is the one item on this
-   list that cannot be undone afterwards.
-
-2. **Load traffic.** Not urgent, but sole — `traffic_daily` reads 0 in D1 and
+1. **Load traffic.** Not urgent, but sole — `traffic_daily` reads 0 in D1 and
    the store on one laptop is the only copy. Re-run the ingest first so the
    store carries yesterday, then regenerate and apply:
 
@@ -78,12 +70,13 @@ npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
    Then confirm `/api/health` shows `traffic_daily` above zero. That reading 0
    is how you know this has not run.
 
-3. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
+2. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
    tiebreaks are in the pushed source but `data/` is gitignored, so the file on
    Pages still carries the untied orderings until a `data` run rebuilds it.
-   15–90 minutes. Do this *after* step 1, for the same reason step 1 is first.
+   15–90 minutes.
 
-4. **Then `drilldown`.** See below.
+3. **Then `drilldown`.** See below. The entry point exists; what is left is the
+   Worker route in front of it and the frontend change behind it.
 
 ## Next: `drilldown`, and it is not shaped like the others
 
@@ -146,9 +139,35 @@ its `version` matches the current one, and otherwise computes that one subject
 from five indexed queries and writes the row back. `version` is already a column
 on both tables; nothing needs a migration.
 
-The worst subject in the org costs ~97 ms projected, and the median is nearer
-10 ms. A cache that lives one cron tick means repeat views inside ten minutes
-are a single indexed read.
+**The entry point for that exists** — `subjectRows` and `subjectPayload` in
+`src/panels/drilldown.js`, guarded by the payload half of
+`npm run test:parity:drilldown`, which agrees with the build leaf for leaf on 67
+subjects. The whole-store output is byte-identical across all 23.2 MB, so the
+build has not moved.
+
+**The cost figure this file carried was wrong by 7×, and it is measured now.**
+It said ~97 ms for the worst subject, from a 44 ms measurement taken before the
+port:
+
+| Subject | local | projected on D1 |
+|---|---|---|
+| `repos/GT-New-Horizons-Modpack` | 598 ms | ~1.3 s |
+| `contributors/Dream-Master` | 300 ms | ~660 ms |
+| median of a 50-subject sample | 0.2 ms | ~0.4 ms |
+
+The worst subject is a **repo**, not a contributor — GT-New-Horizons-Modpack
+folds 22,425 issues, nearly three times Dream-Master's row count, and nothing had
+measured it. Still unremarkable against Paid's 30-second ceiling, paid once per
+subject per version, with a median request of half a millisecond. But size the
+route against these rather than the old number.
+
+**Two things the rows cannot answer, and the second is a wrong number rather
+than a crash.** `activeDays` counts every review on every PR in the org.
+`firstIssueBy` is needed only for a repo: `newReporters` asks whether a
+reporter's first issue *ever* falls in the window, and a repo's own issues date
+it to their first one there, so every returning reporter counts as new and the
+count reads high. `subjectPayload` throws rather than deriving it. Both want a
+query in the Worker.
 
 **And it is the argument for reusing the Node panel rather than translating it.**
 "Rebuild the store in the isolate and call the proven function" was rejected at
@@ -623,9 +642,10 @@ npm run test:freshness    24   the card tint
 npm run test:exclusion    17   the ingest exclusion
 npm run test:handlers     60   webhook handlers
 npm run test:recompute    26   the cron and the instant path
-npm run test:parity      215   across nine panels, plus the drilldown orderings
+npm run test:parity      221   across nine panels, the drilldown orderings and
+                               the per-subject payloads
                         ----
-                         342
+                         348
 
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
@@ -682,29 +702,39 @@ panel header so the trade can be made on evidence.
 ## Open the next conversation with
 
 > Read `handoff.md` and `going-live-status.md`. Nine panels are live and the
-> tenth, `drilldown`, is all that remains. Its index is ported, cached on the
-> cron and reconciles exactly against the build; what is left is the per-subject
-> payloads and the frontend change that stops the two drilldown pages loading a
-> 23 MB file. **Do not add `"drilldown"` to `LIVE_PANELS` until those payloads
-> are served** — `PAGE_PANEL` maps both pages to it, so that one line would tint
-> 22 cards blue over data still coming from the build.
+> tenth, `drilldown`, is all that remains. Its index is ported and reconciles
+> exactly, and **the per-subject entry point now exists** — `subjectRows` and
+> `subjectPayload` in `src/panels/drilldown.js`, agreeing with the build leaf
+> for leaf on 67 subjects, with the whole-store output byte-identical across
+> 23.2 MB. What is left is the Worker route in front of it and the frontend
+> change behind it.
 >
-> Do not try to materialise every subject in the recompute either. That is
-> measured as impossible on three separate limits and the file carries the
-> numbers. It is a read-through cache keyed on `version`: one subject computed
-> on the request from five indexed queries, reusing the Node panel's own
-> functions rather than translating them, since one subject is 5.9 MB against
-> the 96 MB that made reuse impossible for the whole store. Extracting a
-> per-subject entry point from `src/panels/drilldown.js` is the first step.
+> The route is a read-through cache keyed on `version`: `/api/contributor/
+> {login}` and `/api/repo/{name}` serve `drilldown_contributors` /
+> `drilldown_repos` when the row's version matches, and otherwise fetch that one
+> subject's rows, call `subjectPayload`, and write the row back. `version` is
+> already a column on both; nothing needs a migration. The row selection is
+> `subjectRows` — a repo is everything filed against it, a contributor is
+> reached six ways and three of those contribute no number at all, so port it
+> from the function rather than from what a subject "does". Its SQL twin is the
+> piece to write next, and to exercise against the replica rather than reason
+> about.
 >
-> The orderings and column orders are already shared in
-> `src/shared/drilldown-rules.js` and `npm run test:parity:drilldown` guards
-> them, along with the index comparison. Write the payload half of that test
-> before trusting any of it, and try to break it — this session's two real
-> defects were both invisible from the output, and both were caught by comparing
-> against something that had not come from the same place the value did.
+> **Two things the rows cannot answer.** `activeDays` counts every review on
+> every PR in the org. `firstIssueBy` is needed only for a repo — derived from
+> that repo's own issues it turns every returning reporter into a new one, so
+> `subjectPayload` throws rather than guessing. Both want a query.
 >
-> Three operational items are outstanding and none needs code: the
-> `NH_INGEST_EXCLUDE` repo secret before the next 05:00 cron, loading traffic
+> **Do not add `"drilldown"` to `LIVE_PANELS` until the payloads are served** —
+> `PAGE_PANEL` maps both pages to it, so that one line would tint 22 cards blue
+> over data still coming from the build. And do not try to materialise every
+> subject in the recompute: that is measured as impossible on three separate
+> limits and the file carries the numbers.
+>
+> Size the route against the measurements in `going-live-status.md`, not against
+> the ~97 ms this file used to claim — the worst subject is a repo at ~1.3 s
+> projected, and the median is half a millisecond.
+>
+> Two operational items are outstanding and neither needs code: loading traffic
 > into D1, and a `gh workflow run build.yml` to republish `data/*.json` so the
 > drilldown tiebreaks reach Pages.

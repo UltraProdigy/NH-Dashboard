@@ -1429,3 +1429,105 @@ rather than the handful someone thought to name.
   only copy.
 - **`data/*.json` on Pages predates the drilldown tiebreaks.** `data/` is
   gitignored, so only a `data` workflow run republishes them.
+
+---
+
+# The per-subject entry point
+
+Written 2026-09-01. `NH_INGEST_EXCLUDE` is now a repo secret, so the first of
+the three items above is done and the deadline it carried is gone.
+
+## The test came first, and it is not a parity test
+
+The payloads are not being ported. The design settled on months of measurement
+ago is to hand one subject's rows to the same Node fold the build runs — one
+subject is 5.9 MB against the 96 MB that made reusing the whole store impossible
+— so there is no second implementation to disagree with and the agreement is
+structural.
+
+That removes the usual check and leaves a different one. What can go wrong is
+the **extraction**: a fold that could reach the whole store, handed a subset,
+reads something that is no longer there and returns a smaller number rather than
+an error. So the test computes a subject from its own rows and compares it
+against the same subject computed from all of them, leaf by leaf.
+
+Written before the entry point existed and verified against a throwaway shim
+that returned the build's own payloads — which passes, so it was mutated eight
+ways and all eight fail. The one worth keeping: **shifting every label index by
+one**. It passes if the two sides are compared by index and fails only because
+they are compared by name, which is the whole reason a payload carries its own
+label table.
+
+## Two things a subject's rows cannot answer
+
+Both found by reading the fold rather than by a failure, and the second one
+would have been a wrong number rather than a crash.
+
+**`activeDays`** counts every review on every pull request in the org. One
+subject's rows answer a smaller question with the same shape. Supplied by the
+caller.
+
+**`firstIssueBy`, and only for a repo.** `newReporters` counts reporters whose
+first-ever issue falls in the window. Derived from a repo's own issues it dates
+each reporter's first to the first one they filed *here*, so every returning
+reporter counts as new and the number reads high — the flattering direction, for
+the tenth time in this port. `subjectPayload` **refuses** rather than derives it:
+a repo without it throws.
+
+A contributor needs neither of those derived, and that asymmetry is worth
+knowing rather than rediscovering. Their rows already contain every issue they
+authored, so their own first-ever is self-sufficient — and `foldPerson` never
+reads the flag anyway. Only `foldTracker` does.
+
+## The sink, and what it costs
+
+Scoped to one subject, every other subject's accumulator is a sink whose writes
+are dropped. The alternative was skipping the calls, which means auditing
+fourteen call sites and getting all fourteen right — and three of them exist
+only to put a row in the picker and contribute no number, so a missed one is a
+person quietly absent rather than an error.
+
+Two sinks, not one. A person's `_iw` holds person periods and a repo's holds
+tracker periods, so a repo's writes landing on a person's sink throw on the
+first `reporters.set`. Which is the good version of that mistake: the same
+confusion anywhere it is *read* would have produced a number.
+
+It costs roughly double the necessary work, because a contributor's fold still
+runs the full tracker fold for every repo it touches. Left alone deliberately —
+see the measurements below, which are comfortably inside the limits, and the
+standing lesson that `analytics` spent three deploys on theories about its own
+hot spots and was wrong twice.
+
+## The measurements, and the handoff's projection was out by 7×
+
+| Subject | rows | local | projected on D1 (2.2×) | payload |
+|---|---|---|---|---|
+| `contributors/Dream-Master` | 5,210 PRs + 8,495 issues | 300 ms | ~660 ms | 757 KB |
+| `repos/GT-New-Horizons-Modpack` | 3,475 PRs + 22,425 issues | 598 ms | ~1.3 s | 521 KB |
+| `contributors/mitchej123` | 2,078 + 3,000 | 108 ms | ~238 ms | 359 KB |
+| `repos/GT5-Unofficial` | 7,860 + 0 | 107 ms | ~235 ms | 106 KB |
+| median of a 50-subject sample | — | **0.2 ms** | ~0.4 ms | — |
+
+`handoff.md` projected ~97 ms for the worst subject, from a 44 ms measurement
+taken before the port. It is 300 ms, and the worst subject is a repo rather than
+a contributor — GT-New-Horizons-Modpack folds 22,425 issues, nearly three times
+Dream-Master's row count, and nothing had measured it.
+
+None of that is a problem: against Paid's 30-second CPU ceiling a 1.3-second
+worst case is unremarkable, it is paid once per subject per version, and the
+median request is half a millisecond. But it is 7× the number in the file, and
+somebody sizing the recompute against 97 ms would have sized it wrong.
+
+## What holds
+
+The whole-store `drilldown()` output is **byte-identical** across all 23.2 MB
+before and after the refactor, which is the check that matters for a change of
+this shape — the scoped path is new, the unscoped one must not have moved.
+
+67 subjects agree with the build leaf for leaf: the largest two of each kind, a
+seeded spread, and the three contributors who exist for no number at all. Suites
+**348**, up from 342.
+
+The largest computed payload is Dream-Master at 757 KB, 37% of the 2 MB row cap,
+which is the number that decides whether this design lasts and is now asserted
+rather than known.
