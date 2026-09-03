@@ -71,6 +71,33 @@ const LIVE_PANELS = [
 ];
 
 /**
+ * Panels nothing fetches until something asks for one — and the reason
+ * `drilldown` is not in the list above.
+ *
+ * It is in `LIVE_PANELS` in every sense that matters: `PAGE_PANEL` tints 22 of
+ * the 53 cards from it, `freshness` reads its `refresh` header, and a failure
+ * turns those cards red. It is only kept out of the eager list because nothing
+ * should fetch it until somebody opens a drilldown. Membership here *is* the
+ * promotion, and it was made last — after the payloads render, never before,
+ * because until then all 22 would have been blue over the build file.
+ *
+ * `drilldown` is the only member and the reason the category exists. Its index
+ * is ~470 KB and exactly two of the six pages need it, so overlaying it with
+ * the rest would make every visitor to Analytics pay for a picker they are
+ * never shown — which is most of what this whole port set out to stop.
+ *
+ * A registered panel is fetched once on registration and then refreshed with
+ * every other panel on the poll, so the laziness costs it nothing in freshness
+ * after the first ask.
+ *
+ * The entry in `state.data.panels` is *mutated* rather than replaced, unlike
+ * the eager path above. The build's own entry carries `file` and `error`, the
+ * lazy fallback in `render.js` needs both, and rebuilding the object from the
+ * response would drop them.
+ */
+const lazy = new Map();
+
+/**
  * Where the API lives.
  *
  * Hardcoded, unlike BASE in paths.js, because there is nothing to derive it
@@ -81,7 +108,19 @@ const LIVE_PANELS = [
  */
 const DEFAULT_API = "https://nh-dashboard.gtnh.workers.dev";
 
-const API = new URLSearchParams(location.search).get("api") ?? DEFAULT_API;
+/**
+ * Exported because the drilldown's per-subject routes are not panels and are
+ * fetched from render.js, beside the view that needs them — and `?api=` has to
+ * point those at the same Worker as everything else, or a preview deployment
+ * would serve nine panels from one origin and its subjects from another.
+ */
+export const API =
+  // Guarded because `test/freshness.test.js` imports render.js, which imports
+  // this, under Node — where there is no `location` and a module-scope read of
+  // it is a ReferenceError before a single assertion runs.
+  (typeof location === "undefined"
+    ? null
+    : new URLSearchParams(location.search).get("api")) ?? DEFAULT_API;
 
 /** How often to ask whether anything changed. The recompute runs every 10 minutes. */
 const POLL_MS = 60_000;
@@ -123,6 +162,44 @@ async function getPanel(name, ms = 8000) {
 }
 
 /**
+ * Fetch one lazy panel and hand it to whatever registered it.
+ *
+ * The `down` flag is set on failure exactly as it is on the eager path, which
+ * is what turns a drilldown card red rather than leaving it a confident blue
+ * over the build file.
+ */
+async function refreshLazy(name) {
+  const apply = lazy.get(name);
+  const p = state.data?.panels?.[name];
+  try {
+    const { data, refresh, computedAt } = await getPanel(name);
+    apply(data);
+    if (p) {
+      p.live = true;
+      p.down = false;
+      p.refresh = refresh;
+      p.computedAt = computedAt;
+    }
+    return true;
+  } catch {
+    if (p) p.down = true;
+    return false;
+  }
+}
+
+/**
+ * Register a panel to be fetched now and refreshed from here on.
+ *
+ * `apply` is called with the panel's data on every successful fetch, so a
+ * caller holding a reference to it gets re-pointed at the new copy rather than
+ * quietly keeping the one it was handed first.
+ */
+export async function lazyPanel(name, apply) {
+  lazy.set(name, apply);
+  return state.data?.panels ? refreshLazy(name) : false;
+}
+
+/**
  * Replace the ported panels in `state.data` with the Worker's copies.
  *
  * Returns the panels that actually changed. Each is fetched and applied
@@ -133,8 +210,11 @@ async function overlay() {
   if (!state.data?.panels) return [];
 
   const applied = [];
-  await Promise.all(
-    LIVE_PANELS.map(async (name) => {
+  await Promise.all([
+    ...[...lazy.keys()].map(async (name) => {
+      if (await refreshLazy(name)) applied.push(name);
+    }),
+    ...LIVE_PANELS.map(async (name) => {
       try {
         const { data, refresh, computedAt } = await getPanel(name);
         state.data.panels[name] = {
@@ -161,7 +241,7 @@ async function overlay() {
         if (p) p.down = true;
       }
     }),
-  );
+  ]);
   return applied;
 }
 
@@ -179,7 +259,7 @@ export function startPolling(onChange) {
     try {
       const { version } = await getJSON("/api/version");
       if (version === lastVersion) return;
-      lastVersion = version;
+      lastVersion = state.version = version;
       const applied = await overlay();
       if (applied.length) onChange(applied);
     } catch {
@@ -204,7 +284,11 @@ export function startPolling(onChange) {
 export async function primeLive() {
   try {
     const { version } = await getJSON("/api/version");
-    lastVersion = version;
+    // Recorded on state as well as here, because a drilldown subject is cached
+    // in the browser against the same version the Worker caches it against —
+    // see `subjectEntry` in drilldown-data.js. Held in one place so the two
+    // caches cannot disagree about which version is current.
+    lastVersion = state.version = version;
   } catch {
     // Version unknown just means the next poll treats whatever it finds as new.
   }

@@ -1,4 +1,4 @@
-import { state } from "./state.js";
+import { DRILL, state } from "./state.js";
 import { SEG_KEY } from "./module-helpers.js";
 import {
   addLabelColumn,
@@ -170,6 +170,15 @@ document.getElementById("view").addEventListener("click", e => {
       const [page, subj] = route.split("/");
       return drillFromHere(page, decodeURIComponent(subj));
     }
+  }
+
+  // A subject whose fetch failed. Clearing the state is what makes the next
+  // render treat it as never asked for, so the retry goes through the same path
+  // the first attempt did rather than a second copy of it.
+  const retry = e.target.closest("button[data-retry-subject]");
+  if (retry) {
+    delete state.subjectState[`${DRILL[state.page]}/${state.subject}`];
+    return render();
   }
 
   const pick = e.target.closest("[data-pick]");

@@ -6,6 +6,7 @@ import {
   linesIn,
   seriesOf,
   sliceMonths,
+  subjectEntry,
   windowOf,
 } from "./drilldown-data.js";
 import { issueBacklogOf, issueSeriesOf, issueWindowOf, issuesOf } from "./issue-data.js";
@@ -36,13 +37,28 @@ const COLORS = [
 
 const vsList = () => state.vs[state.page] ?? [];
 
+/**
+ * An opponent is a subject, and gets fetched like one.
+ *
+ * This card used to read `state.drill[bucket][id]` — the whole build file was
+ * in hand, so every one of the 7,047 subjects was already there and adding an
+ * opponent cost a property lookup. Now a subject is one fetch, so an opponent
+ * is one fetch too: `ensureSubjects` in render.js asks for the lineup, and this
+ * reads whatever has landed.
+ *
+ * Which means a lineup is drawn from the opponents that have *arrived*, not the
+ * ones that were asked for, and it grows as they do. That is the same rule this
+ * already had for an opponent the file did not carry, so no case is new — the
+ * list is just briefly shorter than it will be.
+ */
+const opponentOf = (id) => subjectEntry(drillKey(), id)?.s ?? null;
+
 /** Opponents that actually exist in the payload, deduped, minus the subject. */
 function opponents() {
-  const bucket = state.drill?.[drillKey()] ?? {};
   const seen = new Set([state.subject]);
   const out = [];
   for (const id of vsList()) {
-    if (seen.has(id) || !bucket[id]) continue;
+    if (seen.has(id) || !opponentOf(id)) continue;
     seen.add(id);
     out.push(id);
   }
@@ -51,11 +67,10 @@ function opponents() {
 
 /** The subject first, then the opponents. The subject is never removable. */
 function lineup() {
-  const bucket = state.drill?.[drillKey()] ?? {};
-  const ids = [state.subject, ...opponents()].filter((id) => id && bucket[id]);
+  const ids = [state.subject, ...opponents()].filter((id) => id && opponentOf(id));
   return ids.map((id, i) => ({
     id,
-    s: bucket[id],
+    s: opponentOf(id),
     color: COLORS[i % COLORS.length],
     pinned: i === 0,
   }));
@@ -269,7 +284,10 @@ const VS_LIMIT = () => (state.tab === null ? 3 : 40);
 
 function vsOptions() {
   const q = state.vs.q.trim().toLowerCase();
-  const chosen = new Set([state.subject, ...opponents()]);
+  // Everything picked, not everything arrived: an opponent whose fetch is still
+  // in flight has been chosen, and offering it again in the search list is how
+  // you end up picking it twice.
+  const chosen = new Set([state.subject, ...vsList()]);
   const list = (state.drill?.index?.[drillKey()] ?? []).filter((o) => !chosen.has(o.id));
   const n = VS_LIMIT();
   if (!q) return list.slice(0, n);
@@ -330,6 +348,7 @@ export {
   readingsFor,
   removeOpponent,
   updateVsPop,
+  vsList,
   vsOptions,
   vsPopHtml,
 };

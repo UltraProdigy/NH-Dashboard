@@ -77,9 +77,38 @@ const state = {
   // question too — it's just not the one the card is for.
   reviewState: "open",
   subject: null,      // selected login or repo name; null = nothing picked yet
-  drill: null,        // contents of drilldown.json, fetched on first visit
+
+  // The drilldown arrives in two pieces on two different clocks, which is the
+  // whole shape of this page.
+  //
+  // `drill` is the head: the picker indexes, the column orders, the window
+  // list, the coverage counts. One fetch per session, ~470 KB, from
+  // /api/panel/drilldown or from the build file if that fails.
+  //
+  // `subjects` is one payload per subject, fetched as you navigate to it and
+  // kept. Nested by kind because a login and a repo can share a name — GTNH
+  // has no such pair today, and a cache that would silently serve one for the
+  // other is not worth the flat key.
+  //
+  // Each entry is `{ s, labelNames, version, from }`. The version is the
+  // Worker's own: it caches a payload against the version it was folded at, and
+  // holding the same number here means the browser's copy expires exactly when
+  // the server's does rather than on a guess. `from` is "api" or "build", and
+  // it is what the card tint reads — a payload out of the build file is red,
+  // because the drilldown is a live panel now and build-old data here is a
+  // fault rather than a design.
+  drill: null,
   drillState: "idle", // idle | loading | ready | error
   drillError: null,
+  drillSource: null,  // "api" | "build" — where the head came from
+  subjects: { contributors: {}, repos: {} },
+  // Fetches in flight or finished badly, keyed "<kind>/<id>". A subject that is
+  // simply absent from here has never been asked for. "missing" is a 404, which
+  // is a different thing from a failure and reads as the picker's "nothing
+  // named that" rather than as an outage.
+  subjectState: {},
+  // The Worker's current version, from /api/version. Written by live.js.
+  version: null,
   combo: { q: "", open: false, active: 0 },
 };
 

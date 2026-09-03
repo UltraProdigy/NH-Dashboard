@@ -4,29 +4,92 @@ import { hbars } from "./charts.js";
 import { activeWindow, windowDays } from "./data.js";
 
 /* ==========================================================================
-   Drilldown accessors — everything that reads a single subject out of
-   drilldown.json. The fetch itself lives in render.js, beside the view that
-   triggers it.
+   Drilldown accessors — everything that reads a single subject.
+
+   The head lives in `state.drill` and one payload per subject in
+   `state.subjects`. The fetches themselves live in render.js, beside the view
+   that triggers them.
    ========================================================================== */
 
 const drillKey = () => DRILL[state.page];
 const subjectList = () => state.drill?.index?.[drillKey()] ?? [];
-const subject = () => state.drill?.[drillKey()]?.[state.subject] ?? null;
+
+/**
+ * The cache entry for one subject, or null.
+ *
+ * Version-checked nowhere here on purpose: a payload folded one version ago is
+ * up to ten minutes old, which is what `cron` means and what the card already
+ * says. Serving it while a fresher one is fetched is the difference between a
+ * page that updates and a page that blanks itself every ten minutes.
+ * `subjectStale` is what decides whether to go and get another.
+ */
+const subjectEntry = (kind = drillKey(), id = state.subject) =>
+  (id && state.subjects?.[kind]?.[id]) || null;
+
+const subject = () => subjectEntry()?.s ?? null;
+
+/**
+ * True when a cached subject was folded against a version that has since moved.
+ *
+ * One rule for both sources, which is why an entry out of the build file
+ * records the version the *page* was on when it was served rather than a null.
+ * The file has no version of its own, but "the version has moved since" is
+ * still the signal wanted: it means the Worker is alive and answering, so a
+ * subject sitting on build-file numbers should go and ask it again.
+ *
+ * A bump is at most every ten minutes, so that retry cannot become a loop the
+ * way "stale while the API is reachable" would have — that reads true on every
+ * render, and a failed refetch leaves the entry exactly as it found it.
+ *
+ * `version: null` therefore means only one thing: the page has never reached
+ * `/api/version`, so there is no number to compare and nothing to be gained by
+ * asking. `refreshLazy` covers that case from the other end when the head
+ * comes back.
+ */
+const subjectStale = (kind = drillKey(), id = state.subject) => {
+  const e = subjectEntry(kind, id);
+  return !!e && e.version != null && e.version !== state.version;
+};
+
+/**
+ * The label table a row's interned indexes point into.
+ *
+ * **A subject payload carries its own, and this is the one thing about the
+ * live drilldown that fails silently if you get it wrong.** A cached payload
+ * cannot point into a global table: the recompute renumbers that table
+ * underneath the cached row at any tick, and an index into a renumbered table
+ * resolves to *the wrong name* rather than to nothing. So every payload brings
+ * its own, and resolution has to happen against the table belonging to the
+ * subject being rendered.
+ *
+ * The fall through to `state.drill.labelNames` is the build file, where there
+ * is one global table and it is correct — the file is a single consistent
+ * snapshot, which is exactly what a cached row is not.
+ */
+const labelTable = (kind, id) =>
+  subjectEntry(kind, id)?.labelNames ?? state.drill?.labelNames ?? [];
 
 /**
  * The label names on a row, whatever shape its labels arrived in.
  *
  * Three stores put labels on rows and none of them agree. The drilldown interns
- * them, so a row carries indexes into `labelNames` at the head of the payload.
- * The issues panel in dashboard.json carries plain names. The Dream Panel's PR
- * rows carry `{ name, color }` objects, straight from the search query. One
- * reader for all three, because the filter runs over rows from every one of them
- * and shouldn't have to be told which.
+ * them, so a row carries indexes into a `labelNames` table — the subject's own,
+ * see above. The issues panel in dashboard.json carries plain names. The Dream
+ * Panel's PR rows carry `{ name, color }` objects, straight from the search
+ * query. One reader for all three, because the filter runs over rows from every
+ * one of them and shouldn't have to be told which.
+ *
+ * `names` defaults to the selected subject's table because that is the only
+ * drilldown subject whose rows ever reach a table or a filter — head-to-head
+ * compares numbers and draws no chips. A caller that ever does render another
+ * subject's rows has to pass that subject's table, and cannot be right by
+ * accident.
  */
-const labelText = (l) =>
-  typeof l === "number" ? state.drill?.labelNames?.[l] ?? "" : l?.name ?? l ?? "";
+const labelText = (l, names = labelTable()) =>
+  typeof l === "number" ? names?.[l] ?? "" : l?.name ?? l ?? "";
 
-const labelsOf = (r) => (r?.labels ?? []).map(labelText).filter(Boolean);
+const labelsOf = (r, names = labelTable()) =>
+  (r?.labels ?? []).map((l) => labelText(l, names)).filter(Boolean);
 
 /**
  * True when the store has never been asked what a PR's labels are.
@@ -439,6 +502,7 @@ export {
   byRepo,
   drillKey,
   duo,
+  labelTable,
   labelsOf,
   linesIn,
   prLabelsMissing,
@@ -450,9 +514,11 @@ export {
   seriesOf,
   sliceMonths,
   subject,
+  subjectEntry,
   subjectList,
   subjectSeries,
   subjectSlice,
+  subjectStale,
   windowOf,
   subjectUrl,
   windowTable,

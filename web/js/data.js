@@ -1,4 +1,4 @@
-import { GRANS, isDrill, state } from "./state.js";
+import { DRILL, GRANS, isDrill, state } from "./state.js";
 import { esc } from "./format.js";
 
 /* ==========================================================================
@@ -19,9 +19,9 @@ const panel = id => state.data?.panels?.[id];
  * card reads `issues` — so the page is the answer, and listing thirty modules
  * individually would be thirty chances to forget one.
  *
- * The two drilldown pages read `drilldown`, which is not ported and has no live
- * copy; they resolve to it anyway so they read as "built" rather than as
- * unknown, which is the truth.
+ * The two drilldown pages read `drilldown`, which between them is 22 of the 53
+ * cards — the largest thing one name in this map decides, and the reason
+ * `"drilldown"` was the last panel let into `LIVE_PANELS`.
  */
 const PAGE_PANEL = {
   analytics: "analytics",
@@ -78,9 +78,37 @@ function freshness(m, id) {
   if (!name) return null;
   const p = panel(name);
   if (!p?.ok) return null;
-  const tier = p.down ? "down" : p.live ? (p.refresh ?? "cron") : "build";
+  const down = p.down || (name === "drilldown" && drillOnBuild());
+  const tier = down ? "down" : p.live ? (p.refresh ?? "cron") : "build";
   return { panel: name, tier, computedAt: p.computedAt ?? null };
 }
+
+/**
+ * True when what the drilldown is showing came out of the build file.
+ *
+ * The only panel that needs this, because it is the only one whose data arrives
+ * in two pieces: the index once, and one payload per subject. So "the Worker
+ * answered" is a fact about the subject on screen and not only about the panel,
+ * and `p.down` alone cannot see it — the index can come back perfectly while
+ * the subject behind it fell through to the 23 MB file.
+ *
+ * Both halves count. `drillSource` is the index's and `from` on the cache entry
+ * is the subject's, so the index answering while the payload behind it fell
+ * through — the case where `p.down` is clear and 22 cards would be blue over
+ * the build file — still reads correctly.
+ *
+ * Deliberately red rather than amber. Amber is "static by design", which these
+ * two pages stopped being the moment `drilldown` entered `LIVE_PANELS` — and a
+ * confident blue over the build file across 22 cards at once is the single
+ * largest wrong thing this indicator exists to prevent.
+ */
+function drillOnBuild() {
+  if (!isDrill(state.page)) return false;
+  if (state.drillSource === "build") return true;
+  const e = state.subjects?.[DRILL[state.page]]?.[state.subject];
+  return e?.from === "build";
+}
+
 const A = () => panel("analytics")?.ok ? panel("analytics").data : null;
 const W = () => A()?.byWindow?.[state.window] ?? null;
 
@@ -301,6 +329,7 @@ export {
   sourcePanel,
   dayLimitNote,
   delta,
+  drillOnBuild,
   freshness,
   issuePeople,
   labelRepoList,

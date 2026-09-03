@@ -42,7 +42,7 @@ t({ panelId: "needsRelease" },     "build",   "never-overlaid card reads build")
 t({ page: "analytics" },           "cron",    "a page-based card follows its panel");
 t({ page: "issues" },              "build",   "issues page reads build until ported");
 t({ page: "people" },              "cron",    "live panel with no header defaults to cron");
-t({ page: "contributor" },         "build",   "drilldown reads build");
+t({ page: "contributor" },         "build",   "drilldown reads build before its panel is asked for");
 t({ panelId: "broken" },           null,      "a failed panel gets no tint");
 t({ panelId: "nosuch" },           null,      "an unknown panel gets no tint");
 t({ page: "nosuchpage" },          null,      "a card with no panel gets no tint");
@@ -63,6 +63,53 @@ state.data.panels.approvedUnmerged = {
   ok: true, data: [], live: true, down: false, refresh: "instant",
 };
 t({ panelId: "approvedUnmerged" }, "instant", "a recovered panel clears down");
+
+/* ==========================================================================
+   The drilldown, which arrives in two pieces
+
+   Every other panel is one fetch, so `p.down` says everything. This one is an
+   index plus one payload per subject, and either half can fall through to the
+   23 MB build file on its own — so a green index over a build-file subject is
+   a card that would read a confident blue about data the API never served.
+   22 of the 53 cards at once, which is the largest wrong thing the four
+   colours exist to prevent.
+   ========================================================================== */
+
+console.log("\nthe drilldown's two halves\n");
+
+state.page = "contributor";
+state.subject = "Dream-Master";
+state.data.panels.drilldown = {
+  ok: true, data: {}, live: true, down: false, refresh: "cron",
+};
+state.drillSource = "api";
+state.subjects.contributors["Dream-Master"] = { s: {}, labelNames: [], version: 7, from: "api" };
+t({ page: "contributor" }, "cron", "index and subject both from the Worker read cron");
+
+// A subject out of the file says so, whatever version it happens to record.
+state.subjects.contributors["Dream-Master"].from = "build";
+t({ page: "contributor" }, "down", "a subject from the build file reads down, not blue");
+
+state.subjects.contributors["Dream-Master"].from = "api";
+state.drillSource = "build";
+t({ page: "contributor" }, "down", "an index from the build file reads down too");
+
+state.drillSource = "api";
+state.data.panels.drilldown.down = true;
+t({ page: "contributor" }, "down", "and the panel's own flag still counts");
+
+// The other pages must not inherit any of it: `drillOnBuild` is scoped to the
+// page being looked at, and a repo drilldown has its own cache bucket.
+state.data.panels.drilldown.down = false;
+state.page = "analytics";
+t({ page: "analytics" }, "cron", "an org page is untouched by the drilldown's source");
+
+state.page = "repo";
+state.subject = "GT5-Unofficial";
+t({ page: "repo" }, "cron", "a subject nothing has fetched yet is not called stale");
+
+state.page = "contributor";
+state.subject = "Dream-Master";
 
 /* ==========================================================================
    The tally in the topbar

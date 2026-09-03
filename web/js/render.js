@@ -14,13 +14,17 @@ import {
 } from "./data.js";
 import {
   backlogOf,
+  drillKey,
   queueCounts,
   subject,
+  subjectEntry,
   subjectList,
+  subjectStale,
   subjectUrl,
 } from "./drilldown-data.js";
 import { hasIssues, issuesOf } from "./issue-data.js";
-import { opponents } from "./versus-data.js";
+import { opponents, vsList } from "./versus-data.js";
+import { API, lazyPanel } from "./live.js";
 import { byLabelCount, exclPopHtml, panelRows } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { href } from "./paths.js";
@@ -561,7 +565,15 @@ function positionExclPop() {
 /** Nothing selected yet — offer the busiest subjects as a starting point. */
 function pickerHtml() {
   const what = state.page === "contributor" ? "contributor" : "repo";
-  const missing = state.subject && !subject();
+  // Only a 404, or a name the index has never heard of. It used to be
+  // `state.subject && !subject()`, which was the same thing when the whole file
+  // was in hand and there was nothing between asking and having; now a subject
+  // in flight also has no payload, and telling somebody their colleague does
+  // not exist while fetching them would be the worst reading of that.
+  const missing =
+    !!state.subject &&
+    !subject() &&
+    state.subjectState[`${drillKey()}/${state.subject}`] === "missing";
   return `<div class="picker">
     ${missing ? `<div class="error" style="padding:0 0 22px">Nothing named “${esc(state.subject)}” in the ingested data. It may be a bot, or a repo with no pull requests.</div>` : ""}
     <h3>Pick a ${what}</h3>
@@ -585,7 +597,30 @@ function renderDrill(view) {
       It's built from the local PR store: run <code>npm run ingest</code> then <code>npm run build</code> to generate <code>data/drilldown.json</code>.</div>`;
     return;
   }
-  if (!state.subject || !subject()) {
+  if (!state.subject) {
+    view.innerHTML = pickerHtml();
+    return;
+  }
+
+  // The head is in hand; this subject may not be. Asked for here rather than
+  // in `render`, because this is the only view that needs one and the ask has
+  // to happen after the head has landed — a subject fetch is keyed on the
+  // index's own ids.
+  ensureSubjects();
+
+  const st = state.subjectState[`${drillKey()}/${state.subject}`];
+  if (!subject()) {
+    // `missing` falls through to the picker, which says "nothing named that" —
+    // a stale bookmark or a typed URL, not an outage.
+    if (st === "loading") {
+      view.innerHTML = `<div class="loading">Loading ${esc(state.subject)}…</div>`;
+      return;
+    }
+    if (st === "error") {
+      view.innerHTML = `<div class="error">Couldn't load ${esc(state.subject)} — ${esc(state.drillError)}.<br><br>
+        The rest of the dashboard is unaffected. <button data-retry-subject="1" class="ghost">Try again</button></div>`;
+      return;
+    }
     view.innerHTML = pickerHtml();
     return;
   }
@@ -730,28 +765,132 @@ function render() {
 }
 
 /* ==========================================================================
-   Drilldown data
-   --------------------------------------------------------------------------
-   drilldown.json is ~2.5 MB and only these two pages need it, so it's fetched
-   the first time you land on one and kept for the rest of the session. The
-   other three pages never pay for it.
+   Drilldown data — two fetches on two different clocks
+
+   The head (the picker indexes, the column orders, the coverage counts) is one
+   fetch per session. A subject is one fetch per subject you navigate to, and
+   there are 7,047 of them, so materialising all of them is not something the
+   Worker can do in one pass — see the header of
+   `worker/src/panels/drilldown.js`.
+
+   This used to be a single fetch of `data/drilldown.json`, 23 MB, read to get
+   whichever one subject you had asked for. That file is still the floor the way
+   every other panel keeps `dashboard.json` as one, but it cannot be kept the
+   same way: fetching it eagerly to have a fallback ready would keep the entire
+   cost the change exists to remove. So the fallback is *lazy* — the file is
+   fetched only once the API has actually failed, and never at all on the normal
+   path. That is a real behaviour change rather than a port, and it is why an
+   API outage on these two pages reads red rather than amber: the drilldown is
+   in LIVE_PANELS now, so build-old data here is a fault and not a design.
    ========================================================================== */
 
+/**
+ * The build file, fetched at most once and only after an API failure.
+ *
+ * Held as a promise rather than a result so that two subjects failing at once
+ * cost one download rather than two.
+ */
+let buildFile = null;
+
+function fetchBuildFile() {
+  if (buildFile) return buildFile;
+  // The build names the file in dashboard.json rather than the page
+  // hardcoding it, so renaming it later can't leave the two out of sync.
+  const file = state.data?.panels?.drilldown?.file ?? "drilldown.json";
+  // Absolute from the app root, not relative: pushState has moved the
+  // document URL to wherever you navigated, and "data/…" resolved against
+  // /contributor/Dream-Master is not a file anybody has.
+  buildFile = fetch(href(`data/${file}`), { cache: "no-store" })
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .catch((err) => {
+      // Cleared so a later attempt can retry rather than being handed this
+      // rejection forever, and rethrown so the caller this time still fails.
+      buildFile = null;
+      throw err;
+    });
+  return buildFile;
+}
+
+/**
+ * One subject out of the build file, as a cache entry.
+ *
+ * `version` is the version the *page* is on rather than one the file carries,
+ * because the file has none — see `subjectStale` for why that number is the
+ * useful one anyway. `from` is what turns the card red.
+ */
+const fromFile = (file, kind, id) => ({
+  s: file[kind]?.[id],
+  labelNames: file.labelNames,
+  version: state.version,
+  from: "build",
+});
+
+/**
+ * The index landed. Called on the first fetch and on every poll after it.
+ *
+ * Coming back from the fallback is the case worth the function. A session that
+ * started with the Worker down is serving 7,047 subjects out of the file, and
+ * when the head recovers those payloads would otherwise sit there indefinitely
+ * — red, correctly, but never asking again, because `subjectStale` has no
+ * version to compare when the page never reached `/api/version` either.
+ * Dropping them is what makes the recovery reach the subjects and not just the
+ * picker.
+ *
+ * Only the file's own entries go, and that guard is a cost saving rather than a
+ * correctness rule — dropping an API-sourced payload too would refetch an
+ * answer that has not changed, on up to five subjects at once, and no output
+ * would differ. Said plainly here rather than left looking load-bearing. It has
+ * a case in the suite all the same, because the only way to get an API-sourced
+ * entry in a fallback session is a subject the file does not carry, and nothing
+ * else would have exercised that.
+ */
+function indexArrived(data) {
+  state.drill = data;
+  if (state.drillSource === "build") {
+    for (const kind of ["contributors", "repos"]) {
+      for (const [id, e] of Object.entries(state.subjects[kind])) {
+        if (e.from !== "build") continue;
+        delete state.subjects[kind][id];
+        delete state.subjectState[`${kind}/${id}`];
+      }
+    }
+  }
+  state.drillSource = "api";
+}
+
+/**
+ * The head, from the API, falling back to the build file.
+ *
+ * Registered with `lazyPanel` rather than fetched directly, so the poll
+ * re-points `state.drill` at a fresh index on every version bump and the card
+ * tint comes from the Worker's own `x-refresh` header like every other panel's.
+ */
 async function ensureDrilldown() {
   if (state.drillState !== "idle") return;
   state.drillState = "loading";
   render();
-  try {
-    // The build names the file in dashboard.json rather than the page
-    // hardcoding it, so renaming it later can't leave the two out of sync.
-    const file = state.data?.panels?.drilldown?.file ?? "drilldown.json";
-    // Absolute from the app root, not relative: pushState has moved the
-    // document URL to wherever you navigated, and "data/…" resolved against
-    // /contributor/Dream-Master is not a file anybody has.
-    const res = await fetch(href(`data/${file}`), { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.drill = await res.json();
+
+  if (await lazyPanel("drilldown", indexArrived)) {
     state.drillState = "ready";
+    return void render();
+  }
+
+  try {
+    const file = await fetchBuildFile();
+    state.drill = file;
+    state.drillSource = "build";
+    state.drillState = "ready";
+    // Every subject the file carries, at once. There is no per-subject fetch to
+    // make against a file, and holding these costs nothing beyond the parse
+    // that already happened — they are the same objects, not copies.
+    for (const kind of ["contributors", "repos"]) {
+      const have = file[kind] ?? {};
+      const into = state.subjects[kind];
+      for (const id of Object.keys(have)) into[id] ??= fromFile(file, kind, id);
+    }
   } catch (err) {
     state.drillState = "error";
     // A build-time failure explains the problem far better than "HTTP 404"
@@ -761,9 +900,121 @@ async function ensureDrilldown() {
   render();
 }
 
+/**
+ * One subject, from the API, falling back to the build file.
+ *
+ * Called for the selected subject and for each head-to-head opponent, so it
+ * takes its kind and id rather than reading them off state — an opponent is a
+ * subject on the same page that is not `state.subject`.
+ *
+ * A 404 is recorded as `missing` rather than as a failure. The picker only
+ * offers subjects the index carries, so a request for one that is not there is
+ * a stale bookmark or a typed URL, and telling somebody the API is down when
+ * the answer is "no such person" sends them looking in the wrong place.
+ */
+async function ensureSubject(kind, id) {
+  const key = `${kind}/${id}`;
+  if (state.subjectState[key] === "loading") return;
+
+  // A stale entry is refetched without being torn down, so the page keeps
+  // rendering the copy it has while the fresher one is on its way. Blanking it
+  // would mean a drilldown left open flickering back to a spinner every time
+  // the recompute ticks.
+  const had = subjectEntry(kind, id);
+  state.subjectState[key] = "loading";
+  if (!had) render();
+
+  try {
+    const res = await fetchSubject(kind, id);
+    state.subjects[kind][id] = res;
+    state.subjectState[key] = "ready";
+  } catch (err) {
+    if (err.missing) {
+      state.subjectState[key] = "missing";
+    } else if (had) {
+      // The refresh of something already on screen failed. Keep what is there,
+      // mark it ready again so nothing retries in a loop, and let the panel's
+      // own `down` flag turn the cards red — which `lazyPanel` has already set,
+      // because the same Worker is not answering either request.
+      state.subjectState[key] = "ready";
+    } else {
+      state.subjectState[key] = "error";
+      state.drillError = err.message;
+    }
+  }
+  render();
+}
+
+/**
+ * Ask the Worker for one subject, then the build file if it will not answer.
+ *
+ * The id is percent-encoded, because some repo names are fine and some logins
+ * are not, and the route decodes with `decodeURIComponent`.
+ */
+async function fetchSubject(kind, id) {
+  const route = kind === "repos" ? "repo" : "contributor";
+  try {
+    const res = await fetch(`${API}/api/${route}/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout ? AbortSignal.timeout(15_000) : undefined,
+    });
+    if (res.status === 404) {
+      const gone = new Error("no such subject");
+      gone.missing = true;
+      throw gone;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const { labelNames, ...s } = await res.json();
+    const stamped = res.headers.get("x-version");
+    return {
+      s,
+      // Its own table, never the index's. See `labelTable`.
+      labelNames: labelNames ?? [],
+      // The Worker's version, so this expires exactly when its cached row does.
+      // Falling back to the version the page last polled keeps a payload from a
+      // Worker that stopped sending the header from being refetched forever.
+      version: stamped == null ? state.version : Number(stamped),
+      from: "api",
+    };
+  } catch (err) {
+    if (err.missing) throw err;
+    const file = await fetchBuildFile();
+    if (!file[kind]?.[id]) {
+      const gone = new Error("no such subject");
+      gone.missing = true;
+      throw gone;
+    }
+    return fromFile(file, kind, id);
+  }
+}
+
+/**
+ * Fetch whatever the current view needs and does not have.
+ *
+ * One place rather than a call beside each reader, because the opponents are
+ * as much a part of what this render needs as the subject is, and a card that
+ * fetched its own would fetch it again on every keystroke in the filter box.
+ */
+function ensureSubjects() {
+  const kind = drillKey();
+  for (const id of [state.subject, ...vsList()]) {
+    if (!id) continue;
+    const key = `${kind}/${id}`;
+    const st = state.subjectState[key];
+    if (st === "missing" || st === "loading" || st === "error") continue;
+    if (!subjectEntry(kind, id) || subjectStale(kind, id)) ensureSubject(kind, id);
+  }
+}
+
 export {
   closeCombo,
   comboOptions,
+  ensureSubjects,
+  // Exported for `test/drilldown-live.test.js`, which asserts on the words: the
+  // "nothing named that" line used to appear for any subject without a payload,
+  // and a subject in flight is now exactly that.
+  pickerHtml,
   positionExclPop,
   render,
   tierCounts,
