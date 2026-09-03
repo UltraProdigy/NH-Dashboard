@@ -17,12 +17,11 @@ building the Worker route in front of it.
 re-walks `Dupes-Exploits-GTNH`. That was the one item on this list that could not
 be taken back once it had happened, and it is done.
 
-What is left of that kind is not urgent so much as sole: **`traffic_daily` holds
-0 rows in D1** and the store on one laptop is the only copy. GitHub's window is
-14 days, so what is not captured is gone rather than delayed. The store holds
-**Aug 13–29, 5,405 rows**; the current day is always absent because GitHub counts
-it as it goes. See step 1 below — the ingest wants re-running first, so
-`worker/traffic.sql` was generated from a store that stops at Aug 29.
+And traffic is loaded: `/api/health` reads **`traffic_daily: 5405`**, so the
+store on one laptop is no longer the only copy of the one dataset that cannot be
+backfilled. Keep running `npm run ingest:traffic` and reloading it — GitHub's
+window is 14 days, so a gap longer than that is gone rather than delayed — but
+nothing here is now waiting on anybody.
 
 ## Where the port stands
 
@@ -58,28 +57,18 @@ until they fetch per subject.
 
 ## Do these in order
 
-1. **Load traffic.** Not urgent, but sole — `traffic_daily` reads 0 in D1 and
-   the store on one laptop is the only copy. Re-run the ingest first so the
-   store carries yesterday, then regenerate and apply:
-
-```
-npm run ingest:traffic
-node worker/seed.js --only=traffic --out worker/traffic.sql
-cd worker
-npx wrangler d1 execute nh-dashboard --remote --file traffic.sql
-```
-
-   Then confirm `/api/health` shows `traffic_daily` above zero. That reading 0
-   is how you know this has not run.
-
-2. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
+1. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
    tiebreaks are in the pushed source but `data/` is gitignored, so the file on
    Pages still carries the untied orderings until a `data` run rebuilds it.
    15–90 minutes.
 
-3. **Then the drilldown frontend.** See below. The server side is done and
-   untested only in the one place a test cannot reach — the two pages still
-   fetch a 23 MB file.
+2. **Then the drilldown frontend.** See below. The server side is done and
+   deployed; the two pages still fetch a 23 MB file, and that is the last of it.
+
+Topping traffic up stays a recurring job rather than a step — `npm run
+ingest:traffic`, then `node worker/seed.js --only=traffic --out
+worker/traffic.sql` and `npx wrangler d1 execute nh-dashboard --remote --file
+traffic.sql` from `worker/`. 14-day window, no backfill.
 
 ## Next: `drilldown`, and it is not shaped like the others
 
