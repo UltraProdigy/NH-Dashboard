@@ -4,30 +4,20 @@ Paste the opening line at the bottom into a fresh conversation. This file is the
 map; `going-live-status.md` is the territory and wins where they disagree. Both
 are temporary and get deleted when the migration lands.
 
-Rewritten 2026-08-30, after the `issues` port. Updated 2026-08-31, after
-reconciling it against production, promoting `issues`, and porting the drilldown
-index. Updated 2026-09-01, after extracting the per-subject entry point and
-building the Worker route in front of it.
+Rewritten 2026-09-03, after the Worker side of the drilldown landed. The
+server-side history is in `going-live-status.md`; this file is now about the one
+thing left, which is the frontend.
+
+Earlier rewrites: 2026-08-30 after the `issues` port, 2026-08-31 after
+reconciling against production and porting the drilldown index.
 
 ---
 
-## Nothing here has a clock on it any more
-
-`NH_INGEST_EXCLUDE` **is** a repo secret now, so the 05:00 `data` cron no longer
-re-walks `Dupes-Exploits-GTNH`. That was the one item on this list that could not
-be taken back once it had happened, and it is done.
-
-And traffic is loaded: `/api/health` reads **`traffic_daily: 5405`**, so the
-store on one laptop is no longer the only copy of the one dataset that cannot be
-backfilled. Keep running `npm run ingest:traffic` and reloading it — GitHub's
-window is 14 days, so a gap longer than that is gone rather than delayed — but
-nothing here is now waiting on anybody.
-
 ## Where the port stands
 
-**All ten panels are now served from D1.** Nine are live on the page; the
-tenth answers for its index and for all 7,047 per-subject payloads, and is
-waiting on the frontend rather than on the Worker.
+**All ten panels are served from D1, and the Worker is done.** Nine are live on
+the page. The tenth answers for its picker index and for all 7,047 per-subject
+payloads, and is waiting on the frontend rather than on anything server-side.
 
 | Panel | Tier | Note |
 |---|---|---|
@@ -40,340 +30,159 @@ waiting on the frontend rather than on the Worker.
 | `byLabel` | cron | ≤10 min |
 | `ciHealth` | cron | ≤10 min |
 | `issues` | cron | ≤10 min |
-| `drilldown` | cron | **index and payloads both served by the Worker; frontend still reads the build file** |
+| `drilldown` | cron | **served, not consumed — the pages still fetch the build file** |
 
-`issues` is live. Its gate earned its keep: reconciling against production found
-the `state_reason` casing bug below, which no parity test here could have seen,
-and migration 004 has repaired it — production reads `unknownReason: 0` and
-`notPlanned` back at the build's 5,105, with `completed` down the one issue that
-had been flattered.
+Everything below is about that last row. Suites: **359**.
 
-**`drilldown` is the whole of what remains, and it is now only the frontend** —
-22 of the 53 cards, both drilldown pages. The index is live on the cron and the
-per-subject payloads are served by `/api/contributor/{login}` and
-`/api/repo/{name}`, computed on the request and cached against the version. The
-pages still load the 23 MB build file, so the panel stays out of `LIVE_PANELS`
-until they fetch per subject.
+## What is left, in one paragraph
 
-## Do these in order
+Both drilldown pages fetch `data/drilldown.json` — 23 MB — on first visit and
+read every subject out of it. The Worker now serves the same content as an index
+plus one row per subject. The job is to make the pages fetch those instead, keep
+the static file as the floor the way every other panel does, and only then add
+`"drilldown"` to `LIVE_PANELS`.
 
-1. **Republish `data/*.json`** with `gh workflow run build.yml`. The drilldown
-   tiebreaks are in the pushed source but `data/` is gitignored, so the file on
-   Pages still carries the untied orderings until a `data` run rebuilds it.
-   15–90 minutes.
+## The three files that change
 
-2. **Then the drilldown frontend.** See below. The server side is done and
-   deployed; the two pages still fetch a 23 MB file, and that is the last of it.
+**`web/js/render.js` → `ensureDrilldown()`.** One fetch of
+`data/${file}` today, guarded by `state.drillState` (`idle` → `loading` →
+`ready` | `error`). It becomes two fetches on different clocks: the index once
+per session, and a subject per navigation.
 
-Topping traffic up stays a recurring job rather than a step — `npm run
-ingest:traffic`, then `node worker/seed.js --only=traffic --out
-worker/traffic.sql` and `npx wrangler d1 execute nh-dashboard --remote --file
-traffic.sql` from `worker/`. 14-day window, no backfill.
+**`web/js/drilldown-data.js`.** `subjectList()` reads
+`state.drill.index[drillKey()]` and `subject()` reads
+`state.drill[drillKey()][state.subject]`. The first keeps working against the
+index blob unchanged. The second is the one that has to become a fetch, and
+`state.subject` changing is the trigger.
 
-## Next: `drilldown`, and it is not shaped like the others
+**`web/js/live.js` → `LIVE_PANELS`.** One line, last.
 
-Every panel so far was "compute a blob, cache it, overlay it". This one cannot
-be, and it is the only remaining piece of the migration.
+`DRILL` in `state.js` already maps `contributor` → `contributors` and `repo` →
+`repos`, which are exactly the two route prefixes, so the page id gives you the
+URL without a second lookup.
 
-`data/drilldown.json` is 23 MB, against a **2 MB D1 row cap**, so `panel_cache`
-is out. The shape is what makes it tractable:
+## The routes
 
-| Part | Size | Notes |
+```
+GET /api/panel/drilldown        the picker index and the schema keys, on the cron
+GET /api/contributor/{login}    one subject, computed on the request and cached
+GET /api/repo/{name}            same
+```
+
+A subject payload is **the same shape as an entry in the build file, plus its
+own `labelNames`**. Headers: `x-refresh: cron` (on a hit and a miss alike, on
+purpose), `x-subject-cache: hit|miss`, `x-version`.
+
+Percent-encode the id. Some repo names are fine and some logins are not, and the
+route decodes with `decodeURIComponent`.
+
+## The label table is per subject, and this is the trap
+
+`labelText` in `drilldown-data.js` resolves an interned label as
+`state.drill?.labelNames?.[l]`. **One global table, from the build file.**
+
+A cached subject row cannot point into a global table, because the recompute
+renumbers it underneath at any tick and an index into a renumbered table
+resolves to *the wrong name* rather than to nothing. So every payload carries
+its own, and `labelText` has to resolve against the table belonging to the
+subject it is rendering.
+
+It fails quietly if you miss it: `?? ""` gives every chip a blank name, and
+`labelsOf` filters blanks out, so the label filter matches nothing and no error
+is raised anywhere.
+
+## Four keys the index does not carry, and three fail flatteringly
+
+The frontend reads fifteen top-level keys off `state.drill`.
+`worker/src/panels/drilldown.js` emits eleven of them plus `index` and
+`generatedAt`. These four are only in the build file:
+
+| Key | Read by | What its absence does |
 |---|---|---|
-| `contributors` | 18.3 MB | 6,749 entries keyed by login, mean 2.8 KB |
-| `repos` | 3.2 MB | 298 entries keyed by repo, mean 11.1 KB |
-| `index` | 0.46 MB | what the pickers need up front |
-| 18 schema keys | 8.3 KB | field-name lists, windows, buckets |
+| `labelNames` | `labelText` | every interned chip renders blank |
+| `prFieldCoverage` | `prLabelsMissing()`, `drilldown-data.js:256` | the "we have never asked what this PR's labels are" hint disappears, so an un-backfilled store looks like a PR with no labels |
+| `closerCoverage` | `issue-data.js:185` | `unknown` falls back to `0`, understating closes nobody is credited for |
+| `issueData` | `issue-data.js:166` | `undefined !== false`, so "there is no issue store" never renders and reads as "this subject has no issue activity" |
 
-So it is not a blob that resists a Worker, it is 6,749 rows waiting for
-`WHERE login = ?`. `drilldown_contributors` and `drilldown_repos` are **already
-in `schema.sql`** for exactly this, and they are a read-through cache rather
-than something the recompute fills — see the section below, which measures why
-filling them in one pass cannot work. The `index` and the schema keys together
-are 470 KB and *are* an ordinary cached blob, on the cron like every other
-panel.
+Three of the four make things look better than they are, which is this port's
+signature direction. Decide deliberately whether each belongs in the index blob
+(`prFieldCoverage`, `closerCoverage`, `issueData` are org-wide facts and do) or
+on the subject (`labelNames` does, and only there).
 
-**No single payload comes near the row cap, but watch the top of the list.**
-Largest contributor is Dream-Master at 759 KB and largest repo is
-GT-New-Horizons-Modpack at 523 KB, against 2 MB. Nothing else is above 362 KB.
-Dream-Master is already 37% of the cap and grows with the org, so it is the row
-that decides whether this design lasts — worth a test asserting it rather than
-finding out from a failed recompute.
+## Keep the static file as the floor, but do not fetch it for nothing
 
-## The recompute cannot materialise every subject at all
+Every other panel renders from `dashboard.json` and is overlaid by the Worker,
+so an API outage costs freshness and never content. The drilldown cannot copy
+that literally: the fallback *is* the 23 MB file, and downloading it eagerly
+would keep the entire cost the change exists to remove.
 
-Measured before the port rather than after, and the answer is stronger than the
-write-cost note below it: a full materialisation is not expensive, it is
-**impossible**, and it fails on three limits independently. Any one of them
-would settle it.
+So the fallback wants to be lazy — fetch the file only when the API has actually
+failed, and let a subject render `error` in the meantime. That is a real
+behaviour change rather than a port, and it is the one design decision here
+worth making on purpose rather than by default.
 
-| | Full pass | One subject on demand |
-|---|---|---|
-| rows touched | 96,491 | 14,088 worst case (Dream-Master) |
-| JSON before a single accumulator | **35.3 MB** | 5.9 MB |
-| local time | 236 ms | 300 ms worst, 0.2 ms median — measured, see below |
-| D1 queries | ~35,000 | **5** |
-| rows written | 7,047 | 1, and only when someone looks |
+## Do not add `"drilldown"` to `LIVE_PANELS` until the payloads render
 
-1. **Memory.** 35.3 MB of raw rows is only the input. Bucketing them needs an
-   accumulator per subject per window, and 6,749 × 7 was already measured at
-   34.2 MB *for the issue side alone* — the version this file rejected. With the
-   PR side on top it is past the isolate's 128 MB ceiling before the payloads
-   are serialised.
-2. **Queries.** D1 allows **1,000 per Worker invocation** on Paid. Five queries
-   per subject across 7,047 subjects is ~35,000, so the per-subject shape cannot
-   be looped inside one recompute either. Neither shape fits.
-3. **Writes**, which is the section below, and the least of the three.
+`PAGE_PANEL` in `web/js/data.js` maps **both** drilldown pages to the
+`drilldown` panel, so that single name tints **22 of the 53 cards** blue. Blue
+asserts "this is current". Until the pages actually read the API, all 22 would
+be blue over the build file — the largest instance of the failure the tint
+exists to prevent that this project has been one line away from.
 
-**So the drilldown is computed per subject, on the request, and cached.**
-`/api/contributor/{login}` reads `drilldown_contributors`, serves the payload if
-its `version` matches the current one, and otherwise computes that one subject
-from five indexed queries and writes the row back. `version` is already a column
-on both tables; nothing needs a migration.
+A subject that failed to fetch should read **red**, not blue: red is "should
+have been live and the API did not answer", which is exactly what it is.
 
-**All of that exists and is tested.** `subjectRows` and `subjectPayload` live in
-`src/shared/drilldown-fold.js` — under `shared` because a Worker has no
-filesystem and the panel reached `node:fs` three ways; `worker/src/subject-rows.js`
-fetches and shapes the rows; `worker/src/panels/drilldown-subject.js` is the
-cache. `npm run test:parity:drilldown` compares payloads against the build both
-from the store and out of D1 over the replica, and the whole-store build is
-byte-identical across all 23.2 MB.
+## What is already done, so nobody redoes it
 
-**The SQL is a superset, not a twin.** These queries return a row *set* rather
-than a number, and `subjectRows` already decides membership exactly — so they
-have to contain it, not equal it, and the JavaScript narrows what comes back.
-That makes "the SQL is narrower than the JavaScript" impossible rather than
-something to test for. Do not tighten them into an exact twin; that trades a
-guarantee for a risk.
+- **The fold moved to `src/shared/drilldown-fold.js`** so a Worker can import it
+  — the panel reached `node:fs` three ways. `src/panels/drilldown.js` is now the
+  127-line wrapper that reads the stores. The build output is byte-identical
+  across all 23.2 MB, and the import graph is asserted by the test because
+  `wrangler` cannot run in CI here.
+- **`subjectRows` / `subjectPayload`** in that file compute one subject from its
+  own rows. `worker/src/subject-rows.js` fetches and shapes them from D1;
+  `worker/src/panels/drilldown-subject.js` is the read-through cache.
+- **`activeDays` is derived**, not supplied — every source of an active day for a
+  person is a row that reaches them, checked against the whole-store index over
+  120 contributors. `firstIssueBy` is the only thing still supplied, and only for
+  a repo, because a repo's own issues turn every returning reporter into a new
+  one. `subjectPayload` throws rather than guessing it.
+- **The SQL is a superset, not a twin.** These queries return a row *set*, and
+  `subjectRows` already decides membership exactly, so they must contain it
+  rather than equal it. Do not tighten them into an exact twin — that trades a
+  guarantee for a risk.
 
-**`activeDays` is no longer a dependency.** Every source of an active day for a
-person is a row that reaches them, so the fold derives it — checked against the
-whole-store index over 120 contributors. `firstIssueBy`, for repos only, is the
-one thing still supplied.
+## Two things this last session got wrong, because they will recur
 
-**The cost figure this file carried was wrong by 7×, and it is measured now.**
-It said ~97 ms for the worst subject, from a 44 ms measurement taken before the
-port:
+**A column left out of a projection is a rule quietly changed.** `changed_files`
+was missing and every `filesChanged` in every window read **0 against a true
+19,386**, with nothing erroring. Same shape as the `response_unknown` bug three
+weeks earlier, committed by someone who had just written that lesson down. The
+fix is not the column: the test now extracts every `pr.x` and `i.x` the fold
+reads out of the fold's own source and asserts the shaper produces each one. A
+list nobody maintains cannot go stale.
 
-| Subject | local | projected on D1 |
-|---|---|---|
-| `repos/GT-New-Horizons-Modpack` | 598 ms | ~1.3 s |
-| `contributors/Dream-Master` | 300 ms | ~660 ms |
-| median of a 50-subject sample | 0.2 ms | ~0.4 ms |
+**Test through the handle production uses.** The first contributor route passed
+every assertion and 500'd on every real request. `scope.js` rewrites
+`FROM pull_requests` into an *unaliased* subquery, so a correlation written as
+`pull_requests.repo` refers to a name that no longer exists — but the test used
+the raw handle with no exclusions, where the rewrite is the identity and the SQL
+under test was byte-for-byte what the panel wrote. Alias every table and qualify
+by the alias; wrap the handle with a pattern matching no real repo so the
+rewrite fires without moving a number.
 
-The worst subject is a **repo**, not a contributor — GT-New-Horizons-Modpack
-folds 22,425 issues, nearly three times Dream-Master's row count, and nothing had
-measured it. Still unremarkable against Paid's 30-second ceiling, paid once per
-subject per version, with a median request of half a millisecond. But size the
-route against these rather than the old number.
-
-**Two things the rows cannot answer, and the second is a wrong number rather
-than a crash.** `activeDays` counts every review on every PR in the org.
-`firstIssueBy` is needed only for a repo: `newReporters` asks whether a
-reporter's first issue *ever* falls in the window, and a repo's own issues date
-it to their first one there, so every returning reporter counts as new and the
-count reads high. `subjectPayload` throws rather than deriving it. Both want a
-query in the Worker.
-
-**And it is the argument for reusing the Node panel rather than translating it.**
-"Rebuild the store in the isolate and call the proven function" was rejected at
-96 MB for pull requests — a finding about *the whole store*. One subject is
-5.9 MB. So the same trade the issue panel made for `people` applies here and
-more strongly: extract a per-subject entry point from `src/panels/drilldown.js`,
-hand it one subject's rows, and the agreement with the build is structural
-rather than tested. That is the difference between porting 1,500 lines and
-calling them.
-
-## Do not put `drilldown` in `LIVE_PANELS` yet
-
-Registering the index on the cron created a trap that did not exist before.
-`PAGE_PANEL` in `web/js/data.js` maps both drilldown pages to the `drilldown`
-panel, so listing that name would tint **all 22 drilldown cards blue** — while
-every per-subject payload behind them still comes from the 23 MB build file.
-One entry, twenty-two confidently wrong blues, which is the largest instance of
-the failure the tint exists to prevent that this project has been one line away
-from.
-
-It goes in `LIVE_PANELS` when the payloads are served, not when the index is.
-
-## The card tint had the same bug, in a smaller way
-
-Found by reading rather than by looking, and worth recording because looking
-would not have found it. Two cards on the Analytics page read a panel that is
-not their page's: Label mix reads `byLabel`, Actions load reads `ciHealth`. Both
-took their tint from `analytics`.
-
-**It is right today, and right by coincidence.** All three panels are live on
-the cron, so all three cards are blue and the blue is true. The failure is
-latent: if `ciHealth` stops answering while `analytics` keeps answering, the
-card holds a confident blue where it owes a red — an outage painting only part
-of a page is precisely the case the four-colour scheme was built for. Promoting
-either panel to `instant` would go equally unnoticed.
-
-Cards now declare `reads`, which says where the data comes from and claims
-nothing else. That is deliberately *not* `panelId`, which additionally means
-"this card's rows are that panel's array" and drives the tab badge in
-`render.js` — borrowing it for the tint would have given two cards a row count
-they do not have.
-
-The freshness suite now walks all 53 cards and fails any whose render names a
-panel it is not tinted by, rather than testing the handful someone thought to
-name. The old assertion here was not merely loose — "eleven of eleven cards on
-one tier" asserted the wrong behaviour and passed, which is what kept this
-invisible.
-
-## The index is ported, and it reconciles exactly
-
-`worker/src/panels/drilldown.js`, registered on the cron. **16 queries, 156ms
-local, ~344ms projected on D1, 475 KB cached** — a quarter of the row cap and
-about a tenth of what `issues` costs. Both indexes agree with the build on
-membership, on every field, and in order.
-
-This is the only part of the panel rebuilt in SQL; the per-subject payloads
-reuse the Node functions. The risk it carries is not arithmetic — every number
-is a COUNT or a MAX — it is **which subjects exist at all**, and a
-reimplementation can agree on all six numbers while quietly shipping a picker
-that is missing people.
-
-**A contributor exists** if `person(login)` was ever called for it, and there
-are six call sites, not the four a first reading suggests:
-
-1. non-bot author of a pull request
-2. an *approver* of any pull request
-3. a review requestee, **only on an open unmerged one**
-4. a current reviewer, same restriction, and this one excludes self-review
-5. an assignee — pull requests in any state, and issues
-6. anyone involved in an issue: author, first responder, closer, fixer, assignee
-
-Three of those contribute no number at all and exist only to put a row in the
-list. There are **exactly three such people**, and two are Copilot accounts
-`BOT_PATTERN` does not match — which is worth knowing on its own, and is a tail
-worth reproducing rather than rounding off, since dropping either source fails
-the parity test by name.
-
-`activeDayIndex` deliberately does **not** create subjects — the comment there
-is explicit that routing active days through `person()` would promote several
-thousand people whose whole trace is one drive-by review into full subjects.
-That is a trap worth not re-springing.
-
-| Field | Contributor | Repo |
-|---|---|---|
-| `n` | PRs authored, bots excluded | PRs in the repo, bots included |
-| `a` | all-time approvals given | — |
-| `open` | — | PRs open and unmerged |
-| `i` | `filed + responses + closed + fixed` | issues filed |
-| `iOpen` | — | open issues |
-| `last` | see below | MAX of PR `created_at`, issue `created_at`, issue `closed_at` |
-
-**`last` for a contributor is a MAX over four things and not one more**, from the
-five `touch()` calls that reach a person:
-
-- `created_at` of PRs they authored
-- `submitted_at` of their approvals — and it is the *approval* date, not any
-  review date. A COMMENTED review does not move it
-- `created_at` of issues they filed
-- `first_response_at` where they are the first responder
-- `closed_at` where they closed **or** fixed
-
-**Two rules that differ from their neighbours and will be read past.**
-`approversOf` excludes bots but **not self-approvals**, while `firstReviewAt`
-and `latestReviewsOf` exclude both. So `a` counts a self-approval and the review
-latency does not. And an approval is one per reviewer per PR dated to their
-*earliest*, because re-approving after a round of changes is one act — the
-partner lists next to it use the same pair but skip self.
-
-Then `substantial()` decides full record against slim, which is a separate
-question from existence and does not touch the index.
-
-## The write cost, which the design above retires
-
-Kept because the arithmetic is worth having if anyone reaches for a full pass.
-
-`drilldown_contributors` and `drilldown_repos` are 7,047 rows between them, each
-with a TEXT primary key, so a full pass is **7,047 rows plus 7,047 index entries
-— about 14,100 billed writes.** Cloudflare bills an index entry as its own
-written row; that is the same arithmetic that made the seed cost 441,640 rather
-than 97,000.
-
-At the current `*/10 * * * *` cron that is 144 passes a day:
-
-| | |
-|---|---|
-| per pass | ~14,100 writes |
-| per day | ~2.03 million |
-| per month | **~61.7 million** |
-| Workers Paid includes | 50 million / month, then $1.00 per million |
-
-So a full rewrite every tick spends the entire monthly write allowance, and then
-some, re-storing bytes that did not change. Every other panel avoids this by
-being one `panel_cache` blob — the write cost scales with the panel count, not
-with the data. This is the one panel where it scales with the data, which is
-exactly what the pattern note in `going-live-status.md` warned about.
-
-On-demand computation reduces this to one row written per subject actually
-viewed, which is a few hundred a day at most and needs no hash column and no
-migration. The `hash`-and-diff scheme that was going to be needed for a full
-pass is not, because there is no full pass.
-
-**This is the first one that needs a frontend change.** Every other panel was one
-entry in `LIVE_PANELS`. The drilldown pages load one 23 MB file today and would
-have to fetch a row on demand instead. Budget for that rather than discovering it.
-
-Two things already known about the content: `src/panels/drilldown.js` computes
-`people` differently by subject type, and the resolved-PR rows are positional
-arrays like the issue panel's people rows — `resolvedFields` and friends are the
-column orders, and they still want moving into `drilldown-rules.js` beside the
-comparators before a second implementation packs them.
-
-## The orderings are done, and they were the biggest instance yet
-
-The recurring bug — a list sorted on its metric alone, ties left in store
-order — was in **every ordered list this panel produces.** Measured on the file
-as it shipped, before anything was changed:
-
-| Where | Ties |
-|---|---|
-| `index.contributors` | **6,538 of 6,748 adjacent pairs** — 97% of the picker |
-| `index.repos` | 187 of 297 |
-| ranked lists | 95,671 ties across 13,490 lists; 10,659 contain one |
-| backlog `oldest` | 1,490 ties on `ageDays`, which is a whole number of days |
-| resolved PR rows | 9,664 of 25,719 tie on the timestamp |
-
-Fixing them moved **67,811 positions across 5,474 lists**, and 1,207 of those
-were *membership* changes — a tie at a capped list's cut line meant an entry was
-in or out by nothing at all. Every one of those would have shown up as a parity
-failure during the port with no bug behind it, because store order is not
-something SQL reproduces.
-
-The comparators live in `src/shared/drilldown-rules.js` as comparator/SQL pairs,
-the same arrangement `issue-rules.js` uses. `byRecord` is deliberately `(repo,
-number)` compared as parts and **not** the `"repo#number"` string the frontend
-renders — switching it to the string form fails the test in 91 real lists, so
-the digit-count trap the issue panel documents is live in this data too.
-
-`npm run test:parity:drilldown` is the test, written before the port and broken
-ten ways to check it bites. It has one named survivor: swapping two field names
-that neither the sort nor the arity touches passes, because that half of the
-file checks one implementation's shape rather than two implementations' values.
-Closing it is the panel comparison's job, which is why that half decodes rows by
-field name on both sides rather than by position.
-
-`npm run rebuild:drilldown` is the oracle. It pins `now` to `dashboard.json`'s
-`generatedAt` for the same reason `rebuild:issues` does — half this file is ages
-and staleness measured from an instant, so rebuilding at wall clock puts a panel
-counting from today next to one counting from the build.
+A local replica proves logic, never dialect — and a replica configured
+differently from production does not even prove logic.
 
 ## Then, and these are decisions rather than work
 
-- **Step 10 of Phase D: deploying the Worker from Actions.** Not done. The daily
-  workflow has no Cloudflare secret and adding one is a call nobody has made.
-  Every deploy today is manual, from a machine logged in to Cloudflare.
-- **Phase E — App auth and the private backfill.** Unblocked since the decision
-  that private repo data ships publicly. `getToken()` swaps to the App flow, then
-  the ingest walks the 12 private repos for the first time.
+- **Phase E — App auth and the private backfill.** `getToken()` swaps to the App
+  flow, then the ingest walks the 12 private repos for the first time.
 - **Phase F — cleanup.** Retire `GH_DASHBOARD_TOKEN`, move the repo into the org,
-  decide what to do about 96 MB of git history. The org move is the event that
-  forces the `NH_INGEST_EXCLUDE` question below.
+  decide what to do about 96 MB of git history.
+- **One operational item, no code:** `gh workflow run build.yml` to republish
+  `data/*.json` so the drilldown tiebreaks reach Pages. 15–90 minutes.
+
 
 ## Live infrastructure
 
@@ -656,7 +465,7 @@ npm run test:parity      232   across nine panels, the drilldown orderings, the
 npm run rebuild:ci             one panel, ~2.5 min
 npm run rebuild:issues         one panel, <1s, no token
 npm run rebuild:drilldown      the whole file, ~3s, no token
-cd worker && npx wrangler deploy
+cd worker && npx wrangler deploy   # rarely needed: worker.yml deploys on push
 npx wrangler tail
 curl -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1"
 gh workflow run build.yml      republish data/*.json to Pages
@@ -670,16 +479,17 @@ block means pasting it while already there silently skips that step.
 
 ## Parked, deliberately
 
-**The ingest exclusion, and the org move is the same event.** `NH_INGEST_EXCLUDE`
-keeps `Dupes-Exploits-GTNH` out of the published artefact, and with the display
-filter dropped it is the *only* thing doing so. It is applied in code and covered
-by `npm run test:exclusion`, but **CI has no repo secret**, so a CI build still
-republishes the repo. Add it under Settings → Secrets and variables → Actions
-*before* the next `data` run.
+**The git history, and the org move is the same event.** `NH_INGEST_EXCLUDE` is
+a repo secret now and CI applies it, so the *forward* path is closed:
+`Dupes-Exploits-GTNH` stays out of the published artefact, in code, in CI, and
+under `npm run test:exclusion`. With the display filter dropped it remains the
+only thing doing so, so treat it as load-bearing rather than provisional.
 
-That becomes urgent at the org move: moving in means the repo goes public,
-`data/` is in the git *history*, and that history includes `dashboard.json`
-versions carrying the excluded repo's issue titles.
+What is still open is behind it. Moving into the org means making the repo
+public, `data/` is in the git *history*, and that history includes
+`dashboard.json` versions carrying the excluded repo's issue titles. Untracking
+`data/` going forward does not remove what is already there. Settle it *before*
+the move completes.
 
 **`src/panels/issues.js` commits as a binary diff.** It carries a NUL as the
 label key separator, so git will not diff it. A `.gitattributes` line fixes it.
@@ -705,42 +515,39 @@ panel header so the trade can be made on evidence.
 
 ---
 
+---
+
 ## Open the next conversation with
 
 > Read `handoff.md` and `going-live-status.md`. Nine panels are live and the
-> tenth, `drilldown`, is all that remains. **The whole server side of it is
-> done**: the fold moved to `src/shared/drilldown-fold.js` so a Worker can
-> import it, `/api/contributor/{login}` and `/api/repo/{name}` compute one
-> subject on the request and cache it against the version, and the payloads
-> agree with the build leaf for leaf — both from the store and out of D1 over
-> the replica. The whole-store build is byte-identical across 23.2 MB. Suites
-> 359.
+> tenth, `drilldown`, has its whole server side done and deployed:
+> `/api/panel/drilldown` serves the picker index, and `/api/contributor/{login}`
+> and `/api/repo/{name}` each compute one subject on the request and cache it
+> against the version. The payloads agree with the build leaf for leaf, both
+> from the store and out of D1 over the replica. Suites 359.
 >
-> **What is left is the frontend, and it is the only part with no test behind
-> it.** Both drilldown pages load `data/drilldown.json`, 23 MB, on first visit;
-> they need to fetch the picker index from `/api/panel/drilldown` and then one
-> subject at a time from the two routes above, falling back to the static file
-> the way `live.js` already falls back for every other panel. The payload each
-> route returns is the same shape as an entry in the build file, plus its own
-> `labelNames` — that difference is deliberate and is the thing to design the
-> frontend around: a cached row cannot point into a label table that the next
-> recompute renumbers underneath it.
+> **What is left is only the frontend.** Both drilldown pages still fetch
+> `data/drilldown.json` — 23 MB — on first visit and read every subject out of
+> it. `ensureDrilldown()` in `web/js/render.js` becomes two fetches on different
+> clocks: the index once per session, and one subject per navigation, triggered
+> by `state.subject` changing. `subjectList()` in `drilldown-data.js` keeps
+> working against the index unchanged; `subject()` is the one that becomes a
+> fetch.
 >
-> **Only then add `"drilldown"` to `LIVE_PANELS`.** `PAGE_PANEL` maps both pages
-> to it, so that one line tints 22 cards blue, and until the pages actually
-> fetch per subject those cards are blue over the build file.
+> **Three things will bite, and the file has them in full.** A subject payload
+> carries **its own `labelNames`** rather than pointing into a global table, so
+> `labelText` has to resolve per subject — miss it and every chip renders blank
+> with no error. The index does **not** carry `labelNames`, `prFieldCoverage`,
+> `closerCoverage` or `issueData`, and three of those four fail in the
+> flattering direction. And the static-file fallback has to become *lazy*:
+> fetching 23 MB eagerly keeps the whole cost the change exists to remove.
 >
-> **The routes are deployed and answering** — `worker.yml` deploys on any push
-> touching `worker/**` or `src/shared/**`, so they went live on the push rather
-> than waiting for a manual `wrangler deploy`. Traffic is loaded too:
-> `/api/health` reads `traffic_daily: 5405`.
+> **`"drilldown"` goes into `LIVE_PANELS` last.** `PAGE_PANEL` maps both pages
+> to it, so that one line tints 22 of the 53 cards blue, and until the pages
+> actually read the API those 22 would be blue over the build file. A subject
+> that failed to fetch should read red.
 >
-> One operational item is left and it needs no code: `gh workflow run build.yml`
-> to republish `data/*.json` so the drilldown tiebreaks reach Pages.
->
-> **Test anything new here through `scopedDb` with an exclusion set.** The first
-> version of the contributor route 500'd in production on every request while
-> passing every local assertion, because the test used the raw handle where the
-> rewrite is the identity. See the section in `going-live-status.md`; the short
-> version is that `scope.js` turns `FROM pull_requests` into an unaliased
-> subquery, so alias every table and qualify by the alias.
+> Deploys are automatic — `worker.yml` on any push touching `worker/**` or
+> `src/shared/**`, `build.yml` for the page. One operational item is left and it
+> needs no code: `gh workflow run build.yml` to republish `data/*.json` so the
+> drilldown tiebreaks reach Pages.
