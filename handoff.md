@@ -741,11 +741,17 @@ panel header so the trade can be made on evidence.
 > to it, so that one line tints 22 cards blue, and until the pages actually
 > fetch per subject those cards are blue over the build file.
 >
-> Nothing here is deployed. `wrangler deploy` is not git and does not run in
-> CI — `workerd` ships a platform binary — so the route exists only in the
-> source. Deploy from a machine logged in to Cloudflare, then check
-> `/api/contributor/Dream-Master` with `cache: "no-store"`.
+> **The routes are deployed and answering** — `worker.yml` deploys on any push
+> touching `worker/**` or `src/shared/**`, so they went live on the push rather
+> than waiting for a manual `wrangler deploy`. Traffic is loaded too:
+> `/api/health` reads `traffic_daily: 5405`.
 >
-> Two operational items are outstanding and neither needs code: loading traffic
-> into D1, and a `gh workflow run build.yml` to republish `data/*.json` so the
-> drilldown tiebreaks reach Pages.
+> One operational item is left and it needs no code: `gh workflow run build.yml`
+> to republish `data/*.json` so the drilldown tiebreaks reach Pages.
+>
+> **Test anything new here through `scopedDb` with an exclusion set.** The first
+> version of the contributor route 500'd in production on every request while
+> passing every local assertion, because the test used the raw handle where the
+> rewrite is the identity. See the section in `going-live-status.md`; the short
+> version is that `scope.js` turns `FROM pull_requests` into an unaliased
+> subquery, so alias every table and qualify by the alias.

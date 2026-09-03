@@ -1649,8 +1649,48 @@ a warm hit serving the same bytes, and a miss again once the version has moved.
 the fold just ran would be a confident blue over data up to ten minutes old,
 which is the exact lie the four-colour scheme exists to prevent.
 
+## It deployed itself, and then 500'd on every contributor
+
+`worker.yml` deploys on any push touching `worker/**` or `src/shared/**`, which
+this did. So the routes went live on the push — and `/api/contributor/` returned
+`{"error":"could not compute subject"}` for every login, while `/api/repo/`
+worked perfectly.
+
+**`scope.js` rewrites `FROM pull_requests` into an *unaliased* subquery.** A
+correlation written as `pull_requests.repo` therefore refers to a name that no
+longer exists after the rewrite, and the statement dies with "no such column".
+The repo route qualified nothing and was unaffected; the contributor route
+correlated a reviews `EXISTS` back to the outer table by name, and every request
+failed.
+
+Every table in those queries is aliased now, and the fix is a rule rather than a
+patch — the companion to the one already in `scope.js`:
+
+> Do not name a CTE after a real table, **and do not qualify a column by one.**
+> Alias the table, then qualify by the alias.
+
+**The test could not have caught it, and that is the part worth keeping.** It
+passed the *raw* handle with `NH_INGEST_EXCLUDE: ""`, where `scopedDb` returns
+the database untouched and the rewrite is the identity — so the SQL under test
+was byte-for-byte what the panel wrote, and production ran something else. Every
+assertion passed, the deploy was green, and the route was broken.
+
+It now wraps the handle with a pattern matching no real repo: the rewrite fires,
+the row sets are unchanged, and the dialect is exercised without moving a
+number. Anything else added to this Worker wants testing the same way — *the
+handle production uses, not the one that is convenient.*
+
+This is the fourth time the same lesson has arrived here. A local replica proves
+logic, never dialect — and it turns out a local replica *configured differently
+from production* does not even prove logic.
+
+## Traffic is loaded
+
+`/api/health` reads `traffic_daily: 5405`, so the outstanding item from the
+handoff is done and the store on one laptop is no longer the only copy.
+
 ## Still not in LIVE_PANELS
 
-Nothing is deployed, and the frontend still loads the 23 MB file. `PAGE_PANEL`
-maps both drilldown pages to `drilldown`, so adding that one name would tint 22
-cards blue over build data. It goes in when the pages fetch per subject.
+The frontend still loads the 23 MB file. `PAGE_PANEL` maps both drilldown pages
+to `drilldown`, so adding that one name would tint 22 cards blue over build
+data. It goes in when the pages fetch per subject.
