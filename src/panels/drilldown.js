@@ -8,9 +8,14 @@
  * build time and every time window is equally cheap.
  *
  * Output goes to its own file rather than into dashboard.json. It's several
- * megabytes and only two of the five pages ever need it, so the frontend
- * fetches it lazily on first visit and the pages people actually live on stay
- * as fast as they are today.
+ * megabytes and only two of the six pages ever need it.
+ *
+ * **The frontend no longer fetches this file on a drilldown visit.** It reads
+ * `/api/panel/drilldown` for the index and one route per subject, and comes
+ * here only once the API has failed — see `worker/src/panels/drilldown.js` and
+ * `documentation.md`. So this build stays the floor and stops being the normal
+ * path, which is why the size below matters less than it used to and the
+ * agreement with the Worker's payloads matters more.
  *
  * PR-side ranked lists are emitted in full rather than truncated. That was
  * measured, not assumed: capping at 10 gave 2.54 MB, capping at 100 gave 3.11

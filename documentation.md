@@ -112,11 +112,18 @@ night's numbers — which is exactly what the freshness tints already say.
 Use **Run workflow** with `deploy_only` **unchecked** to force a fresh crawl,
 **checked** to redeploy from cache without one.
 
-**The daily run is not a fallback.** `issues` and `drilldown` have no panel in
-`worker/src/panels/` yet and `ciHealth` needs `workflow_run` captured — between
-them that is 32 of the dashboard's 53 cards. The seven ported panels are also
-rebuilt here, but only as the floor the page falls back to when the Worker is
-unreachable, which is the difference between an amber card and a red one.
+**The daily run is the floor, not a fallback for anything unported.** All ten
+panels are served from D1 now, so nothing on the dashboard is build-only. What
+this run produces is the copy the page falls back to when the Worker is
+unreachable — the difference between an amber card and a red one.
+
+The drilldown is the exception to how that floor is *used*. Every other panel
+renders from `dashboard.json` and is overlaid by the Worker, so the fallback is
+already in hand before the first API call. The drilldown's floor is
+`data/drilldown.json` at 23 MB, and fetching that eagerly to have it ready would
+keep the whole cost the live drilldown removes — so it is fetched only once the
+API has actually failed, and a drilldown page running on it reads **red** rather
+than amber. See **The drilldowns**.
 
 Nothing is committed. The ingest store used to be, so each run could resume from
 the last watermark, but that made every run a push into an org that broadcasts
@@ -267,15 +274,27 @@ topbar counts the rings on the page you're looking at.
 | Ring | Tier | Meaning |
 |---|---|---|
 | Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged and Changes requested |
-| Blue | `cron` | Recomputed by the Worker every 10 minutes — Contributors, Analytics, Needs a release, Time since last update, By label |
-| Amber | `build` | From the last Actions build, because nothing serves it live yet — Issue analytics, CI health, both drilldowns |
+| Blue | `cron` | Recomputed by the Worker every 10 minutes — everything else, which is now every remaining card |
+| Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
+
+Amber is deliberately kept rather than removed with its last occupant. It is the
+statement "static by design", and a panel added later has to be able to make it
+before it reconciles.
 
 The tier is read from the `x-refresh` header the Worker sets, not from a list in
 the frontend, so promoting a panel from the ten-minute recompute to the webhook
 path retints its card with no change on this side. Which panels the page tries
 to overlay is `LIVE_PANELS` in `web/js/live.js`; which of those the Worker treats
 as instant is `INSTANT` in `worker/src/recompute.js`.
+
+**The drilldown is the one panel whose tint is not decided by the panel alone.**
+It arrives in two pieces — an index once per session and one payload per subject
+— and either half can fall through to the build file on its own. So a green
+index over a build-file subject would be a confident blue about data the API
+never served, across 22 of the 53 cards at once. `drillOnBuild` in
+`web/js/data.js` reads both halves, and either one on the file makes the card
+red.
 
 **The topbar counts cards, not panels.** That distinction is the whole reason
 the line was rewritten. A panel is a data source and a card is a thing on
@@ -907,7 +926,14 @@ fields. `prFieldCoverage` in the drilldown payload counts how many open PRs
 carry `reviewRequests` and how many records of any state carry `assignees`, and
 an empty list says which of "nobody has asked you anything" and "the ingest has
 never asked GitHub" it means — the second one is a command the reader can run,
-so it prints the command. Ongoing reviews are derived from `reviews[]`, which
+so it prints the command.
+
+That distinction survives the port in name only, and the reason is the schema:
+D1 declares `labels`, `assignees` and `review_requests` as
+`NOT NULL DEFAULT '[]'` and the webhook handler writes each of them from every
+payload, so there is no unasked state to report and the live index reports
+complete coverage. It is true of that store, and `Calculations.md` records what
+it costs. Ongoing reviews are derived from `reviews[]`, which
 has been in the store from the start, so that column is right on an
 un-backfilled store.
 
@@ -1374,10 +1400,45 @@ Links made before the tabs were consolidated still work — `cActivity` resolves
 to `@activity` and the address bar is rewritten to match. See **Tabs and
 groups**.
 
-The data lives in its own `data/drilldown.json` (~19 MB, 3.4 MB gzipped) rather
-than in `dashboard.json`. The frontend fetches it the first time you open a
-drilldown page and keeps it for the session, so the other four pages don't pay
-for data they never use.
+**The page fetches this in two pieces, on two different clocks.** It used to be
+one fetch of `data/drilldown.json` — 23 MB — read to find whichever single
+subject you had asked for.
+
+- **The head**, from `/api/panel/drilldown`: the two picker indexes, the column
+  orders, the window list and the coverage counts. ~470 KB, once per session.
+  Registered with `lazyPanel` in `web/js/live.js` rather than listed in
+  `LIVE_PANELS`, so nothing fetches it until you open a drilldown and the poll
+  refreshes it afterwards like any other panel. That laziness is the point:
+  two of the six pages need it, and the other four would otherwise pay 470 KB
+  for a picker they are never shown.
+- **One subject**, from `/api/contributor/{login}` or `/api/repo/{name}`,
+  computed on the request and cached by the Worker against the current version.
+  Fetched as you navigate, and cached in the browser against that same version
+  — so the local copy expires exactly when the server's row does. A stale copy
+  keeps rendering while its replacement is on the way; blanking the page every
+  ten minutes because a fresher payload exists would be worse than the
+  ten-minute-old numbers.
+
+Head to head fetches each opponent the same way, so a lineup fills in as they
+arrive.
+
+`data/drilldown.json` (~23 MB, 3.4 MB gzipped) is still the floor, but a lazy
+one — fetched only after the API has failed, never on the normal path. See the
+tint table under **Freshness** for what that does to the cards.
+
+**A subject payload carries its own `labelNames` table**, and this is the one
+thing here that fails silently if it is missed. Rows carry interned label
+indexes, and a cached payload cannot point into a global table: the recompute
+renumbers that table underneath the cached row at any tick, and an index into a
+renumbered table resolves to *the wrong name* rather than to nothing. So
+`labelText` in `web/js/drilldown-data.js` resolves against the table belonging
+to the subject being rendered. Get it wrong and every chip renders blank —
+`labelsOf` filters blanks out, so the label filter matches nothing and no error
+is raised anywhere.
+
+`test/drilldown-live.test.js` is the suite for all of the above. None of it is
+reachable from the parity tests, which compare two readings of one store and
+never run the frontend.
 
 Both stores feed it. Pull requests answer "what did they build"; issues answer
 "what did they sort out", and those are frequently different people. A subject can

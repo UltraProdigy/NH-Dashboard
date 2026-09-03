@@ -20,10 +20,12 @@
 import { state } from "./state.js";
 
 /**
- * Panels the Worker can serve. Anything not listed keeps coming from the built
- * file — which is now `issues` and `drilldown`, neither of which has a panel in
- * `worker/src/panels/` yet. Between them they are 32 of the 53 cards, so most of
- * this page is still static.
+ * Panels the Worker can serve, fetched on every load.
+ *
+ * All ten panels are ported now, so nothing on this dashboard is built-only.
+ * `drilldown` is the tenth and is not in this list — see `lazy` below, which is
+ * where it was promoted, and why the promotion is a registration rather than a
+ * line here.
  *
  * Each entry was held back until it reconciled against the build rather than
  * merely returning rows, because the tint makes a wrong answer *more* dangerous
@@ -57,6 +59,10 @@ import { state } from "./state.js";
  * *ancestry* (`tagSha...headSha`). The two agree until a tag is cut from an
  * older commit — three repos at last count, where the card reads low or omits
  * the repo. `Calculations.md` has the detail.
+ *
+ * `drilldown` has one of its own, and it is the schema rather than a query:
+ * `prFieldCoverage` reports complete coverage because D1 cannot represent the
+ * unasked state the Node store can. Also in `Calculations.md`.
  */
 const LIVE_PANELS = [
   "contributors",

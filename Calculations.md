@@ -1704,6 +1704,61 @@ makes it appear here on the next run with no code change — capped at
 Most numbers arrive precomputed. These are the ones the browser derives itself,
 and therefore the ones that can disagree with the payload if a bug creeps in.
 
+### Which drilldown numbers a card is showing
+
+`web/js/drilldown-data.js`, and it is a lookup rather than a calculation — but
+it decides which of two payloads every number on a drilldown comes from, so it
+belongs here.
+
+A subject's payload is cached in the browser under `state.subjects[kind][id]` as
+`{ s, labelNames, version, from }` and is chosen like this:
+
+```
+subject()       →  the cached payload, whatever version it was folded at
+subjectStale()  →  version != null  &&  version != state.version
+drillOnBuild()  →  from == "build",  or the index itself came from the file
+```
+
+Three consequences worth stating, because each one is a number on screen:
+
+**A stale payload still renders.** `subject()` does not check the version, so a
+card can be showing figures folded up to ten minutes ago — which is what `cron`
+means and what its blue ring already claims. `subjectStale` only decides whether
+to go and fetch a fresher one.
+
+**The version is the Worker's own**, from the `x-version` header, so the
+browser's copy expires exactly when the Worker's cached row does rather than on
+a timer of its own.
+
+**A payload out of the build file records the version the page was on**, not a
+null. The file has no version, but "the version has moved since" is still the
+signal wanted — it means the Worker is answering, so a card sitting on
+build-file numbers should ask again. A bump is at most every ten minutes, which
+is what stops that retry being a loop.
+
+### Label names on a drilldown row
+
+`labelText(l, names)` in `web/js/drilldown-data.js`. Rows carry integer indexes
+into a `labelNames` table, and **the table is the subject's own, not a global
+one**:
+
+```
+names  =  subjects[kind][id].labelNames     # a payload from the Worker
+       ?? drill.labelNames                  # the build file's single table
+       ?? []
+```
+
+The fallback order is not a preference, it is two different storage models. The
+build file is one consistent snapshot, so one global table is correct there. A
+cached payload is not: the recompute renumbers the global table underneath a
+cached row at any tick, and an index into a renumbered table resolves to **the
+wrong name** rather than to nothing.
+
+Getting it wrong is silent in both directions. Resolving against a table that
+does not exist gives `""` for every chip, and `labelsOf` filters blanks out, so
+the label filter matches nothing and no error is raised. Resolving against the
+*wrong* subject's table gives a plausible wrong name.
+
 ### Delta arrows
 
 `delta()` in `web/js/data.js`.
@@ -1873,4 +1928,6 @@ should be explainable from this file alone.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |
+| 2026-09-03 | Drilldown label names | Resolved against the rendering subject's own `labelNames` rather than one global table, because a per-subject payload is cached across recomputes that renumber the global one. See **Label names on a drilldown row**. |
 | — | *(initial)* | Document created; describes the pipeline as it stands. |
