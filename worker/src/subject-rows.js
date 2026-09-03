@@ -142,20 +142,31 @@ export const issueRecord = (r) => ({
  * The reviews arm is `EXISTS` rather than a row-value `IN`: D1's tolerance for
  * the latter is untested, and this port has already lost a deploy to a compound
  * SELECT that every local test accepted.
+ *
+ * **Every table here is aliased, and that is load-bearing.** `scope.js` rewrites
+ * `FROM pull_requests` into `FROM (SELECT * FROM pull_requests WHERE …)`, an
+ * unaliased subquery — so a correlation written as `pull_requests.repo` refers
+ * to a name that no longer exists after the rewrite and the query dies with
+ * "no such column". It cost a green deploy and a 500 on every contributor
+ * request while the repo route, which qualifies nothing, worked perfectly.
+ *
+ * The companion to the rule already in `scope.js`: do not name a CTE after a
+ * real table, *and* do not qualify a column by one. Alias, then qualify by the
+ * alias.
  */
-const PR_REACHES = `author = ?1
-  OR assignees LIKE ?2
-  OR review_requests LIKE ?2
-  OR EXISTS (SELECT 1 FROM reviews rv
-             WHERE rv.repo = pull_requests.repo
-               AND rv.pr_number = pull_requests.number
-               AND rv.author = ?1)`;
+const PR_REACHES = `p.author = ?1
+  OR p.assignees LIKE ?2
+  OR p.review_requests LIKE ?2
+  OR EXISTS (SELECT 1 FROM reviews r2
+             WHERE r2.repo = p.repo
+               AND r2.pr_number = p.number
+               AND r2.author = ?1)`;
 
-const ISSUE_REACHES = `author = ?1
-  OR first_responder = ?1
-  OR closed_by = ?1
-  OR closed_via_author = ?1
-  OR assignees LIKE ?2`;
+const ISSUE_REACHES = `i.author = ?1
+  OR i.first_responder = ?1
+  OR i.closed_by = ?1
+  OR i.closed_via_author = ?1
+  OR i.assignees LIKE ?2`;
 
 /**
  * Fetch one subject's rows. Four queries for a contributor, three for a repo.
@@ -170,33 +181,33 @@ export async function fetchSubjectRows(db, kind, id) {
 
   if (kind === "repos") {
     const [prRows, reviewRows, issueRows] = await Promise.all([
-      db.prepare(`SELECT ${PR_COLUMNS} FROM pull_requests WHERE repo = ?1`).bind(id).all(),
+      db.prepare(`SELECT ${PR_COLUMNS} FROM pull_requests p WHERE p.repo = ?1`).bind(id).all(),
       db
         .prepare(
-          `SELECT repo, pr_number, author, state, submitted_at
-             FROM reviews WHERE repo = ?1`,
+          `SELECT r.repo, r.pr_number, r.author, r.state, r.submitted_at
+             FROM reviews r WHERE r.repo = ?1`,
         )
         .bind(id)
         .all(),
-      db.prepare(`SELECT ${ISSUE_COLUMNS} FROM issues WHERE repo = ?1`).bind(id).all(),
+      db.prepare(`SELECT ${ISSUE_COLUMNS} FROM issues i WHERE i.repo = ?1`).bind(id).all(),
     ]);
     return assemble(prRows.results, reviewRows.results, issueRows.results);
   }
 
   const [prRows, reviewRows, issueRows] = await Promise.all([
-    db.prepare(`SELECT ${PR_COLUMNS} FROM pull_requests WHERE ${PR_REACHES}`).bind(id, like).all(),
+    db.prepare(`SELECT ${PR_COLUMNS} FROM pull_requests p WHERE ${PR_REACHES}`).bind(id, like).all(),
     db
       .prepare(
         `SELECT rv.repo, rv.pr_number, rv.author, rv.state, rv.submitted_at
            FROM reviews rv
-          WHERE EXISTS (SELECT 1 FROM pull_requests
-                         WHERE pull_requests.repo = rv.repo
-                           AND pull_requests.number = rv.pr_number
+          WHERE EXISTS (SELECT 1 FROM pull_requests p
+                         WHERE p.repo = rv.repo
+                           AND p.number = rv.pr_number
                            AND (${PR_REACHES}))`,
       )
       .bind(id, like)
       .all(),
-    db.prepare(`SELECT ${ISSUE_COLUMNS} FROM issues WHERE ${ISSUE_REACHES}`).bind(id, like).all(),
+    db.prepare(`SELECT ${ISSUE_COLUMNS} FROM issues i WHERE ${ISSUE_REACHES}`).bind(id, like).all(),
   ]);
   return assemble(prRows.results, reviewRows.results, issueRows.results);
 }
@@ -228,11 +239,12 @@ function assemble(prRows, reviewRows, issueRows) {
 export async function firstIssueFor(db, repo) {
   const { results } = await db
     .prepare(
-      `SELECT author, created_at AS at, repo, number
-         FROM issues
-        WHERE author IN (SELECT author FROM issues WHERE repo = ?1 AND author IS NOT NULL)
-          AND author IS NOT NULL
-        ORDER BY author ASC, created_at ASC, repo ASC, number ASC`,
+      `SELECT i.author, i.created_at AS at, i.repo, i.number
+         FROM issues i
+        WHERE i.author IN (SELECT j.author FROM issues j
+                            WHERE j.repo = ?1 AND j.author IS NOT NULL)
+          AND i.author IS NOT NULL
+        ORDER BY i.author ASC, i.created_at ASC, i.repo ASC, i.number ASC`,
     )
     .bind(repo)
     .all();

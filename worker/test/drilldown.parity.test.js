@@ -972,6 +972,7 @@ if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
 
   const { subject } = await import(path.join(HERE, "..", "src", "panels", "drilldown-subject.js"));
   const { fetchSubjectRows } = await import(path.join(HERE, "..", "src", "subject-rows.js"));
+  const { scopedDb } = await import(path.join(HERE, "..", "src", "scope.js"));
 
   // D1's surface, properly: `bind` returns a *new* statement rather than
   // mutating a shared one. The handlers suite shipped a shim that mutated, and
@@ -994,8 +995,23 @@ if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
     },
   });
 
-  const wdb = d1(raw);
-  const env = { DB: wdb, NH_INGEST_EXCLUDE: "" };
+  /**
+   * Scoped, and with an exclusion set, because that is what production hands
+   * the route — and the difference is not cosmetic.
+   *
+   * `scope.js` rewrites `FROM pull_requests` into an *unaliased* subquery, so a
+   * correlation written as `pull_requests.repo` refers to a name that no longer
+   * exists and the statement dies with "no such column". This test previously
+   * passed the raw handle with no exclusions, where the rewrite is the identity
+   * and the SQL is byte-for-byte what the panel wrote. Every assertion passed,
+   * the deploy was green, and every `/api/contributor/` request in production
+   * returned a 500 — while `/api/repo/`, which qualifies nothing, worked.
+   *
+   * The pattern matches no real repo, so the rewrite fires and the row sets are
+   * unchanged: this exercises the dialect without moving a number.
+   */
+  const wdb = scopedDb(d1(raw), { NH_INGEST_EXCLUDE: "no-such-repo-*" });
+  const env = { DB: d1(raw), NH_INGEST_EXCLUDE: "no-such-repo-*" };
 
   console.log("\nworker: one subject at a time, out of D1");
 
