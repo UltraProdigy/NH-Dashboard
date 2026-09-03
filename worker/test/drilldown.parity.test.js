@@ -951,6 +951,125 @@ if (!existsSync(PANEL) || !existsSync(SEED) || !existsSync(SCHEMA)) {
   const drifted = keys.filter((k) => JSON.stringify(built[k]) !== JSON.stringify(d[k]));
   check("every schema key matches the build", drifted.length === 0, drifted.join(", "));
 
+  /* ------------------------------------------------------------------------
+     The coverage counts
+
+     Four head keys are only in the build file and three of them fail in the
+     flattering direction when absent, which is why they are asserted here
+     rather than left to a `??` in the frontend: an un-backfilled store reads
+     as a PR with no labels, an unknown closer falls back to zero, and a
+     missing issue store reads as a subject with no issue activity.
+
+     `closerCoverage` and `issueData` are compared against the build directly.
+     `prFieldCoverage` cannot be, and the difference is the schema rather than
+     the query: the Node store distinguishes `undefined` from `[]` on the three
+     array fields and D1's are `NOT NULL DEFAULT '[]'`, so the "never asked"
+     state is not representable there at all. What is checked instead is the
+     two counts that *are* the same question on both sides, plus the claim the
+     port actually rests on — that the three coverage figures equal the
+     populations they are measured against, which is what makes the frontend
+     hints stay quiet honestly rather than by accident.
+     ------------------------------------------------------------------------ */
+
+  check(
+    "closerCoverage matches the build",
+    JSON.stringify(built.closerCoverage) === JSON.stringify(d.closerCoverage),
+    `${JSON.stringify(built.closerCoverage)} against ${JSON.stringify(d.closerCoverage)}`,
+  );
+
+  // Not `=== d.issueData`: the build writes a boolean and a store with issues
+  // in it has to produce one here too, so the type is part of the assertion.
+  // `undefined !== false` is precisely how the "there is no issue store"
+  // message goes missing.
+  check(
+    "issueData is a boolean and matches the build",
+    typeof built.issueData === "boolean" && built.issueData === d.issueData,
+    `${built.issueData} against ${d.issueData}`,
+  );
+
+  const cov = built.prFieldCoverage;
+  check(
+    "prFieldCoverage: total and openPRs match the build",
+    cov.total === d.prFieldCoverage.total && cov.openPRs === d.prFieldCoverage.openPRs,
+    `${cov.total}/${cov.openPRs} against ${d.prFieldCoverage.total}/${d.prFieldCoverage.openPRs}`,
+  );
+
+  // The three that drive the hints. Each has to equal its own population, or
+  // `prLabelsMissing()` and `queueDataMissing()` start reporting a backfill
+  // that has not run over a store where every row carries an answer.
+  check(
+    "prFieldCoverage: every field reads as asked, over a non-empty store",
+    cov.total > 0 &&
+      cov.openPRs > 0 &&
+      cov.labels === cov.total &&
+      cov.assignees === cov.total &&
+      cov.reviewRequests === cov.openPRs,
+    JSON.stringify(cov),
+  );
+
+  /* ------------------------------------------------------------------------
+     A store that cannot say who closed something
+
+     `closerCoverage.unknown` is 0 across this seed — every closed issue has
+     been walked — so the check above passes against the build for an
+     expression that returns the right number and equally for one that returns
+     a constant zero. That is a branch no row in the store takes, and the rule
+     here is to name it and give it a synthetic row rather than leave the
+     survivor sitting in a green run.
+
+     Three issues and one pull request, through `drilldown()` itself rather
+     than by reaching for the query: the entry point is what production calls,
+     and a helper tested directly is the shape of check that passed for three
+     weeks over a column the panel could not read.
+     ------------------------------------------------------------------------ */
+  {
+    const tiny = new DatabaseSync(":memory:");
+    tiny.exec(readFileSync(SCHEMA, "utf8"));
+    // closer_known defaults to 0, so the third row is the unwalked one and the
+    // first two are stated explicitly rather than relying on the default.
+    tiny.exec(`
+      INSERT INTO issues (repo, number, author, created_at, updated_at, closed_at, state, closed_by, closer_known)
+      VALUES ('R', 1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 'CLOSED', 'b', 1),
+             ('R', 2, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL,                   'OPEN',  NULL, 1),
+             ('R', 3, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 'CLOSED', NULL, 0);
+      INSERT INTO pull_requests (repo, number, author, created_at, updated_at, state)
+      VALUES ('R', 1, 'a', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'OPEN');
+    `);
+
+    const small = await drilldown({
+      prepare(sql) {
+        return { async all() { return { results: tiny.prepare(sql).all() }; } };
+      },
+    });
+
+    check(
+      "an unwalked close is counted as unknown",
+      small.closerCoverage.closed === 2 && small.closerCoverage.unknown === 1,
+      JSON.stringify(small.closerCoverage),
+    );
+
+    // The other side of the same branch: an empty store must report `false`
+    // rather than `0` or `undefined`, because `undefined !== false` is exactly
+    // how "there is no issue store" stops rendering.
+    const empty = new DatabaseSync(":memory:");
+    empty.exec(readFileSync(SCHEMA, "utf8"));
+    const none = await drilldown({
+      prepare(sql) {
+        return { async all() { return { results: empty.prepare(sql).all() }; } };
+      },
+    });
+
+    check(
+      "an empty store reports issueData false and zeroed coverage",
+      none.issueData === false &&
+        none.closerCoverage.closed === 0 &&
+        none.closerCoverage.unknown === 0 &&
+        none.prFieldCoverage.total === 0 &&
+        none.prFieldCoverage.openPRs === 0,
+      JSON.stringify({ issueData: none.issueData, ...none.closerCoverage, ...none.prFieldCoverage }),
+    );
+  }
+
   /* ========================================================================
      The whole Worker path, over the replica
 

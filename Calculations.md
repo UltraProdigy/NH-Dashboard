@@ -1294,6 +1294,26 @@ that its review-request backfill had not run.
 `closerCoverage` does the same job for issues: `{closed, unknown}` over the whole
 store.
 
+**The live index derives these differently, and one of the three cannot survive
+the port.** `closerCoverage` and `issueData` are the same question in SQL —
+`closer_known <> 1` over closed issues, and whether the issue table has any rows
+— and they reconcile against the build exactly, at `{closed: 23675, unknown: 0}`.
+
+`prFieldCoverage` does not, because the distinction it reports is not
+representable in D1. The Node store separates `undefined` from `[]` on the three
+array fields, which is what lets it say "we have never asked"; D1 declares all
+three `NOT NULL DEFAULT '[]'` and the webhook handler writes each of them from
+every payload. So in D1 every row has been asked by construction, and the live
+panel reports `labels` and `assignees` as `total` and `reviewRequests` as
+`openPRs`.
+
+That is the truth about that store rather than a convenient reading of it, but
+it moves the failure: a row the handler somehow wrote without labels reports as a
+PR carrying none rather than as a record nobody has walked, and no count can tell
+the two apart. Closing it needs a `known` flag per field in the schema, the way
+`issues.closer_known` and `issues.response_unknown` already do it — deliberately
+not done, because both fields arrive on every payload GitHub sends.
+
 ---
 
 ## CI health metrics

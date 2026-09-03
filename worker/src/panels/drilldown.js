@@ -10,9 +10,15 @@
  * included. See `handoff.md` for the measurements.
  *
  * What *is* here is the part that cannot be computed per subject: the two
- * picker indexes are an aggregate over every subject at once, and the schema
- * keys are constants. Together they are ~470 KB, which is an ordinary
- * `panel_cache` blob on the cron like every other panel.
+ * picker indexes are an aggregate over every subject at once, the coverage
+ * counts are facts about the whole store, and the schema keys are constants.
+ * Together they are ~470 KB, which is an ordinary `panel_cache` blob on the
+ * cron like every other panel.
+ *
+ * `labelNames` is the one head key that is deliberately *not* here. It travels
+ * on each subject payload instead, because the recompute renumbers a global
+ * table underneath a cached row and an index into a renumbered table resolves
+ * to the wrong name rather than to nothing.
  *
  * The index is therefore the only part of this panel rebuilt in SQL rather than
  * reused from `src/panels/drilldown.js`, and the risk it carries is not
@@ -26,7 +32,7 @@
  */
 
 import { WINDOWS, isHumanSql } from "../../../src/shared/contributor-rules.js";
-import { closerSql, fixerSql } from "../../../src/shared/issue-rules.js";
+import { closerSql, closerUnknownSql, fixerSql } from "../../../src/shared/issue-rules.js";
 import {
   ASSIGNED_FIELDS,
   CLOSED_FIELDS,
@@ -310,6 +316,75 @@ async function repoIndex(db) {
 }
 
 /**
+ * What the store can and cannot answer, stated once for every card to read.
+ *
+ * Three facts about the whole store rather than about any subject, and they
+ * exist because "this person closed nothing" and "the store cannot say who
+ * closed anything" render identically without them. Every one of the three
+ * fails in the *flattering* direction when absent — an un-backfilled store
+ * reads as a PR with no labels, an unknown closer falls back to zero, and a
+ * missing issue store reads as a subject with no issue activity — so they
+ * belong in the cached blob rather than being left to a `??`.
+ *
+ * `prFieldCoverage` is the one that does not survive the port intact, and the
+ * reason is the schema rather than this query. The Node store distinguishes
+ * `undefined` from `[]` on the three array fields, which is what lets it say
+ * "we have never asked". In D1 all three are `NOT NULL DEFAULT '[]'` and the
+ * webhook handler writes each of them from every payload, so every row has been
+ * asked by construction and the counts are the populations they are measured
+ * against. That is the truth about this store rather than a convenient reading
+ * of it — but it means a row the handler somehow wrote without labels would
+ * report as a PR carrying none, and no count here could tell. Recorded in
+ * `Calculations.md` as a divergence in the storage layer, not papered over.
+ */
+async function coverage(db) {
+  const [prs, issues] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total,
+                SUM(state = 'OPEN' AND merged_at IS NULL) AS openPRs
+           FROM pull_requests`,
+      )
+      .all(),
+    // `closer_known` is NOT NULL DEFAULT 0, so `<> 1` cannot fall through to a
+    // NULL the way `closedByHand` did — worth stating, because the same
+    // expression over a nullable column would understate the unknowns and read
+    // as a store that knows more than it does.
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n,
+                SUM(closed_at IS NOT NULL) AS closed,
+                SUM(${closerUnknownSql()}) AS unknown
+           FROM issues`,
+      )
+      .all(),
+  ]);
+
+  // `all()` rather than `first()` because every other query in this panel uses
+  // it, and an aggregate over an empty table still returns its one row.
+  const pr = prs.results[0] ?? {};
+  const issue = issues.results[0] ?? {};
+
+  const total = pr.total ?? 0;
+  const openPRs = pr.openPRs ?? 0;
+
+  return {
+    prFieldCoverage: {
+      openPRs,
+      reviewRequests: openPRs,
+      total,
+      assignees: total,
+      labels: total,
+    },
+    issueData: (issue.n ?? 0) > 0,
+    closerCoverage: {
+      closed: issue.closed ?? 0,
+      unknown: issue.unknown ?? 0,
+    },
+  };
+}
+
+/**
  * The cached half of the drilldown: both indexes, and the constants.
  *
  * The schema keys are stated once here and read by every payload the
@@ -318,12 +393,14 @@ async function repoIndex(db) {
  * those orders moved into `drilldown-rules.js`.
  */
 export async function drilldown(db, now = Date.now()) {
-  const [contributors, repos] = await Promise.all([
+  const [contributors, repos, coverages] = await Promise.all([
     contributorIndex(db),
     repoIndex(db),
+    coverage(db),
   ]);
 
   return {
+    ...coverages,
     windows: WINDOWS,
     seriesFields: SERIES_FIELDS,
     resolvedFields: RESOLVED_FIELDS,
