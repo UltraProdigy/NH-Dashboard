@@ -6,7 +6,7 @@ true, and where the two disagree, this file wins.
 Temporary, like the plan. Both get deleted when the migration lands and whatever
 survives moves into `documentation.md`.
 
-Last updated 2026-08-30.
+Last updated 2026-09-03.
 
 ---
 
@@ -1694,3 +1694,145 @@ handoff is done and the store on one laptop is no longer the only copy.
 The frontend still loads the 23 MB file. `PAGE_PANEL` maps both drilldown pages
 to `drilldown`, so adding that one name would tint 22 cards blue over build
 data. It goes in when the pages fetch per subject.
+
+---
+
+# 2026-09-03 — the frontend, and the port is code-complete
+
+## It is in, and the promotion is not a line in LIVE_PANELS
+
+The section above expected one name added to one array. It is a registration
+instead, and the difference is the 470 KB index: `LIVE_PANELS` is fetched on
+every page load, and four of the six pages must not pay for a picker they are
+never shown. So `live.js` gained a second category — a panel fetched the first
+time something asks for it and refreshed with the rest from then on — and
+`drilldown` is its only member.
+
+That distinction turned out to be the one property the new suite could not see.
+Adding `"drilldown"` to the eager list passes every assertion about the
+drilldown itself, because by the time any of them run, a drilldown has been
+opened and the index would have been fetched either way. It is caught now, from
+the org pages, through `primeLive` — which is the load path that actually
+decides it.
+
+## The coverage counts, and the one that cannot survive the port
+
+The frontend reads fifteen head keys and the index emitted eleven of them. Of
+the four missing, three failed in the flattering direction, which is this
+port's signature.
+
+`closerCoverage` and `issueData` went in and reconcile exactly:
+`{closed: 23675, unknown: 0}`. **`unknown` being 0 across the whole seed is
+itself worth recording**, because it means the comparison against the build
+passes for a correct expression and equally for a constant zero — a branch no
+row in the store takes. Given a synthetic unwalked close, and an empty store to
+check `issueData` is `false` rather than `undefined`.
+
+`prFieldCoverage` cannot be ported, and the reason is the schema rather than the
+query. The Node store separates `undefined` from `[]` on `labels`, `assignees`
+and `reviewRequests`, which is what lets it say "we have never asked". D1
+declares all three `NOT NULL DEFAULT '[]'` and `handlers.js` writes each of them
+from every payload, so in D1 every row has been asked by construction and the
+live panel reports complete coverage.
+
+That is true of that store. What it costs is that the failure moves: a row the
+handler somehow wrote without labels reads as a PR carrying none rather than as
+one nobody has walked, and no count can tell the two apart. Closing it needs a
+per-field `known` flag in the schema, the way `closer_known` and
+`response_unknown` already do it. Deliberately not done, at two fields that
+arrive on every payload GitHub sends.
+
+## Three things the handoff did not have
+
+**Head to head reads four *other* subjects.** `versus-data.js` indexed
+`state.drill[bucket][id]` for up to four opponents. Free when all 7,047 were in
+hand; a fetch each now. The handoff never mentioned the file, and the failure
+would have been an empty lineup with no error anywhere.
+
+**The picker's "nothing named that" became a lie about a fetch in flight.**
+`state.subject && !subject()` was exactly right when there was nothing between
+asking and having. Now it also matches a subject being fetched, so the page told
+you your colleague did not exist for as long as the request took. Gated on an
+explicit `missing` state, which is a 404 and nothing else.
+
+**A version bump has to invalidate the browser's copy.** The Worker caches a
+subject against the version it folded it at; the page now holds the same number
+and compares against `/api/version`. Two rules fell out of that which are worth
+keeping:
+
+- **A stale payload still renders** while its replacement is fetched. Blanking a
+  drilldown back to a spinner every ten minutes because a fresher copy exists is
+  worse than the ten-minute-old numbers were.
+- **A payload out of the build file records the version the *page* was on**,
+  rather than a null. The file has no version, but "the version has moved since"
+  is still the signal wanted — it means the Worker is answering, so a card
+  sitting on build-file numbers should ask again. A bump is at most every ten
+  minutes, which is what stops that retry being a loop. "Stale while the API is
+  reachable" reads true on every render and would have been one.
+
+## The fallback is lazy, and that was the one real decision
+
+Every other panel keeps `dashboard.json` as its floor and is overlaid. The
+drilldown cannot copy that literally, because its floor *is* the 23 MB file and
+fetching it eagerly to have a fallback ready keeps the entire cost the change
+removes. So it is fetched only after the API has failed, and never on the normal
+path.
+
+Which makes an outage here red rather than amber, and the reasoning is the same
+one that held every other panel out of `LIVE_PANELS` until it reconciled: amber
+says "static by design", and these two pages stopped being that the moment the
+panel went live. `drillOnBuild()` reads both halves — the index's source and the
+subject's — so an index answering over a subject that fell through still reads
+correctly. That case is exactly where `p.down` alone would put a confident blue
+on 22 of the 53 cards.
+
+Amber now has no occupants at all and is kept anyway. It is a sentence a panel
+added later has to be able to say, and deleting it would make "not ported yet"
+and "the API is down" the same colour again.
+
+## The suite runs the frontend, which nothing here had done before
+
+`test/drilldown-live.test.js`, 72 checks, under Node against a stubbed DOM and a
+stubbed `fetch`. None of this is reachable from the parity suites — they compare
+two readings of one store and never load a frontend module.
+
+The assertion that matters most is on the **fetch log**, not on anything
+rendered: a fallback that has simply not been needed yet and a fallback that is
+lazy look identical from the output, and only the log tells them apart.
+
+Two findings from writing it:
+
+**A test that races cannot assert an absence.** The first draft checked that a
+subject had no payload yet after one `setTimeout`, and passed because the fetch
+had already resolved on the microtask queue and re-rendered. The subject route
+is gated now, so "in flight" is a state a check can stand in rather than a
+moment it has to catch.
+
+**The lazy fallback is cached per session, and a test plays a dozen sessions.**
+Clearing state left the second session holding the first's copy of a file it had
+never fetched, and three checks passed for that reason. `render.js` is
+re-imported under a fresh query string instead — `state.js` resolves to the same
+URL from every copy, so state stays shared and only the module's privates start
+over. No test-only export in production.
+
+Mutations run against the finished code: eleven, of which one survived and was a
+bad mutation rather than a hole (the label table read from a global that the
+fixture does not define, so it fell through to the right answer anyway), and one
+survived correctly — the recovery path dropping every cached subject rather than
+only the file's is a cost saving, not a correctness rule. It has a case in the
+suite regardless, because the only way to hold an API-sourced payload in a
+fallback session is a subject the file does not carry, and nothing else would
+have exercised that branch.
+
+## Still outstanding, and none of it is code
+
+1. Push. `worker.yml` and `build.yml` both fire from it.
+2. `POST /api/recompute?force=1` straight after. The index is a `panel_cache`
+   blob on the cron, so deploying the Worker does not refresh it — for up to ten
+   minutes the new frontend reads an old index with no coverage counts in it.
+   Nothing breaks; the review-queue hints and the closer counts read wrong.
+3. Verify in a browser. Four things, listed in `handoff.md`.
+4. `gh workflow run build.yml`, still outstanding from 08-31, so the fallback
+   file is not the one carrying the pre-tiebreak orderings.
+
+Then Phase E and Phase F, both decisions rather than work.
