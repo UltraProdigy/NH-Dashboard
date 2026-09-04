@@ -107,23 +107,49 @@ async function writeCache(key, body) {
  *   - Primary:   403/429 with x-ratelimit-remaining: 0 → wait until reset.
  *   - Secondary: 403/429 with a retry-after header → wait that long.
  * Both are handled here so callers never think about it.
+ *
+ * A degraded API is not only 5xx. The same outage also drops connections
+ * before a response starts and cuts bodies off mid-JSON, and those arrive as a
+ * thrown fetch and a thrown parse rather than as a status — so for a long time
+ * the walk retried the polite failures and died on the rude ones. The
+ * reconcile of 2026-09-04 absorbed four 502s over a hundred repos and then
+ * lost eleven minutes of crawl to one truncated body. All three are the same
+ * weather and get the same backoff.
  */
-async function request(url, { method = "GET", body, headers = {} } = {}, attempt = 0) {
+const RETRY_LIMIT = 5;
+
+async function request(url, options = {}, attempt = 0) {
+  const { method = "GET", body, headers = {} } = options;
+
+  const retry = async (why) => {
+    const waitMs = 2 ** attempt * 1000;
+    console.warn(`  ${why} — retrying in ${waitMs / 1000}s`);
+    await sleep(waitMs);
+    return request(url, { method, body, headers }, attempt + 1);
+  };
+
   await pace();
   stats.requests++;
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${getToken()}`,
-      "x-github-api-version": "2022-11-28",
-      "user-agent": "nh-dashboard",
-      ...(body ? { "content-type": "application/json" } : {}),
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${getToken()}`,
+        "x-github-api-version": "2022-11-28",
+        "user-agent": "nh-dashboard",
+        ...(body ? { "content-type": "application/json" } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    const reason = err.cause?.code ?? err.message;
+    if (attempt < RETRY_LIMIT) return retry(`no response from GitHub (${reason})`);
+    throw new Error(`GitHub unreachable after ${RETRY_LIMIT} retries for ${url}: ${reason}`);
+  }
 
   if (res.status === 401) {
     throw new Error(
@@ -131,7 +157,7 @@ async function request(url, { method = "GET", body, headers = {} } = {}, attempt
     );
   }
 
-  if ((res.status === 403 || res.status === 429) && attempt < 5) {
+  if ((res.status === 403 || res.status === 429) && attempt < RETRY_LIMIT) {
     const retryAfter = Number(res.headers.get("retry-after"));
     const remaining = res.headers.get("x-ratelimit-remaining");
     const reset = Number(res.headers.get("x-ratelimit-reset"));
@@ -168,11 +194,8 @@ async function request(url, { method = "GET", body, headers = {} } = {}, attempt
   }
 
   // Retry 5xx with exponential backoff — these are usually transient.
-  if (res.status >= 500 && attempt < 5) {
-    const waitMs = 2 ** attempt * 1000;
-    console.warn(`  ${res.status} from GitHub — retrying in ${waitMs / 1000}s`);
-    await sleep(waitMs);
-    return request(url, { method, body, headers }, attempt + 1);
+  if (res.status >= 500 && attempt < RETRY_LIMIT) {
+    return retry(`${res.status} from GitHub`);
   }
 
   if (!res.ok) {
@@ -180,7 +203,14 @@ async function request(url, { method = "GET", body, headers = {} } = {}, attempt
     throw new Error(`GitHub ${res.status} ${res.statusText} for ${url}\n${text.slice(0, 500)}`);
   }
 
-  return res.json();
+  try {
+    return await res.json();
+  } catch (err) {
+    if (attempt < RETRY_LIMIT) return retry("truncated response from GitHub");
+    throw new Error(
+      `GitHub sent an unreadable body for ${url} after ${RETRY_LIMIT} retries: ${err.message}`
+    );
+  }
 }
 
 /** A single REST call. `endpoint` is a path like "/repos/o/r/compare/a...b". */

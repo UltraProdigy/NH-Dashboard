@@ -144,6 +144,13 @@ exclusion is the *only* thing keeping that repo out of a public artefact, so it
 is load-bearing rather than provisional. GitHub retains PR and issue history
 either way, so only that repo's traffic is lost while it stays excluded.
 
+> **Amended 2026-09-03 — the forward exclusion above stands; the position on the
+> *historical* leak does not.** See "The history rewrite, and what it did not
+> buy" at the end of this file. In short: the exclusion is still load-bearing
+> for everything built from here on, but the copies already in the public git
+> history are accepted rather than chased. Do not read the paragraph above as a
+> statement that no copy is public — one is.
+
 **It was not actually applied, and the repo reached the public site.** Found
 while mapping the `issues` port. `isIngestExcluded` was called from the traffic
 ingest and from nowhere else, so 352 issues were walked, stored, seeded into
@@ -1836,3 +1843,100 @@ have exercised that branch.
    file is not the one carrying the pre-tiebreak orderings.
 
 Then Phase E and Phase F, both decisions rather than work.
+
+---
+
+# 2026-09-03 — the history rewrite, and what it did not buy
+
+## What was actually exposed
+
+`data/` was untracked at HEAD and had been for a while, so the *current* repo
+carried no store data. The history was another matter: 64 commits held `data/`,
+and 31 of them carried `data/dashboard.json` versions naming
+`Dupes-Exploits-GTNH` about 94 times each — the 352 issues from the run where
+the exclusion was found not to have been applied. The repo is public and always
+was, so "settle this before the org move" — which is how the handoff had it —
+was wrong about the timing. There was no window; it was already out.
+
+## The rewrite
+
+`git filter-repo --invert-paths --path data/ --path-glob '*.pem' --path-glob
+'*.key'`, then a force-push with `--force-with-lease`.
+
+| | Before | After |
+|---|---|---|
+| Commits | 296 | 239 |
+| Commits carrying `data/` | 64 | 0 |
+| `.git` | 187 MB | 1.8 MB |
+| HEAD tree | `50c36e3d` | `50c36e3d` |
+
+The HEAD tree hash is the check that matters: not one tracked file differs. All
+443 suites pass. Every SHA changed, so links to commits from before this date
+are dead, and 57 commits were pruned as empty — the scheduled `Commit data`
+pushes, which held nothing else.
+
+## Two things it did not buy, and one is the point
+
+**It was not a size fix, whatever the handoff said.** The 215 `data/` blobs were
+1,079 MB uncompressed and **8.4 MB packed** — near-identical JSON deltas
+compress almost perfectly. The 187 MB was loose and garbage objects from
+interrupted `git pull` runs; `git gc` alone would have reclaimed it. The "96 MB
+of git history" that sat on the Phase F list for weeks was never really there.
+Do not rewrite history for size on this repo again.
+
+**It did not unpublish anything.** Measured after the force-push, not assumed:
+
+```
+GET raw.githubusercontent.com/UltraProdigy/NH-Dashboard/a3def72e/data/dashboard.json
+  → 200, 5,002,512 bytes, 94 mentions of Dupes-Exploits-GTNH
+```
+
+Unauthenticated. GitHub had not garbage-collected, the repo still reported its
+pre-rewrite size of 23,292 KB, and every rewritten commit remained reachable by
+SHA along with its content. The only remedy is a Support request asking GitHub
+to GC unreachable objects — you cannot trigger it yourself.
+
+So the rewrite closed **casual discovery**: a fresh clone, `git log`, the web UI
+and anyone browsing see nothing. It left **retrieval by SHA** open to anyone
+holding an old hash, and old hashes are readable from Actions run history, old
+PR pages and caches. Those are two different claims and only the first holds.
+
+## Decision: the historical copies are accepted
+
+**No Support request is being made.** The content is modpack dupe and exploit
+titles, and the judgment is that its disclosure is not worth chasing. This
+reverses, *for the history only*, the earlier position that this was the one
+repo whose content was not unharmful.
+
+Stated plainly so it is not rediscovered as a bug:
+
+- The forward exclusion is **unchanged and still load-bearing**. Nothing built
+  from here on carries that repo, and `npm run test:exclusion` holds the line.
+- Copies in the public git object database are **known, reachable, and left
+  alone**. Treat that data as public.
+- The remedy stays available indefinitely. If the judgment changes, open a
+  GitHub Support request for a GC on `UltraProdigy/NH-Dashboard`; the rewrite is
+  already pushed, so only the GC is needed.
+- The name-scrub question is therefore **closed as moot**. `going-live-status.md`,
+  `handoff.md` and `test/exclusion.test.js` name the repo in prose and as a test
+  fixture, and if the content is public the name is not worth hiding.
+- **Nothing gates the org move any more.** Phase F is `GH_DASHBOARD_TOKEN` and
+  the move itself.
+
+## And the Phase E claim that was wrong the whole time
+
+Worth recording next to the above, because it cost a session's confidence.
+
+The handoff said Phase E was where "the ingest walks the 12 private repos for the
+first time". It is not. **The PAT can see them and has been ingesting them all
+along.** Seven non-public repos are in the store with full history —
+`Galaxy-Space-GTNH` has 154 PRs back to 2020-09-30, which is a historical walk
+and not webhook data — and they are the same seven this file already recorded as
+"withheld from a page that publishes them", a display bug that was fixed.
+
+The map said one thing and the territory said another, and this file's own rule
+is that the territory wins. Phase E is a credential migration: it retires a
+personal token, raises the rate limit to 12,500/hr, and covers whatever private
+repos the PAT cannot see — a number **nobody has established**.
+`npm run verify:app` establishes it and prints no secrets. Run it before
+assuming there is a data gap.

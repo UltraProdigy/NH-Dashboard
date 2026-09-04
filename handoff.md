@@ -133,10 +133,23 @@ minutes.
 
 ## Then, and these are decisions rather than work
 
-- **Phase E — App auth and the private backfill.** `getToken()` swaps to the App
-  flow, then the ingest walks the 12 private repos for the first time.
-- **Phase F — cleanup.** Retire `GH_DASHBOARD_TOKEN`, move the repo into the org,
-  decide what to do about 96 MB of git history.
+- **Phase E — App auth. Not a private backfill.** Earlier versions of this line
+  said the ingest would walk the private repos "for the first time", and that
+  was wrong for long enough to mislead a session. **The PAT can already see
+  them and has been ingesting them all along** — seven non-public repos are in
+  the store with full history (`Galaxy-Space-GTNH` alone has 154 PRs back to
+  2020-09-30), and the seven that `going-live-status.md` records as "withheld
+  from a page that publishes them" are the same seven. So Phase E is a
+  credential migration and nothing else: swap `getToken()` to the App flow,
+  cache the installation token ~55 min, Actions becomes reconciliation only.
+  What it buys is retiring a personal credential from a shared org dashboard,
+  a rate limit of 12,500/hr rather than 5,000, and whatever private repos the
+  PAT *cannot* see — a number nobody has established. `npm run verify:app`
+  answers that and prints no secrets. **Run it before assuming there is a data
+  gap.**
+- **Phase F — cleanup.** Retire `GH_DASHBOARD_TOKEN`, then move the repo into
+  the org. The git history item is done (see **Parked**), so nothing gates the
+  move any more.
 
 Once Phase F is done, this file and `going-live-status.md` get deleted and
 whatever survives moves into `documentation.md`.
@@ -458,17 +471,36 @@ block means pasting it while already there silently skips that step.
 
 ## Parked, deliberately
 
-**The git history, and the org move is the same event.** `NH_INGEST_EXCLUDE` is
-a repo secret now and CI applies it, so the *forward* path is closed:
+**The forward exclusion is unchanged and still load-bearing.**
+`NH_INGEST_EXCLUDE` is a repo secret and CI applies it, so
 `Dupes-Exploits-GTNH` stays out of the published artefact, in code, in CI, and
 under `npm run test:exclusion`. With the display filter dropped it remains the
-only thing doing so, so treat it as load-bearing rather than provisional.
+only thing doing so. Nothing below relaxes that.
 
-What is still open is behind it. Moving into the org means making the repo
-public, `data/` is in the git *history*, and that history includes
-`dashboard.json` versions carrying the excluded repo's issue titles. Untracking
-`data/` going forward does not remove what is already there. Settle it *before*
-the move completes.
+**The history was rewritten on 2026-09-03, and the org move is no longer behind
+it.** `data/` is gone from all 239 commits — see the decision record in
+`going-live-status.md`. What is worth carrying forward:
+
+- Every SHA changed. Links to commits from before that date are dead.
+- 57 commits were pruned as empty. They were the scheduled `Commit data`
+  pushes — the webhook spam this whole migration started from — and contained
+  nothing else. 239 commits, from 296.
+- `.git` went 187 MB → 1.8 MB, but **the rewrite was not what saved that.**
+  215 blobs of `data/` were 1,079 MB uncompressed and only 8.4 MB packed; the
+  187 MB was loose and garbage objects from interrupted pulls, and a plain
+  `git gc` would have reclaimed it without touching history. Do not repeat this
+  exercise for size reasons.
+- **The old objects are still fetchable by SHA and this is accepted.**
+  Measured after the force-push: `raw.githubusercontent.com` served a rewritten
+  commit's `data/dashboard.json` — 5 MB, 94 mentions of the excluded repo —
+  unauthenticated. GitHub had not garbage-collected and the repo still reported
+  its pre-rewrite size. The remedy is a Support request asking them to GC
+  unreachable objects; it is deliberately not being made. See the decision
+  record. It can be made at any time and nothing expires.
+
+So the rewrite closed casual discovery — a fresh clone, `git log`, and the web
+UI show nothing — and left retrieval-by-SHA open. Those are different claims and
+only the first one holds.
 
 **`src/panels/issues.js` commits as a binary diff.** It carries a NUL as the
 label key separator, so git will not diff it. A `.gitattributes` line fixes it.
@@ -533,7 +565,12 @@ panel header so the trade can be made on evidence.
 > in `Calculations.md`: a row written without labels reads as a PR with none
 > rather than as one nobody has walked.
 >
-> Then Phase E (App auth and the private backfill) and Phase F (retire
-> `GH_DASHBOARD_TOKEN`, move into the org, decide about 96 MB of git history),
-> and both are decisions rather than work. After F this file gets deleted and
-> whatever survives moves into `documentation.md`.
+> Then Phase E — **App auth only, not a private backfill.** The PAT can already
+> see the private repos and has been ingesting them all along; seven are in the
+> store with full history. It is a credential migration, and
+> `npm run verify:app` is what tells you whether any private repo is actually
+> missing. Then Phase F: retire `GH_DASHBOARD_TOKEN` and move into the org. The
+> git history was rewritten on 2026-09-03 and no longer gates the move — the
+> old objects remain fetchable by SHA and that is a recorded decision, not an
+> oversight. After F this file gets deleted and whatever survives moves into
+> `documentation.md`.
