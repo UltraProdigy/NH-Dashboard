@@ -53,6 +53,19 @@ const PAGES = [
     ],
   },
   {
+    id: "find", label: "Search",
+    icon: `<path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/>`,
+    // One module, and it holds the form as well as the results — see the head
+    // of modules/find.js. `tab: false` on it means this page has no tab bar,
+    // which is right: there is nothing here to be a second view of.
+    //
+    // Deliberately absent from `PAGE_PANEL` in data.js. Every other page reads
+    // one panel and is tinted by its freshness; a search reads the tables
+    // directly and has no rebuild to be fresh or stale relative to, so it draws
+    // no tint rather than borrowing a misleading one.
+    modules: ["find"],
+  },
+  {
     id: "people", label: "Contributor Activity",
     icon: `<path d="M5.5 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm6 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM.5 14c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5H.5Zm11 0c0-1.6-.6-3-1.6-4 .5-.3 1-.4 1.6-.4 2.2 0 4 1.6 4 4.4h-4Z"/>`,
     modules: ["topAuthors", "topReviewers", "leaderboard", "newcomers", "lapsed"],

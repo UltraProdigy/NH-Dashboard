@@ -1,0 +1,36 @@
+/* ==========================================================================
+   The search form
+
+   One wrapping row rather than a grid. The controls are different widths and
+   different kinds, and a grid would either stretch the segmented toggles to
+   column width — making three buttons look like a table header — or pin the
+   text boxes to a width that suits neither "any repo" nor a repo name.
+   ========================================================================== */
+
+.findbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+/* The query box takes the slack, and the three filters keep their size. It is
+   the control being typed into and the one holding the longest value. */
+.findbar input[type="search"].wide { flex: 1 1 320px; min-width: 260px; }
+.findbar input[type="search"] { min-width: 0; flex: 0 1 150px; }
+
+/* The Clear button pushed to the far end, so it is never next to whichever
+   filter the cursor just left. */
+.findbar button.ghost { margin-left: auto; }
+
+@media (max-width: 760px) {
+  /* Two per row rather than one, which on a phone is the difference between
+     the results being on screen and being three scrolls down. */
+  .findbar { gap: 8px; }
+  .findbar input[type="search"].wide { flex: 1 1 100%; }
+  .findbar input[type="search"] { flex: 1 1 calc(50% - 4px); }
+  .findbar button.ghost { margin-left: 0; }
+}

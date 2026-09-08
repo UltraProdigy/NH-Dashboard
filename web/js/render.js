@@ -139,9 +139,18 @@ function tabEmpty(pageId, tab) {
 function renderTabs() {
   const page = currentPage();
   document.getElementById("pageTitle").textContent = page.label;
-  document.getElementById("tabs").innerHTML =
+
+  // A page whose only module declines a tab has nothing to put in the bar but
+  // the word "Overview", which is a control offering to take you where you
+  // already are. Hidden rather than rendered lonely.
+  const bar = document.getElementById("tabs");
+  const tabs = tabsFor(page.id);
+  bar.style.display = tabs.length ? "" : "none";
+  if (!tabs.length) return void (bar.innerHTML = "");
+
+  bar.innerHTML =
     `<button data-module="" aria-selected="${state.tab === null}">Overview</button>` +
-    tabsFor(page.id).map(t => {
+    tabs.map(t => {
       // Still clickable, and still says what it's for. The tab is how you find
       // out this repo has no tracker, so removing it would hide the answer
       // along with the absence.

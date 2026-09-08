@@ -18,13 +18,20 @@
  * which is a fact this file can check, unlike the hostname.
  */
 (function () {
-  var PAGES = ["analytics", "dream", "issues", "people", "contributor", "repo"];
+  var PAGES = ["analytics", "dream", "find", "issues", "people", "contributor", "repo"];
   var seg = location.pathname.split("/").filter(Boolean);
   var base = seg.length && PAGES.indexOf(seg[0]) === -1 ? "/" + seg.shift() + "/" : "/";
   // Encoded whole: the segments are already percent-encoded, and the query
   // reader decodes once on the way out, which hands the router back exactly
   // the string that was in the path.
-  location.replace(base + "?route=" + encodeURIComponent(seg.join("/")));
+  //
+  // Anything already in the query string rides along beside `route`. The search
+  // page keeps its filters there, so dropping it would make a shared search
+  // link open an empty form — and only on GitHub Pages, since nothing else
+  // routes through this file.
+  var rest = location.search.replace(/^\?/, "");
+  location.replace(
+    base + "?route=" + encodeURIComponent(seg.join("/")) + (rest ? "&" + rest : ""));
 })();
 </script>
 </head>

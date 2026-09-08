@@ -207,8 +207,21 @@ console.log(`\nevery card: ${ids.length} of them\n`);
 // is fine" and is the quietest of the four failures. The `dream` page has no
 // PAGE_PANEL entry and survives only because all five of its cards carry a
 // panelId; a sixth added without one would land here.
-const untinted = ids.filter((id) => !sourceOf(MODULES[id]));
+//
+// `find` is the one card that is meant to be untinted, and it is listed by name
+// rather than allowed by a rule: search reads the tables directly, so it has no
+// rebuild to be fresh or stale against and no honest tier to claim — but that
+// is a fact about one card, and a card that lost its panel by accident must
+// still fail here.
+const UNTINTED_BY_DESIGN = ["find"];
+const untinted = ids
+  .filter((id) => !sourceOf(MODULES[id]))
+  .filter((id) => !UNTINTED_BY_DESIGN.includes(id));
 check("every card resolves to a panel", untinted.length === 0, untinted.join(", "));
+check(
+  "and the exceptions still exist to be excepted",
+  UNTINTED_BY_DESIGN.every((id) => MODULES[id] && !sourceOf(MODULES[id])),
+);
 
 // The real assertion: a card must be tinted by the panel it reads. Read off the
 // source rather than declared here, so a card that starts reading a second

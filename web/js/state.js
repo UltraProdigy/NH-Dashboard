@@ -2,6 +2,31 @@
    State
    ========================================================================== */
 
+/**
+ * The Find page's form, results, and how the fetch went.
+ *
+ * Defined here rather than in find-data.js because `state` is built at module
+ * evaluation and this file has no imports — keeping it a leaf is what stops a
+ * cycle between the state, the fetch, and the renderer that reads both.
+ *
+ * `status` is four values and the fourth is why it is not a boolean. `idle` is
+ * nothing asked yet, `loading` and `ready` are the obvious two, and `down` is
+ * the Worker not answering — which on this page cannot be folded into an empty
+ * result the way it can everywhere else. Every other panel keeps the built file
+ * underneath it and degrades to stale numbers; a search has nothing to be stale
+ * from, so an outage has to have its own face or it reads as "no such issue".
+ *
+ * `ran` is the query string the rows in hand actually answer, which is what
+ * lets a repaint tell "already fetched" from "asked again".
+ */
+const FIND_DEFAULTS = {
+  q: "", type: "both", state: "", sort: "updated", repo: "", author: "", label: "",
+};
+
+const blankFind = () => ({
+  ...FIND_DEFAULTS, rows: [], status: "idle", truncated: false, ran: "",
+});
+
 const state = {
   data: null,
   page: "analytics",
@@ -62,6 +87,13 @@ const state = {
   // flipping from a contributor to a repo shouldn't drag four logins along, and
   // coming back should find the lineup you left.
   vs: { contributor: [], repo: [], q: "", open: false, active: 0 },
+
+  // ---- Find ----
+  // The search form, its results, and how the fetch went. Shaped and filled by
+  // find-data.js, which also owns the query string it round-trips through —
+  // this page keeps its state in the URL rather than only in memory, so a
+  // search can be sent to somebody.
+  find: blankFind(),
 
   drillWindow: "all",
   // Pull requests card: all | open | merged | dropped. Open and resolved PRs
@@ -227,6 +259,7 @@ const DREAM_LABELS_MAX = 12;
 const DREAM_LABELS_OVERVIEW = 4;
 
 export {
+  FIND_DEFAULTS,
   PR_STATE_LABEL,
   REVIEW_KIND_LABEL,
   REVIEW_STATE_LABEL,
@@ -237,6 +270,7 @@ export {
   DREAM_LABELS_OVERVIEW,
   DRILL,
   GRANS,
+  blankFind,
   isDrill,
   state,
 };

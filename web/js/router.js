@@ -3,6 +3,7 @@ import { BASE } from "./paths.js";
 import { PAGES } from "./pages.js";
 import { closeCombo, render } from "./render.js";
 import { resolveTab } from "./modules/index.js";
+import { findQuery, readFindQuery } from "./find-data.js";
 
 /* ==========================================================================
    Routing — the path is the state, so a link is shareable and a reload lands
@@ -47,6 +48,19 @@ const remember = () => {
   lastPlace[state.page] = { tab: state.tab, subject: state.subject };
 };
 
+/**
+ * Search is the one page whose state does not fit in a path.
+ *
+ * A route is "which page, which subject, which tab", and those are segments
+ * because there is exactly one of each. A search is seven independent values,
+ * most of them usually unset, and encoding those positionally would mean a URL
+ * full of placeholders to say "no author, no label, any state".
+ *
+ * So it keeps the same rule — the URL is the state — in the part of a URL built
+ * for exactly this. `findQuery` is the only source of that string, and it is
+ * stable for a given search, which is what keeps the canonicalisation below
+ * from replaceState-ing in a loop.
+ */
 function urlFor(page, tab, subject) {
   const seg = [page];
   if (isDrill(page)) {
@@ -54,7 +68,7 @@ function urlFor(page, tab, subject) {
     else if (tab) seg.push(NO_SUBJECT);
   }
   if (tab) seg.push(tab);
-  return BASE + seg.join("/");
+  return BASE + seg.join("/") + (page === "find" ? findQuery() : "");
 }
 
 /**
@@ -70,10 +84,21 @@ function urlFor(page, tab, subject) {
  * renders, so only the first shape ever reaches the rest of the app.
  */
 function routeSegments() {
-  const relayed = new URLSearchParams(location.search).get("route");
+  const params = new URLSearchParams(location.search);
+  const relayed = params.get("route");
   const legacy = location.hash.slice(1);
   const carried = relayed ?? (legacy || null);
-  if (carried != null) history.replaceState(null, "", BASE + carried.replace(/^\/+/, ""));
+  if (carried != null) {
+    // Everything except `route` is the search's own parameters, which 404.html
+    // passes through beside it. Dropping them here — as this did, when a route
+    // was only ever a path — would have made every shared search link land on
+    // an empty form on GitHub Pages, and nowhere else, which is the worst place
+    // for a bug to only happen.
+    params.delete("route");
+    const rest = params.toString();
+    history.replaceState(
+      null, "", BASE + carried.replace(/^\/+/, "") + (rest ? `?${rest}` : ""));
+  }
 
   // Split before decoding: encodeURIComponent turns a slash in a repo name into
   // %2F, so the raw string is the one where "/" means "next segment".
@@ -93,6 +118,11 @@ function readRoute() {
   // resolveTab also redirects: a link made before the tab consolidation names a
   // card that is now one of several under a group tab, and lands on the group.
   state.tab = resolveTab(state.page, parts[drill ? 2 : 1]);
+
+  // Before the canonicalisation below, which compares the address bar against a
+  // URL built from this state — so the query has to be in the state by then or
+  // every load of a search link would rewrite it away.
+  if (state.page === "find") readFindQuery(location.search);
 
   // Canonicalised rather than left alone, which covers the bare root landing on
   // a page, a relayed link still wearing its `?route=`, and a URL naming a tab
@@ -130,6 +160,19 @@ function go(page, tab = null, subject, restore = null) {
   // set against a page that hasn't been laid out yet gets clamped to whatever
   // height it briefly had.
   if (restore) requestAnimationFrame(() => scrollTo({ top: restore.scrollY }));
+}
+
+/**
+ * Rewrite the address bar to match the state, without a history entry.
+ *
+ * For the Find page, where the state changes on every keystroke. `pushState`
+ * would put a back-button stop between "cr" and "cra"; `replaceState` keeps the
+ * URL shareable at every moment while leaving Back meaning "the page I was on
+ * before this search".
+ */
+function syncUrl() {
+  const url = urlFor(state.page, state.tab, state.subject);
+  if (location.pathname + location.search !== url) history.replaceState(null, "", url);
 }
 
 /* ==========================================================================
@@ -197,4 +240,4 @@ function goPage(page, fallbackTab = null) {
   go(page, last?.tab ?? fallbackTab, last?.subject ?? null);
 }
 
-export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readRoute };
+export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readRoute, syncUrl };

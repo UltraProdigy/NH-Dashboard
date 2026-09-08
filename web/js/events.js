@@ -1,4 +1,5 @@
-import { DRILL, state } from "./state.js";
+import { DRILL, blankFind, state } from "./state.js";
+import { searchNow, searchSoon } from "./find-data.js";
 import { SEG_KEY } from "./module-helpers.js";
 import {
   addLabelColumn,
@@ -17,7 +18,7 @@ import {
   render,
   updateComboPop,
 } from "./render.js";
-import { drillFromHere, drillTo, go, goBack, goPage, readRoute } from "./router.js";
+import { drillFromHere, drillTo, go, goBack, goPage, readRoute, syncUrl } from "./router.js";
 import { defaultSortOf } from "./table.js";
 import { routeOf } from "./paths.js";
 import { tabTwin } from "./modules/index.js";
@@ -185,6 +186,26 @@ document.getElementById("view").addEventListener("click", e => {
   const pick = e.target.closest("[data-pick]");
   if (pick) return drillTo(state.page, pick.dataset.pick);
 
+  /* ---- the search form ----
+     Its controls live in the card rather than the toolbar — the form is the
+     page's content, not a filter over content already on screen — so these
+     arrive here. A click cannot be in a text box, so a full render is safe;
+     typing is handled separately below, where it is not. */
+  const fb = e.target.closest("button[data-find]");
+  if (fb) {
+    state.find[fb.dataset.find] = fb.dataset.val;
+    syncUrl();
+    searchNow();
+    return render();
+  }
+  if (e.target.closest("button[data-findclear]")) {
+    state.find = blankFind();
+    state.sort = {};
+    syncUrl();
+    searchNow();
+    return render();
+  }
+
   const open = e.target.closest("button[data-open]");
   if (open) return go(state.page, open.dataset.open);
 
@@ -209,7 +230,18 @@ document.getElementById("view").addEventListener("click", e => {
 /* Typing in the head-to-head picker repaints only its popup, for the same
    reason the toolbar's combobox does: render() would redraw every chart on the
    page and drop the caret on each keystroke. */
+/* Typing in the search form updates the state, the address bar and the pending
+   request — and deliberately does not render. render() replaces the view and
+   would take the caret out of the box being typed into; the results repaint
+   themselves through `paint()` when the fetch lands, which touches only the
+   table. */
 document.getElementById("view").addEventListener("input", e => {
+  const key = e.target.closest("input[data-findbox]")?.dataset.findbox;
+  if (key) {
+    state.find[key] = e.target.value.trim();
+    syncUrl();
+    return searchSoon();
+  }
   if (e.target.id !== "vsInput") return;
   state.vs.q = e.target.value;
   state.vs.open = true;
