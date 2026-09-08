@@ -24,6 +24,7 @@ import {
   refreshInstant,
   refreshTier,
 } from "./recompute.js";
+import { parseSearch, search } from "./search.js";
 import { subject } from "./panels/drilldown-subject.js";
 import { scopedDb } from "./scope.js";
 
@@ -263,6 +264,31 @@ async function handleHealth(env) {
 }
 
 /**
+ * Answer one search.
+ *
+ * Not a panel, and the differences are worth stating because every other read
+ * route here is one. There is no cache to consult — each query is its own
+ * answer — and no `x-refresh` header, because the tables are read directly and
+ * a tier would be a claim about a rebuild that never happens. The frontend
+ * draws no freshness tint on this page for the same reason.
+ *
+ * A failure is a 503 rather than an empty result set. "No issue matches that"
+ * and "the database did not answer" are the two things a search must never
+ * confuse, and an empty array would say the first while meaning the second.
+ */
+async function handleSearch(env, url) {
+  const db = scopedDb(env.DB, env);
+  const opts = parseSearch(url.searchParams);
+
+  try {
+    return json(await search(db, opts));
+  } catch (err) {
+    console.log(JSON.stringify({ at: "search", error: String(err) }));
+    return json({ error: "search failed" }, 503);
+  }
+}
+
+/**
  * Serve a cached panel.
  *
  * Straight blob read, no assembly — the recompute already paid that cost, once,
@@ -347,6 +373,7 @@ export default {
 
     if (url.pathname === "/api/version") return handleVersion(env);
     if (url.pathname === "/api/health") return handleHealth(env);
+    if (url.pathname === "/api/search") return handleSearch(env, url);
 
     const panel = url.pathname.match(/^\/api\/panel\/([a-z][a-z0-9]*)$/i);
     if (panel) return handlePanel(env, panel[1]);
