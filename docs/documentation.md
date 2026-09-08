@@ -265,6 +265,7 @@ the answer more often than the code is.
 | Issue analytics | 0 (reads local store) | Triage state, volume, labels, and who files, answers and closes — aggregated from ingested issue data, see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
+| Search | 0 at build; ~55k rows read per query at runtime | Not a panel — `/api/search` reads the tables directly, per request. See **Search** below |
 
 ## Freshness
 
@@ -1402,6 +1403,85 @@ accidentally shadow; an org containing a repo named `org` would have overwritten
 it. The frontend reads `p.data.repos ?? p.data`, so a stale `dashboard.json`
 still renders while a rebuild is pending.
 
+## Search
+
+The Find page — `/find` in the sidebar as **Search** — looks up one issue or one
+pull request by title, across both stores at once. It is the only read on the
+dashboard that is not a rollup.
+
+It is deliberately its own page rather than a tab on Issue Analytics:
+
+- **That page already has a search box.** `state.filter` puts one in the
+  toolbar, and it narrows the rows a card has already shipped — forty, at most.
+  A second box beside it, looking identical and querying all 55,252 records, is
+  a distinction you would only discover by being wrong about it once.
+- **It has no freshness tier.** Every other page maps to one panel in
+  `PAGE_PANEL` and its cards are ringed by how that panel is rebuilt. Search
+  reads the tables directly, so there is no rebuild for it to be fresh or stale
+  against, and it is absent from that map on purpose — the card draws no ring
+  rather than borrowing a misleading one.
+- **PR analytics will want the same thing.** Here that is one more value on the
+  type toggle; on a second page it would be a second copy of all of it.
+
+### What it searches, and what it does not
+
+Titles only. Issue bodies and comments are not in the store — nothing ingests
+them — so a word that appears in a thread but not its title cannot be found
+here, and the empty state says so rather than leaving you to conclude the issue
+does not exist. For that, GitHub's own search is the right tool.
+
+A query that is all digits, with or without a leading `#`, is read as a number
+instead: `4821` and `#4821` both go straight to that issue or pull request in
+whichever repos have one. It is the one search that is an index lookup rather
+than a scan, and it is what pasting a number out of Discord means every time.
+
+### Filters
+
+| Filter | Notes |
+|---|---|
+| Type | Everything, issues, or pull requests |
+| State | Open, closed, or merged. **Closed is not the negation of open** — a pull request has three states, and folding merged into "closed" would mean the opposite of what this org uses the word for. Asking for merged issues returns none rather than all of them. |
+| Repo, author, label | Comma-separated, up to 20 each; several labels read as "any of these". The suggestion lists come from panels the page has already loaded, so they are incomplete by design — the drilldown index has the full repo list and is 470 KB that only two pages pay for. A value the list has never heard of still searches. |
+| Sort | Recently updated, newest, oldest, most discussed |
+
+Results are capped at 50 with no page two. Past fifty rows a filter gets you
+there faster than paging would, and a total count would cost a second scan of
+both tables to produce a number nobody acts on — "1,284 results" and "50+" lead
+to the same next move.
+
+Sorting a results column reorders the fifty rows in hand, not the store. The
+sort control is what reorders the search itself.
+
+### It needs the live API
+
+`/api/search` reads D1 directly. There is no static fallback and there is not
+meant to be: every other panel keeps `dashboard.json` underneath it and an
+outage costs freshness, but a search has nothing to be stale *from*, and an
+empty table would claim an issue does not exist when the truth is that nobody
+asked. So an unreachable Worker gets its own message and the rest of the
+dashboard carries on unaffected.
+
+### Cost
+
+A text search is a full scan of both tables — 55,252 rows, 9.3ms on the local
+replica, so roughly 20ms projected on D1 at the ratio `analytics` established.
+On the Workers Paid plan that is about 450,000 searches against the 25 billion
+rows a month the plan includes.
+
+There is no FTS5 index, and the reason is not the read budget. An index over
+titles would have to be kept in step with every writer in `handlers.js` by
+trigger, and the failure mode of that going wrong is a search quietly returning
+last week's answers — which is exactly the class of quiet wrongness the rest of
+this pipeline is built to avoid. At 20ms there is nothing worth buying with it.
+The number to watch is the scan, which grows with the store; the allowance does
+not.
+
+Excluded repos are filtered by `scopedDb` like everywhere else, and this is the
+endpoint where that matters most: a leak from an aggregate panel is a number
+being slightly too large, while a leak here is the row itself, with its title, on
+a public endpoint. `worker/test/search.test.js` asserts it directly rather than
+trusting the wrapper.
+
 ## Drilldowns
 
 Two pages answer "how is *this* one doing" rather than "how is the org doing":
@@ -2119,6 +2199,7 @@ Routes are real paths:
 /issues/@attention
 /repo/GT5-Unofficial/rProfile
 /repo/_/rProfile
+/find?q=crash&type=issue&state=open
 ```
 
 They used to be fragments — `#analytics/actions`. That works, and it's what
@@ -2131,6 +2212,22 @@ into an issue reads as a link to a heading.
 `_` is still the placeholder for "a tab is selected but no subject is", which
 happens when you flip modes with a tab open. Without it `/repo/rActivity` would
 be indistinguishable from a repo named rActivity.
+
+**Search is the one page whose state is a query string rather than segments.** A
+route is "which page, which subject, which tab", and those are segments because
+there is exactly one of each; a search is seven independent values, most of them
+usually unset, and encoding those positionally would mean a URL full of
+placeholders saying "no author, no label, any state". It keeps the same rule in
+the part of a URL built for it. Only what differs from the defaults is written,
+in a fixed key order — the canonicalisation in `readRoute` compares the address
+bar against a freshly built string, so two spellings of one search would
+`replaceState` in a loop. Typing rewrites it with `replaceState` rather than
+`pushState`, so Back means the page you were on before the search rather than
+the previous keystroke.
+
+`404.html` passes any other query parameters through beside `?route=`. Without
+that a shared search link would arrive with an empty form — on Pages only, which
+is the deployed site and not the one anyone develops against.
 
 **Three things make this work on a static host.**
 

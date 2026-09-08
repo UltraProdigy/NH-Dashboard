@@ -1864,6 +1864,100 @@ means the period closed out more than it took in.
 
 ---
 
+## Search
+
+`/api/search` is the one read that returns records rather than figures, so it
+has no numerator and no denominator. What it does have is a set of rules about
+which records come back and in what order, and those are as capable of being
+quietly wrong as any average.
+
+### What counts as a match
+
+**Shows** — issues and pull requests whose *title* contains the query.
+
+**Matched by** — `instr(lower(title), ?) > 0`, with the query lowered in
+JavaScript before it is bound. A substring, anywhere in the title,
+case-insensitive over ASCII.
+
+Deliberately `instr` rather than `LIKE '%…%'`. The same scan, with two fewer
+ways to be wrong: nothing in the query is a wildcard, so a search for `100%` or
+`a_b` matches those characters instead of everything; and the case folding is
+JavaScript's rather than SQLite's, which is what makes it identical to the
+`applyFilter` predicate a card's own filter box uses. A filter typed on a card
+and a search typed on the Find page therefore agree about what a match is.
+
+**Excluded** — issue bodies, comments, review text, commit messages, branch
+names. None of them are in the store. Also every record in an excluded repo,
+filtered by `scopedDb` before the query sees it.
+
+**Empty case** — an empty form is not a search for everything. With no query and
+no filter set the endpoint returns no rows and says `empty`, and the page says
+"type something" rather than "nothing matched".
+
+### Numbers are a lookup, not a match
+
+A query matching `/^#?\d+$/` is read as an issue or pull request number and the
+title predicate is dropped entirely. `4821` and `#4821` are the same search.
+Because `(repo, number)` is the primary key on both tables, this is an index hit
+rather than a scan, and it can return more than one row: numbers are unique
+within a repo, not across the org.
+
+### Order
+
+| Sort | Expression |
+|---|---|
+| Recently updated *(default)* | `updated_at DESC, repo ASC, number ASC` |
+| Newest | `created_at DESC, repo ASC, number ASC` |
+| Oldest | `created_at ASC, repo ASC, number ASC` |
+| Most discussed | `comments DESC, repo ASC, number ASC` |
+
+Every one is total, and that is load-bearing rather than tidy. 723 pairs in this
+store share a `(comments, number)`, and an unstable order under a `LIMIT` returns
+whichever rows D1 felt like on that query plan — so the same search run twice
+would return different rows and read as data changing.
+
+`(repo, number)` is unique across *both* tables at once, because GitHub numbers
+issues and pull requests from one sequence per repo. So the tiebreak is total
+over the union and not merely within each half of it.
+
+### The page
+
+50 rows, and the query asks for 51. The extra row's existence is the whole of
+what "there is more" means — there is no total, because counting everything that
+matched would be a second scan of both tables for a number that changes nobody's
+next move.
+
+Sorting a column in the results table reorders those 50 rows only. The sort
+control reorders the search.
+
+### States
+
+`open`, `closed` and `merged` name the states they mean rather than being
+derived from each other:
+
+| Filter | Matches |
+|---|---|
+| open | `state = 'OPEN'` |
+| closed | `state = 'CLOSED'` |
+| merged | `state = 'MERGED'` |
+
+**Closed is not "not open".** A pull request has three states and an issue has
+two, so reading closed as `state <> 'OPEN'` would fold merged pull requests into
+it — and "closed" is precisely the word this org uses for the ones that were
+*not* merged. Asking for merged issues returns no issues rather than every
+issue: the predicate becomes `1 = 0` on that half of the union, so the other
+half still answers normally.
+
+### Bots
+
+Not excluded, and this is the one place on the dashboard where they are not.
+Every people-shaped figure nulls a bot author because a leaderboard credited to a
+bot is a wrong answer about people. A search for a bot's pull request is an
+ordinary thing to want, and hiding the name would only make the row
+unattributable.
+
+---
+
 ## Known biases and blind spots
 
 Collected in one place so an auditor does not have to reconstruct them.
@@ -1928,6 +2022,7 @@ should be explainable from this file alone.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Search**. |
 | 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |
 | 2026-09-03 | Drilldown label names | Resolved against the rendering subject's own `labelNames` rather than one global table, because a per-subject payload is cached across recomputes that renumber the global one. See **Label names on a drilldown row**. |
 | — | *(initial)* | Document created; describes the pipeline as it stands. |
