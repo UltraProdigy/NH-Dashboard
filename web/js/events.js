@@ -208,7 +208,7 @@ document.getElementById("view").addEventListener("click", e => {
     searchNow();
     return render();
   }
-  if (e.target.closest("button[data-findclear]")) {
+  if (e.target.closest("button[data-findreset]")) {
     state.find = blankFind();
     state.sort = {};
     syncUrl();

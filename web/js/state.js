@@ -24,7 +24,7 @@ const FIND_DEFAULTS = {
 };
 
 const blankFind = () => ({
-  ...FIND_DEFAULTS, rows: [], status: "idle", truncated: false, ran: "",
+  ...FIND_DEFAULTS, rows: [], labelColors: {}, status: "idle", truncated: false, ran: "",
 });
 
 const state = {

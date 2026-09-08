@@ -1466,6 +1466,20 @@ returned a list, so either both refuse or both answer. Answering is the better
 page: it opens on what has just moved rather than on an instruction. The `LIMIT`
 is what makes it safe, since no query shape here can return more than fifty rows.
 
+**Label chips are tinted where a colour exists, and grey where one doesn't.**
+The endpoint sends a name-to-hex map beside the rows — beside rather than on
+them, because the colour belongs to the name and fifty rows repeat thirty names
+several times over. The source is the `labels` table, which holds the twenty
+managed labels from Label-Sync-GTNH, so the pull-request set colours and an
+issue's `Status: Triage` or `Bug: Minor` does not. That is the same gap the
+table was created to start closing rather than a new one: D1 stores label
+*names* on issues and pull requests, and nothing has ever fetched a per-repo
+palette. Closing it properly means the ingest reading each repo's own label
+list, and a schema change with it — the key here is the bare name, and two
+repos can colour one name differently. Until then an unknown label draws the
+chip it draws everywhere else on the dashboard, which is a partial answer
+degrading to the status quo rather than to something wrong.
+
 Results are capped at 50 with no page two. Past fifty rows a filter gets you
 there faster than paging would, and a total count would cost a second scan of
 both tables to produce a number nobody acts on — "1,284 results" and "50+" lead

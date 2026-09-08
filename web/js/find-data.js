@@ -67,6 +67,7 @@ function readFindQuery(search) {
   // an answer it already has.
   if (findQuery(next) === findQuery(state.find)) {
     next.rows = state.find.rows;
+    next.labelColors = state.find.labelColors;
     next.status = state.find.status;
     next.truncated = state.find.truncated;
     next.ran = state.find.ran;
@@ -127,12 +128,14 @@ async function fire() {
     const body = await res.json();
     if (mine !== seq) return;
     state.find.rows = body.rows ?? [];
+    state.find.labelColors = body.labelColors ?? {};
     state.find.truncated = !!body.truncated;
     state.find.status = "ready";
     state.find.ran = query;
   } catch (err) {
     if (err.name === "AbortError" || mine !== seq) return;
     state.find.rows = [];
+    state.find.labelColors = {};
     state.find.truncated = false;
     state.find.status = "down";
     // Recorded on the failure too, so `ensureSearch` sees this query as
