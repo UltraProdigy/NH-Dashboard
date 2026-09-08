@@ -1864,7 +1864,7 @@ means the period closed out more than it took in.
 
 ---
 
-## Search
+## Org Search
 
 `/api/search` is the one read that returns records rather than figures, so it
 has no numerator and no denominator. What it does have is a set of rules about
@@ -1884,7 +1884,7 @@ ways to be wrong: nothing in the query is a wildcard, so a search for `100%` or
 `a_b` matches those characters instead of everything; and the case folding is
 JavaScript's rather than SQLite's, which is what makes it identical to the
 `applyFilter` predicate a card's own filter box uses. A filter typed on a card
-and a search typed on the Find page therefore agree about what a match is.
+and a search typed on Org Search therefore agree about what a match is.
 
 **Excluded** — issue bodies, comments, review text, commit messages, branch
 names. None of them are in the store. Also every record in an excluded repo,
@@ -2022,7 +2022,7 @@ should be explainable from this file alone.
 
 | Date | Metric | Change |
 |---|---|---|
-| 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Search**. |
+| 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Org Search**. |
 | 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |
 | 2026-09-03 | Drilldown label names | Resolved against the rendering subject's own `labelNames` rather than one global table, because a per-subject payload is cached across recomputes that renumber the global one. See **Label names on a drilldown row**. |
 | — | *(initial)* | Document created; describes the pipeline as it stands. |

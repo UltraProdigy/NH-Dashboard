@@ -162,7 +162,7 @@ function resultsHtml() {
 
 const findModules = {
   find: {
-    page: "find", label: "Search", span: 12, tab: false,
+    page: "find", label: "Org Search", span: 12, tab: false,
     sub: () => "issues and pull requests, by title, straight from the database",
     render() {
       // Asked for here rather than in render(), the way the drilldown asks for

@@ -36,6 +36,19 @@ const PAGES = [
     modules: ["approvedUnmerged", "needsRelease", "changesRequested", "depUpdates", "byLabel"],
   },
   {
+    id: "find", label: "Org Search",
+    icon: `<path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/>`,
+    // One module, and it holds the form as well as the results — see the head
+    // of modules/find.js. `tab: false` on it means this page has no tab bar,
+    // which is right: there is nothing here to be a second view of.
+    //
+    // Deliberately absent from `PAGE_PANEL` in data.js. Every other page reads
+    // one panel and is tinted by its freshness; a search reads the tables
+    // directly and has no rebuild to be fresh or stale relative to, so it draws
+    // no tint rather than borrowing a misleading one.
+    modules: ["find"],
+  },
+  {
     id: "issues", label: "Issue Analytics",
     icon: `<path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-.25-6.25v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 1.5 0Z"/>`,
     // 12 / 8+4 / 6+6 / 6+6 / 12 / 12 / 12 — same twelve-column tiling rule as
@@ -51,19 +64,6 @@ const PAGES = [
         modules: ["iReporters", "iPeople"] },
       { id: "attention", label: "Needs attention", modules: ["iOldest", "iDiscussed"] },
     ],
-  },
-  {
-    id: "find", label: "Search",
-    icon: `<path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/>`,
-    // One module, and it holds the form as well as the results — see the head
-    // of modules/find.js. `tab: false` on it means this page has no tab bar,
-    // which is right: there is nothing here to be a second view of.
-    //
-    // Deliberately absent from `PAGE_PANEL` in data.js. Every other page reads
-    // one panel and is tinted by its freshness; a search reads the tables
-    // directly and has no rebuild to be fresh or stale relative to, so it draws
-    // no tint rather than borrowing a misleading one.
-    modules: ["find"],
   },
   {
     id: "people", label: "Contributor Activity",

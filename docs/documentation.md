@@ -265,7 +265,7 @@ the answer more often than the code is.
 | Issue analytics | 0 (reads local store) | Triage state, volume, labels, and who files, answers and closes — aggregated from ingested issue data, see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
-| Search | 0 at build; ~55k rows read per query at runtime | Not a panel — `/api/search` reads the tables directly, per request. See **Search** below |
+| Org Search | 0 at build; ~55k rows read per query at runtime | Not a panel — `/api/search` reads the tables directly, per request. See **Org Search** below |
 
 ## Freshness
 
@@ -1403,10 +1403,10 @@ accidentally shadow; an org containing a repo named `org` would have overwritten
 it. The frontend reads `p.data.repos ?? p.data`, so a stale `dashboard.json`
 still renders while a rebuild is pending.
 
-## Search
+## Org Search
 
-The Find page — `/find` in the sidebar as **Search** — looks up one issue or one
-pull request by title, across both stores at once. It is the only read on the
+**Org Search** — `/find`, third in the sidebar under Dream Panel — looks up one
+issue or one pull request by title, across both stores at once. It is the only read on the
 dashboard that is not a rollup.
 
 It is deliberately its own page rather than a tab on Issue Analytics:
