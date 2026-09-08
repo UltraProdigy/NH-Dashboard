@@ -273,7 +273,7 @@ topbar counts the rings on the page you're looking at.
 
 | Ring | Tier | Meaning |
 |---|---|---|
-| Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged and Changes requested |
+| Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged, Changes requested and Needs a release |
 | Blue | `cron` | Recomputed by the Worker every 10 minutes — everything else, which is now every remaining card |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
@@ -287,6 +287,20 @@ the frontend, so promoting a panel from the ten-minute recompute to the webhook
 path retints its card with no change on this side. Which panels the page tries
 to overlay is `LIVE_PANELS` in `web/js/live.js`; which of those the Worker treats
 as instant is `INSTANT` in `worker/src/recompute.js`.
+
+`INSTANT` names the events each panel answers to rather than one list for the
+tier, because the three do not move together: the two review cards follow
+`pull_request` and `pull_request_review`, Needs a release follows `push` and
+`release`. A delivery rebuilds only the panels it can have changed.
+
+**A rebuild bumps `version` only when the blob it produced is different**, and
+that guard is what made promoting a `push`-driven card affordable. A bump is not
+a cheap signal — `live.js` re-fetches all nine overlay panels on any change, and
+both drilldown subject caches are keyed on `version`, so a bump discards up to
+7,047 folded payloads. Most pushes move no repo across the release threshold and
+produce a byte-identical panel, and those cost nothing beyond the ~12ms rebuild.
+`computed_at` is still written, because the panel really was recomputed; that is
+a different claim from "the answer moved".
 
 **The drilldown is the one panel whose tint is not decided by the panel alone.**
 It arrives in two pieces — an index once per session and one payload per subject

@@ -87,22 +87,46 @@ const PANELS = {
 };
 
 /**
- * Panels cheap enough to rebuild on the delivery path itself.
+ * Panels cheap enough to rebuild on the delivery path itself, and the events
+ * that can actually move each one.
  *
  * The ten-minute cron is a debounce, and the reason for it is `analytics` at
  * ~2.6 seconds on D1 — rebuilding that per delivery would redo the same work
  * three hundred times an hour for an answer nobody is watching that closely.
  *
- * That reasoning was then applied to every panel, which was wrong. These two
- * measure ~68ms and ~55ms: about 120ms together, against the ten seconds GitHub
- * allows before it calls a delivery failed. They are the cards an admin is
- * actually looking at when they press Merge, and making them wait out a cron
- * tick for a number the database already knows was never a real constraint.
+ * That reasoning was then applied to every panel, which was wrong. The two
+ * review cards measure ~68ms and ~55ms and `needsRelease` ~12ms, against the
+ * ten seconds GitHub allows before it calls a delivery failed. They are the
+ * cards an admin is looking at when they press Merge, and making them wait out
+ * a cron tick for a number the database already knows was never a real
+ * constraint.
  *
- * So they rebuild immediately and the expensive ones stay on the cron. `dirty`
- * is deliberately *not* cleared here — the cron still owes the others a rebuild.
+ * **The events are per panel rather than one list for the whole tier**, and
+ * that is the part worth keeping. `needsRelease` moves on `push` and `release`;
+ * the review cards move on `pull_request` and `pull_request_review`. A single
+ * gate over the union would rebuild all three on every delivery of any of the
+ * four — the review cards recomputed on a push that cannot touch them, which is
+ * the ~120ms this split exists to avoid spending.
+ *
+ * `dirty` is deliberately *not* cleared here — the cron still owes the others a
+ * rebuild.
  */
-const INSTANT = { approvedUnmerged, changesRequested };
+const INSTANT = {
+  approvedUnmerged: {
+    fn: approvedUnmerged,
+    events: ["pull_request", "pull_request_review"],
+  },
+  changesRequested: {
+    fn: changesRequested,
+    events: ["pull_request", "pull_request_review"],
+  },
+  needsRelease: { fn: needsRelease, events: ["push", "release"] },
+};
+
+/** Deliveries that move at least one instant panel. */
+export const INSTANT_EVENTS = new Set(
+  Object.values(INSTANT).flatMap((p) => p.events),
+);
 
 /**
  * How fresh a panel can be, as the Worker's own statement about itself.
@@ -121,23 +145,58 @@ export const refreshTier = (name) =>
   name in INSTANT ? "instant" : name in PANELS ? "cron" : "build";
 
 /**
- * Rebuild the cheap panels now, for one delivery.
+ * Rebuild the cheap panels this event can move, for one delivery.
  *
  * Called from `ctx.waitUntil`, so it runs after the 200 has already gone back
  * to GitHub. Nothing it does can slow a delivery down or fail one — which
  * matters more than the freshness, because a webhook that keeps failing gets
  * disabled and that failure is silent.
+ *
+ * Omitting `event` rebuilds every instant panel. That is for a manual or
+ * scripted refresh, not for the delivery path, which always has an event and
+ * should always pass it.
+ *
+ * **The version is bumped only when a rebuilt blob is actually different**, and
+ * that guard is doing more work than it looks like. A bump is not a cheap
+ * signal: `live.js` re-fetches all nine overlay panels on any change, `issues`
+ * alone being 655 KB, and both the browser's and the Worker's drilldown subject
+ * caches are keyed on `version`, so a bump discards up to 7,047 folded payloads
+ * and the worst of them costs ~1.3s to rebuild when somebody next opens it.
+ *
+ * On the review cards that was tolerable, because a `pull_request` delivery
+ * usually did move them. `push` does not: most pushes are to repos already on
+ * `needsRelease`, or to repos the threshold and the pull-request test keep off
+ * it, and the blob comes back byte-identical. Without this the panel would be
+ * fresher and every open dashboard would pay a full overlay for the privilege.
+ *
+ * `computed_at` is still written on a no-change rebuild. The panel really was
+ * recomputed and really is current as of now; that is what the timestamp says,
+ * and it is a different claim from "the answer moved".
  */
-export async function refreshInstant(env) {
+export async function refreshInstant(env, event = null) {
+  const due = Object.entries(INSTANT).filter(
+    ([, p]) => event === null || p.events.includes(event),
+  );
+  if (!due.length) return {};
+
   const now = Date.now();
   const at = new Date(now).toISOString();
   const db = scopedDb(env.DB, env);
   const built = {};
+  let changed = false;
 
-  for (const [name, fn] of Object.entries(INSTANT)) {
+  for (const [name, { fn }] of due) {
     const started = Date.now();
     try {
       const json = JSON.stringify(await fn(db, now));
+
+      const prev = await env.DB.prepare(
+        "SELECT json FROM panel_cache WHERE name = ?",
+      )
+        .bind(name)
+        .first();
+      if (prev?.json !== json) changed = true;
+
       await env.DB.prepare(
         `INSERT INTO panel_cache (name, json, computed_at, ms)
          VALUES (?, ?, ?, ?)
@@ -156,9 +215,11 @@ export async function refreshInstant(env) {
 
   // Bump the version so a browser polling `/api/version` picks these up within
   // its next minute rather than at the next cron tick.
-  await env.DB.prepare(
-    "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
-  ).run();
+  if (changed) {
+    await env.DB.prepare(
+      "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
+    ).run();
+  }
 
   return built;
 }

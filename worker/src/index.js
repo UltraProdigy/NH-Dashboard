@@ -9,15 +9,21 @@
  * endpoint eventually gets its subscription disabled. So the handler verifies,
  * writes, and returns.
  *
- * Two cheap panels are then rebuilt through `ctx.waitUntil`, which runs after
- * the response has already gone back — so they cost the delivery nothing and
- * cannot fail one. Everything expensive stays on the debounced cron. The line
- * is drawn by measurement rather than by category: ~120ms for both of those
- * against ~2.6 seconds for analytics alone.
+ * The cheap panels this delivery can move are then rebuilt through
+ * `ctx.waitUntil`, which runs after the response has already gone back — so
+ * they cost the delivery nothing and cannot fail one. Everything expensive
+ * stays on the debounced cron. The line is drawn by measurement rather than by
+ * category: ~68ms, ~55ms and ~12ms for the three of them against ~2.6 seconds
+ * for analytics alone.
  */
 
 import { handleEvent } from "./handlers.js";
-import { recompute, refreshInstant, refreshTier } from "./recompute.js";
+import {
+  INSTANT_EVENTS,
+  recompute,
+  refreshInstant,
+  refreshTier,
+} from "./recompute.js";
 import { subject } from "./panels/drilldown-subject.js";
 import { scopedDb } from "./scope.js";
 
@@ -106,9 +112,6 @@ async function markDirty(db) {
     .run();
 }
 
-/** Deliveries that can change the approved / changes-requested cards. */
-const REVIEW_EVENTS = new Set(["pull_request", "pull_request_review"]);
-
 async function handleWebhook(request, env, ctx) {
   const secret = env.GITHUB_WEBHOOK_SECRET;
   if (!secret) return json({ error: "webhook secret not configured" }, 500);
@@ -155,16 +158,18 @@ async function handleWebhook(request, env, ctx) {
 
   console.log(JSON.stringify({ event, action, repo, delivery, result }));
 
-  // The cards an admin watches while merging cost ~120ms together, so they are
-  // rebuilt now rather than at the next cron tick. `waitUntil` runs it after
-  // this response has gone back to GitHub, so it cannot delay the delivery or
-  // fail it — a webhook that keeps failing gets disabled, and silently.
+  // The cards an admin watches while merging cost tens of milliseconds each, so
+  // they are rebuilt now rather than at the next cron tick. `waitUntil` runs it
+  // after this response has gone back to GitHub, so it cannot delay the
+  // delivery or fail it — a webhook that keeps failing gets disabled, and
+  // silently.
   //
-  // Only for events that can change them. A `workflow_run` fires constantly and
-  // moves nothing on these two.
-  if (ctx && REVIEW_EVENTS.has(event)) {
+  // The event is passed through rather than only gating on it: `refreshInstant`
+  // rebuilds the panels this event can move and leaves the rest alone. A
+  // `workflow_run` fires constantly and moves none of them.
+  if (ctx && INSTANT_EVENTS.has(event)) {
     ctx.waitUntil(
-      refreshInstant(env).catch((err) =>
+      refreshInstant(env, event).catch((err) =>
         console.error(JSON.stringify({ instant: "failed", error: String(err) })),
       ),
     );

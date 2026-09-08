@@ -143,21 +143,22 @@ async function main() {
   check("previous blob still served", !!db.prepare("SELECT json FROM panel_cache WHERE name='contributors'").get()?.json);
 
   console.log("\nthe instant path rebuilds only the cheap panels");
-  // The delivery path rebuilds these two and leaves the rest to the cron, so
-  // the thing to assert is what it does *not* touch: an analytics blob that
-  // still carries its old timestamp is the evidence that the expensive panel
-  // was skipped rather than quietly rebuilt on every webhook.
+  // The delivery path rebuilds the instant tier and leaves the rest to the
+  // cron, so the thing to assert is what it does *not* touch: an analytics blob
+  // that still carries its old timestamp is the evidence that the expensive
+  // panel was skipped rather than quietly rebuilt on every webhook.
   const before = db
     .prepare("SELECT name, computed_at, ms FROM panel_cache ORDER BY name")
     .all();
   await new Promise((r) => setTimeout(r, 1100));
-  const versionBefore = Number(get(db, "version"));
   const built = await refreshInstant(env);
 
   check("approvedUnmerged rebuilt", "approvedUnmerged" in built);
   check("changesRequested rebuilt", "changesRequested" in built);
+  check("needsRelease rebuilt", "needsRelease" in built);
   check("analytics not rebuilt", !("analytics" in built));
   check("contributors not rebuilt", !("contributors" in built));
+  check("depUpdates not rebuilt", !("depUpdates" in built));
 
   const after = new Map(
     db.prepare("SELECT name, computed_at FROM panel_cache").all()
@@ -170,15 +171,68 @@ async function main() {
     after.get("approvedUnmerged") !==
       before.find((r) => r.name === "approvedUnmerged")?.computed_at,
   );
-  check("version bumped so browsers notice",
-        Number(get(db, "version")) === versionBefore + 1);
+
+  console.log("\nan event only rebuilds the panels it can move");
+  // The whole reason the events are per panel: a push must not spend the review
+  // cards' ~120ms recomputing an answer it cannot have changed, and a pull
+  // request must not spend needsRelease's.
+  const onPush = await refreshInstant(env, "push");
+  check("push rebuilds needsRelease", "needsRelease" in onPush);
+  check("push leaves approvedUnmerged alone", !("approvedUnmerged" in onPush));
+  check("push leaves changesRequested alone", !("changesRequested" in onPush));
+
+  const onPr = await refreshInstant(env, "pull_request");
+  check("pull_request rebuilds approvedUnmerged", "approvedUnmerged" in onPr);
+  check("pull_request rebuilds changesRequested", "changesRequested" in onPr);
+  check("pull_request leaves needsRelease alone", !("needsRelease" in onPr));
+
+  check("an event no instant panel wants builds nothing",
+        Object.keys(await refreshInstant(env, "workflow_run")).length === 0);
+
+  console.log("\nthe version moves only when an answer does");
+  // A bump costs every open dashboard a nine-panel overlay and discards both
+  // drilldown subject caches, so a rebuild that produced the same bytes must
+  // not spend one. Everything above has just rebuilt these panels against an
+  // unchanging seed, so nothing can have moved.
+  const versionBefore = Number(get(db, "version"));
+  await refreshInstant(env, "pull_request");
+  await refreshInstant(env, "push");
+  check("an unchanged rebuild does not bump",
+        Number(get(db, "version")) === versionBefore,
+        `${versionBefore} -> ${get(db, "version")}`);
+
+  // Now make the answer genuinely different. Merging the pull request the card
+  // ranks first drops it off, which is a real change in what the panel says
+  // rather than a poked blob.
+  //
+  // Driven through a review card rather than through `needsRelease`, which
+  // would be the more pointed test and cannot be written here: `seed.sql` never
+  // wrote a `repos`, `commits` or `releases` row, so that panel builds an empty
+  // blob against this fixture and nothing done to the seed can move it.
+  const top = JSON.parse(
+    db.prepare("SELECT json FROM panel_cache WHERE name='approvedUnmerged'")
+      .get().json,
+  )[0];
+  if (top) {
+    db.prepare(
+      "UPDATE pull_requests SET state = 'MERGED', merged_at = ? WHERE repo = ? AND number = ?",
+      // The rendered row carries `owner/name`; the column holds the bare name.
+    ).run(new Date().toISOString(), top.repo.split("/").pop(), top.number);
+    await refreshInstant(env, "pull_request");
+    check("a changed rebuild bumps",
+          Number(get(db, "version")) === versionBefore + 1,
+          `${versionBefore} -> ${get(db, "version")}`);
+  } else {
+    check("a changed rebuild bumps", false, "seed has no approvedUnmerged rows");
+  }
+
   // `dirty` must survive: the cron still owes the other panels a rebuild.
   setDirty(db, 1);
-  await refreshInstant(env);
+  await refreshInstant(env, "pull_request");
   check("dirty is left set for the cron", get(db, "dirty") === "1");
 
   const totalMs = Object.values(built).reduce((n, v) => n + v, 0);
-  check(`both cheap panels inside a delivery's budget (${totalMs}ms local)`,
+  check(`the instant tier is inside a delivery's budget (${totalMs}ms local)`,
         totalMs < 2000, "GitHub allows 10s, and waitUntil runs after the 200");
 
   db.close();

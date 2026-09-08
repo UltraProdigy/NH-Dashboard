@@ -27,11 +27,19 @@
  * **Measured, on 295 repos and 80k commits: ~5ms and ~36ms locally, so roughly
  * 12ms and 79ms on D1** at the 2.2× ratio this repo has measured twice. That is
  * the same order as the two review cards at ~68ms and ~55ms, and nowhere near
- * `analytics` at ~2.6s — so both are on the cron for a reason that is *not*
- * cost. Promoting them means firing the instant path on `push`, which arrives
- * far more often than `pull_request` does, and the ten-minute cron is already
- * inside the window either card is read on. If that trade is ever worth making,
- * the numbers above are the argument for it, not against.
+ * `analytics` at ~2.6s.
+ *
+ * `needsRelease` was promoted to the instant tier on those numbers. The
+ * objection recorded here was never the 12ms — it was that the instant path
+ * fires on `push`, which arrives far more often than `pull_request`, and every
+ * run of it bumped `version` and so cost every open dashboard a full nine-panel
+ * overlay. `refreshInstant` now bumps only when the rebuilt blob differs, and a
+ * push that moves no repo across `RELEASE_COMMIT_THRESHOLD` produces a
+ * byte-identical one, so the frequency of `push` stopped being the price.
+ *
+ * `depUpdates` stays on the cron, and not for cost either: it reports whole-day
+ * ages against a lookback window, so nothing it says can change faster than
+ * once a day. There is nothing for a delivery to make fresher.
  */
 
 import {
