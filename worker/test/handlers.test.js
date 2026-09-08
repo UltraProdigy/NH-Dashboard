@@ -677,6 +677,79 @@ check(
   "2026-08-28T09:00:00Z",
 );
 
+/* ==========================================================================
+   label — the one event whose whole purpose is a colour
+   ========================================================================== */
+
+console.log("\nlabel");
+
+const REPO_FIXTURE = { name: "Angelica", full_name: "GTNewHorizons/Angelica", private: false };
+const labelEvent = (action, label, changes) => ({
+  action, label, changes, repository: REPO_FIXTURE,
+});
+
+await handleEvent(db, "label", labelEvent("created", {
+  name: "Beta 3", color: "ff8800", description: "Targets the beta 3 release",
+}));
+check(
+  "created writes the palette row",
+  row("SELECT color, description FROM repo_labels WHERE repo='Angelica' AND name='Beta 3'"),
+  { color: "ff8800", description: "Targets the beta 3 release" },
+);
+
+await handleEvent(db, "label", labelEvent("edited", {
+  name: "Beta 3", color: "00aaff", description: "Targets the beta 3 release",
+}));
+check(
+  "edited recolours in place",
+  row("SELECT color FROM repo_labels WHERE repo='Angelica' AND name='Beta 3'").color,
+  "00aaff",
+);
+
+// The case an upsert alone gets wrong. The name is the key, so renaming without
+// deleting leaves the old name behind as a palette entry no record refers to
+// and nothing would ever clean up.
+await handleEvent(db, "label", labelEvent(
+  "edited",
+  { name: "Beta 4", color: "00aaff", description: null },
+  { name: { from: "Beta 3" } },
+));
+check(
+  "a rename takes the old name with it",
+  row("SELECT COUNT(*) n FROM repo_labels WHERE repo='Angelica' AND name='Beta 3'").n,
+  0,
+);
+check(
+  "and lands under the new one",
+  row("SELECT color FROM repo_labels WHERE repo='Angelica' AND name='Beta 4'").color,
+  "00aaff",
+);
+
+// Two repos, one name, two colours — the reason the key is (repo, name).
+await handleEvent(db, "label", {
+  action: "created",
+  label: { name: "Beta 4", color: "112233", description: null },
+  repository: { name: "Hodgepodge", full_name: "GTNewHorizons/Hodgepodge", private: false },
+});
+check(
+  "the same name in another repo is a separate row",
+  row("SELECT COUNT(*) n FROM repo_labels WHERE name='Beta 4'").n,
+  2,
+);
+
+await handleEvent(db, "label", labelEvent("deleted", { name: "Beta 4", color: "00aaff" }));
+check(
+  "deleted removes only that repo's row",
+  row("SELECT COUNT(*) n FROM repo_labels WHERE name='Beta 4'").n,
+  1,
+);
+
+check(
+  "a payload with no label is skipped rather than throwing",
+  await handleEvent(db, "label", { action: "created", repository: REPO_FIXTURE }),
+  { skipped: "no label or repo" },
+);
+
 console.log("\nunknown events are ignored, not errors");
 check("unhandled event", await handleEvent(db, "star", {}), { ignored: "star" });
 

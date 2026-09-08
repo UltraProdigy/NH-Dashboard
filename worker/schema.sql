@@ -312,6 +312,25 @@ CREATE TABLE IF NOT EXISTS labels (
   position          INTEGER NOT NULL DEFAULT 0
 );
 
+-- Per-repo label palettes, which is a different question from the table above.
+--
+-- `labels` is the org's managed set and answers "which labels are worth a
+-- column"; this answers "what colour is this chip", for all 292 names actually
+-- in use rather than the 20 anybody manages. Kept apart because `byLabel` reads
+-- the first as definitive, and widening it would change what that panel means.
+--
+-- Keyed on (repo, name) because the same name is a different colour in
+-- different repos, and every row that needs a colour carries its repo — so
+-- there is nothing to guess. Written by worker/backfill-repo-labels.js and kept
+-- current by the `label` webhook.
+CREATE TABLE IF NOT EXISTS repo_labels (
+  repo              TEXT NOT NULL,
+  name              TEXT NOT NULL,
+  color             TEXT,
+  description       TEXT,
+  PRIMARY KEY (repo, name)
+);
+
 -- -------------------------------------------------------------------- traffic
 
 CREATE TABLE IF NOT EXISTS traffic_daily (

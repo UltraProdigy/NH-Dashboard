@@ -43,6 +43,12 @@ const TABLES = [
   "commits",
   "releases",
   "workflow_runs",
+  // A palette rather than a record, and still filtered: the rows name repos,
+  // and this list is what stops one appearing on a public endpoint. `labels`
+  // is deliberately absent — it has no repo column, being the org-wide managed
+  // set — and the rewrite only fires on a whole word, so `FROM labels` is
+  // untouched by the entry above it.
+  "repo_labels",
 ];
 
 const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${TABLES.join("|")})\\b`, "g");

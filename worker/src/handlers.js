@@ -484,6 +484,57 @@ async function onRelease(db, payload) {
   return { table: "releases", repo, tag: release.tag_name, action: payload.action };
 }
 
+/**
+ * label — created, edited, deleted.
+ *
+ * The one event whose whole purpose is a colour. Issues and pull requests store
+ * label *names*, so a chip has no colour of its own to render and gets one from
+ * `repo_labels`; without this the palette would be as current as the last time
+ * somebody ran the backfill, and a renamed or recoloured label would render
+ * wrong rather than plain, which is worse than either.
+ *
+ * A rename arrives as `edited` with the old name under `changes.name.from`, and
+ * the old row has to go: the primary key is the name, so an upsert alone would
+ * leave the previous name behind as a second palette entry that no record
+ * refers to and nothing would ever clean up.
+ *
+ * Cheap enough to be unconditional. Labels are edited a handful of times a
+ * year, so there is no volume argument for filtering an action out the way
+ * `workflow_run` needs one.
+ */
+async function onLabel(db, payload) {
+  await upsertRepo(db, payload.repository);
+
+  const repo = payload.repository?.name;
+  const label = payload.label;
+  if (!repo || !label?.name) return { skipped: "no label or repo" };
+
+  if (payload.action === "deleted") {
+    await db.prepare("DELETE FROM repo_labels WHERE repo = ? AND name = ?")
+      .bind(repo, label.name).run();
+    return { table: "repo_labels", repo, name: label.name, action: "deleted" };
+  }
+
+  const renamedFrom = payload.changes?.name?.from;
+  if (renamedFrom && renamedFrom !== label.name) {
+    await db.prepare("DELETE FROM repo_labels WHERE repo = ? AND name = ?")
+      .bind(repo, renamedFrom).run();
+  }
+
+  await db.prepare(
+    `INSERT INTO repo_labels (repo, name, color, description)
+          VALUES (?, ?, ?, ?)
+     ON CONFLICT (repo, name) DO UPDATE SET
+       color = excluded.color,
+       description = excluded.description`,
+  ).bind(repo, label.name, label.color ?? null, label.description ?? null).run();
+
+  return {
+    table: "repo_labels", repo, name: label.name,
+    action: payload.action, renamedFrom: renamedFrom ?? null,
+  };
+}
+
 const HANDLERS = {
   pull_request: onPullRequest,
   pull_request_review: onPullRequestReview,
@@ -493,6 +544,7 @@ const HANDLERS = {
   push: onPush,
   workflow_run: onWorkflowRun,
   release: onRelease,
+  label: onLabel,
 };
 
 export async function handleEvent(db, event, payload) {
