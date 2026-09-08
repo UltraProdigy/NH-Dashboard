@@ -7,7 +7,7 @@
  * in one invocation fails on three separate limits: 35.3 MB of raw rows before
  * a single accumulator against a 128 MB isolate, ~35,000 queries against D1's
  * 1,000 per invocation, and 61.7 million writes a month against 50 million
- * included. See `handoff.md` for the measurements.
+ * included.
  *
  * What *is* here is the part that cannot be computed per subject: the two
  * picker indexes are an aggregate over every subject at once, the coverage

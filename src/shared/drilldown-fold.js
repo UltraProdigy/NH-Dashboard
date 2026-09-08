@@ -11,8 +11,8 @@
  * folds the whole store; the Worker folds one subject's rows through the same
  * code, so the two agree structurally rather than because a test says they do.
  * See `subjectRows` at the bottom for what "one subject's rows" means, and
- * `handoff.md` for why materialising all 7,047 of them in the recompute is not
- * merely expensive but impossible.
+ * the header of `worker/src/panels/drilldown.js` for why materialising all
+ * 7,047 of them in the recompute is not merely expensive but impossible.
  *
  * The design notes that were in the panel header and describe the *shape* of
  * the output — the packing, the interning, the slim records — are still there,
@@ -1397,7 +1397,8 @@ export function foldDrilldown(now, opts = {}) {
  *
  * The Worker computes a subject on the request rather than materialising all
  * 7,047 — a full pass is not expensive but impossible, on three limits
- * independently, and the numbers are in `handoff.md`. So it fetches one
+ * independently, and the numbers are in the header of
+ * `worker/src/panels/drilldown.js`. So it fetches one
  * subject's rows and hands them to `drilldown` scoped, which runs the same fold
  * the build runs. This is the selection, and its SQL twin is
  * `subjectRowsSql` in `src/shared/drilldown-rules.js` for the reason every rule

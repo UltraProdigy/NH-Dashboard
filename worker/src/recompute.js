@@ -68,8 +68,8 @@ import { scopedDb } from "./scope.js";
  * deliberately not here: building them all in one invocation fails on the
  * isolate's memory ceiling, on D1's 1,000 queries per invocation, and on the
  * monthly write allowance, independently. They are a read-through cache keyed
- * on `version`, computed one subject at a time on the request. `handoff.md`
- * carries the measurements.
+ * on `version`, computed one subject at a time on the request. The header of
+ * `worker/src/panels/drilldown.js` carries the measurements.
  *
  * Still outside: `issueMetrics` and `activeDays`, neither blocked on data.
  */

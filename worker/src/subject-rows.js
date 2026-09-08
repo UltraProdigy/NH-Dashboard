@@ -5,7 +5,8 @@
  * one aggregates in the database and caches a blob; this one fetches a single
  * subject's rows and hands them to the same fold the build runs, because a full
  * materialisation is not expensive but impossible — three separate limits, and
- * `handoff.md` carries the numbers. So the job here is narrow: get the rows,
+ * the header of `worker/src/panels/drilldown.js` carries the numbers. So the
+ * job here is narrow: get the rows,
  * make them look like store records, and get out of the way.
  *
  * ## The SQL only has to be a superset
