@@ -139,6 +139,10 @@
   border-color: color-mix(in srgb, var(--fresh) 45%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--fresh) 35%, transparent);
 }
+/* `direct` shares instant's green deliberately — see the TIERS note in
+   render.js. The colour answers "is this current", and for both the answer is
+   the same; the label and the tooltip are what separate them. */
+.card.fresh-direct  { --fresh: var(--good); }
 .card.fresh-instant { --fresh: var(--good); }
 .card.fresh-cron    { --fresh: var(--accent); }
 .card.fresh-build   { --fresh: var(--warn); }

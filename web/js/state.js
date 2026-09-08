@@ -94,6 +94,10 @@ const state = {
   // this page keeps its state in the URL rather than only in memory, so a
   // search can be sent to somebody.
   find: blankFind(),
+  // Which of the three filter comboboxes is open, and what has been typed into
+  // it. Outside `find` on purpose: that object is what serializes to the URL,
+  // and the state of a popup is not part of a search anybody would share.
+  findPop: { key: null, q: "", active: 0 },
 
   drillWindow: "all",
   // Pull requests card: all | open | merged | dropped. Open and resolved PRs

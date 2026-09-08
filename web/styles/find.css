@@ -1,36 +1,71 @@
 /* ==========================================================================
-   The search form
+   Org Search — the form
 
-   One wrapping row rather than a grid. The controls are different widths and
-   different kinds, and a grid would either stretch the segmented toggles to
-   column width — making three buttons look like a table header — or pin the
-   text boxes to a width that suits neither "any repo" nor a repo name.
+   Two rows, and the split is what you do to a control rather than what it
+   filters: everything you type is on the first, everything you click is on the
+   second. Grid rather than a wrapping flex row, because wrapping put a
+   different number of controls per row at every window width and the form
+   never looked like the same thing twice.
    ========================================================================== */
 
 .findbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
   padding: 0 0 18px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
 }
 
-/* The query box takes the slack, and the three filters keep their size. It is
-   the control being typed into and the one holding the longest value. */
-.findbar input[type="search"].wide { flex: 1 1 320px; min-width: 260px; }
-.findbar input[type="search"] { min-width: 0; flex: 0 1 150px; }
+.findrow { display: grid; gap: 10px; align-items: center; }
+.findrow + .findrow { margin-top: 10px; }
 
-/* The Clear button pushed to the far end, so it is never next to whichever
-   filter the cursor just left. */
-.findbar button.ghost { margin-left: auto; }
+/* The query box is double, the three filters are equal. It holds the longest
+   value and it is where the cursor starts. */
+.findrow.inputs { grid-template-columns: 2fr 1fr 1fr 1fr; }
 
-@media (max-width: 760px) {
-  /* Two per row rather than one, which on a phone is the difference between
-     the results being on screen and being three scrolls down. */
-  .findbar { gap: 8px; }
-  .findbar input[type="search"].wide { flex: 1 1 100%; }
-  .findbar input[type="search"] { flex: 1 1 calc(50% - 4px); }
-  .findbar button.ghost { margin-left: 0; }
+/* Three equal toggles, and Clear taking only what it needs at the end. */
+.findrow.toggles { grid-template-columns: repeat(3, 1fr) auto; }
+
+/* Grid children have a min-width of auto, which lets a long placeholder or a
+   wide segmented control push its column past its share and unbalance the row.
+   Every one of them opts out. */
+.findrow > *, .findrow .combo, .findrow input[type="search"] { min-width: 0; }
+.findrow input[type="search"] { width: 100%; }
+
+/* The segmented controls fill their column and split it evenly between their
+   own buttons, so the two rows read as one grid rather than as a tidy row above
+   a ragged one. */
+.findrow.toggles .seg { display: flex; width: 100%; }
+.findrow.toggles .seg button { flex: 1 1 0; text-align: center; white-space: nowrap; }
+
+/* ==========================================================================
+   The filter pickers
+
+   Same popup as the drilldown's subject picker — .combo, .combo-pop and
+   .combo-opt are defined once in drilldown.css and shared. Only the two things
+   that differ from that one are here.
+   ========================================================================== */
+
+/* There it sits in the toolbar, over the page. Here it is inside a card, and a
+   card is overflow:hidden so its table can have rounded corners — so an
+   absolutely positioned popup is clipped at the card's bottom edge. The card
+   is given room to hold it, the same trick the head-to-head picker uses. */
+.card .body:has(.findbar .combo-pop:not([hidden])) { min-height: 440px; }
+
+/* Full width of its grid column rather than the toolbar's fixed 320px, so the
+   popup lines up with the box that opened it. */
+.findbar .combo { position: relative; display: block; }
+.findbar .combo-pop { min-width: 100%; width: max-content; max-width: min(460px, 90vw); }
+.findbar .combo-opt .n { min-width: 0; }
+
+@media (max-width: 900px) {
+  /* Two up rather than four across, which at this width is the difference
+     between a readable label and an ellipsis. */
+  .findrow.inputs { grid-template-columns: 1fr 1fr; }
+  .findrow.toggles { grid-template-columns: 1fr 1fr; }
+  .findrow.inputs > :first-child { grid-column: 1 / -1; }
+  .findrow.toggles > :last-child { justify-self: end; }
+}
+
+@media (max-width: 560px) {
+  .findrow.inputs, .findrow.toggles { grid-template-columns: 1fr; }
+  .findrow.toggles > :last-child { justify-self: stretch; }
 }

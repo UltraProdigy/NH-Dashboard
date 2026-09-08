@@ -1,5 +1,6 @@
 import { DRILL, blankFind, state } from "./state.js";
 import { searchNow, searchSoon } from "./find-data.js";
+import { closeFindPop, findOptions, updateFindPop } from "./modules/find.js";
 import { SEG_KEY } from "./module-helpers.js";
 import {
   addLabelColumn,
@@ -191,6 +192,15 @@ document.getElementById("view").addEventListener("click", e => {
      page's content, not a filter over content already on screen — so these
      arrive here. A click cannot be in a text box, so a full render is safe;
      typing is handled separately below, where it is not. */
+  const fp = e.target.closest(".combo-opt[data-findpick]");
+  if (fp) {
+    state.find[state.findPop.key] = fp.dataset.findpick;
+    closeFindPop();
+    syncUrl();
+    searchNow();
+    return render();
+  }
+
   const fb = e.target.closest("button[data-find]");
   if (fb) {
     state.find[fb.dataset.find] = fb.dataset.val;
@@ -238,6 +248,15 @@ document.getElementById("view").addEventListener("click", e => {
 document.getElementById("view").addEventListener("input", e => {
   const key = e.target.closest("input[data-findbox]")?.dataset.findbox;
   if (key) {
+    // The three filter boxes are comboboxes: typing narrows the list and picks
+    // nothing, so the filter itself does not change and no search is run until
+    // an option is chosen. The query box has no list behind it, so typing in it
+    // *is* the search.
+    if (state.findPop.key === key) {
+      state.findPop.q = e.target.value;
+      state.findPop.active = 0;
+      return updateFindPop();
+    }
     state.find[key] = e.target.value.trim();
     syncUrl();
     return searchSoon();
@@ -250,6 +269,18 @@ document.getElementById("view").addEventListener("input", e => {
 });
 
 document.getElementById("view").addEventListener("focusin", e => {
+  const fk = e.target.closest("input[data-findbox]")?.dataset.findbox;
+  if (fk && fk !== "q") {
+    state.findPop.key = fk;
+    state.findPop.q = "";
+    state.findPop.active = 0;
+    // Emptied rather than selected, for the reason the drilldown's picker
+    // empties: select-all only survives until the first click lands, and typing
+    // after that would append to the current filter instead of starting a fresh
+    // one. The value is put back if you click away without picking.
+    e.target.value = "";
+    return updateFindPop();
+  }
   if (e.target.id !== "vsInput") return;
   state.vs.open = true;
   state.vs.q = "";
@@ -258,6 +289,33 @@ document.getElementById("view").addEventListener("focusin", e => {
 });
 
 document.getElementById("view").addEventListener("keydown", e => {
+  const fk = e.target.closest("input[data-findbox]")?.dataset.findbox;
+  if (fk && fk !== "q") {
+    if (e.key === "Escape") {
+      closeFindPop();
+      e.target.value = state.find[fk];
+      return updateFindPop();
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = findOptions(fk).length;
+      if (!n) return;
+      state.findPop.active =
+        (state.findPop.active + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+      return updateFindPop();
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const pick = findOptions(fk)[state.findPop.active];
+      if (!pick) return;
+      state.find[fk] = pick.id;
+      closeFindPop();
+      syncUrl();
+      searchNow();
+      return render();
+    }
+    return;
+  }
   if (e.target.id !== "vsInput") return;
 
   if (e.key === "Escape") {
@@ -474,6 +532,17 @@ document.addEventListener("click", e => {
     updateVsPop();
     const v = document.getElementById("vsInput");
     if (v) v.value = "";
+  }
+
+  // Same deal again for the three filter pickers on Org Search. Restores the
+  // value the box was showing before it was emptied on focus, so clicking away
+  // from one is a cancel rather than a clear.
+  if (state.findPop.key && !e.target.closest("[data-findcombo]")) {
+    const key = state.findPop.key;
+    closeFindPop();
+    const box = document.querySelector(`input[data-findbox="${key}"]`);
+    if (box) box.value = state.find[key];
+    updateFindPop();
   }
 
   if (!state.combo.open || e.target.closest("#combo")) return;

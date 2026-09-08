@@ -36,17 +36,6 @@ const SORTS = ["updated", "created", "oldest", "comments"];
 
 const ALLOWED = { type: TYPES, state: STATES, sort: SORTS };
 
-/**
- * True when the form is asking for something.
- *
- * An empty form is not a search for everything. The endpoint takes the same
- * view — see the `empty` branch in worker/src/search.js — and both need to,
- * because the page has to know whether to say "type something" or "nothing
- * matched", and only one of those is right in front of an empty form.
- */
-const asked = (f = state.find) =>
-  KEYS.some((k) => k !== "type" && k !== "sort" && f[k]);
-
 /** The query as it appears in the address bar, or "" when nothing is set. */
 function findQuery(f = state.find) {
   const p = new URLSearchParams();
@@ -123,13 +112,6 @@ async function fire() {
   const mine = ++seq;
   const query = findQuery();
 
-  if (!asked()) {
-    state.find.status = "idle";
-    state.find.rows = [];
-    state.find.ran = "";
-    return paint();
-  }
-
   inflight?.abort();
   inflight = typeof AbortController === "function" ? new AbortController() : null;
 
@@ -188,11 +170,10 @@ function searchSoon() {
  * that the route changed under it.
  */
 function ensureSearch() {
-  if (!asked()) return;
   if (state.find.status === "loading") return;
   if (state.find.status === "ready" && state.find.ran === findQuery()) return;
   if (state.find.status === "down" && state.find.ran === findQuery()) return;
   searchNow();
 }
 
-export { KEYS, SORTS, STATES, TYPES, asked, ensureSearch, findQuery, readFindQuery, searchNow, searchSoon };
+export { KEYS, SORTS, STATES, TYPES, ensureSearch, findQuery, readFindQuery, searchNow, searchSoon };

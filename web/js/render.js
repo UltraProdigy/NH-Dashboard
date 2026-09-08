@@ -711,6 +711,13 @@ function visibleIds() {
  * about freshness to anyone who hasn't read the Worker.
  */
 const TIERS = [
+  // `direct` is not `instant` renamed. Instant means a panel was rebuilt the
+  // moment the delivery landed; direct is never rebuilt at all, because there
+  // is nothing cached to rebuild — the query reads the same rows the delivery
+  // wrote. Same currency, different mechanism, and only the tooltip can say
+  // which. They share a colour because the colour answers the reader's
+  // question, which is whether what they are looking at is current.
+  ["direct", "direct", "Read from the database on every request — nothing cached in between"],
   ["instant", "instant", "Rebuilt the moment GitHub delivers the webhook"],
   ["cron", "live", "Recomputed by the Worker every 10 minutes"],
   ["build", "built", "From the last Actions build — no live source yet"],

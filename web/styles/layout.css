@@ -24,6 +24,7 @@ main { min-width: 0; display: flex; flex-direction: column; }
   background: var(--fresh);
   vertical-align: baseline;
 }
+.meta .tier-direct  { --fresh: var(--good); }
 .meta .tier-instant { --fresh: var(--good); }
 .meta .tier-cron    { --fresh: var(--accent); }
 .meta .tier-build   { --fresh: var(--warn); }

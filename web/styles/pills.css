@@ -4,6 +4,10 @@
   font-size: 11px; border: 1px solid var(--border); white-space: nowrap;
 }
 .pill.draft { color: var(--muted); }
+/* Green, and not the same green as `ready`, only because they mean different
+   things in different places — this one is "still live", and on a search result
+   it is the row worth spotting in a list of fifty. */
+.pill.open { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
 .pill.ready { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
 .pill.unknown { color: var(--muted); border-style: dashed; }
 .pill.merged { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--border)); }

@@ -274,10 +274,24 @@ topbar counts the rings on the page you're looking at.
 
 | Ring | Tier | Meaning |
 |---|---|---|
+| Green | `direct` | Read from the database on every request, with nothing cached in between — Org Search, and only Org Search |
 | Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged, Changes requested and Needs a release |
 | Blue | `cron` | Recomputed by the Worker every 10 minutes — everything else, which is now every remaining card |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
+
+`direct` and `instant` share the green, and that is deliberate rather than a
+collision. The colour answers the reader's question — is what I am looking at
+current — and for both the answer is the same: as current as the last delivery.
+What differs is the mechanism, which is what the label and the tooltip are for.
+A card cannot simply be called `instant` when nothing rebuilds it, because the
+tooltip would then describe a rebuild that never happens.
+
+`direct` is also the one tier a card names for itself, in a `tier()` on the
+module, because there is no panel behind it to read a header from. Every other
+card resolves through `PAGE_PANEL`, and `test/freshness.test.js` asserts that a
+card does one or the other — a card with no ring at all is the quietest of the
+failures this indicator exists to catch, so there is no third option.
 
 Amber is deliberately kept rather than removed with its last occupant. It is the
 statement "static by design", and a panel added later has to be able to make it
@@ -1441,8 +1455,16 @@ than a scan, and it is what pasting a number out of Discord means every time.
 |---|---|
 | Type | Everything, issues, or pull requests |
 | State | Open, closed, or merged. **Closed is not the negation of open** — a pull request has three states, and folding merged into "closed" would mean the opposite of what this org uses the word for. Asking for merged issues returns none rather than all of them. |
-| Repo, author, label | Comma-separated, up to 20 each; several labels read as "any of these". The suggestion lists come from panels the page has already loaded, so they are incomplete by design — the drilldown index has the full repo list and is 470 KB that only two pages pay for. A value the list has never heard of still searches. |
+| Repo, author, label | Pickers, sharing the drilldown's subject-picker popup. Each lists what it can with a count beside it, out of panels the page has already loaded — incomplete by design, since the full repo list lives in the 470 KB drilldown index that only two pages pay for, and fetching it to fill a dropdown would undo that. A value the list has never heard of still searches. "Any repo" at the top of each list is how a filter is unset: the box empties on focus and is restored if you click away, so deleting the text is a cancel rather than a clear. |
 | Sort | Recently updated, newest, oldest, most discussed |
+
+**An empty form is answered, not refused.** The page opens on the fifty most
+recently updated records across the org, and the endpoint takes the same view.
+It used to return nothing on the reasoning that no question had been asked —
+but picking a state and nothing else is equally "no question" and always
+returned a list, so either both refuse or both answer. Answering is the better
+page: it opens on what has just moved rather than on an instruction. The `LIMIT`
+is what makes it safe, since no query shape here can return more than fifty rows.
 
 Results are capped at 50 with no page two. Past fifty rows a filter gets you
 there faster than paging would, and a total count would cost a second scan of

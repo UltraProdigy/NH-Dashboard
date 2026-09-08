@@ -74,6 +74,13 @@ const sourcePanel = (m, id) => m?.reads ?? m?.panelId ?? PAGE_PANEL[m?.page] ?? 
  * `down` when a panel it asked for did not come back.
  */
 function freshness(m, id) {
+  // A card that reads no panel and says so. Org Search is the only one: it
+  // queries the tables per request, so there is no cached thing behind it whose
+  // rebuild schedule could be reported — but "no tint at all" reads as an
+  // oversight rather than as a statement, which is the failure this indicator
+  // exists to prevent. It names its own tier instead.
+  if (m?.tier) return { panel: null, tier: m.tier(), computedAt: null };
+
   const name = sourcePanel(m, id);
   if (!name) return null;
   const p = panel(name);

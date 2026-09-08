@@ -208,20 +208,26 @@ console.log(`\nevery card: ${ids.length} of them\n`);
 // PAGE_PANEL entry and survives only because all five of its cards carry a
 // panelId; a sixth added without one would land here.
 //
-// `find` is the one card that is meant to be untinted, and it is listed by name
-// rather than allowed by a rule: search reads the tables directly, so it has no
-// rebuild to be fresh or stale against and no honest tier to claim — but that
-// is a fact about one card, and a card that lost its panel by accident must
-// still fail here.
-const UNTINTED_BY_DESIGN = ["find"];
-const untinted = ids
-  .filter((id) => !sourceOf(MODULES[id]))
-  .filter((id) => !UNTINTED_BY_DESIGN.includes(id));
-check("every card resolves to a panel", untinted.length === 0, untinted.join(", "));
-check(
-  "and the exceptions still exist to be excepted",
-  UNTINTED_BY_DESIGN.every((id) => MODULES[id] && !sourceOf(MODULES[id])),
-);
+// A card either reads a panel or declares its own tier. Org Search is the only
+// one doing the second — it queries the tables per request, so there is no
+// cached thing behind it whose rebuild schedule could be reported — and it is
+// still required to say *something*, because no tint at all is the quietest of
+// the four failures rather than an exemption from them.
+const untinted = ids.filter((id) => !sourceOf(MODULES[id]) && !MODULES[id].tier);
+check("every card resolves to a panel or names its own tier", untinted.length === 0,
+      untinted.join(", "));
+
+const selfTiered = ids.filter((id) => MODULES[id].tier);
+check("only Org Search names its own", selfTiered.join() === "find", selfTiered.join(", "));
+check("and it reports one", ["direct", "down"].includes(MODULES.find.tier()),
+      String(MODULES.find.tier()));
+
+// The reason it has a tier at all: an outage on this page has no built file to
+// fall back to, so the ring is the only thing that can say so.
+const { state: st } = await import("../web/js/state.js");
+st.find.status = "down";
+check("and turns red when the API stops answering", MODULES.find.tier() === "down");
+st.find.status = "ready";
 
 // The real assertion: a card must be tinted by the panel it reads. Read off the
 // source rather than declared here, so a card that starts reading a second

@@ -1890,9 +1890,11 @@ and a search typed on Org Search therefore agree about what a match is.
 names. None of them are in the store. Also every record in an excluded repo,
 filtered by `scopedDb` before the query sees it.
 
-**Empty case** — an empty form is not a search for everything. With no query and
-no filter set the endpoint returns no rows and says `empty`, and the page says
-"type something" rather than "nothing matched".
+**Empty case** — an empty form returns the fifty most recently updated records
+across the org rather than nothing. The alternative was inconsistent in a way
+anybody would notice: `state=open` on its own is equally "no question asked" and
+always returned a list. A genuine miss — a query that matched nothing — is an
+empty table with a note saying titles are all that is searched.
 
 ### Numbers are a lookup, not a match
 
@@ -2022,6 +2024,7 @@ should be explainable from this file alone.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-09-08 | Org Search empty form | An empty form now returns the fifty most recently updated records rather than no rows, because `state=open` alone was equally "no question" and always returned a list. See **Org Search**. |
 | 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Org Search**. |
 | 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |
 | 2026-09-03 | Drilldown label names | Resolved against the rendering subject's own `labelNames` rather than one global table, because a per-subject payload is cached across recomputes that renumber the global one. See **Label names on a drilldown row**. |

@@ -2,15 +2,15 @@ import { state } from "../state.js";
 import { age, contribName, esc, fmt, repoLink } from "../format.js";
 import { renderTable, sortRows, withOwner } from "../table.js";
 import { A, I, panel } from "../data.js";
-import { asked, ensureSearch } from "../find-data.js";
+import { ensureSearch } from "../find-data.js";
 
 /* ==========================================================================
-   Find — one card, and it is the page
+   Org Search — one card, and it is the page
 
    Not a grid of cards with a filter over them. The form *is* the content, so
    it renders inside the card rather than in the page toolbar: a toolbar reads
-   as something that narrows what is already on screen, and until you type
-   there is nothing on screen to narrow.
+   as something that narrows what is already on screen, and this page's results
+   do not exist until the form has been used.
    ========================================================================== */
 
 const TYPE_LABEL = { both: "Everything", issue: "Issues", pr: "Pull requests" };
@@ -19,67 +19,168 @@ const SORT_LABEL = {
   updated: "Recently updated", created: "Newest", oldest: "Oldest", comments: "Most discussed",
 };
 
+/** The three filters that have a list behind them, and what to call an unset one. */
+const COMBOS = {
+  repo: { any: "Any repo", placeholder: "any repo" },
+  author: { any: "Any author", placeholder: "any author" },
+  label: { any: "Any label", placeholder: "any label" },
+};
+
 const seg = (key, labels) =>
   `<span class="seg mini">${Object.entries(labels).map(([id, label]) =>
     `<button data-find="${key}" data-val="${esc(id)}" aria-pressed="${
       state.find[key] === id}">${esc(label)}</button>`).join("")}</span>`;
 
-const box = (key, placeholder, list = null) =>
-  `<input type="search" id="find-${key}" data-findbox="${key}" autocomplete="off"
-     placeholder="${esc(placeholder)}" value="${esc(state.find[key])}"
-     ${list ? `list="${list}"` : ""}>`;
-
 /**
- * Options for the repo and author boxes, out of panels the page has already
- * paid for.
+ * Options for the three filter boxes, out of panels the page has already paid
+ * for.
  *
  * Nothing is fetched to build these. The drilldown index carries a complete
  * repo list and is 470 KB that only two pages load, and downloading it to
- * populate an autocomplete would undo the laziness it was given deliberately.
- * A `<datalist>` is a suggestion rather than a constraint anyway — a repo it
- * has never heard of still searches perfectly well — so an incomplete list
- * costs a hint, not an answer.
+ * populate a picker would undo the laziness it was given deliberately. The
+ * list is a suggestion rather than a constraint — a value it has never heard
+ * of still searches — so being incomplete costs a hint, not an answer.
+ *
+ * `count` is what the row shows on its right, the way the drilldown's picker
+ * shows last-active: the number is what tells you whether this is the one you
+ * meant before you commit to the click.
  */
-function options() {
-  const repos = new Set();
-  for (const r of I()?.repos ?? []) repos.add(r.repo);
-  for (const r of A()?.repos ?? []) repos.add(r.repo ?? r);
-
-  const labels = new Set();
-  for (const list of Object.values(I()?.labelsByRepo ?? {}))
-    for (const l of list) labels.add(l.name);
-
-  const people = (panel("contributors")?.ok ? panel("contributors").data.rows ?? [] : [])
-    .map((r) => r.login);
-
-  return {
-    repos: [...repos].sort((a, b) => a.localeCompare(b)),
-    labels: [...labels].sort((a, b) => a.localeCompare(b)),
-    // Already ordered by activity, which is the order worth keeping: the
-    // person you mean is far more often one of the busy ones.
-    people: people.slice(0, 500),
-  };
+function optionsFor(key) {
+  if (key === "repo") {
+    const by = new Map();
+    for (const r of I()?.repos ?? []) by.set(r.repo, r.open ?? 0);
+    for (const r of A()?.repos ?? []) { const n = r.repo ?? r; if (!by.has(n)) by.set(n, null); }
+    return [...by.entries()]
+      .sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0]))
+      .map(([id, open]) => ({ id, count: open == null ? "" : `${fmt(open)} open` }));
+  }
+  if (key === "label") {
+    const by = new Map();
+    for (const list of Object.values(I()?.labelsByRepo ?? {}))
+      for (const l of list) by.set(l.name, (by.get(l.name) ?? 0) + (l.open ?? 0));
+    return [...by.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([id, open]) => ({ id, count: `${fmt(open)} open` }));
+  }
+  // Already ordered by activity, which is the order worth keeping: the person
+  // you mean is far more often one of the busy ones.
+  return (panel("contributors")?.ok ? panel("contributors").data.rows ?? [] : [])
+    .map((r) => ({ id: r.login, count: "" }));
 }
 
-const datalist = (id, items) =>
-  `<datalist id="${id}">${items.map((v) => `<option value="${esc(v)}">`).join("")}</datalist>`;
+/**
+ * The rows a popup is showing.
+ *
+ * Prefix matches are promoted the way the drilldown's picker promotes them, and
+ * for the same reason: the list is pre-sorted by how busy each option is, sort
+ * is stable, so typing "gt" puts GT5-Unofficial above a fork with "gt" buried
+ * in the middle of its name.
+ *
+ * Exported because the keyboard handler has to agree with what is on screen
+ * about which row is row three.
+ */
+function findOptions(key = state.findPop.key) {
+  if (!key) return [];
+  const q = state.findPop.q.trim().toLowerCase();
+  const all = optionsFor(key);
+  const list = q
+    ? all
+        .map((o) => ({ ...o, i: o.id.toLowerCase().indexOf(q) }))
+        .filter((o) => o.i !== -1)
+        .sort((a, b) => (a.i === 0 ? 0 : 1) - (b.i === 0 ? 0 : 1))
+    : all;
+  // "Any repo" first, always, and it is the only way back to an unset filter:
+  // the box is cleared on focus and restored on a click elsewhere, so deleting
+  // the text and walking away puts the old value back rather than clearing it.
+  return [{ id: "", label: COMBOS[key].any, count: "" }, ...list.slice(0, 60)];
+}
 
-/** open / closed / merged / draft, as the pill the rest of the dashboard uses. */
+function findPopHtml(key = state.findPop.key) {
+  const opts = findOptions(key);
+  const q = state.findPop.q.trim().toLowerCase();
+  if (opts.length === 1)
+    return `<div class="combo-none">No ${key} matching “${esc(state.findPop.q)}”.</div>`;
+
+  return opts.map((o, i) => {
+    const text = o.label ?? o.id;
+    const at = q && !o.label ? text.toLowerCase().indexOf(q) : -1;
+    const name = at === -1 ? esc(text)
+      : esc(text.slice(0, at)) + `<mark>${esc(text.slice(at, at + q.length))}</mark>` +
+        esc(text.slice(at + q.length));
+    return `<div class="combo-opt" role="option" data-findpick="${esc(o.id)}"
+      aria-selected="${i === state.findPop.active}"><span class="n">${
+        o.label ? `<span class="sub">${name}</span>` : name}</span><span class="c">${esc(o.count)}</span></div>`;
+  }).join("");
+}
+
+/**
+ * Repaint the popups without going through render().
+ *
+ * Nothing here may replace the input being typed into. render() rebuilds the
+ * card, and a rebuilt input is a *different element* — it loses the focus and
+ * the caret, and the click that gave it focus in the first place then lands on
+ * a node that is no longer in the document, which the outside-click handler
+ * reads as a click on nothing and uses to close what just opened. So opening,
+ * typing, arrowing and cancelling all come through here, and only choosing an
+ * option — where the focus is being given up anyway — goes through render().
+ *
+ * All three popups are always in the DOM and hidden, for the same reason the
+ * drilldown's picker keeps its one there: a popup that has to be created before
+ * it can be shown cannot be shown without a render.
+ */
+function updateFindPop() {
+  for (const pop of document.querySelectorAll("[data-findpop]")) {
+    const key = pop.dataset.findpop;
+    const open = state.findPop.key === key;
+    pop.hidden = !open;
+    pop.innerHTML = open ? findPopHtml(key) : "";
+    document.querySelector(`input[data-findbox="${key}"]`)
+      ?.setAttribute("aria-expanded", String(open));
+    if (open)
+      pop.querySelector('.combo-opt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }
+}
+
+function closeFindPop() {
+  state.findPop.key = null;
+  state.findPop.q = "";
+  state.findPop.active = 0;
+}
+
+const combo = (key) => `<span class="combo" data-findcombo="${key}">
+    <input type="search" data-findbox="${key}" autocomplete="off" role="combobox"
+           aria-expanded="false" aria-autocomplete="list"
+           placeholder="${esc(COMBOS[key].placeholder)}" value="${esc(state.find[key])}">
+    <div class="combo-pop" data-findpop="${key}" role="listbox" hidden></div>
+  </span>`;
+
+/**
+ * open / draft / merged / closed, as a pill.
+ *
+ * Open is green rather than the muted grey a draft gets, because on this page
+ * open is the state you are usually looking *for* — it is the live work, and
+ * the one row in a list of fifty worth spotting at a glance.
+ *
+ * The closed cases follow `OUTCOME_CLASS` in issue-data.js rather than
+ * inventing a second opinion: an issue closed as completed is purple like a
+ * merged pull request, "not planned" is red, and a duplicate is dashed. A
+ * closed pull request that never merged is red for the same reason "not
+ * planned" is — the work did not land.
+ */
 function statePill(r) {
   if (r.state === "OPEN")
     return r.draft
       ? `<span class="pill draft">draft</span>`
-      : `<span class="pill draft">open</span>`;
+      : `<span class="pill open">open</span>`;
   if (r.state === "MERGED") return `<span class="pill merged">merged</span>`;
   if (r.kind === "pr") return `<span class="pill dropped">closed</span>`;
   const why = (r.reason ?? "").toLowerCase();
   if (why === "not_planned") return `<span class="pill dropped">not planned</span>`;
   if (why === "duplicate") return `<span class="pill unknown">duplicate</span>`;
-  return `<span class="pill ready">closed</span>`;
+  return `<span class="pill merged">closed</span>`;
 }
 
-const stateOrder = (r) =>
-  r.state === "OPEN" ? 0 : r.state === "MERGED" ? 1 : 2;
+const stateOrder = (r) => (r.state === "OPEN" ? 0 : r.state === "MERGED" ? 1 : 2);
 
 const COLS = [
   { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
@@ -108,9 +209,9 @@ const COLS = [
 ];
 
 /**
- * What to say instead of a table, which is four different things.
+ * What to say instead of a table.
  *
- * The distinction that earns its keep is the last one. This page has no static
+ * The distinction that earns its keep is the outage. This page has no static
  * floor — every other panel keeps the built file underneath it and degrades to
  * stale numbers, but a search has nothing to be stale *from* — so the Worker
  * not answering has to be its own message. An empty table would say "no such
@@ -118,28 +219,27 @@ const COLS = [
  */
 function notice() {
   const f = state.find;
-  if (!asked()) {
-    return `<div class="empty">Type a word from a title, or pick a filter.
-      Numbers work too — <code>4821</code> or <code>#4821</code> goes straight to that issue or PR.</div>`;
-  }
   if (f.status === "loading" && !f.rows.length) return `<div class="loading">Searching…</div>`;
   if (f.status === "down")
-    return `<div class="error">Search reads the database directly rather than a built file, so it needs the live API — and the Worker isn't answering.<br><br>
+    return `<div class="error">Org Search reads the database directly rather than a built file, so it needs the live API — and the Worker isn't answering.<br><br>
       The rest of the dashboard is unaffected: it's still showing you the last build. Try again in a moment.</div>`;
   if (f.status === "ready" && !f.rows.length)
     return `<div class="empty">Nothing matches. Titles only — the search doesn't read issue bodies or comments, so a word that appears in the discussion but not the title won't be found here.</div>`;
   return null;
 }
 
+/** True when the form is asking for something rather than showing the default. */
+const searching = () =>
+  !!(state.find.q || state.find.state || state.find.repo || state.find.author || state.find.label);
+
 /**
  * Everything below the form, as its own function.
  *
  * The form and the results repaint on different occasions, and mixing them was
  * the bug this separates out: a fetch resolving mid-word would go through
- * `render()`, replace the toolbar and the card wholesale, and take the focus
- * and the caret with it — so typing "crash" lost the cursor 250ms after the
- * "c". `paint()` in find-data.js swaps only this, leaving the input the user is
- * in untouched.
+ * `render()`, replace the card wholesale, and take the focus and the caret with
+ * it — so typing "crash" lost the cursor 250ms after the "c". `paint()` in
+ * find-data.js swaps only this, leaving the input the user is in untouched.
  *
  * Wrapped in `withOwner` because it can be called from outside `bodyOf`, which
  * is normally what tells table.js whose sort state a table is reading. Without
@@ -152,11 +252,14 @@ function resultsHtml() {
     if (why) return why;
 
     const f = state.find;
+    const lead = searching()
+      ? `${fmt(f.rows.length)}${f.truncated ? "+" : ""} ${f.rows.length === 1 ? "match" : "matches"}`
+      : `The ${fmt(f.rows.length)} most recently updated across the org`;
+
     return renderTable(sortRows(f.rows, COLS), COLS, { sortable: true }) +
       (f.truncated
-        ? `<div class="more">Showing the first ${fmt(f.rows.length)}. Narrow it with a repo, an author or a state — there is no page two, on purpose: past fifty rows the filters are the faster way to what you want.</div>`
-        : `<div class="hint" style="margin-top:12px">${fmt(f.rows.length)} ${
-            f.rows.length === 1 ? "match" : "matches"}. Sorting a column reorders what came back, not the whole store — change the sort control to reorder the search itself.</div>`);
+        ? `<div class="more">${lead}. Narrow it with a repo, an author or a state — there is no page two, on purpose: past fifty rows the filters are the faster way to what you want.</div>`
+        : `<div class="hint" style="margin-top:12px">${lead}. Sorting a column reorders what came back, not the whole store — change the sort control to reorder the search itself.</div>`);
   });
 }
 
@@ -164,29 +267,46 @@ const findModules = {
   find: {
     page: "find", label: "Org Search", span: 12, tab: false,
     sub: () => "issues and pull requests, by title, straight from the database",
+
+    /**
+     * Its own freshness tier, because it has no panel to borrow one from.
+     *
+     * `direct` is a fifth tier and it is not `instant` renamed. Instant means a
+     * panel was rebuilt the moment the webhook landed; this is never rebuilt at
+     * all, because there is nothing cached to rebuild — the query reads the
+     * same rows the delivery wrote. Same currency, different mechanism, and the
+     * tooltip has to be able to say which.
+     *
+     * It shares instant's green all the same. The colour is the reader's
+     * question — is what I am looking at current — and for both the answer is
+     * yes, as current as the last delivery.
+     */
+    tier: () => (state.find.status === "down" ? "down" : "direct"),
+
     render() {
       // Asked for here rather than in render(), the way the drilldown asks for
       // its index: a deep link into a search has to run it, and this card is
       // the only thing that knows the route changed under it.
       ensureSearch();
 
-      const opt = options();
-      // The Clear button is always drawn rather than appearing once there is
-      // something to clear. A control that comes and goes as you type would
-      // reflow the row under the cursor, and this row is where the cursor is.
+      // Two rows, and which control goes in which is the distinction between
+      // typing and clicking rather than anything about what they filter. The
+      // query box is wider than the three beside it because it holds the
+      // longest value and is the one the cursor starts in.
       const form = `<div class="findbar">
-        <input type="search" id="find-q" data-findbox="q" autocomplete="off"
-               class="wide" placeholder="Search titles, or a number…" value="${esc(state.find.q)}">
-        ${seg("type", TYPE_LABEL)}
-        ${seg("state", STATE_LABEL)}
-        ${seg("sort", SORT_LABEL)}
-        ${box("repo", "any repo", "findRepos")}
-        ${box("author", "any author", "findPeople")}
-        ${box("label", "any label", "findLabels")}
-        <button class="ghost" data-findclear="1">Clear</button>
-        ${datalist("findRepos", opt.repos)}
-        ${datalist("findPeople", opt.people)}
-        ${datalist("findLabels", opt.labels)}
+        <div class="findrow inputs">
+          <input type="search" id="find-q" data-findbox="q" autocomplete="off"
+                 placeholder="Search titles, or a number…" value="${esc(state.find.q)}">
+          ${combo("repo")}
+          ${combo("author")}
+          ${combo("label")}
+        </div>
+        <div class="findrow toggles">
+          ${seg("type", TYPE_LABEL)}
+          ${seg("state", STATE_LABEL)}
+          ${seg("sort", SORT_LABEL)}
+          <button class="ghost" data-findclear="1">Clear</button>
+        </div>
       </div>`;
 
       return `${form}<div id="findResults">${resultsHtml()}</div>`;
@@ -194,4 +314,4 @@ const findModules = {
   },
 };
 
-export { findModules, resultsHtml };
+export { closeFindPop, findModules, findOptions, resultsHtml, updateFindPop };
