@@ -69,3 +69,19 @@
   .findrow.inputs, .findrow.toggles { grid-template-columns: 1fr; }
   .findrow.toggles > :last-child { justify-self: stretch; }
 }
+
+/* ==========================================================================
+   The results table
+   ========================================================================== */
+
+/* A contributor name is accent-coloured everywhere else, because everywhere
+   else it is the only link in its row. Here the row already has one — the
+   title, which is the thing you came to click — and a second blue name beside
+   it competes with it for the eye.
+
+   So the author link keeps the text colour and takes the same treatment the
+   repo column already gets from `.repo`: a link that looks like what it is
+   labelled and announces itself on hover. The underline is the affordance, not
+   the colour. */
+#findResults a.namelink { color: var(--text); }
+#findResults a.namelink:hover { color: var(--accent); }

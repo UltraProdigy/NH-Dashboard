@@ -1466,6 +1466,13 @@ returned a list, so either both refuse or both answer. Answering is the better
 page: it opens on what has just moved rather than on an instruction. The `LIMIT`
 is what makes it safe, since no query shape here can return more than fifty rows.
 
+**Repo and author names link into their drilldowns**, the same as everywhere
+else — but they keep their own colour rather than going accent blue, because
+the title beside them is already the link you came to click and a second blue
+name competes with it. The underline on hover is the affordance instead. A
+deleted account renders as an unlinked `ghost`, which is GitHub's placeholder
+and not somebody's login.
+
 **Label chips carry their repo's colour.** The endpoint sends a
 `repo → name → hex` map beside the rows, nested by repo because the same label
 name is a different colour in different repos and every row knows which one it
@@ -2282,6 +2289,11 @@ list, the repo columns on every PR table, the contributor's Repos card, all of
 it. Same trade, same reasoning: the drilldown answers more of what you were
 asking when you clicked a repo name here, and it carries its own "View on
 GitHub" button.
+
+Org Search follows both rules and adds one wrinkle of its own: the names link
+as usual, but keep the table's own colours rather than the accent, since the
+row's title is already a link and two blue things in one row read as a choice
+nobody meant to offer.
 
 The one exception is **Needs a release** on the Dream Panel. That card exists to
 send you somewhere to press a button, and the button is on github.com — routing

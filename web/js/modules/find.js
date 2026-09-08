@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, avatar, contribName, esc, fmt, repoLink } from "../format.js";
+import { age, avatar, contribLink, contribName, esc, fmt, repoLink } from "../format.js";
 import { renderTable, sortRows, withOwner } from "../table.js";
 import { ensureFacets, ensureSearch } from "../find-data.js";
 import { render as repaint } from "../render.js";
@@ -184,7 +184,21 @@ const COLS = [
     key: "kind", label: "Kind",
     render: (r) => `<span class="repo">${r.kind === "pr" ? "PR" : "issue"}</span>`,
   },
-  { key: "author", label: "Author", render: (r) => contribName(r.author ?? "ghost") },
+  {
+    // Linked, like the repo beside it, and like every other contributor name on
+    // the dashboard. `contribName` — the unlinked twin — exists because the
+    // search-backed PR panels see people the ingest store has never heard of,
+    // and a link that lands on "nothing named that" is worse than plain text.
+    // That does not apply here: this row *came out of* the store, so the
+    // drilldown has something to show. A bot is the exception and the drilldown
+    // says so in those words rather than showing an empty profile.
+    //
+    // A null author is a deleted account, and `ghost` is GitHub's placeholder
+    // rather than somebody's login — so it keeps the plain chip. There is no
+    // drilldown behind it and never will be.
+    key: "author", label: "Author",
+    render: (r) => (r.author ? contribLink(r.author) : contribName("ghost")),
+  },
   {
     // Tinted from the endpoint's colour map, the same way COLUMNS.pr tints a
     // pull request's labels. The map is nested by repo because the same label
