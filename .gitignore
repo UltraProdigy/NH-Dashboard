@@ -1,7 +1,10 @@
 # Secrets — never commit
 .env
-.env.local
+.env.*
+!.env.example
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 worker/.dev.vars
 *.pem
 *.key
@@ -33,3 +36,14 @@ worker/.wrangler/
 node_modules/
 *.log
 .DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Scratch — anything staged for removal or kept aside while working
+_to_delete/
+tmp/
+*.bak
+*.orig
