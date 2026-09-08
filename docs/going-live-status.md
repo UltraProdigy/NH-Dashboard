@@ -918,7 +918,8 @@ other direction.
 # The ciHealth port
 
 Written 2026-08-30, the same day as the Dream Panel section above. Nothing here
-is deployed yet — see `handoff.md` for the ordered block that brings it up.
+is deployed yet — see **Still outstanding, and none of it is code** below for
+the ordered block that brings it up.
 
 ## The panel's oracle was wrong before the port started
 
@@ -1515,15 +1516,15 @@ hot spots and was wrong twice.
 | `repos/GT5-Unofficial` | 7,860 + 0 | 107 ms | ~235 ms | 106 KB |
 | median of a 50-subject sample | — | **0.2 ms** | ~0.4 ms | — |
 
-`handoff.md` projected ~97 ms for the worst subject, from a 44 ms measurement
-taken before the port. It is 300 ms, and the worst subject is a repo rather than
+The pre-port projection was ~97 ms for the worst subject, extrapolated from a
+44 ms measurement. It is 300 ms, and the worst subject is a repo rather than
 a contributor — GT-New-Horizons-Modpack folds 22,425 issues, nearly three times
 Dream-Master's row count, and nothing had measured it.
 
 None of that is a problem: against Paid's 30-second CPU ceiling a 1.3-second
 worst case is unremarkable, it is paid once per subject per version, and the
-median request is half a millisecond. But it is 7× the number in the file, and
-somebody sizing the recompute against 97 ms would have sized it wrong.
+median request is half a millisecond. But it is 7× the projection, and somebody
+sizing the recompute against 97 ms would have sized it wrong.
 
 ## What holds
 
@@ -1838,7 +1839,22 @@ have exercised that branch.
    blob on the cron, so deploying the Worker does not refresh it — for up to ten
    minutes the new frontend reads an old index with no coverage counts in it.
    Nothing breaks; the review-queue hints and the closer counts read wrong.
-3. Verify in a browser. Four things, listed in `handoff.md`.
+3. Verify in a browser. None of the below has been read from the deployed
+   Worker — `wrangler` cannot answer a SELECT against production, and the
+   browser is where the frontend half actually runs.
+   - **Open a drilldown and watch the network panel.** Two requests:
+     `/api/panel/drilldown` and one `/api/contributor/…`. **No
+     `drilldown.json`.** That absence is the whole change; the rest is detail.
+   - **Check a subject's label chips have names.** Blank chips are the
+     per-subject label table resolved against the wrong one, and it raises
+     nothing — `labelsOf` filters blanks, so the label filter matches nothing.
+   - **Check the cards are blue, not red.** Red means the subject came out of
+     the build file, which after a successful deploy means the subject route is
+     failing where the index route is not.
+   - **Load Analytics and confirm nothing drilldown-shaped is fetched.** The
+     index is 470 KB and four of the six pages must not pay for it. This is the
+     one property that passes every other assertion in the suite when broken,
+     which is why the suite has a check for it.
 4. `gh workflow run build.yml`, still outstanding from 08-31, so the fallback
    file is not the one carrying the pre-tiebreak orderings.
 
@@ -1917,9 +1933,9 @@ Stated plainly so it is not rediscovered as a bug:
 - The remedy stays available indefinitely. If the judgment changes, open a
   GitHub Support request for a GC on `UltraProdigy/NH-Dashboard`; the rewrite is
   already pushed, so only the GC is needed.
-- The name-scrub question is therefore **closed as moot**. `going-live-status.md`,
-  `handoff.md` and `test/exclusion.test.js` name the repo in prose and as a test
-  fixture, and if the content is public the name is not worth hiding.
+- The name-scrub question is therefore **closed as moot**. This file and
+  `test/exclusion.test.js` name the repo in prose and as a test fixture, and if
+  the content is public the name is not worth hiding.
 - **Nothing gates the org move any more.** Phase F is `GH_DASHBOARD_TOKEN` and
   the move itself.
 
