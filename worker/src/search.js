@@ -332,10 +332,24 @@ async function labelColors(db, rows) {
   // set is twenty rows; the palettes are ~4,500 across the org, which is a
   // fraction of what the search beside it already scanned — and D1 caps bound
   // parameters well below the number a page of results could need.
-  const [palettes, managed] = await Promise.all([
-    db.prepare("SELECT repo, name, color FROM repo_labels").all(),
-    db.prepare("SELECT name, color FROM labels").all(),
-  ]);
+  //
+  // Wrapped, and this is the guard that matters more than the query. A colour
+  // is decoration; the rows are the answer. Letting a palette read fail the
+  // request meant that deploying this code before its migration had been
+  // applied turned every search into a 503 — the table did not exist, the
+  // query threw, and a feature nobody had asked for took the page down with it.
+  // Any failure here now costs the tint and nothing else.
+  let palettes = { results: [] };
+  let managed = { results: [] };
+  try {
+    [palettes, managed] = await Promise.all([
+      db.prepare("SELECT repo, name, color FROM repo_labels").all(),
+      db.prepare("SELECT name, color FROM labels").all(),
+    ]);
+  } catch (err) {
+    console.log(JSON.stringify({ at: "labelColors", error: String(err) }));
+    return {};
+  }
 
   const byRepo = new Map();
   for (const l of palettes.results) {

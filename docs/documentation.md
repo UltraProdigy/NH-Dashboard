@@ -1542,6 +1542,17 @@ nothing would ever clean up.
 The backfill clears only the repos it actually read, so a repo whose query
 failed keeps the palette it had rather than losing it to a partial run.
 
+**A palette read that fails costs the tint and nothing else.** This is a guard
+learned the hard way: `worker.yml` deploys on push, migrations are applied by
+hand, so the code reached production before `repo_labels` existed — the query
+threw, `handleSearch` turned it into a 503, and every search on the dashboard
+was down over a colour nobody had asked for. Colour is decoration and the rows
+are the answer, so the read is wrapped and any failure returns an empty map.
+
+The general form of that: **a schema change the Worker reads needs its migration
+applied before the deploy that reads it**, and code that reads a new table
+should degrade rather than throw, because the two cannot be made simultaneous.
+
 `repo_labels` is in `scope.js`'s table list like every other table with a repo
 column. `labels` is not, having none.
 

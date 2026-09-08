@@ -370,6 +370,17 @@ async function main() {
   check("an unknown label is absent rather than invented",
         Object.keys(unknown.labelColors ?? {}).length === 0);
 
+  // The case that actually broke production: the code was deployed before its
+  // migration was applied, so the palette table did not exist, the read threw,
+  // and every search 503'd over a colour nobody had asked for. A search must
+  // survive its decoration failing.
+  db.exec("DROP TABLE repo_labels");
+  const noPalette = await run(open, qs(target.repo));
+  check("a search survives the palette table being absent", noPalette.rows.length > 0,
+        `${noPalette.rows.length} rows`);
+  check("and simply has no colours", Object.keys(noPalette.labelColors ?? {}).length === 0);
+  db.exec(readFileSync(SCHEMA, "utf8"));
+
   console.log("\nrow shape");
   const one = (await run(open, "state=open")).rows[0];
   check("carries a GitHub url", /^https:\/\/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+$/.test(one.url));
