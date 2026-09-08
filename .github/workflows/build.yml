@@ -51,7 +51,7 @@ on:
     branches: [main]
     paths-ignore:
       - "README.md"
-      - "documentation.md"
+      - "docs/**"
 
 # Read-only: nothing here writes to the repo any more.
 permissions:

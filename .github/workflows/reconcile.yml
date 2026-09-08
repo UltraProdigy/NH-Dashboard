@@ -8,7 +8,7 @@ name: Reconcile D1 against GitHub
 # delivery that is lost or fails leaves a row wrong permanently, and the card
 # above it stays ringed green while it lies. That is not hypothetical: three
 # PRs merged in the hour between the seed's crawl and the webhook going live on
-# 2026-08-29 sat on Approved-not-merged for four days. documentation.md has the
+# 2026-08-29 sat on Approved-not-merged for four days. docs/documentation.md has the
 # table.
 #
 # This job re-reads GitHub for a rolling window and upserts what it finds. It

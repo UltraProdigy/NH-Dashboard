@@ -13,7 +13,7 @@
  * **The frontend no longer fetches this file on a drilldown visit.** It reads
  * `/api/panel/drilldown` for the index and one route per subject, and comes
  * here only once the API has failed — see `worker/src/panels/drilldown.js` and
- * `documentation.md`. So this build stays the floor and stops being the normal
+ * `docs/documentation.md`. So this build stays the floor and stops being the normal
  * path, which is why the size below matters less than it used to and the
  * agreement with the Worker's payloads matters more.
  *

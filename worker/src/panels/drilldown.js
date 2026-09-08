@@ -335,7 +335,7 @@ async function repoIndex(db) {
  * against. That is the truth about this store rather than a convenient reading
  * of it — but it means a row the handler somehow wrote without labels would
  * report as a PR carrying none, and no count here could tell. Recorded in
- * `Calculations.md` as a divergence in the storage layer, not papered over.
+ * `docs/Calculations.md` as a divergence in the storage layer, not papered over.
  */
 async function coverage(db) {
   const [prs, issues] = await Promise.all([

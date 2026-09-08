@@ -58,11 +58,11 @@ import { state } from "./state.js";
  * because a release webhook carries no tag SHA, while the Node panel compares
  * *ancestry* (`tagSha...headSha`). The two agree until a tag is cut from an
  * older commit — three repos at last count, where the card reads low or omits
- * the repo. `Calculations.md` has the detail.
+ * the repo. `docs/Calculations.md` has the detail.
  *
  * `drilldown` has one of its own, and it is the schema rather than a query:
  * `prFieldCoverage` reports complete coverage because D1 cannot represent the
- * unasked state the Node store can. Also in `Calculations.md`.
+ * unasked state the Node store can. Also in `docs/Calculations.md`.
  */
 const LIVE_PANELS = [
   "contributors",
