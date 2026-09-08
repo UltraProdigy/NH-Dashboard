@@ -98,6 +98,10 @@ const state = {
   // it. Outside `find` on purpose: that object is what serializes to the URL,
   // and the state of a popup is not part of a search anybody would share.
   findPop: { key: null, q: "", active: 0 },
+  // What the three pickers can offer, from /api/search/facets. One fetch per
+  // session — the lists are the store's own distinct repos, authors and labels,
+  // which is not something any loaded panel knows.
+  findFacets: { status: "idle", repos: [], authors: [], labels: [] },
 
   drillWindow: "all",
   // Pull requests card: all | open | merged | dropped. Open and resolved PRs

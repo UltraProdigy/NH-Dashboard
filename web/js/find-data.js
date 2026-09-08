@@ -147,6 +147,36 @@ async function fire() {
   paint();
 }
 
+/* ---- the pickers' lists -------------------------------------------------- */
+
+/**
+ * Fetch what the three pickers can offer, once.
+ *
+ * They used to be built from panels the page had already loaded, which sounded
+ * free and was wrong: `labelsByRepo` is an issue-analytics aggregate covering
+ * 21 repos with no pull-request labels in it at all, so a label on a repo
+ * without issue labels could not be picked at all. A picker that cannot offer
+ * the thing you came to filter by is not a thin hint, it is a broken control.
+ *
+ * Three scans on the Worker, once, kept for the session. A failure is left as
+ * `down` and not retried on every repaint — the same reasoning as `ran` on a
+ * failed search, and if this could not be reached then neither can the search
+ * it would have filtered.
+ */
+async function ensureFacets(onDone) {
+  if (state.findFacets.status !== "idle") return;
+  state.findFacets.status = "loading";
+  try {
+    const res = await fetch(`${API}/api/search/facets`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    state.findFacets = { status: "ready", ...body };
+  } catch {
+    state.findFacets.status = "down";
+  }
+  onDone?.();
+}
+
 /** Immediately — for a control that was clicked rather than typed into. */
 function searchNow() {
   clearTimeout(timer);
@@ -179,4 +209,4 @@ function ensureSearch() {
   searchNow();
 }
 
-export { KEYS, SORTS, STATES, TYPES, ensureSearch, findQuery, readFindQuery, searchNow, searchSoon };
+export { KEYS, SORTS, STATES, TYPES, ensureFacets, ensureSearch, findQuery, readFindQuery, searchNow, searchSoon };

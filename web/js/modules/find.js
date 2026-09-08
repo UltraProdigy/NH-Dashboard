@@ -1,8 +1,8 @@
 import { state } from "../state.js";
-import { age, contribName, esc, fmt, repoLink } from "../format.js";
+import { age, avatar, contribName, esc, fmt, repoLink } from "../format.js";
 import { renderTable, sortRows, withOwner } from "../table.js";
-import { A, I, panel } from "../data.js";
-import { ensureSearch } from "../find-data.js";
+import { ensureFacets, ensureSearch } from "../find-data.js";
+import { render as repaint } from "../render.js";
 
 /* ==========================================================================
    Org Search — one card, and it is the page
@@ -32,41 +32,16 @@ const seg = (key, labels) =>
       state.find[key] === id}">${esc(label)}</button>`).join("")}</span>`;
 
 /**
- * Options for the three filter boxes, out of panels the page has already paid
- * for.
+ * What one picker can offer, from the facets the Worker sent.
  *
- * Nothing is fetched to build these. The drilldown index carries a complete
- * repo list and is 470 KB that only two pages load, and downloading it to
- * populate a picker would undo the laziness it was given deliberately. The
- * list is a suggestion rather than a constraint — a value it has never heard
- * of still searches — so being incomplete costs a hint, not an answer.
- *
- * `count` is what the row shows on its right, the way the drilldown's picker
- * shows last-active: the number is what tells you whether this is the one you
- * meant before you commit to the click.
+ * These came out of already-loaded panels until it turned out how little that
+ * covered — 21 repos' worth of issue labels, no pull-request labels, and an
+ * author list that was really a list of people who had opened a pull request.
+ * See `ensureFacets`. The store answers now, so a label is offered if the store
+ * has it and not otherwise.
  */
-function optionsFor(key) {
-  if (key === "repo") {
-    const by = new Map();
-    for (const r of I()?.repos ?? []) by.set(r.repo, r.open ?? 0);
-    for (const r of A()?.repos ?? []) { const n = r.repo ?? r; if (!by.has(n)) by.set(n, null); }
-    return [...by.entries()]
-      .sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1) || a[0].localeCompare(b[0]))
-      .map(([id, open]) => ({ id, count: open == null ? "" : `${fmt(open)} open` }));
-  }
-  if (key === "label") {
-    const by = new Map();
-    for (const list of Object.values(I()?.labelsByRepo ?? {}))
-      for (const l of list) by.set(l.name, (by.get(l.name) ?? 0) + (l.open ?? 0));
-    return [...by.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([id, open]) => ({ id, count: `${fmt(open)} open` }));
-  }
-  // Already ordered by activity, which is the order worth keeping: the person
-  // you mean is far more often one of the busy ones.
-  return (panel("contributors")?.ok ? panel("contributors").data.rows ?? [] : [])
-    .map((r) => ({ id: r.login, count: "" }));
-}
+const FACET_KEY = { repo: "repos", author: "authors", label: "labels" };
+const optionsFor = (key) => state.findFacets[FACET_KEY[key]] ?? [];
 
 /**
  * The rows a popup is showing.
@@ -85,17 +60,25 @@ function findOptions(key = state.findPop.key) {
   const all = optionsFor(key);
   const list = q
     ? all
-        .map((o) => ({ ...o, i: o.id.toLowerCase().indexOf(q) }))
+        .map((o) => ({ ...o, i: o.name.toLowerCase().indexOf(q) }))
         .filter((o) => o.i !== -1)
         .sort((a, b) => (a.i === 0 ? 0 : 1) - (b.i === 0 ? 0 : 1))
     : all;
   // "Any repo" first, always, and it is the only way back to an unset filter:
   // the box is cleared on focus and restored on a click elsewhere, so deleting
   // the text and walking away puts the old value back rather than clearing it.
-  return [{ id: "", label: COMBOS[key].any, count: "" }, ...list.slice(0, 60)];
+  return [
+    { id: "", label: COMBOS[key].any, count: "" },
+    ...list.slice(0, 60).map((o) => ({ id: o.name, count: fmt(o.n) })),
+  ];
 }
 
 function findPopHtml(key = state.findPop.key) {
+  if (state.findFacets.status === "loading")
+    return `<div class="combo-none">Loading ${key}s…</div>`;
+  if (state.findFacets.status === "down")
+    return `<div class="combo-none">The list of ${key}s needs the live API, which isn't answering. Typing a ${key} still filters.</div>`;
+
   const opts = findOptions(key);
   const q = state.findPop.q.trim().toLowerCase();
   if (opts.length === 1)
@@ -107,8 +90,14 @@ function findPopHtml(key = state.findPop.key) {
     const name = at === -1 ? esc(text)
       : esc(text.slice(0, at)) + `<mark>${esc(text.slice(at, at + q.length))}</mark>` +
         esc(text.slice(at + q.length));
+    // A face on the author rows and nothing on the other two, which is the same
+    // rule the drilldown's picker follows: a login is a person and the avatar
+    // is how you recognise one at a glance, while a repo and a label are
+    // strings. Lazy, because this list repaints on every keystroke and sixty
+    // images must not go on the wire until they scroll into view.
+    const face = key === "author" && o.id ? avatar(o.id, 18) : "";
     return `<div class="combo-opt" role="option" data-findpick="${esc(o.id)}"
-      aria-selected="${i === state.findPop.active}"><span class="n">${
+      aria-selected="${i === state.findPop.active}">${face}<span class="n">${
         o.label ? `<span class="sub">${name}</span>` : name}</span><span class="c">${esc(o.count)}</span></div>`;
   }).join("");
 }
@@ -297,6 +286,14 @@ const findModules = {
       // its index: a deep link into a search has to run it, and this card is
       // the only thing that knows the route changed under it.
       ensureSearch();
+      // Same place, same reasoning: this card is the only thing that knows the
+      // page is open, and the pickers are empty until the lists arrive.
+      //
+      // A popup already open when they land is refreshed in place rather than
+      // through a repaint, which would take the caret out of the box being
+      // typed into — the list can arrive while somebody is staring at
+      // "Loading repos…" and typing anyway.
+      ensureFacets(() => (state.findPop.key ? updateFindPop() : repaint()));
 
       // Two rows, and which control goes in which is the distinction between
       // typing and clicking rather than anything about what they filter. The

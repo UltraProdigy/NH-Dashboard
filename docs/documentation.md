@@ -1455,7 +1455,7 @@ than a scan, and it is what pasting a number out of Discord means every time.
 |---|---|
 | Type | Everything, issues, or pull requests |
 | State | Open, closed, or merged. **Closed is not the negation of open** — a pull request has three states, and folding merged into "closed" would mean the opposite of what this org uses the word for. Asking for merged issues returns none rather than all of them. |
-| Repo, author, label | Pickers, sharing the drilldown's subject-picker popup. Each lists what it can with a count beside it, out of panels the page has already loaded — incomplete by design, since the full repo list lives in the 470 KB drilldown index that only two pages pay for, and fetching it to fill a dropdown would undo that. A value the list has never heard of still searches. "Any repo" at the top of each list is how a filter is unset: the box empties on focus and is restored if you click away, so deleting the text is a cancel rather than a clear. |
+| Repo, author, label | Pickers, sharing the drilldown's subject-picker popup, listing what the store actually holds with a count beside each — see **The pickers' lists** below. Authors carry an avatar; repos and labels don't, on the same rule the drilldown follows: a login is a person you recognise by face, a repo is a string. "Any repo" at the top of each list is how a filter is unset — the box empties on focus and is restored if you click away, so deleting the text is a cancel rather than a clear. |
 | Sort | Recently updated, newest, oldest, most discussed |
 
 **An empty form is answered, not refused.** The page opens on the fifty most
@@ -1487,6 +1487,33 @@ to the same next move.
 
 Sorting a results column reorders the fifty rows in hand, not the store. The
 sort control is what reorders the search itself.
+
+### The pickers' lists
+
+`/api/search/facets` returns every distinct repo, author and label in the store,
+each with the number of records carrying it, busiest first. The page fetches it
+once and keeps it for the session.
+
+It exists because the obvious cheap thing was wrong. The lists were built out of
+panels the page had already loaded, on the reasoning that a picker is a
+suggestion and an incomplete one costs a hint rather than an answer. Measured
+against the store, "incomplete" turned out to mean:
+
+| List | Old source | What was missing |
+|---|---|---|
+| Labels | `labelsByRepo` on the issues panel | 21 repos' worth of **issue** labels. Every pull-request label in the org, and every label on a repo with no labelled issues — GT5-Unofficial contributed nothing at all, so a release label on it could not be picked. |
+| Repos | the issues panel's repo list | 61 repos, the ones with issues. A repo with pull requests and no tracker was absent. |
+| Authors | the contributors panel | People who have opened a pull request. Somebody who has only ever filed issues was absent. |
+
+A picker that cannot offer the thing you came to filter by is not a thin hint,
+it is a broken control, so the store answers instead. `DISTINCT` does the
+de-duplication, which is also why a label carried by nine repos appears once
+rather than nine times.
+
+Three scans, about 165k rows, once per session — set against the searches it
+makes possible that is nothing, and it is why this is its own route rather than
+something `/api/search` returns on every keystroke. A value the list has never
+heard of still searches, so typing beats the list when the list is wrong.
 
 ### It needs the live API
 
