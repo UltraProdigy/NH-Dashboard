@@ -229,6 +229,77 @@ const urlOf = (r) =>
 const days = (from, to) =>
   from == null ? null : Math.floor((to - Date.parse(from)) / 86_400_000);
 
+
+/* ==========================================================================
+   Facets — what the three pickers offer
+
+   The page used to build these out of panels it had already loaded, on the
+   reasoning that a picker is a suggestion and an incomplete one costs a hint
+   rather than an answer. Measured against the store, "incomplete" turned out
+   to mean:
+
+     labels   21 repos, issue labels only. `labelsByRepo` is an issue-analytics
+              aggregate, so every pull-request label in the org was missing and
+              GT5-Unofficial — which has no issue labels at all — contributed
+              nothing. A label anybody would actually filter by, like a release
+              tag on GT5, could not be picked.
+     repos    61 of them, the ones with issues. A repo with pull requests and no
+              tracker was absent.
+     authors  the contributors panel, which is people who have opened a pull
+              request. Somebody who has only ever filed issues was absent.
+
+   None of that is a hint being thin; it is a picker that cannot offer the thing
+   you came to filter by. So the lists come from the store instead.
+
+   Three scans, ~165k rows, once per session — the page fetches this on its
+   first render and keeps it. Set against the searches it makes possible that is
+   nothing, and it is the reason this is its own route rather than something
+   `/api/search` returns on every keystroke.
+   ========================================================================== */
+
+/**
+ * `DISTINCT` does the de-duplication, so a label carried by nine repos is one
+ * row here rather than nine — which is also the answer to it appearing nine
+ * times in the list.
+ *
+ * Ordered by how many records carry each one. The picker shows the count, and
+ * busiest-first is the order that puts what you meant near the top before you
+ * have typed anything.
+ */
+async function facets(db) {
+  const union = (col) => `
+    SELECT ${col} AS v FROM issues
+     UNION ALL
+    SELECT ${col} AS v FROM pull_requests`;
+
+  const counted = (sql) =>
+    `SELECT v AS name, COUNT(*) AS n FROM (${sql})
+      WHERE v IS NOT NULL AND v <> ''
+      GROUP BY v ORDER BY n DESC, v ASC`;
+
+  const [repos, authors, labels] = await Promise.all([
+    db.prepare(counted(union("repo"))).all(),
+    db.prepare(counted(union("author"))).all(),
+    // json_each expands the array column into one row per label. The rewrite in
+    // scope.js fires on `FROM issues` and leaves `FROM json_each(...)` alone —
+    // `_` is a word character, so `issues_fts` would not have matched either.
+    db.prepare(counted(`
+      SELECT value AS v FROM issues, json_each(labels)
+       UNION ALL
+      SELECT value AS v FROM pull_requests, json_each(labels)`)).all(),
+  ]);
+
+  const rows = (r) => r.results.map((x) => ({ name: x.name, n: x.n }));
+
+  return {
+    repos: rows(repos),
+    // Names only past this point would be smaller, but the count is what the
+    // picker shows and recomputing it here would mean a fourth query.
+    authors: rows(authors),
+    labels: rows(labels),
+  };
+}
+
 /**
  * Colours for the labels on this page of results, as a name -> hex map.
  *
@@ -331,3 +402,5 @@ export async function search(db, opts, now = Date.now()) {
     })),
   };
 }
+
+export { facets };

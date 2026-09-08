@@ -24,7 +24,7 @@ import {
   refreshInstant,
   refreshTier,
 } from "./recompute.js";
-import { parseSearch, search } from "./search.js";
+import { facets, parseSearch, search } from "./search.js";
 import { subject } from "./panels/drilldown-subject.js";
 import { scopedDb } from "./scope.js";
 
@@ -289,6 +289,23 @@ async function handleSearch(env, url) {
 }
 
 /**
+ * What the search page's three pickers can offer.
+ *
+ * Its own route rather than something `/api/search` returns, because it is
+ * fetched once per session and the search is fetched on every keystroke —
+ * bundling them would pay for three extra scans per letter typed.
+ */
+async function handleFacets(env) {
+  const db = scopedDb(env.DB, env);
+  try {
+    return json(await facets(db));
+  } catch (err) {
+    console.log(JSON.stringify({ at: "facets", error: String(err) }));
+    return json({ error: "facets failed" }, 503);
+  }
+}
+
+/**
  * Serve a cached panel.
  *
  * Straight blob read, no assembly — the recompute already paid that cost, once,
@@ -374,6 +391,7 @@ export default {
     if (url.pathname === "/api/version") return handleVersion(env);
     if (url.pathname === "/api/health") return handleHealth(env);
     if (url.pathname === "/api/search") return handleSearch(env, url);
+    if (url.pathname === "/api/search/facets") return handleFacets(env);
 
     const panel = url.pathname.match(/^\/api\/panel\/([a-z][a-z0-9]*)$/i);
     if (panel) return handlePanel(env, panel[1]);

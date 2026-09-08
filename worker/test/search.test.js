@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
-import { parseSearch, search } from "../src/search.js";
+import { facets, parseSearch, search } from "../src/search.js";
 import { scopedDb } from "../src/scope.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -264,6 +264,52 @@ async function main() {
   // that subquery is the one place the rewrite could plausibly have fired.
   const labelled = await run(scoped, `label=${encodeURIComponent(label.name)}`);
   check("nor from a label search", labelled.rows.every((r) => r.repo !== secret));
+
+  console.log("\nfacets");
+  const f = await facets(open);
+  check("repos come back", f.repos.length > 0, `${f.repos.length}`);
+  check("authors come back", f.authors.length > 0, `${f.authors.length}`);
+  check("labels come back", f.labels.length > 0, `${f.labels.length}`);
+
+  // The bug this endpoint exists for. The page used to build these lists from
+  // `labelsByRepo`, an issue-analytics aggregate covering 21 repos and no pull
+  // request labels at all — so a label on a repo with no issue labels could not
+  // be picked. Asserted against the store rather than against a number, since
+  // the seed moves.
+  const allLabels = new Set(
+    db.prepare(`SELECT DISTINCT value AS v FROM issues, json_each(labels)
+                 UNION SELECT DISTINCT value FROM pull_requests, json_each(labels)`)
+      .all().map((r) => r.v),
+  );
+  check("every label in the store is offered", f.labels.length === allLabels.size,
+        `${f.labels.length} of ${allLabels.size}`);
+  const prOnlyLabel = db.prepare(
+    `SELECT DISTINCT value AS v FROM pull_requests, json_each(labels)
+      WHERE value NOT IN (SELECT DISTINCT value FROM issues, json_each(labels)) LIMIT 1`).get();
+  if (prOnlyLabel)
+    check(`a label only pull requests carry is offered (${prOnlyLabel.v})`,
+          f.labels.some((l) => l.name === prOnlyLabel.v));
+
+  // A label carried by nine repos is one row, not nine. DISTINCT does it, and
+  // this is the assertion that says so out loud.
+  const dupes = f.labels.map((l) => l.name).filter((n, i, a) => a.indexOf(n) !== i);
+  check("no label is offered twice", dupes.length === 0, dupes.slice(0, 5).join(", "));
+  check("no repo is offered twice",
+        new Set(f.repos.map((r) => r.name)).size === f.repos.length);
+  check("no author is offered twice",
+        new Set(f.authors.map((a) => a.name)).size === f.authors.length);
+
+  check("busiest first", f.labels.every((l, i) => i === 0 || f.labels[i - 1].n >= l.n));
+
+  // Repos with pull requests and no tracker were missing from the old list.
+  const prOnly = db.prepare(`SELECT DISTINCT repo FROM pull_requests
+                              WHERE repo NOT IN (SELECT DISTINCT repo FROM issues) LIMIT 1`).get();
+  if (prOnly)
+    check(`a repo with no issues is offered (${prOnly.repo})`,
+          f.repos.some((r) => r.name === prOnly.repo));
+
+  const scopedFacets = await facets(scoped);
+  check("an excluded repo is not offered", !scopedFacets.repos.some((r) => r.name === secret));
 
   console.log("\nlabel colours");
   // Sent beside the rows because the colour belongs to the name, and a page of
