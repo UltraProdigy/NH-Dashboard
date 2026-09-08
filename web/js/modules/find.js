@@ -186,16 +186,16 @@ const COLS = [
   },
   { key: "author", label: "Author", render: (r) => contribName(r.author ?? "ghost") },
   {
-    // Tinted from the endpoint's colour map where it has one, the same way
-    // COLUMNS.pr tints a pull request's labels. Coverage is the twenty managed
-    // labels in the `labels` table — an issue's `Status: Triage` is not one of
-    // them and draws the default border, which is what it does on every other
-    // page too. A missing colour is a chip that looks like it always has, never
-    // a chip with the wrong colour.
+    // Tinted from the endpoint's colour map, the same way COLUMNS.pr tints a
+    // pull request's labels. The map is nested by repo because the same label
+    // name is a different colour in different repos, and this row knows which
+    // one it came from. A name with no colour draws the default border — which
+    // is what every chip did before the palettes were swept in, so a gap
+    // degrades to the old look rather than to a wrong colour.
     key: "labels", label: "Labels", sortable: false,
     render: (r) => r.labels.length
       ? r.labels.map((n) => {
-          const c = state.find.labelColors[n];
+          const c = state.find.labelColors[r.repo]?.[n];
           return `<span class="label"${c ? ` style="border-color:#${esc(c)}"` : ""}>${esc(n)}</span>`;
         }).join("")
       : `<span class="sub">—</span>`,

@@ -2024,6 +2024,7 @@ should be explainable from this file alone.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. See **Org Search** in documentation.md. |
 | 2026-09-08 | Org Search empty form | An empty form now returns the fifty most recently updated records rather than no rows, because `state=open` alone was equally "no question" and always returned a list. See **Org Search**. |
 | 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Org Search**. |
 | 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |

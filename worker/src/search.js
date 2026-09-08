@@ -301,39 +301,60 @@ async function facets(db) {
 }
 
 /**
- * Colours for the labels on this page of results, as a name -> hex map.
+ * Colours for the labels on this page of results, as `repo -> name -> hex`.
  *
- * Sent beside the rows rather than on them because a page of fifty rows can
- * carry a hundred and fifty label instances over thirty distinct names, and the
- * colour is a property of the name.
+ * Nested by repo because the same label name is a different colour in different
+ * repos, and every row that needs a colour knows which repo it came from — so
+ * there is nothing to guess and no winner to pick.
  *
- * The whole table is read rather than the names being bound in: it is the
- * org's managed set from Label-Sync-GTNH and holds twenty rows, so a full scan
- * is cheaper than the query that would avoid it — and D1 caps bound parameters
- * well below the number a page of results could need.
+ * Two sources, in that order. `repo_labels` is each repo's own palette, swept
+ * in by worker/backfill-repo-labels.js and kept current by the `label` webhook;
+ * `labels` is the twenty managed names from Label-Sync-GTNH and fills whatever
+ * the first has no answer for. The fallback is what makes this work before the
+ * backfill has ever run: colouring is then exactly what it was — the managed
+ * set and nothing else — rather than nothing at all.
  *
- * **Coverage is those twenty labels and no more.** They are the managed
- * pull-request set, so an issue labelled `Status: Triage` or `Bug: Minor` comes
- * back with no colour and renders as the plain chip it does everywhere else on
- * the dashboard. That is the same gap the `labels` table was created to start
- * closing, not a new one: D1 stores label *names* on issues and pull requests,
- * and nothing has ever fetched a per-repo label palette. Closing it properly
- * means the ingest reading each repo's own label list, which is a schema change
- * — the key here is the bare name, and two repos can colour one name
- * differently.
- *
- * A name the table has never heard of is simply absent from the map. The
- * frontend draws the default border for those, so a partial answer degrades to
- * what was already on screen rather than to something wrong.
+ * A name neither table carries is absent from the map. The frontend draws its
+ * default border for those, so a partial answer degrades to the chip that was
+ * already on screen and never to a wrong colour.
  */
 async function labelColors(db, rows) {
-  const present = new Set();
-  for (const r of rows) for (const n of JSON.parse(r.labels || "[]")) present.add(n);
-  if (!present.size) return {};
+  const wanted = new Map();
+  for (const r of rows) {
+    const names = JSON.parse(r.labels || "[]");
+    if (!names.length) continue;
+    if (!wanted.has(r.repo)) wanted.set(r.repo, new Set());
+    for (const n of names) wanted.get(r.repo).add(n);
+  }
+  if (!wanted.size) return {};
 
-  const all = (await db.prepare("SELECT name, color FROM labels").all()).results;
+  // Both tables are read whole rather than binding the names in. The managed
+  // set is twenty rows; the palettes are ~4,500 across the org, which is a
+  // fraction of what the search beside it already scanned — and D1 caps bound
+  // parameters well below the number a page of results could need.
+  const [palettes, managed] = await Promise.all([
+    db.prepare("SELECT repo, name, color FROM repo_labels").all(),
+    db.prepare("SELECT name, color FROM labels").all(),
+  ]);
+
+  const byRepo = new Map();
+  for (const l of palettes.results) {
+    if (!l.color) continue;
+    if (!byRepo.has(l.repo)) byRepo.set(l.repo, new Map());
+    byRepo.get(l.repo).set(l.name, l.color);
+  }
+  const fallback = new Map();
+  for (const l of managed.results) if (l.color) fallback.set(l.name, l.color);
+
   const out = {};
-  for (const l of all) if (l.color && present.has(l.name)) out[l.name] = l.color;
+  for (const [repo, names] of wanted) {
+    const palette = byRepo.get(repo);
+    for (const n of names) {
+      const color = palette?.get(n) ?? fallback.get(n);
+      if (!color) continue;
+      (out[repo] ??= {})[n] = color;
+    }
+  }
   return out;
 }
 

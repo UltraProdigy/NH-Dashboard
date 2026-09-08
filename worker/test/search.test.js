@@ -312,28 +312,63 @@ async function main() {
   check("an excluded repo is not offered", !scopedFacets.repos.some((r) => r.name === secret));
 
   console.log("\nlabel colours");
-  // Sent beside the rows because the colour belongs to the name, and a page of
-  // fifty rows repeats thirty names three times over.
-  const coloured = await run(open, `label=${encodeURIComponent(label.name)}`);
+  // Nested by repo because the same name is a different colour in different
+  // repos, and every row that needs a colour carries its repo — so nothing has
+  // to be guessed and no winner picked.
+  const target = db.prepare(
+    `SELECT repo, value AS name FROM issues, json_each(labels) LIMIT 1`).get();
+  db.prepare(`INSERT INTO repo_labels (repo, name, color) VALUES (?, ?, 'abcdef')
+              ON CONFLICT (repo, name) DO UPDATE SET color = excluded.color`)
+    .run(target.repo, target.name);
+  // The same name in another repo, a different colour. If the map were keyed on
+  // the name alone one of these two would be wrong and nothing would say so.
+  const other = db.prepare(
+    `SELECT DISTINCT repo FROM issues WHERE repo <> ? LIMIT 1`).get(target.repo);
+  db.prepare(`INSERT INTO repo_labels (repo, name, color) VALUES (?, ?, '123456')
+              ON CONFLICT (repo, name) DO UPDATE SET color = excluded.color`)
+    .run(other.repo, target.name);
+
+  // Scoped to the repo, so the row carrying the label is certainly on the page —
+  // an unscoped label search returns the fifty most recently updated, which on
+  // this store come from the busiest repos and not necessarily this one.
+  const qs = (repo) =>
+    `label=${encodeURIComponent(target.name)}&repo=${encodeURIComponent(repo)}`;
+
+  const coloured = await run(open, qs(target.repo));
   check("a colour map comes back", coloured.labelColors && typeof coloured.labelColors === "object");
-  const managed = db.prepare("SELECT name, color FROM labels WHERE color IS NOT NULL").all();
-  const namesOnPage = new Set(coloured.rows.flatMap((r) => r.labels));
+  check(`the repo's own colour is used (${target.repo})`,
+        coloured.labelColors[target.repo]?.[target.name] === "abcdef",
+        JSON.stringify(coloured.labelColors[target.repo] ?? null));
+
+  const otherPage = await run(open, qs(other.repo));
+  if (otherPage.rows.length)
+    check(`and another repo gets its own for the same name (${other.repo})`,
+          otherPage.labelColors[other.repo]?.[target.name] === "123456",
+          JSON.stringify(otherPage.labelColors[other.repo] ?? null));
+
   check(
-    "it only carries names that are on this page",
-    Object.keys(coloured.labelColors).every((n) => namesOnPage.has(n)),
+    "only repos on this page are in the map",
+    Object.keys(coloured.labelColors).every((r) => coloured.rows.some((x) => x.repo === r)),
     Object.keys(coloured.labelColors).join(", "),
   );
-  check(
-    "and only names the managed set actually has",
-    Object.keys(coloured.labelColors).every((n) => managed.some((m) => m.name === n)),
-  );
-  // The gap is the point of the assertion: the table holds the managed
-  // pull-request set, so an issue label it has never heard of must be absent
-  // rather than guessed at — the chip then draws the border it draws
-  // everywhere else instead of a wrong colour.
-  const anyManaged = await run(open, `q=${encodeURIComponent(managed[0]?.name ?? "zzz")}`);
+
+  // The managed set still fills whatever the palettes have no answer for, which
+  // is what keeps colouring working before the backfill has ever run.
+  // The seed carries no `labels` rows — that table is loaded separately by
+  // backfill-labels.js — so the managed name is put there for this check.
+  db.prepare("INSERT OR REPLACE INTO labels (name, color) VALUES (?, 'fedcba')")
+    .run(target.name);
+  db.prepare("DELETE FROM repo_labels").run();
+  const fell = await run(open, qs(target.repo));
+  check("the managed set fills what the palettes cannot",
+        fell.labelColors[target.repo]?.[target.name] === "fedcba",
+        JSON.stringify(fell.labelColors[target.repo] ?? null));
+
+  // A name neither table carries must be absent rather than guessed at, so the
+  // chip draws the border it drew before any of this existed.
+  const unknown = await run(open, "q=zzzq-no-such-label");
   check("an unknown label is absent rather than invented",
-        Object.keys(anyManaged.labelColors ?? {}).every((n) => managed.some((m) => m.name === n)));
+        Object.keys(unknown.labelColors ?? {}).length === 0);
 
   console.log("\nrow shape");
   const one = (await run(open, "state=open")).rows[0];

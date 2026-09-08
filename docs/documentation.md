@@ -1466,19 +1466,12 @@ returned a list, so either both refuse or both answer. Answering is the better
 page: it opens on what has just moved rather than on an instruction. The `LIMIT`
 is what makes it safe, since no query shape here can return more than fifty rows.
 
-**Label chips are tinted where a colour exists, and grey where one doesn't.**
-The endpoint sends a name-to-hex map beside the rows — beside rather than on
-them, because the colour belongs to the name and fifty rows repeat thirty names
-several times over. The source is the `labels` table, which holds the twenty
-managed labels from Label-Sync-GTNH, so the pull-request set colours and an
-issue's `Status: Triage` or `Bug: Minor` does not. That is the same gap the
-table was created to start closing rather than a new one: D1 stores label
-*names* on issues and pull requests, and nothing has ever fetched a per-repo
-palette. Closing it properly means the ingest reading each repo's own label
-list, and a schema change with it — the key here is the bare name, and two
-repos can colour one name differently. Until then an unknown label draws the
-chip it draws everywhere else on the dashboard, which is a partial answer
-degrading to the status quo rather than to something wrong.
+**Label chips carry their repo's colour.** The endpoint sends a
+`repo → name → hex` map beside the rows, nested by repo because the same label
+name is a different colour in different repos and every row knows which one it
+came from — see **Label palettes** below. A name with no colour anywhere draws
+the default border, which is what every chip did before the palettes existed, so
+a gap degrades to the old look rather than to a wrong colour.
 
 Results are capped at 50 with no page two. Past fifty rows a filter gets you
 there faster than paging would, and a total count would cost a second scan of
@@ -1514,6 +1507,43 @@ Three scans, about 165k rows, once per session — set against the searches it
 makes possible that is nothing, and it is why this is its own route rather than
 something `/api/search` returns on every keystroke. A value the list has never
 heard of still searches, so typing beats the list when the list is wrong.
+
+### Label palettes
+
+Issues and pull requests store label **names** — the arrays stay JSON on the
+row, for the reasons in `worker/schema.sql` — so a chip has no colour of its
+own. `repo_labels` is where it gets one: about 4,500 rows over ~300 repos,
+keyed on `(repo, name)`.
+
+Keyed that way rather than on the name alone because the same name is a
+different colour in different repos, and every row that needs a colour carries
+its repo, so there is nothing to guess.
+
+It is deliberately **not** the `labels` table beside it. That one holds the
+twenty managed labels read out of the Label-Sync-GTNH config and answers "which
+labels does the org manage", which `byLabel` reads as its definitive column
+list. Widening it to the 292 names actually in use would change what that panel
+means. `labels` does still act as the fallback when a palette has no answer, so
+colouring degrades to exactly what it was before the sweep rather than to
+nothing.
+
+Two writers, on different clocks:
+
+| Writer | When |
+|---|---|
+| `npm run backfill:repo-labels` | Seeds the table, and picks up repos added since. One GraphQL query per repo, ~300 against a 5,000/hour budget, ~4,500 rows against a 100,000/day ceiling. Emits SQL for `wrangler d1 execute`, the same two-step as `backfill:labels`. |
+| the `label` webhook | Keeps it current. `created`, `edited` and `deleted`, unconditionally — labels are edited a handful of times a year, so there is no volume argument for filtering an action out the way `workflow_run` needs one. |
+
+A rename arrives as `edited` with the old name under `changes.name.from`, and
+the handler deletes the old row. The name is half the key, so an upsert alone
+would leave the previous name behind as a palette entry no record refers to and
+nothing would ever clean up.
+
+The backfill clears only the repos it actually read, so a repo whose query
+failed keeps the palette it had rather than losing it to a partial run.
+
+`repo_labels` is in `scope.js`'s table list like every other table with a repo
+column. `labels` is not, having none.
 
 ### It needs the live API
 
