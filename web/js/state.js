@@ -185,8 +185,9 @@ const DREAM_EXCL_DEFAULT = {
     repos: [
       "DreamAssemblerXXL", "TC4Tweaks", "GTNewHorizons.github.io", "StargateNH",
       "UtilitiesInExcess", "MergeMasterXXL-TestRepo", "GTNH-Web-Map",
-      "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MaterialLib", "MergePreMaster",
-      "BugTorch", "TinkersGregworks", "GTNH-Translations",
+      "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MergePreMaster",
+      "BugTorch", "TinkersGregworks", "GTNH-Translations", "GTNHIssueHelper",
+      "CubicChunks1710",
     ],
     labels: [],
   },
