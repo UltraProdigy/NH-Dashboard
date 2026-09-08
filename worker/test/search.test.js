@@ -120,10 +120,18 @@ async function main() {
       .repos.length === 20,
   );
 
-  console.log("\nnothing asked, nothing answered");
+  console.log("\nnothing asked, still answered");
+  // The empty form is the page's opening state, so it has to be a real answer
+  // rather than a refusal — picking `state=open` and nothing else is equally
+  // "no question" and always returned a list, and one of the two behaving
+  // differently is the inconsistency this asserts against.
   const blank = await run(open, "");
-  check("an empty query returns no rows", blank.rows.length === 0);
-  check("and says so rather than looking like a miss", blank.empty === true);
+  check("an empty query returns the most recent page", blank.rows.length === 50, `${blank.rows.length}`);
+  check("and is bounded like any other search", blank.truncated === true);
+  check(
+    "newest first",
+    blank.rows.every((r, i) => i === 0 || blank.rows[i - 1].staleDays <= r.staleDays),
+  );
 
   console.log("\nmatching titles");
   // Taken from the store rather than hardcoded, so the test survives a reseed.

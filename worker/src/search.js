@@ -239,13 +239,18 @@ const days = (from, to) =>
  * missed exclusion would be most visible.
  */
 export async function search(db, opts, now = Date.now()) {
-  // An empty search is not an error and not every row in the store. There is
-  // no query to answer yet, and returning 50 arbitrary issues would look like
-  // an answer to one.
-  if (!opts.q && opts.number == null && !opts.repos.length &&
-      !opts.authors.length && !opts.labels.length && !opts.states.length) {
-    return { rows: [], truncated: false, empty: true };
-  }
+  // An empty search is answered rather than refused, and the answer is the
+  // most recently updated fifty across the org.
+  //
+  // It used to return nothing, on the reasoning that there was no question yet.
+  // That was inconsistent in a way anyone would notice: picking `state=open`
+  // and nothing else is just as much "no question", and it returned a list. So
+  // either both refuse or both answer, and answering is the better page — it
+  // opens on what has just moved instead of on an instruction.
+  //
+  // The `LIMIT` is what makes this safe. There is no query shape here that can
+  // return more than fifty rows, so "no filters" costs exactly what any other
+  // search costs.
 
   const parts = [];
   const binds = [];
@@ -265,7 +270,6 @@ export async function search(db, opts, now = Date.now()) {
   const truncated = rows.length > opts.limit;
   return {
     truncated,
-    empty: false,
     rows: rows.slice(0, opts.limit).map((r) => ({
       kind: r.kind,
       repo: r.repo,
