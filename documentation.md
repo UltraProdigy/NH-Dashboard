@@ -401,6 +401,18 @@ The first four are half-width and tile two to a row. By label is the odd one
 out because it isn't one list — it draws a column per label — and three columns
 squeezed into half a row is three columns of nothing.
 
+**Where a card opens is `DEFAULT_SORT` in `table.js`, and it is almost always
+nothing.** A card with no entry keeps whatever order its panel's SQL produced,
+which is right: the ordering is decided by the code that knows what the card is
+for, and a second opinion held in the frontend is a thing to keep in sync.
+
+Changes requested is the one exception. Its panel orders by `updated_at`,
+because the question the *panel* answers is what has gone quiet — but the card
+is worked as a queue, and a queue is worked oldest first, so the card opens on
+Opened descending. The panel keeps its order rather than the two being forced to
+agree. `events.js` resolves a header click through the same default, so a first
+click on Opened reverses it instead of re-applying it.
+
 **A list that reaches the bottom of its card.** On the overview a card is
 stretched to its row's height, and the row is as tall as whichever card in it
 has the most to say. A table just ends where its rows end, so Time since last

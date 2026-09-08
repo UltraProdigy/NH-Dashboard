@@ -160,8 +160,12 @@ export async function approvedUnmerged(db, now = Date.now()) {
 /**
  * Changes requested and not since approved.
  *
- * Ordered by staleness rather than age — this card is about what has gone
+ * Ordered by staleness rather than age — the question here is what has gone
  * quiet, not what is old.
+ *
+ * The card re-sorts on age and that is not a disagreement: `DEFAULT_SORT` in
+ * `web/js/table.js` opens it oldest-first because the list is worked as a
+ * queue. This order is what the panel means; that one is how it is read.
  */
 export async function changesRequested(db, now = Date.now()) {
   const colours = await labelColours(db);

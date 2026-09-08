@@ -27,7 +27,32 @@ function withOwner(id, fn) {
   finally { owner = null; }
 }
 
-const sortOf = () => state.sort[owner] ?? { key: null, dir: -1 };
+/**
+ * Where a card opens, for the ones the panel's own order does not suit.
+ *
+ * A null key means "leave the panel's order alone", which is what almost every
+ * card wants — the ordering is decided in SQL by the code that knows what the
+ * card is for, and re-sorting it here would be a second opinion held in a
+ * second place.
+ *
+ * Changes requested is the exception. Its panel orders by `updated_at` because
+ * the question it answers is what has gone quiet, and that is still the right
+ * order for the panel — but the card is read as a queue, and a queue is worked
+ * oldest first. So the panel keeps its order and the card opens on age instead,
+ * rather than the two being made to agree.
+ *
+ * Both this and the click handler in `events.js` resolve through here, so a
+ * first click on the column a card already opens on flips it rather than
+ * appearing to do nothing.
+ */
+const DEFAULT_SORT = {
+  changesRequested: { key: "ageDays", dir: -1 },
+};
+
+const defaultSortOf = (id) => DEFAULT_SORT[id] ?? null;
+
+const sortOf = () =>
+  state.sort[owner] ?? defaultSortOf(owner) ?? { key: null, dir: -1 };
 
 const COLUMNS = {
   pr: [
@@ -129,4 +154,12 @@ function applyFilter(rows) {
     labelsOf(r).some(n => n.toLowerCase().includes(q)));
 }
 
-export { COLUMNS, applyFilter, preview, renderTable, sortRows, withOwner };
+export {
+  COLUMNS,
+  applyFilter,
+  defaultSortOf,
+  preview,
+  renderTable,
+  sortRows,
+  withOwner,
+};

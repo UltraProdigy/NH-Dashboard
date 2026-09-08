@@ -18,6 +18,7 @@ import {
   updateComboPop,
 } from "./render.js";
 import { drillFromHere, drillTo, go, goBack, goPage, readRoute } from "./router.js";
+import { defaultSortOf } from "./table.js";
 import { routeOf } from "./paths.js";
 import { tabTwin } from "./modules/index.js";
 import {
@@ -197,7 +198,9 @@ document.getElementById("view").addEventListener("click", e => {
     const id = th.closest("[data-sortowner]")?.dataset.sortowner;
     if (!id) return;
     const key = th.dataset.sort;
-    const cur = state.sort[id];
+    // Falls through to the card's default so the first click on the column it
+    // already opens on reverses that column, rather than re-applying it.
+    const cur = state.sort[id] ?? defaultSortOf(id);
     state.sort[id] = { key, dir: cur?.key === key ? -cur.dir : -1 };
     render();
   }
