@@ -230,6 +230,43 @@ const days = (from, to) =>
   from == null ? null : Math.floor((to - Date.parse(from)) / 86_400_000);
 
 /**
+ * Colours for the labels on this page of results, as a name -> hex map.
+ *
+ * Sent beside the rows rather than on them because a page of fifty rows can
+ * carry a hundred and fifty label instances over thirty distinct names, and the
+ * colour is a property of the name.
+ *
+ * The whole table is read rather than the names being bound in: it is the
+ * org's managed set from Label-Sync-GTNH and holds twenty rows, so a full scan
+ * is cheaper than the query that would avoid it — and D1 caps bound parameters
+ * well below the number a page of results could need.
+ *
+ * **Coverage is those twenty labels and no more.** They are the managed
+ * pull-request set, so an issue labelled `Status: Triage` or `Bug: Minor` comes
+ * back with no colour and renders as the plain chip it does everywhere else on
+ * the dashboard. That is the same gap the `labels` table was created to start
+ * closing, not a new one: D1 stores label *names* on issues and pull requests,
+ * and nothing has ever fetched a per-repo label palette. Closing it properly
+ * means the ingest reading each repo's own label list, which is a schema change
+ * — the key here is the bare name, and two repos can colour one name
+ * differently.
+ *
+ * A name the table has never heard of is simply absent from the map. The
+ * frontend draws the default border for those, so a partial answer degrades to
+ * what was already on screen rather than to something wrong.
+ */
+async function labelColors(db, rows) {
+  const present = new Set();
+  for (const r of rows) for (const n of JSON.parse(r.labels || "[]")) present.add(n);
+  if (!present.size) return {};
+
+  const all = (await db.prepare("SELECT name, color FROM labels").all()).results;
+  const out = {};
+  for (const l of all) if (l.color && present.has(l.name)) out[l.name] = l.color;
+  return out;
+}
+
+/**
  * Run a search.
  *
  * `db` must be the scoped handle. Every `FROM issues` and `FROM pull_requests`
@@ -268,9 +305,12 @@ export async function search(db, opts, now = Date.now()) {
   const rows = (await db.prepare(sql).bind(...binds, opts.limit + 1).all()).results;
 
   const truncated = rows.length > opts.limit;
+  const page = rows.slice(0, opts.limit);
+
   return {
     truncated,
-    rows: rows.slice(0, opts.limit).map((r) => ({
+    labelColors: await labelColors(db, page),
+    rows: page.map((r) => ({
       kind: r.kind,
       repo: r.repo,
       number: r.number,

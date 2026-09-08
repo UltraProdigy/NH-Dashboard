@@ -265,6 +265,30 @@ async function main() {
   const labelled = await run(scoped, `label=${encodeURIComponent(label.name)}`);
   check("nor from a label search", labelled.rows.every((r) => r.repo !== secret));
 
+  console.log("\nlabel colours");
+  // Sent beside the rows because the colour belongs to the name, and a page of
+  // fifty rows repeats thirty names three times over.
+  const coloured = await run(open, `label=${encodeURIComponent(label.name)}`);
+  check("a colour map comes back", coloured.labelColors && typeof coloured.labelColors === "object");
+  const managed = db.prepare("SELECT name, color FROM labels WHERE color IS NOT NULL").all();
+  const namesOnPage = new Set(coloured.rows.flatMap((r) => r.labels));
+  check(
+    "it only carries names that are on this page",
+    Object.keys(coloured.labelColors).every((n) => namesOnPage.has(n)),
+    Object.keys(coloured.labelColors).join(", "),
+  );
+  check(
+    "and only names the managed set actually has",
+    Object.keys(coloured.labelColors).every((n) => managed.some((m) => m.name === n)),
+  );
+  // The gap is the point of the assertion: the table holds the managed
+  // pull-request set, so an issue label it has never heard of must be absent
+  // rather than guessed at — the chip then draws the border it draws
+  // everywhere else instead of a wrong colour.
+  const anyManaged = await run(open, `q=${encodeURIComponent(managed[0]?.name ?? "zzz")}`);
+  check("an unknown label is absent rather than invented",
+        Object.keys(anyManaged.labelColors ?? {}).every((n) => managed.some((m) => m.name === n)));
+
   console.log("\nrow shape");
   const one = (await run(open, "state=open")).rows[0];
   check("carries a GitHub url", /^https:\/\/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+$/.test(one.url));
