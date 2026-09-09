@@ -14,8 +14,8 @@
  */
 const PAGES = [
   {
-    id: "analytics", label: "General Analytics",
-    icon: `<path d="M1.5 14.5V2a.5.5 0 0 1 1 0v11.5H15a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5Z"/><path d="M4 11h2v2H4v-2Zm3.5-4h2v6h-2V7ZM11 3h2v10h-2V3Z"/>`,
+    id: "analytics", label: "PR Analytics",
+    icon: `<path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>`,
     // 12 / 8+4 / 6+6 / 6+6 / 6+6 / 12 / 12 — every row fills its twelve columns,
     // so nothing wraps and leaves a hole. See the note on the repo page.
     modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap", "grossing", "actions"],

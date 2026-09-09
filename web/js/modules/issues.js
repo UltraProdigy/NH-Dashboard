@@ -248,7 +248,7 @@ export const issueModules = {
 
   iPulse: {
     page: "issues", label: "Pulse", span: 12, flush: true,
-    // Not `controls`, for the same reason General Analytics' Pulse isn't: the
+    // Not `controls`, for the same reason PR Analytics' Pulse isn't: the
     // expanded view is every window at once and has nothing to narrow.
     overviewControls: ["window"],
     sub: (expanded) => expanded

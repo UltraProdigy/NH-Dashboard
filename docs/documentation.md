@@ -328,7 +328,7 @@ red.
 **The topbar counts cards, not panels.** That distinction is the whole reason
 the line was rewritten. A panel is a data source and a card is a thing on
 screen, and the two are not one-to-one: `analytics` is a single panel behind all
-eleven General Analytics cards, `contributors` a single panel behind five. The
+eleven PR Analytics cards, `contributors` a single panel behind five. The
 old line counted panels — "7 panels live" — above a page whose rings could never
 be added up to seven, which made the indicator unfalsifiable and therefore
 useless. It now counts the cards this render actually drew, so the tally and the
@@ -1381,7 +1381,7 @@ repo drilldown could use. Not built.
 
 ### Actions load, org-wide
 
-General Analytics carries an **Actions load** card projecting the same sampled
+PR Analytics carries an **Actions load** card projecting the same sampled
 runs onto the whole org: runs per month, wall-clock hours per month, average
 run duration, and the aggregate pass rate. It costs **zero extra requests** —
 every number comes from samples the CI health sweep already fetched.
@@ -2126,7 +2126,7 @@ that both are stacked into the Pull requests tab, "above" is literal.
 ### Most grossing
 
 Three ranked lists — most commented, most 👍, most 👎 — on every repo
-drilldown, and an org-wide version on General Analytics. They answer a different
+drilldown, and an org-wide version on PR Analytics. They answer a different
 question from everything else here: not how much work happened, but what the
 org actually argued about, liked, or hated.
 

@@ -4,7 +4,7 @@
  * Comments, 👍 and 👎 answer a different question from every other number in
  * this dashboard: not how much work happened, but what the org actually argued
  * about, liked, or hated. The repo drilldown carries three short lists of its
- * own and General Analytics carries an org-wide version, so the ranking lives
+ * own and PR Analytics carries an org-wide version, so the ranking lives
  * here rather than in either panel — both would otherwise own half of it, and
  * analytics importing it from the drilldown panel makes a needless import cycle
  * out of forty lines of sorting.

@@ -40,7 +40,7 @@ import { ciDur, missingIngest, sizeNotice } from "../module-helpers.js";
 import { volumeTable } from "../contributor-data.js";
 
 export const analyticsModules = {
-  /* ---------------- General Analytics ---------------- */
+  /* ---------------- PR Analytics ---------------- */
 
   pulse: {
     page: "analytics", label: "Pulse", span: 12, flush: true,
