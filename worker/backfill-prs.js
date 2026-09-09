@@ -44,6 +44,7 @@ import { pathToFileURL } from "node:url";
 
 import { graphql, stats } from "../src/github/client.js";
 import { ORG, isIngestExcluded } from "../src/config.js";
+import { PR_FIELDS } from "../src/ingest/pullRequests.js";
 
 const args = new Map();
 for (let i = 2; i < process.argv.length; i++) {
@@ -101,39 +102,6 @@ const REPOS = `
   }
 `;
 
-/**
- * `closedAt` is here and absent from the ingest's own field list, which is why
- * every seeded row carries a null one. A PR closed without merging is not
- * merged and not open, and the store had no column answering that.
- */
-const PR_FIELDS = `
-  number
-  title
-  createdAt
-  updatedAt
-  mergedAt
-  closedAt
-  state
-  isDraft
-  author { login }
-  additions
-  deletions
-  changedFiles
-  commits { totalCount }
-  comments { totalCount }
-  assignees(first: 10) { nodes { login } }
-  labels(first: 10) { nodes { name } }
-  reviewRequests(first: 20) {
-    nodes { requestedReviewer { ... on User { login } } }
-  }
-  reactions { totalCount }
-  thumbsUp: reactions(content: THUMBS_UP) { totalCount }
-  thumbsDown: reactions(content: THUMBS_DOWN) { totalCount }
-  reviews(first: 50) {
-    totalCount
-    nodes { state submittedAt author { login } }
-  }
-`;
 
 const PRS = `
   query($owner: String!, $name: String!, $cursor: String) {

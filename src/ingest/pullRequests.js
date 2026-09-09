@@ -53,8 +53,12 @@ const REPOS = `
   }
 `;
 
-/** Shared by both PR queries so the two can't drift into different shapes. */
-const PR_FIELDS = `
+/**
+ * Shared by every PR query so they can't drift into different shapes —
+ * including the worker's reconcile sweep, which imports it. It having kept
+ * its own copy is how `closedAt` ended up in D1 and not in the store.
+ */
+export const PR_FIELDS = `
   number
   title
   createdAt
