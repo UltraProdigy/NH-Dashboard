@@ -34,6 +34,38 @@ export const BACKLOG_BUCKETS = [
 ];
 
 /**
+ * Lines changed — additions plus deletions — at each size boundary.
+ *
+ * Buckets rather than an average because the mean is meaningless here: it sits
+ * near 990 lines against a median of 26, and the largest single PR in the org
+ * is 1.9 million. One regenerated lang file outweighs a thousand real changes,
+ * so any statistic that sums before it ranks is describing the generated files.
+ *
+ * All-time rather than per-window, for the reason `grossing.js` gives: this is
+ * a structural property of how the org reviews, not a trend, and thirteen
+ * copies of it would cost payload to say the same thing thirteen times.
+ */
+export const SIZE_BUCKETS = [
+  { label: "XS", detail: "< 10", max: 10 },
+  { label: "S", detail: "10–49", max: 50 },
+  { label: "M", detail: "50–249", max: 250 },
+  { label: "L", detail: "250–999", max: 1000 },
+  { label: "XL", detail: "1000+", max: Infinity },
+];
+
+/**
+ * The bucket index for a line count, as SQL. Generated from the same list so
+ * the boundaries cannot drift; `Infinity` has no SQLite spelling and is the
+ * final `ELSE` rather than a comparison.
+ */
+export const sizeBucketSql = (col) =>
+  "CASE " +
+  SIZE_BUCKETS.slice(0, -1)
+    .map((b, i) => `WHEN ${col} < ${b.max} THEN ${i}`)
+    .join(" ") +
+  ` ELSE ${SIZE_BUCKETS.length - 1} END`;
+
+/**
  * How far back the daily series reaches.
  *
  * The org's history starts in 2014, so an all-time daily series would be ~4,300

@@ -21,6 +21,7 @@ import {
   DAY_SERIES_DAYS,
   GROSSING_ORG_N,
   HEATMAP_DAYS,
+  SIZE_BUCKETS,
   byCountThenKey,
   dayKey,
   monthKey,
@@ -35,7 +36,7 @@ const HOUR = 3_600_000;
 // The definitions moved to `shared/analytics-rules.js` when the panel gained a
 // SQL twin. Re-exported because the drilldown reads the backlog buckets from
 // here and the frontend the day span, and neither should have to know that.
-export { BACKLOG_BUCKETS, DAY_SERIES_DAYS };
+export { BACKLOG_BUCKETS, DAY_SERIES_DAYS, SIZE_BUCKETS };
 
 /**
  * Accumulator for one time bucket. `authors` is a Set while building and gets
@@ -85,7 +86,19 @@ function firstReviewAt(pr) {
   return best;
 }
 
-export async function analytics() {
+/** Whether anyone but the author asked for changes at least once. */
+function hadChangesRequested(pr) {
+  for (const r of pr.reviews ?? []) {
+    if (r.state !== "CHANGES_REQUESTED") continue;
+    if (isBot(r.author) || r.author === pr.author) continue;
+    return true;
+  }
+  return false;
+}
+
+/** `now` is injectable so a rebuild can be pinned to the clock of the build it
+ *  is replacing — the SQL twin has taken one since it was written. */
+export async function analytics(now = Date.now()) {
   const prs = await readStore();
 
   if (!prs.length) {
@@ -94,8 +107,6 @@ export async function analytics() {
         "takes a while, but later runs are incremental."
     );
   }
-
-  const now = Date.now();
 
   const weeks = new Map();
   const months = new Map();
@@ -159,6 +170,8 @@ export async function analytics() {
     merged: 0,
     closed: 0,
     mergedWithApproval: 0,
+    mergedAfterChanges: 0,
+    abandonHours: [],
     authors: new Map(),
     reviewers: new Map(),
     repos: new Map(),
@@ -189,6 +202,8 @@ export async function analytics() {
   // it makes the "when is this org awake" question answerable at a glance.
   const heat = Array.from({ length: 7 }, () => new Array(24).fill(0));
 
+  const sizeAcc = SIZE_BUCKETS.map(() => ({ prs: 0, merged: 0, _mergeHours: [] }));
+
   const bucketFor = (map, key, start) => {
     if (!map.has(key)) map.set(key, blankBucket(key, start));
     return map.get(key);
@@ -208,6 +223,15 @@ export async function analytics() {
     const mergeHours = pr.mergedAt
       ? (new Date(pr.mergedAt) - created) / HOUR
       : null;
+    // `updatedAt` is the fallback the closed side used before `closedAt` was
+    // ingested, and it is wrong by however long the PR kept drawing comments
+    // after it was shut. Kept only for records the backfill hasn't reached.
+    const closedAt =
+      !pr.mergedAt && pr.state === "CLOSED" ? pr.closedAt ?? pr.updatedAt : null;
+    const abandonHours =
+      pr.closedAt && !pr.mergedAt && pr.state === "CLOSED"
+        ? (new Date(pr.closedAt) - created) / HOUR
+        : null;
     const fr = firstReviewAt(pr);
     const reviewHours = fr ? (new Date(fr) - created) / HOUR : null;
 
@@ -221,6 +245,7 @@ export async function analytics() {
     }
     totals.approvals += approvers.size;
 
+    const changesRequested = hadChangesRequested(pr);
     const isFirstEver = !bot && firstSeen.get(pr.author)?.id === prId(pr);
 
     // ---- time series (opened bucket) ----
@@ -242,7 +267,7 @@ export async function analytics() {
     }
 
     // ---- time series (merged/closed bucket, by the date it happened) ----
-    const endedAt = pr.mergedAt ?? (pr.state === "CLOSED" ? pr.updatedAt : null);
+    const endedAt = pr.mergedAt ?? closedAt;
     if (endedAt) {
       const ended = new Date(endedAt);
       const endedIn = [
@@ -287,6 +312,18 @@ export async function analytics() {
       });
     }
 
+    // ---- size buckets (all time) ----
+    if (typeof pr.additions === "number") {
+      const lines = pr.additions + pr.deletions;
+      const i = SIZE_BUCKETS.findIndex((b) => lines < b.max);
+      const b = sizeAcc[i === -1 ? SIZE_BUCKETS.length - 1 : i];
+      b.prs++;
+      if (pr.mergedAt) {
+        b.merged++;
+        if (mergeHours != null) b._mergeHours.push(mergeHours);
+      }
+    }
+
     // ---- heatmap (last 365 days only) ----
     if (now - created <= HEATMAP_DAYS * DAY && !bot) {
       heat[(created.getUTCDay() + 6) % 7][created.getUTCHours()]++;
@@ -326,11 +363,13 @@ export async function analytics() {
       if (inPeriod(p, pr.mergedAt)) {
         acc.merged++;
         if (approvers.size) acc.mergedWithApproval++;
+        if (changesRequested) acc.mergedAfterChanges++;
         if (mergeHours != null) acc.mergeHours.push(mergeHours);
       }
 
-      if (!pr.mergedAt && pr.state === "CLOSED" && inPeriod(p, pr.updatedAt)) {
+      if (closedAt && inPeriod(p, closedAt)) {
         acc.closed++;
+        if (abandonHours != null) acc.abandonHours.push(abandonHours);
       }
 
       for (const [login, at] of approvers) {
@@ -353,6 +392,7 @@ export async function analytics() {
   function summarize(a) {
     const merge = a.mergeHours.sort((x, y) => x - y);
     const review = a.reviewHours.sort((x, y) => x - y);
+    const abandon = a.abandonHours.sort((x, y) => x - y);
     const sizes = a.sizes.sort((x, y) => x - y);
     const reviewerTotal = [...a.reviewers.values()].reduce((n, v) => n + v, 0);
     const top5 = [...a.reviewers.values()]
@@ -376,6 +416,14 @@ export async function analytics() {
       // probably wants to see trending down.
       approvedShare: a.merged ? a.mergedWithApproval / a.merged : null,
       unapprovedMerges: a.merged - a.mergedWithApproval,
+      // Of what landed, how much needed a round of changes first. Shares the
+      // merged denominator with `approvedShare` so the two read together.
+      changesRequestedShare: a.merged ? a.mergedAfterChanges / a.merged : null,
+      // Null until the close-timestamp backfill reaches this period — a store
+      // that only knows when a PR was last touched must not report that as
+      // how long it took to give up on it.
+      medianAbandonHours: abandon.length ? round1(pct(abandon, 50)) : null,
+      abandonedWithTime: abandon.length,
       reviewConcentration: reviewerTotal ? top5 / reviewerTotal : null,
       medianMergeHours: round1(pct(merge, 50)),
       p90MergeHours: round1(pct(merge, 90)),
@@ -448,6 +496,19 @@ export async function analytics() {
     // Ten rather than the repo drilldown's five: this is the org-wide board and
     // a top 5 across 1,400 repos is almost entirely one repo's greatest hits.
     grossing: grossingLists(gross, GROSSING_ORG_N),
+    sizes: SIZE_BUCKETS.map((b, i) => {
+      const a = sizeAcc[i];
+      const merge = a._mergeHours.sort((x, y) => x - y);
+      return {
+        label: b.label,
+        detail: b.detail,
+        prs: a.prs,
+        merged: a.merged,
+        mergeRate: a.prs ? a.merged / a.prs : null,
+        medianMergeH: round1(pct(merge, 50)),
+        p90MergeH: round1(pct(merge, 90)),
+      };
+    }),
     heatmap: heat,
   };
 }

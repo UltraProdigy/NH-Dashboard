@@ -31,6 +31,7 @@ import {
   DEFAULT_ORG,
   GROSSING_ORG_N,
   HEATMAP_DAYS,
+  SIZE_BUCKETS,
   byCountThenKey,
   dayKeySql,
   isoBound,
@@ -38,6 +39,7 @@ import {
   monthKeySql,
   pctRankSql,
   round1,
+  sizeBucketSql,
   weekKeySql,
 } from "../../../src/shared/analytics-rules.js";
 import {
@@ -90,6 +92,19 @@ const APPROVER = `
       FROM reviews
      WHERE state = 'APPROVED' AND submitted_at IS NOT NULL AND ${HUMAN}
      GROUP BY repo, pr_number, author
+  )`;
+
+/**
+ * Pull requests somebody asked for changes on. No self-exclusion, unlike the
+ * first-review CTE: GitHub will not accept a CHANGES_REQUESTED review from the
+ * PR's own author, so there is nothing to exclude and a join to find out would
+ * be a scan spent proving it.
+ */
+const CHANGED = `
+  changed AS (
+    SELECT DISTINCT repo, pr_number
+      FROM reviews
+     WHERE state = 'CHANGES_REQUESTED' AND ${HUMAN}
   )`;
 
 // --------------------------------------------------------------------- totals
@@ -172,9 +187,9 @@ async function openedSeries(db, key, cutoff) {
 /**
  * Counts for the bucket a pull request *ended* in.
  *
- * `updated_at` rather than `closed_at` for the closed side, matching the Node
- * panel. Not obviously right — but it is what the shipped numbers mean, and
- * changing it here would make the two disagree while looking like a fix.
+ * `closed_at` where the backfill has reached, `updated_at` where it has not.
+ * The fallback is wrong by however long the PR kept drawing comments after it
+ * was shut, which is why it is a fallback rather than the definition.
  */
 async function endedSeries(db, key, cutoff) {
   const sql = `
@@ -183,7 +198,8 @@ async function endedSeries(db, key, cutoff) {
            SUM(is_merged) AS merged,
            SUM(1 - is_merged) AS closed
       FROM (SELECT COALESCE(merged_at,
-                            CASE WHEN state = 'CLOSED' THEN updated_at END) AS ended_at,
+                            CASE WHEN state = 'CLOSED'
+                                 THEN COALESCE(closed_at, updated_at) END) AS ended_at,
                    (merged_at IS NOT NULL) AS is_merged
               FROM pull_requests)
      WHERE ended_at IS NOT NULL
@@ -345,7 +361,7 @@ const SCALARS = {
   opened: (a, b) => `c >= ${a} AND c < ${b}`,
   merged: (a, b) => `m >= ${a} AND m < ${b}`,
   closed: (a, b) =>
-    `merged_at IS NULL AND state = 'CLOSED' AND u >= ${a} AND u < ${b}`,
+    `merged_at IS NULL AND state = 'CLOSED' AND x >= ${a} AND x < ${b}`,
   comments: (a, b) =>
     `CASE WHEN c >= ${a} AND c < ${b} THEN COALESCE(comments, 0) END`,
   additions: (a, b) =>
@@ -361,7 +377,7 @@ async function periodScalars(db, periods) {
       FROM (SELECT state, merged_at, additions, deletions, commits, comments,
                    created_at AS c,
                    merged_at AS m,
-                   updated_at AS u
+                   COALESCE(closed_at, updated_at) AS x
               FROM pull_requests)`;
 
   const bounds = periodParams(periods);
@@ -407,6 +423,80 @@ async function approvedMerges(db, periods) {
   return periods.map((_, i) => row?.[`n_${i}`] ?? 0);
 }
 
+/** Merged pull requests that drew a changes-requested review at some point. */
+async function changedMerges(db, periods) {
+  const sql = `
+    WITH ${CHANGED}
+    SELECT ${periodSums(
+      (a, b) => `m >= ${a} AND m < ${b} AND ok`,
+      "n",
+      periods,
+    )}
+      FROM (SELECT p.merged_at AS m,
+                   (ch.repo IS NOT NULL) AS ok
+              FROM pull_requests p
+              LEFT JOIN changed ch ON ch.repo = p.repo AND ch.pr_number = p.number
+             WHERE p.merged_at IS NOT NULL)`;
+
+  const row = await db.prepare(sql).bind(...periodParams(periods)).first();
+  return periods.map((_, i) => row?.[`n_${i}`] ?? 0);
+}
+
+/**
+ * Pull requests by diff size, all time.
+ *
+ * Two queries for the same reason the series needs two: a percentile is a
+ * position in a sort of *merged* PRs, while the counts are over every sized PR
+ * whatever happened to it, so one pass cannot answer both without counting the
+ * unmerged ones into the median.
+ *
+ * One bucketing, not thirteen — `SIZE_BUCKETS` generates both the boundaries
+ * and the CASE, so the two languages cannot disagree about where XS ends.
+ */
+async function sizeBuckets(db) {
+  const lines = "additions + COALESCE(deletions, 0)";
+  const bucket = sizeBucketSql(lines);
+
+  const countsSql = `
+    SELECT ${bucket} AS b,
+           COUNT(*) AS prs,
+           SUM(merged_at IS NOT NULL) AS merged
+      FROM pull_requests
+     WHERE additions IS NOT NULL
+     GROUP BY b`;
+
+  const hoursSqlText = percentileByBucket(`
+    h AS (
+      SELECT ${bucket} AS b,
+             ${hoursSql("created_at", "merged_at")} AS hours
+        FROM pull_requests
+       WHERE additions IS NOT NULL AND merged_at IS NOT NULL
+    )`);
+
+  const [counts, hours] = await Promise.all([
+    db.prepare(countsSql).all(),
+    db.prepare(hoursSqlText).all(),
+  ]);
+
+  const byBucket = new Map(hours.results.map((r) => [r.b, r]));
+  const seen = new Map(counts.results.map((r) => [r.b, r]));
+
+  return SIZE_BUCKETS.map((def, i) => {
+    const c = seen.get(i);
+    const h = byBucket.get(i);
+    const prs = c?.prs ?? 0;
+    return {
+      label: def.label,
+      detail: def.detail,
+      prs,
+      merged: c?.merged ?? 0,
+      mergeRate: prs ? (c?.merged ?? 0) / prs : null,
+      medianMergeH: round1(h?.p50 ?? null),
+      p90MergeH: round1(h?.p90 ?? null),
+    };
+  });
+}
+
 /**
  * Merge hours, first-review hours and PR sizes — three sets, three orderings,
  * three queries. A percentile is a position in a sort, and these are sorts of
@@ -417,7 +507,7 @@ async function approvedMerges(db, periods) {
  * merged, a review wait and a diff size where the pull request was opened.
  */
 async function periodPercentiles(db, periods) {
-  const [merge, review, size] = await Promise.all([
+  const [merge, review, size, abandon] = await Promise.all([
     percentilesAcrossPeriods(
       db,
       periods,
@@ -454,6 +544,23 @@ async function periodPercentiles(db, periods) {
       },
       [50, 90],
     ),
+    // Counted where it closed, like a merge time is counted where it merged.
+    // Only rows the close-timestamp backfill has reached qualify — the
+    // `updated_at` fallback the counts fall back on would be measuring the
+    // last comment, not the abandonment.
+    percentilesAcrossPeriods(
+      db,
+      periods,
+      {
+        source: `SELECT ${hoursSql("created_at", "closed_at")} AS v,
+                        closed_at AS at
+                   FROM pull_requests
+                  WHERE merged_at IS NULL AND state = 'CLOSED'
+                    AND closed_at IS NOT NULL`,
+        at: "at",
+      },
+      [50],
+    ),
   ]);
 
   return periods.map((_, i) => ({
@@ -463,6 +570,8 @@ async function periodPercentiles(db, periods) {
     size_p50: size[i].p50,
     size_p90: size[i].p90,
     sized: size[i].n,
+    abandon_p50: abandon[i].p50,
+    abandoned: abandon[i].n,
   }));
 }
 
@@ -556,6 +665,14 @@ function summarize(s, q, groups, i) {
     // wants to see trending down.
     approvedShare: s.merged ? groups.approvedMerges[i] / s.merged : null,
     unapprovedMerges: s.merged - groups.approvedMerges[i],
+    // Of what landed, how much needed a round of changes first. Shares the
+    // merged denominator with `approvedShare` so the two read together.
+    changesRequestedShare: s.merged ? groups.changedMerges[i] / s.merged : null,
+    // Null until the close-timestamp backfill reaches this period — a store
+    // that only knows when a PR was last touched must not report that as how
+    // long it took to give up on it.
+    medianAbandonHours: q.abandoned ? round1(q.abandon_p50) : null,
+    abandonedWithTime: q.abandoned,
     reviewConcentration: reviewerTotal ? top5 / reviewerTotal : null,
     medianMergeHours: round1(q.merge_p50),
     p90MergeHours: round1(q.merge_p90),
@@ -662,6 +779,8 @@ export async function analytics(db, now = Date.now()) {
     month,
     groups,
     approved,
+    changed,
+    sizes,
     open,
     commented,
     liked,
@@ -674,6 +793,8 @@ export async function analytics(db, now = Date.now()) {
     seriesFor(db, "month", null),
     periodGroups(db, periods),
     approvedMerges(db, periods),
+    changedMerges(db, periods),
+    sizeBuckets(db),
     backlogRows(db),
     grossing(db, "comments"),
     grossing(db, "thumbs_up"),
@@ -682,6 +803,7 @@ export async function analytics(db, now = Date.now()) {
   ]);
 
   groups.approvedMerges = approved;
+  groups.changedMerges = changed;
 
   // A person's first PR ever, counted into whichever periods contain it. Done
   // here rather than in SQL because the author query already carries the one
@@ -781,6 +903,7 @@ export async function analytics(db, now = Date.now()) {
       liked: liked.map(grossRow),
       disliked: disliked.map(grossRow),
     },
+    sizes,
     heatmap: heat,
   };
 }

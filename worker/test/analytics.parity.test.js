@@ -246,7 +246,10 @@ const SUMMARY_KEYS = [
   "mergeRate",
   "approvedShare",
   "unapprovedMerges",
+  "changesRequestedShare",
   "reviewConcentration",
+  "medianAbandonHours",
+  "abandonedWithTime",
   "medianMergeHours",
   "p90MergeHours",
   "medianFirstReviewHours",
@@ -466,6 +469,23 @@ async function main() {
     );
   }
   check("shared backlog entries agree field by field", oldDiffs.length === 0, oldDiffs[0] ?? "");
+
+  // ------------------------------------------------------------ size buckets
+  const sizeDiffs = [];
+  if (!want.sizes) {
+    console.log("  (dashboard.json predates the size buckets — rebuild to cover them)");
+  } else {
+    for (const [i, b] of got.sizes.entries()) {
+      diffObject(
+        `sizes.${b.label}`,
+        b,
+        want.sizes[i] ?? {},
+        ["label", "detail", "prs", "merged", "mergeRate", "medianMergeH", "p90MergeH"],
+        sizeDiffs,
+      );
+    }
+    check("size buckets match", sizeDiffs.length === 0, sizeDiffs[0] ?? "");
+  }
 
   // ---------------------------------------------------------------- grossing
   for (const list of ["commented", "liked", "disliked"]) {
