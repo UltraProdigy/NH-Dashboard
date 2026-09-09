@@ -731,6 +731,84 @@ PRs.
 `changedFiles` is carried but not aggregated into any headline figure; it exists
 so an implausible line count can be checked against a file count.
 
+### Changes-requested share
+
+```
+changesRequestedShare = mergedAfterChanges / merged   # null when merged = 0
+```
+
+**Shows** — of what landed, how much needed a round of changes first.
+
+**Numerator** — merged PRs carrying at least one non-bot `CHANGES_REQUESTED`
+review at any point, dated by `mergedAt`. The same merged denominator as
+`approvedShare`, deliberately, so the two read together as "was it looked at"
+and "did looking at it change anything".
+
+**Excluded** — bots. No self-exclusion: GitHub will not accept a
+changes-requested review from the PR's own author, so there is nothing to
+exclude.
+
+**Empty case** — null when nothing merged in the period.
+
+Only whether a PR was ever sent back, not how many times. The round count is
+not reported: 94% of PRs have none and the distribution is one bar and four
+slivers.
+
+### Time to abandon
+
+```
+abandonHours      = closedAt − createdAt        # closed-unmerged PRs only
+medianAbandonHours = pct(sorted abandonHours, 50)
+```
+
+**Shows** — how long a PR that never landed stayed open.
+
+**Numerator** — PRs with `state = CLOSED` and no `mergedAt`, dated by
+`closedAt`, the same way a merge time is dated by `mergedAt`.
+
+**Empty case** — null, with `abandonedWithTime` reporting the sample size.
+
+**Critically**: only records carrying `closedAt` qualify. The field was added to
+the ingest after the store was built, so a store the close-timestamp backfill
+has not reached reports null here rather than a number — see *Null versus zero*.
+The counts are more forgiving than the median: `closed`, and the closed side of
+the volume series, fall back to `updatedAt` where `closedAt` is absent. That
+fallback is wrong by however long the PR kept drawing comments after it was
+shut, which is why it is a fallback and not the definition, and why the median
+declines to use it at all.
+
+### PR size buckets
+
+```
+lines(pr) = pr.additions + pr.deletions
+
+XS  < 10        S  10–49      M  50–249     L  250–999    XL  1000+
+
+per bucket:  prs, merged, mergeRate = merged / prs
+             medianMergeH, p90MergeH = percentiles of merge hours, merged only
+```
+
+**Shows** — how the size of a change relates to how long it takes to land.
+
+**Numerator** — every PR carrying diff data, bucketed on lines changed. The
+percentiles see only the merged ones, because an unmerged PR has no merge time;
+the counts see all of them, which is why `mergeRate` can fall while the medians
+stay flat.
+
+**Excluded** — records with no `additions`, skipped entirely rather than
+bucketed as zero, exactly as *PR size* above.
+
+**Empty case** — a bucket nothing landed in reports null medians, not 0.
+
+All time, not per window. The relationship is a structural property of how the
+org reviews rather than a trend, and thirteen copies of it would cost payload to
+say the same thing thirteen times — the same argument *Most grossing* makes.
+
+Buckets rather than an average, because the mean is indefensible here: it sits
+near 990 lines against a median of 26, and the largest single PR in the org is
+1.9 million lines. Any statistic that sums before it ranks is describing the
+generated and vendored files.
+
 ### Active authors, reviewers, repos, new contributors
 
 | Figure | Rule |

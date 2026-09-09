@@ -262,6 +262,7 @@ the answer more often than the code is.
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
+| PR size buckets | 0 (reads local store) | Lines changed per PR in five buckets, against time to merge — all time, see Calculations.md |
 | Issue analytics | 0 (reads local store) | Triage state, volume, labels, and who files, answers and closes — aggregated from ingested issue data, see below |
 | CI health | ~30 GraphQL + 1 REST per active repo | Recent completed runs on each repo's default branch — the only panel that reaches past PR data |
 | Actions load | 0 (reuses CI health's sample) | Org-wide runs and wall-clock minutes per month, projected |
@@ -997,6 +998,39 @@ complete coverage. It is true of that store, and `Calculations.md` records what
 it costs. Ongoing reviews are derived from `reviews[]`, which
 has been in the store from the start, so that column is right on an
 un-backfilled store.
+
+## PR analytics
+
+The page was called **General Analytics** until it was renamed, which was the
+only thing general about it: every card on it reads the PR store, and the panel
+behind it opens "org-wide analytics, aggregated from the ingested PR store". It
+now reads as the pair it always was with Issue Analytics, and the sidebar icon
+is the pull-request glyph against that page's issue circle.
+
+The page id is still `analytics`. It is the URL segment, the key in `PAGE_PANEL`
+in `data.js`, and the `page:` value on thirteen modules — renaming it would
+break every existing bookmark to buy nothing.
+
+**Actions load stays**, despite being CI rather than PRs. Nearly all of the
+org's Actions minutes are spent on pull requests, and it needs a home.
+
+Two cards were added rather than a second page, because a second page reading
+the same panel would have duplicated it and then drifted:
+
+| Card | Reads | Why it is not somewhere else |
+|---|---|---|
+| **PR size** | `analytics.sizes` | Diff size was ingested and used only on the drilldowns; there was no org-level view of it, and the size-against-merge-time relationship is the most actionable thing in the panel |
+| **Outcomes** | `analytics.byWindow` | Scoped to what *happened* to a PR. The reviewer-shaped numbers — unapproved merges, top-5 reviewer share — deliberately stay on Review load rather than being repeated |
+
+Two things that look missing are not:
+
+**Most discussed** is already the `commented` third of **Most grossing**, whose
+own subtitle says "most discussed and most reacted-to PRs in the org". A
+separate card would have been the same query under a second name.
+
+**A changes-requested round histogram** is not built on purpose. 94% of PRs have
+no rounds at all, so the chart is one bar and four slivers; the share alone is
+on the Outcomes card, which is the part that carries information.
 
 ## Issue analytics
 
