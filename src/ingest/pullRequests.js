@@ -64,6 +64,9 @@ export const PR_FIELDS = `
   createdAt
   updatedAt
   mergedAt
+  # Set on merge as well as on a plain close, so it is only the
+  # abandonment timestamp once state has been checked.
+  closedAt
   state
   isDraft
   author { login }
@@ -150,6 +153,27 @@ const OPEN_PRS = `
 `;
 
 /**
+ * Closed-and-unmerged PRs only. GitHub's PR state enum makes MERGED its own
+ * value rather than a flavour of CLOSED, so this selects exactly the records
+ * the close-timestamp backfill needs and walks past the 26k merged ones.
+ */
+const CLOSED_PRS = `
+  query($owner: String!, $name: String!, $cursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequests(
+        first: 50
+        after: $cursor
+        states: CLOSED
+        orderBy: { field: UPDATED_AT, direction: DESC }
+      ) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${PR_FIELDS} }
+      }
+    }
+  }
+`;
+
+/**
  * Titles are trimmed on the way in.
  *
  * They're the single largest field on the store — 28k of them — and a
@@ -166,6 +190,7 @@ const toRecord = (repo, pr) => ({
   createdAt: pr.createdAt,
   updatedAt: pr.updatedAt,
   mergedAt: pr.mergedAt,
+  closedAt: pr.closedAt,
   state: pr.state,
   isDraft: pr.isDraft,
   // Diff size and effort. `changedFiles` is what separates "one generated file
@@ -271,6 +296,8 @@ async function ingestRepo(repo, seenThrough) {
  *
  *   - `OPEN_PRS`, for a field only meaningful on an open PR (draft status).
  *     Cheap: ~118 requests against the 570 a full re-walk costs.
+ *   - `CLOSED_PRS`, for a field only meaningful once a PR is closed without
+ *     merging (close timestamps). Cheaper still: 2k records, not 29k.
  *   - `PRS`, for a field meaningful on every PR (diff size, comments,
  *     reactions, titles). That *is* the full re-walk, but it's paid once.
  *
@@ -348,6 +375,13 @@ const BACKFILLS = [
     label: "review requests",
     query: OPEN_PRS,
     needs: (p) => p.state === "OPEN" && p.reviewRequests === undefined,
+  },
+  // Merged PRs get their close timestamp from `mergedAt`, which every record
+  // already carries, so this pass only has to reach the unmerged ones.
+  {
+    label: "close timestamps",
+    query: CLOSED_PRS,
+    needs: (p) => p.state === "CLOSED" && p.closedAt === undefined,
   },
   {
     label: "diff size, comments, reactions and titles",

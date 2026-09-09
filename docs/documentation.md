@@ -928,11 +928,31 @@ up in `BACKFILLS`, in this order:
 |---|---|---|---|
 | Draft status | open records missing `isDraft` | `OPEN_PRS` | ~118 requests |
 | Review requests | open records missing `reviewRequests` | `OPEN_PRS` | ~118 requests |
+| Close timestamps | closed-unmerged records missing `closedAt` | `CLOSED_PRS` | ~2,051 records |
 | Diff size, comments, reactions, titles | any record missing `additions` | `PRS` | ~570 requests, once |
 | Assignees | any record missing `assignees` | `PRS` | ~570 requests, once |
 | Labels | any record missing `labels` | `PRS` | ~570 requests, once |
 
-The order is the point. The two `OPEN_PRS` passes are cheap and go first,
+`CLOSED_PRS` is the third cheap shape, and it exists because a merged PR
+already carries its end date in `mergedAt` — only the 2,051 unmerged closures
+need fetching, and GitHub's PR state enum makes `MERGED` its own value rather
+than a flavour of `CLOSED`, so `states: CLOSED` selects exactly them.
+
+D1 is ahead of the store here, which is the one thing to watch when deploying.
+`closed_at` has been in `worker/schema.sql` from the start and both the webhook
+handler and `worker/backfill-prs.js` populate it, so the SQL panel will use real
+close times while a static build from an un-backfilled store is still falling
+back to `updatedAt` — the two then disagree about the closed side of the volume
+series and about `closed` per window. Run `npm run ingest` before relying on
+either. The parity test cannot catch this: `worker/seed.sql` was written from
+the store, so its `closed_at` is null throughout and both sides agree on null.
+
+Until it has run, `medianAbandonHours` is null and the Outcomes card says so.
+The *counts* are more forgiving and fall back to `updatedAt`, which is wrong by
+however long the PR kept drawing comments after it was shut — see **Time to
+abandon** in Calculations.md.
+
+The order is the point. The cheap shapes go first,
 because the expensive ones may well be interrupted. The full re-walks are
 ordered so a store needing several pays for one: every one of them re-fetches
 through the same `toRecord`, so the first to run fills in all the fields the
