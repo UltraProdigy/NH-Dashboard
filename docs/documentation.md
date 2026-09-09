@@ -1473,7 +1473,7 @@ still renders while a rebuild is pending.
 
 ## Org Search
 
-**Org Search** — `/find`, third in the sidebar under Dream Panel — looks up one
+**Org Search** — `/find`, first under **Queries** in the sidebar — looks up one
 issue or one pull request by title, across both stores at once. It is the only read on the
 dashboard that is not a rollup.
 
@@ -2474,12 +2474,129 @@ as something you ought to be able to use, and on a page you opened yourself ther
 is no answer to what would make it work. The shift is one 30px button at the far
 left, which is the cheaper of the two.
 
+## Pages and sections
+
+Twelve pages, in three sidebar sections:
+
+| Section | Pages |
+|---|---|
+| **Admin Resources** | Dream Panel, CI Health *(stub)*, Labels *(stub)*, Rulesets *(stub)* |
+| **Org Analytics** | Org Overview *(stub)*, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity *(stub)* |
+| **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
+
+The split is what you *do* with a page, not where its data comes from. Admin
+Resources is a queue you act on, Org Analytics is a number you read, and Queries
+is a question you ask about one named subject. That is why CI Health sits under
+Admin rather than beside the analytics pages it otherwise resembles: a red build
+on a default branch is something somebody has to go and fix, and a page whose
+rows are all chores belongs with the other chores.
+
+Sections are read off the `section` field in `pages.js` **in array order**, and
+a heading is drawn wherever the value changes. There is deliberately no second
+list of memberships to keep in step — moving a page between sections is moving
+it in that array, and the sidebar cannot disagree with the file about where
+anything lives. Same reasoning the tab bar is built on.
+
+Collapsed to the rail the headings lose their words and keep a hairline. The
+grouping is still information once the labels are gone, and three short runs of
+icons read better than twelve in one column.
+
+### Two pages about repos
+
+`repo` is the drilldown — one repo, named in the URL. `repos` is Repo Activity —
+every repo at once. They are one letter apart in the path and a section apart in
+the sidebar, which is the pair the naming has to survive: the same distinction
+runs through Contributor Activity and Contributor Drilldown, and through Org
+Search, which is the one page that starts from neither.
+
+### URLs are the names in the sidebar
+
+A page's URL segment is its label, lowercased and hyphenated, and so is a tab's:
+
+```
+/pr-analytics/actions-load
+/issue-analytics/needs-attention
+/contributor-drilldown/Dream-Master/pull-requests
+/org-search?q=crash&type=issue
+```
+
+Both are **derived** — `slugify(page.label)`, `slugify(tab.label)` — rather than
+declared in a field of their own. A slug held beside the label is a second name
+for the same thing, and the two only have to disagree once for a link to say
+something the sidebar doesn't.
+
+The page **id** is unchanged and is not what you see. It still keys
+`PAGE_PANEL`, `DRILL`, `isDrill`, and the `page:` on forty-six modules, none of
+which any reader ever meets. Renaming those to change a URL would be a rename
+with a blast radius, which is the trade the PR Analytics rename declined — the
+slug buys the readable URL without reopening it. `state.tab` likewise still
+holds `actions` and `@prs`; only the address bar is spelled in labels.
+
+**Old links still land.** `pageBySlug` answers to the id as well as the slug,
+and `resolveTab` takes a module id or an `@group` as well as a tab slug, so
+every URL this dashboard has produced — `/analytics/actions`,
+`/repo/GT5-Unofficial/@activity`, `/find?q=crash` — still opens the right page
+and is rewritten to the current spelling by the canonicalisation `readRoute`
+already did. Both halves are derived rather than read off a list of retired
+names, the same way the tab consolidation's old ids resolve.
+
+The cost is the obvious one: **renaming a label moves the URL.** The id keeps
+the old link working, but a label renamed twice has only its id left. That is
+the trade for URLs that never disagree with the nav, and it is worth naming
+before somebody renames a page and wonders why a bookmark drifted.
+
+Two things assert what cannot be derived:
+
+- `test/find-route.test.js` checks that no two pages slugify alike, that no
+  page's slug is another page's id, and that no two tabs on a page collide.
+  Nothing else in the app would notice — one of the two would simply stop
+  being reachable.
+- The same test checks `web/404.html`'s page list against `PAGES`. That file
+  runs before any module loads, so it cannot import the names and has to
+  repeat them; it is what decides whether the first segment of a deep link is
+  the repo or a page, and it only matters on a user or org site served from
+  `/`. A name missing there breaks that link *there and nowhere else*, which
+  is the worst shape a bug can have.
+
+### Pages that aren't built yet
+
+A page with an empty `modules` array is a stub. It sits in the sidebar, it
+routes, and it draws one dashed card saying so:
+
+```js
+{ id: "rulesets", label: "Rulesets", section: ADMIN, icon: `…`, modules: [] }
+```
+
+Nothing else has to be told. `tabsFor` finds no tabs so the bar hides itself,
+the toolbar gathers no controls so it hides too, `visibleIds` is empty so the
+freshness tally counts nothing, and there is no panel to tint a card against.
+Filling one in is adding modules to the array; there is no stub to take back
+out.
+
+They are in the nav now rather than appearing when they work, because the
+sidebar is the map of what this dashboard is going to be. Somebody who can see
+that Rulesets is coming stops wondering whether they missed it — a nav that
+quietly grows an entry every few weeks tells them nothing until it does.
+
+### The landing page
+
+A bare URL lands on **Org Overview**, set by `state.page` in `state.js` rather
+than taken from the top of the sidebar. What somebody should read first is a
+separate decision from what sits first in the nav, and deriving one from the
+other would make reordering the sidebar a change of default that nobody
+announced.
+
+Org Overview is a stub today, so that landing is currently the
+under-construction card. It is pointed there ahead of being built on purpose:
+the alternative is a line in `state.js` that has to be remembered later.
+
 ## Tabs and groups
 
 Every card on an overview grid has a tab that opens it full-width. That 1:1 rule
 is why the dashboard is easy to reason about, and it's still the default — but
-two things bend it, because taken literally it produced 52 tabs across six
-pages, and a tab bar that long is a worse index than the grid it's indexing.
+two things bend it, because taken literally it produced 52 tabs across the
+seven built pages, and a tab bar that long is a worse index than the grid it's
+indexing.
 
 **A group is several cards under one tab, stacked.** Contributor Drilldown had
 Open PRs, Closed PRs and Biggest PRs as three tabs; they're views of one
@@ -2733,7 +2850,8 @@ js/versus-data.js      the head-to-head lineup and its metric catalogue
 js/contributor-data.js the contributor rows shared by the people modules
 js/module-helpers.js   fragments several modules render the same way
 js/dream.js            Dream Panel exclusions and By label's columns
-js/pages.js            the six pages, the modules each shows, and its tab groups
+js/pages.js            the twelve pages, the section each sits under, the
+                       modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
                        and derives the tab bar from pages.js
 js/paths.js            where the app is mounted, and links into it

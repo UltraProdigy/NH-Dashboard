@@ -1,4 +1,5 @@
 import { href } from "./paths.js";
+import { pageSlug } from "./pages.js";
 
 /* ==========================================================================
    Formatting helpers
@@ -35,7 +36,8 @@ function avatar(id, size = 16, cls = "") {
  * Declared up here with the other formatters because module-scope consts like
  * `byLogin` reference it at initialization time.
  */
-const contribHref = (r) => href(`contributor/${encodeURIComponent(r.login)}`);
+const contribHref = (r) =>
+  href(`${pageSlug("contributor")}/${encodeURIComponent(r.login)}`);
 const contribLink = (login, { pfp = true } = {}) =>
   `<a class="namelink" href="${contribHref({ login })}" data-drilllink>${
     pfp ? avatar(login, 16) : ""}<span>${esc(login)}</span></a>`;
@@ -74,7 +76,8 @@ const bareRepo = (r) => String(r ?? "").split("/").pop();
  * rows keep their direct links, which is why this isn't wired into
  * COLUMNS.release.
  */
-const repoHref = (repo) => href(`repo/${encodeURIComponent(bareRepo(repo))}`);
+const repoHref = (repo) =>
+  href(`${pageSlug("repo")}/${encodeURIComponent(bareRepo(repo))}`);
 const repoLink = (repo, cls = "repo") =>
   `<a class="${cls}" href="${repoHref(repo)}" data-drilllink>${esc(repo)}</a>`;
 

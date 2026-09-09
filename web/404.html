@@ -18,7 +18,18 @@
  * which is a fact this file can check, unlike the hostname.
  */
 (function () {
-  var PAGES = ["analytics", "dream", "find", "issues", "people", "contributor", "repo"];
+  // Every page's URL segment, plus the ids those segments used to be. Hand-kept
+  // because this file runs before any module loads and cannot import pages.js —
+  // `test/find-route.test.js` asserts it against PAGES so it cannot rot
+  // quietly. Only a user or org site needs it: served from /, the first segment
+  // of a deep link is a page rather than the repo, and nothing else can tell.
+  var PAGES = [
+    "dream-panel", "ci-health", "labels", "rulesets",
+    "org-overview", "issue-analytics", "pr-analytics", "contributor-activity",
+    "repo-activity", "org-search", "contributor-drilldown", "repo-drilldown",
+    "dream", "ci", "overview", "issues", "analytics", "people", "repos",
+    "find", "contributor", "repo",
+  ];
   var seg = location.pathname.split("/").filter(Boolean);
   var base = seg.length && PAGES.indexOf(seg[0]) === -1 ? "/" + seg.shift() + "/" : "/";
   // Encoded whole: the segments are already percent-encoded, and the query

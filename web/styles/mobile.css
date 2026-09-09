@@ -49,6 +49,7 @@
   body.collapsed .brand .mark,
   body.collapsed .pages .plabel,
   body.collapsed .side-foot span { display: revert; }
+  body.collapsed .pgroup { margin: 14px 10px 5px; border-top: none; }
   body.collapsed .brand { justify-content: flex-start; }
   body.collapsed .pages button,
   body.collapsed .side-foot button,

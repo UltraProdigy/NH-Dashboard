@@ -79,12 +79,24 @@ function moduleCount(id) {
 
 const currentPage = () => PAGES.find(p => p.id === state.page) ?? PAGES[0];
 
+/**
+ * Headings come out of `PAGES` in order rather than a separate list of
+ * memberships — the same reasoning the tab bar is built on. There is one
+ * ordering, and it is the array.
+ */
 function renderSidebar() {
-  document.getElementById("pages").innerHTML = PAGES.map(p => `
+  let section = null;
+  document.getElementById("pages").innerHTML = PAGES.map(p => {
+    const head = p.section === section
+      ? ""
+      : `<h3 class="pgroup"><span class="plabel">${esc(p.section)}</span></h3>`;
+    section = p.section;
+    return head + `
     <button data-page="${p.id}" aria-current="${p.id === state.page}" title="${esc(p.label)}">
       <svg viewBox="0 0 16 16" fill="currentColor">${p.icon}</svg>
       <span class="plabel">${esc(p.label)}</span>
-    </button>`).join("");
+    </button>`;
+  }).join("");
 }
 
 /**
@@ -503,9 +515,25 @@ function expandedCard(id, grouped) {
   </section>`;
 }
 
+/**
+ * A page that is in the sidebar and in the router but has no cards yet.
+ *
+ * It says so on the page rather than being left out of the nav until it works.
+ * The sidebar is the map of what this dashboard is going to be, and a reader
+ * who can see that Rulesets is coming stops wondering whether they missed it.
+ */
+function stubBody(page) {
+  return `<section class="card stub" style="--span:12"><div class="body">
+    <h2>Under construction</h2>
+    <p>${esc(page.label)} hasn't been built yet — come back later.</p>
+  </div></section>`;
+}
+
 /** Overview grid, or the selected tab's cards stacked full-width. */
 function pageBody() {
   const page = currentPage();
+  if (!page.modules.length) return stubBody(page);
+
   if (state.tab === null) {
     const ids = page.modules.filter(id => !emptyReason(id));
     return `<div class="grid">${ids.map(card).join("")}</div>`;

@@ -1,8 +1,8 @@
 import { isDrill, state } from "./state.js";
 import { BASE } from "./paths.js";
-import { PAGES } from "./pages.js";
+import { pageBySlug, pageSlug } from "./pages.js";
 import { closeCombo, render } from "./render.js";
-import { resolveTab } from "./modules/index.js";
+import { resolveTab, tabSlug } from "./modules/index.js";
 import { findQuery, readFindQuery } from "./find-data.js";
 
 /* ==========================================================================
@@ -62,12 +62,12 @@ const remember = () => {
  * from replaceState-ing in a loop.
  */
 function urlFor(page, tab, subject) {
-  const seg = [page];
+  const seg = [pageSlug(page)];
   if (isDrill(page)) {
     if (subject) seg.push(encodeURIComponent(subject));
     else if (tab) seg.push(NO_SUBJECT);
   }
-  if (tab) seg.push(tab);
+  if (tab) seg.push(tabSlug(page, tab));
   return BASE + seg.join("/") + (page === "find" ? findQuery() : "");
 }
 
@@ -108,8 +108,8 @@ function routeSegments() {
 
 function readRoute() {
   const parts = routeSegments();
-  const page = parts[0];
-  if (PAGES.some(p => p.id === page)) state.page = page;
+  const page = pageBySlug(parts[0]);
+  if (page) state.page = page.id;
 
   const drill = isDrill(state.page);
   state.subject =

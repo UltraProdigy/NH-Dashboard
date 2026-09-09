@@ -22,6 +22,7 @@ import {
 import { drillFromHere, drillTo, go, goBack, goPage, readRoute, syncUrl } from "./router.js";
 import { defaultSortOf } from "./table.js";
 import { routeOf } from "./paths.js";
+import { pageBySlug } from "./pages.js";
 import { tabTwin } from "./modules/index.js";
 import {
   addOpponent,
@@ -170,8 +171,9 @@ document.getElementById("view").addEventListener("click", e => {
     const route = routeOf(link.getAttribute("href"));
     if (route) {
       e.preventDefault();
-      const [page, subj] = route.split("/");
-      return drillFromHere(page, decodeURIComponent(subj));
+      const [seg, subj] = route.split("/");
+      const page = pageBySlug(seg);
+      if (page) return drillFromHere(page.id, decodeURIComponent(subj));
     }
   }
 

@@ -43,6 +43,12 @@
 .expand:hover { color: var(--text); background: var(--panel-2); }
 @media (max-width: 1080px) { .card { grid-column: span 12 !important; } }
 
+/* ---------- a page with nothing on it yet ---------- */
+.card.stub { border-style: dashed; background: none; }
+.card.stub .body { padding: 56px 24px; text-align: center; }
+.card.stub h2 { margin: 0 0 6px; font-size: 14px; color: var(--text); }
+.card.stub p { margin: 0; font-size: 13px; color: var(--muted); }
+
 /* ---------- kpis ----------
    The column count is pinned per tile count instead of being left to
    auto-fit. auto-fit derives the count from whatever width happens to be

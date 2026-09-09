@@ -51,6 +51,25 @@ body.collapsed .icon-btn { margin-left: 0; }
 body.collapsed .icon-btn svg { transform: rotate(180deg); }
 
 .pages { padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+
+/* The label is a `.plabel` so the collapsed rail hides it through the same rule
+   that hides the page names. What's left is an empty box, and the border is
+   what keeps the grouping visible once the words are gone. */
+.pgroup {
+  margin: 14px 10px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: .8;
+}
+.pgroup:first-child { margin-top: 2px; }
+body.collapsed .pgroup {
+  margin: 10px 10px 9px;
+  border-top: 1px solid var(--border);
+}
+body.collapsed .pgroup:first-child { margin-top: 2px; border-top: none; }
 .pages button {
   display: flex; align-items: center; gap: 11px;
   width: 100%;

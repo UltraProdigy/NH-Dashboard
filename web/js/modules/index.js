@@ -2,7 +2,7 @@ import { esc } from "../format.js";
 import { panel } from "../data.js";
 import { applyFilter, preview, renderTable, sortRows } from "../table.js";
 import { panelRows } from "../dream.js";
-import { PAGES } from "../pages.js";
+import { PAGES, slugify } from "../pages.js";
 import { analyticsModules } from "./analytics.js";
 import { dreamModules } from "./dream.js";
 import { findModules } from "./find.js";
@@ -116,17 +116,30 @@ function tabCountId(pageId, tab) {
   return g ? g.count ?? null : tab;
 }
 
+/** The URL segment for a tab: its label, the way a page's is. */
+function tabSlug(pageId, tab) {
+  const t = tabsFor(pageId).find((x) => x.id === tab);
+  return t ? slugify(t.label) : tab;
+}
+
 /**
  * A tab id out of a URL, or null for the overview.
  *
- * Ids that used to name a tab and now name a group member resolve to that
- * group, so links and bookmarks made before the consolidation still land
- * somewhere sensible. Derived from the group declarations rather than a
- * hand-kept list of retired ids, which would only rot.
+ * Three shapes reach this, and two of them are history. A slug is what the app
+ * writes now. A bare module id or an `@group` is what it wrote before the URLs
+ * carried labels. And an id that used to name a tab and now names a group
+ * member resolves to that group, from before the consolidation.
+ *
+ * All three are derived — from the tab bar and from the group declarations —
+ * rather than read off a hand-kept list of retired names, which would only rot.
+ * `state.tab` is always the id whichever way it arrived; only the URL is
+ * spelled in labels.
  */
 function resolveTab(pageId, raw) {
   const page = pageOf(pageId);
   if (!raw || !page) return null;
+  const bySlug = tabsFor(pageId).find((t) => slugify(t.label) === raw);
+  if (bySlug) return bySlug.id;
   if (raw.startsWith("@")) return groupById(page, raw) ? raw : null;
   if (MODULES[raw]?.page !== pageId) return null;
   const g = groupOf(page, raw);
@@ -134,4 +147,4 @@ function resolveTab(pageId, raw) {
   return MODULES[raw].tab === false ? null : raw;
 }
 
-export { MODULES, resolveTab, tabCountId, tabMembers, tabTwin, tabsFor };
+export { MODULES, resolveTab, tabCountId, tabMembers, tabSlug, tabTwin, tabsFor };

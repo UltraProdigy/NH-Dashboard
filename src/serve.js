@@ -53,8 +53,13 @@ createServer(async (req, res) => {
     // for the same reason: index.html pulls its styles and scripts in
     // relatively, so it has to be loaded from the one place those resolve.
     if (!path.extname(pathname)) {
+      // The query rides along beside `route`, as it does in web/404.html: the
+      // search page keeps its filters there, so dropping it turns a shared
+      // search link into an empty form.
+      const rest = url.search.replace(/^\?/, "");
       res.writeHead(302, {
-        location: "/?route=" + encodeURIComponent(pathname.replace(/^\/+/, "")),
+        location: "/?route=" + encodeURIComponent(pathname.replace(/^\/+/, "")) +
+          (rest ? "&" + rest : ""),
       });
       res.end();
       return;
