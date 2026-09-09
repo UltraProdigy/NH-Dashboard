@@ -16,15 +16,18 @@ const PAGES = [
   {
     id: "analytics", label: "PR Analytics",
     icon: `<path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>`,
-    // 12 / 8+4 / 6+6 / 6+6 / 6+6 / 12 / 12 — every row fills its twelve columns,
-    // so nothing wraps and leaves a hole. See the note on the repo page.
-    modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "labels", "heatmap", "grossing", "actions"],
+    // 12 / 8+4 / 6+6 / 6+6 / 6+6 / 6+6 / 12 / 12 — every row fills its twelve
+    // columns, so nothing wraps and leaves a hole. See the note on the repo page.
+    modules: ["pulse", "volume", "backlog", "latency", "growth", "repos", "reviewload", "sizes", "outcomes", "labels", "heatmap", "grossing", "actions"],
     groups: [
       // Volume and the hour/day heatmap are both "when do PRs arrive". Backlog
       // stays out: "how many are open right now" is the number people come to
       // this page for, and it isn't a question about time at all.
       { id: "volume", label: "Volume", modules: ["volume", "heatmap"] },
-      { id: "review", label: "Review", modules: ["latency", "reviewload"] },
+      // Outcomes joins them because "how long did it take" and "what happened
+      // to it in the end" are one question read two ways. Size stays out: it is
+      // a property of the change, not of how the org handled it.
+      { id: "review", label: "Review", modules: ["latency", "reviewload", "outcomes"] },
       { id: "repos",  label: "Repos",  modules: ["repos", "grossing"] },
     ],
   },

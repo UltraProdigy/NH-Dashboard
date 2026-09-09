@@ -269,6 +269,69 @@ export const analyticsModules = {
     },
   },
 
+  /**
+   * Size against time to merge. The relationship is the point of the card —
+   * the bucket counts alone are a shape of the org's work, but the median
+   * beside them is the thing an admin can act on.
+   */
+  sizes: {
+    page: "analytics", label: "PR size", span: 6,
+    sub: () => "lines changed per PR, all time",
+    render(expanded) {
+      const a = A();
+      if (!a) return missingIngest();
+      const rows = a.sizes ?? [];
+      if (!rows.some(r => r.prs)) {
+        return `<div class="empty">No diff data yet. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
+      }
+      if (!expanded) {
+        return hbars(rows, {
+          label: r => `${r.label} · ${r.detail}`,
+          value: r => r.prs, rank: false, share: true,
+          color: "var(--accent)",
+          note: r => (r.medianMergeH == null ? "" : ` ${dur(r.medianMergeH)}`),
+        }) + `<div class="hint" style="margin-top:12px">Bar is how many PRs; the second figure is the median time to merge.</div>`;
+      }
+      const cols = [
+        { key: "label", label: "Size", render: r => `${esc(r.label)} <span class="sh">${esc(r.detail)}</span>` },
+        { key: "prs", label: "PRs", render: r => `<span class="num">${fmt(r.prs)}</span>` },
+        { key: "merged", label: "Merged", render: r => `<span class="num">${fmt(r.merged)}</span>` },
+        { key: "mergeRate", label: "Merge rate", render: r => `<span class="num">${pctFmt(r.mergeRate)}</span>` },
+        { key: "medianMergeH", label: "Median to merge", render: r => `<span class="num">${dur(r.medianMergeH)}</span>` },
+        { key: "p90MergeH", label: "p90 to merge", render: r => `<span class="num">${dur(r.p90MergeH)}</span>` },
+      ];
+      return renderTable(rows, cols, { sortable: false });
+    },
+  },
+
+  /**
+   * What happens to a PR, as opposed to who reviewed it — the reviewer-shaped
+   * numbers live on Review load and are deliberately not repeated here.
+   */
+  outcomes: {
+    page: "analytics", label: "Outcomes", span: 6,
+    controls: ["window"],
+    sub: () => `how PRs ended, ${windowPhrase()}`,
+    render() {
+      const a = A(), w = W();
+      if (!w) return missingIngest();
+      const settled = w.merged + w.closed;
+      return `<div class="kpis">
+        ${kpi("Merge rate", pctFmt(w.mergeRate), delta("mergeRate", { pp: true, fallback: `of ${fmt(settled)} settled` }))}
+        ${kpi("Closed unmerged", fmt(w.closed), delta("closed", { invert: true, fallback: `${pctFmt(settled ? w.closed / settled : null)} of settled` }))}
+        ${kpi("Median to merge", dur(w.medianMergeHours), delta("medianMergeHours", { invert: true, fallback: `p90 ${dur(w.p90MergeHours)}` }))}
+        ${kpi("Median to abandon", dur(w.medianAbandonHours),
+              w.medianAbandonHours == null
+                ? "no close times yet"
+                : `over ${fmt(w.abandonedWithTime)} PRs`)}
+        ${kpi("Needed changes first", pctFmt(w.changesRequestedShare), "of what merged")}
+        ${kpi("Still open", fmt(a.backlog.total), `${fmt(a.backlog.unreviewed)} never reviewed`)}
+      </div>` + (w.medianAbandonHours == null
+        ? `<div class="hint" style="padding:12px 14px 0">Close timestamps are missing for PRs ingested before they were tracked. Run <code>npm run ingest</code> — it re-fetches just the closed ones.</div>`
+        : "");
+    },
+  },
+
   labels: {
     page: "analytics", label: "Label mix", span: 6, reads: "byLabel",
     sub: () => "open PRs per tracked label",

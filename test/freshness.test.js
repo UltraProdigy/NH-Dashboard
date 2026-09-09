@@ -144,7 +144,7 @@ state.data.panels.ciHealth = { ok: true, data: {} };
 
 const modulesOf = id => PAGES.find(p => p.id === id).modules;
 
-// The analytics page is not one panel. Nine of its eleven cards read
+// The analytics page is not one panel. Eleven of its thirteen cards read
 // `analytics`; Label mix reads `byLabel` and Actions load reads `ciHealth`, and
 // both were tinted from the page's panel until they said so. The old assertion
 // here — eleven of eleven, one tier — was not merely loose, it was the thing
@@ -152,7 +152,7 @@ const modulesOf = id => PAGES.find(p => p.id === id).modules;
 const analytics = tierCounts(modulesOf("analytics"));
 check(
   "a page's cards count against the panel each of them reads",
-  analytics.cron === 10 && analytics.build === 1,
+  analytics.cron === 12 && analytics.build === 1,
   JSON.stringify(analytics),
 );
 
@@ -187,7 +187,7 @@ check("empty tiers are absent rather than zero",
 state.data.panels.analytics.down = true;
 const out = tierCounts(modulesOf("analytics"));
 check("an outage moves only the cards that read the failed panel",
-  out.down === 9 && out.cron === 1 && out.build === 1, JSON.stringify(out));
+  out.down === 11 && out.cron === 1 && out.build === 1, JSON.stringify(out));
 
 /* ==========================================================================
    Every card, not just the ones someone thought to test
