@@ -1240,6 +1240,121 @@ is the whole population.
 
 ---
 
+## Repo activity metrics
+
+`src/panels/repos.js`. One row per repo, org-wide — the counterpart to the repo
+drilldown, which holds one repo in detail. Every per-window figure it carries
+(`opened`, `merged`, `closed`, `mergeRate`, `approvals`, `people`, `reviewers`,
+`medianMergeHours`) is the same arithmetic as the analytics panel's, verified
+against it: the two agree exactly on opened, merged, closed and approvals across
+every window, and on the open pull request total.
+
+Two departures from its neighbours are deliberate and are stated below.
+
+### Last activity, and the lifecycle rung
+
+```
+last     = max(PR createdAt, PR mergedAt, PR closedAt,
+                issue createdAt, issue closedAt)
+idleDays = floor((now - last) / 1 day)
+```
+
+**Shows** — how long since anybody did something to this repo.
+
+**Numerator** — a count of days. No denominator; this is an age.
+
+**Excluded** — `updatedAt`. A comment on a two-year-old pull request moves that
+column, which is a fact about a conversation rather than about the repo being
+worked on. The drilldown's picker takes the same view. Measured both ways the
+lifecycle split moves from 124/74/64/37 to 133/70/60/36, so the rungs below do
+not balance on this choice.
+
+**Empty case** — a repo with no activity at all reads as `silent`, not unknown.
+It cannot arise from the stores, but the SQL twin reaches the same expression
+through a LEFT JOIN that can produce NULL, so both implementations name the
+same answer rather than each picking one.
+
+The rungs are 30, 90 and 365 days:
+
+| Rung | Idle for | Repos |
+|---|---|---|
+| Active | under 30 days | 124 |
+| Slowing | 30–89 days | 74 |
+| Dormant | 90–364 days | 64 |
+| Silent | 365 days or more | 37 |
+
+Those are the `m1`, `m3` and `y1` window spans, reused rather than invented — a
+lifecycle cut at some fourth number would be a second vocabulary for the same
+idea. They also split this org into four buckets none of which is a sliver,
+which is what makes the card a distribution rather than one bar and three
+slivers.
+
+### Closed pull requests are dated by `closedAt` here
+
+The closed side of every per-window count prefers `closedAt` and falls back to
+`updatedAt` only where the backfill has not reached — the fix the analytics
+panel took when the field was added.
+
+**`src/shared/drilldown-fold.js` still dates its closed side by `updatedAt`
+alone.** So this panel and a repo's own drilldown can disagree about `closed`,
+by however long a pull request kept drawing comments after it was shut. The
+analytics side was corrected and the drilldown was not, because fixing one half
+of a parity pair breaks it. The drilldown should follow; until it does, this is
+a known divergence rather than an accident.
+
+### Stale open pull requests
+
+```
+staleOpenPRs = open PRs where (now - createdAt) >= 180 days
+```
+
+**Shows** — open pull requests old enough to be a question about the repo rather
+than a backlog item.
+
+**Denominator** — none; a count, meant to be read per repo and summed org-wide.
+66 across 35 repos today.
+
+**Excluded** — draft status is not considered. A draft left open for six months
+is the same signal as any other.
+
+Six months rather than one of the **Backlog age buckets** boundaries, because
+those describe the shape of what is open and this is a single threshold nobody
+argues with.
+
+### Activity concentration
+
+```
+activity       = opened + issuesOpened          # per repo, per window
+concentration  = sum(top 5 repos' activity) / sum(all repos' activity)
+```
+
+**Shows** — how much of the org's work sits in its busiest few repos. 59.9% over
+the last three months.
+
+**Denominator** — every repo's activity in that window, so the share is a share
+of something the reader can see in the table rather than of a hidden composite.
+
+**Excluded** — nothing. Bots included, because a pull request a bot opened still
+happened to the repo — the same rule the drilldown's repo picker states.
+
+**Empty case** — null when the window holds no activity at all, not zero.
+
+Five repos, matching the top-5 reviewer share on **Review concentration**, so
+the two figures on two pages mean the same kind of thing.
+
+### Distinct people, per repo per window
+
+`people` counts pull request authors excluding bots; `reviewers` counts anyone
+who approved, excluding bots but *including* self-approval. Both are the same
+rules `drilldown-fold.js` applies, so a repo's row here and its drilldown agree.
+
+Note the asymmetry that follows: `opened` counts bots and `people` does not, so
+a repo whose pull requests are mostly Dependabot's shows a high `opened` against
+a low `people`. That is the intended reading — see **Bots are excluded from
+people-shaped numbers**.
+
+---
+
 ## Drilldown metrics
 
 `src/panels/drilldown.js`. One record per contributor, one per repo. The PR-side
@@ -2103,6 +2218,7 @@ should be explainable from this file alone.
 | Date | Metric | Change |
 |---|---|---|
 | 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. See **Org Search** in documentation.md. |
+| 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |
 | 2026-09-08 | Org Search empty form | An empty form now returns the fifty most recently updated records rather than no rows, because `state=open` alone was equally "no question" and always returned a list. See **Org Search**. |
 | 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Org Search**. |
 | 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |

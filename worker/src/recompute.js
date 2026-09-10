@@ -21,6 +21,7 @@ import { depUpdates, needsRelease } from "./panels/releases.js";
 import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
 import { drilldown } from "./panels/drilldown.js";
+import { repos } from "./panels/repos.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -71,6 +72,14 @@ import { scopedDb } from "./scope.js";
  * on `version`, computed one subject at a time on the request. The header of
  * `worker/src/panels/drilldown.js` carries the measurements.
  *
+ * `repos` is the newest and the cheapest of the large ones — eleven queries,
+ * 140 KB cached, and every figure in it reconciles against the Node panel on a
+ * seed built from the same store. It is registered here before it is listed in
+ * `LIVE_PANELS` for the reason `ciHealth` and `issues` both were: building the
+ * cache is what makes `/api/panel/repos` answerable, and answering is what lets
+ * it be diffed against a real build before any card claims to be current. No
+ * card reads it yet either way.
+ *
  * Still outside: `issueMetrics` and `activeDays`, neither blocked on data.
  */
 const PANELS = {
@@ -84,6 +93,7 @@ const PANELS = {
   ciHealth,
   issues,
   drilldown,
+  repos,
 };
 
 /**

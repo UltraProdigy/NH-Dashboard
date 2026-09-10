@@ -1386,6 +1386,75 @@ Needs attention ranks the open issues three ways — oldest, longest untouched,
 never answered — because an issue can be bad news in any one of them
 independently. The ones sitting in all three are the ones worth opening first.
 
+## Repo activity
+
+The org-wide counterpart to the repo drilldown: one row per repo across both
+stores, where the drilldown holds one repo in detail. `pages.js` had reserved
+the page — id, label, sidebar slot and icon — since before it was built, with an
+empty `modules` array drawing the under-construction card.
+
+**The panel is `repos`, not a block inside `analytics`.** Two reasons, and the
+second is the binding one. `analytics` is already the most expensive panel on
+D1, and it reads pull requests only — it cannot see the trackers at all, which
+caps a repo-shaped page at half of what it should answer. 237 of the 299 repos
+here have never had an issue, so the issue columns are mostly empty; mostly
+empty is still the difference between a tracker nobody is on top of and a repo
+that does not use issues.
+
+It exists twice like every panel here — `src/panels/repos.js` folding the two
+stores, `worker/src/panels/repos.js` counting in D1 — with
+`worker/test/repos.parity.test.js` holding them together across 299 repos, seven
+windows and ten metrics: 20,930 figures plus the scalars and the org block.
+
+### What it computes
+
+Per repo per window: `opened`, `merged`, `closed`, `mergeRate`, `approvals`,
+`people`, `reviewers`, `medianMergeHours`, `issuesOpened`, `issuesClosed`.
+Unwindowed, because they are facts about the repo rather than the period:
+`openPRs`, `staleOpenPRs`, `unreviewedOpenPRs`, `openIssues`,
+`unansweredIssues`, `first`, `last`, `idleDays` and the lifecycle rung.
+
+Plus an org roll-up: repo counts per lifecycle rung, and per window the active
+repo count, the totals, and the top-5 concentration share.
+
+The definitions and their boundaries live in `Calculations.md`. Two are worth
+repeating here because they are choices rather than arithmetic: **last activity
+is dated from acts, not `updatedAt`**, and **the closed side is dated by
+`closedAt`**, which puts this panel one definition ahead of
+`shared/drilldown-fold.js`. The drilldown should follow; until it does, that is
+a documented divergence rather than an accident.
+
+### Rows are packed positionally
+
+The per-window metrics ship as arrays against `windowFields` rather than as ten
+named keys per window per repo — the same deal `issues.js` gives its `people`
+block. Named, the payload is 387 KB, most of it the string `medianMergeHours`
+written 2,093 times; packed it is 140 KB. A reader expands a window on first use
+and memoizes it onto the panel data.
+
+### Eleven queries, and why seven of them are the same query
+
+Four grouped scans — pull requests, open-and-unreviewed, approvals, issues —
+then one percentile pass per window. A median per repo per window is the only
+figure here that cannot be reached with `SUM`, and it needs `ROW_NUMBER()` over
+a partition, which is the shape `percentileByBucket` uses in the analytics twin
+with the repo as the bucket.
+
+Seven separate queries rather than one seven-arm `UNION`, for the reason
+`contributors` splits its own: D1 caps the terms in a compound `SELECT` well
+below SQLite's default and rejects six. Local SQLite accepts what D1 refuses, so
+that failure cannot be caught anywhere but against D1.
+
+### Staging
+
+`repos` is registered in `PANELS` in `recompute.js` and deliberately **not** in
+`LIVE_PANELS`, which is the same staging `ciHealth` and `issues` had. Building
+the cache is what makes `/api/panel/repos` answerable, and answering is what
+lets it be diffed against a real build before any card claims to be current.
+
+No card reads it yet — the page still draws the under-construction card — so
+nothing is user-visible either way until the cards land.
+
 ## CI health
 
 The one panel that can't come from the ingest store. Workflow runs aren't

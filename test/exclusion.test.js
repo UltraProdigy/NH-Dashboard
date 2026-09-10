@@ -234,6 +234,7 @@ async function checkScopedPanels() {
   const { scopedDb } = await import("../worker/src/scope.js");
   const { analytics } = await import("../worker/src/panels/analytics.js");
   const { contributors } = await import("../worker/src/panels/contributors.js");
+  const { repos } = await import("../worker/src/panels/repos.js");
 
   const db = new DatabaseSync(":memory:");
   db.exec(readFileSync(SCHEMA, "utf8"));
@@ -265,13 +266,28 @@ async function checkScopedPanels() {
 
   const a = await analytics(scoped, now);
   const c = await contributors(scoped, now);
+  const r = await repos(scoped, now);
 
   check(
     `analytics drops the excluded repo's ${top.n} pull requests`,
     a.totals.prs === all - top.n,
     `${a.totals.prs}, expected ${all - top.n}`,
   );
-  for (const [label, out] of [["analytics", a], ["contributors", c]]) {
+  // A whole row rather than a count: this panel is one row per repo, so an
+  // excluded repo surviving is a named row on a public endpoint rather than an
+  // inflated total.
+  check(
+    "repos drops the excluded repo's row entirely",
+    r.rows.every((row) => row.repo !== top.repo),
+    "the excluded repo still has a row",
+  );
+  check(
+    `repos drops the excluded repo's ${top.n} pull requests`,
+    r.org.byWindow.all.opened === all - top.n,
+    `${r.org.byWindow.all.opened}, expected ${all - top.n}`,
+  );
+
+  for (const [label, out] of [["analytics", a], ["contributors", c], ["repos", r]]) {
     const hits = (JSON.stringify(out).match(new RegExp(top.repo, "g")) ?? []).length;
     check(`${label} never names the excluded repo`, hits === 0, `${hits} mentions`);
   }

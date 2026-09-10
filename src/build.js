@@ -19,6 +19,7 @@ import { analytics } from "./panels/analytics.js";
 import { issues } from "./panels/issues.js";
 import { drilldown, serializeDrilldown } from "./panels/drilldown.js";
 import { ciHealth } from "./panels/ciHealth.js";
+import { repos } from "./panels/repos.js";
 
 const DATA_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -82,6 +83,15 @@ async function main() {
     analytics: await run("Org analytics", analytics, {
       empty: { windows: [], totals: {}, series: { week: [], month: [] } },
       optional: true,
+    }),
+    // Reads both stores, so it is optional for both reasons the two panels
+    // above are: either being absent should cost this page rather than the
+    // build. A missing issue store leaves the issue columns at zero, which the
+    // cards have to tell apart from a repo that does not use issues.
+    repos: await run("Repo activity", repos, {
+      empty: { windows: [], windowFields: [], org: null, rows: [] },
+      optional: true,
+      count: (d) => d.rows?.length ?? 0,
     }),
     // Reads the issue store, which is separate from the PR one and can be
     // absent on its own — a checkout that predates issue ingestion has one and
