@@ -27,6 +27,7 @@ const PAGE_PANEL = {
   analytics: "analytics",
   issues: "issues",
   people: "contributors",
+  repos: "repos",
   contributor: "drilldown",
   repo: "drilldown",
 };
@@ -252,7 +253,8 @@ const activeWindow = (mod) => state[windowKey(mod)];
 const windowList = () =>
   (isDrill(state.page) ? state.drill?.windows : null)
   ?? A()?.windows ?? state.drill?.windows
-  ?? I()?.windows ?? panel("contributors")?.data?.windows ?? [];
+  ?? I()?.windows ?? panel("contributors")?.data?.windows
+  ?? panel("repos")?.data?.windows ?? [];
 
 const windowLabel = (mod) => {
   const id = activeWindow(mod);

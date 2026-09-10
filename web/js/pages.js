@@ -101,7 +101,17 @@ const PAGES = [
     // every repo at once, that one is the repo you named.
     id: "repos", label: "Repo Activity", section: ANALYTICS,
     icon: `<path d="M7.122.392a1.75 1.75 0 0 1 1.756 0l5.003 2.902c.83.482.83 1.68 0 2.162L8.878 8.358a1.75 1.75 0 0 1-1.756 0L2.119 5.456a1.251 1.251 0 0 1 0-2.162ZM8.125 1.69a.248.248 0 0 0-.25 0l-4.63 2.685 4.63 2.685a.248.248 0 0 0 .25 0l4.63-2.685ZM1.601 7.789a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0L1.874 8.814A.75.75 0 0 1 1.6 7.789Zm0 3.5a.75.75 0 0 1 1.025-.273l5.249 3.044a.248.248 0 0 0 .25 0l5.249-3.044a.75.75 0 0 1 .752 1.298l-5.248 3.044a1.75 1.75 0 0 1-1.756 0l-5.248-3.044a.75.75 0 0 1-.273-1.025Z"/>`,
-    modules: [],
+    // 12 / 6+6 / 12, which fills every row — same tiling rule as the pages
+    // above. Movers (risers and fallers against the previous equal-length
+    // period) is the obvious fifth card and is deliberately absent: the panel
+    // ships no per-repo previous period, and approximating one from the
+    // overlapping windows would be a plausible number rather than a true one.
+    modules: ["oPulse", "oLifecycle", "oStale", "oTable"],
+    groups: [
+      // Both answer "which repos are in trouble" — one by how long they have
+      // been quiet, one by what is rotting in them while they are not.
+      { id: "health", label: "Health", modules: ["oLifecycle", "oStale"] },
+    ],
   },
 
   {

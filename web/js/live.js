@@ -74,6 +74,7 @@ const LIVE_PANELS = [
   "byLabel",
   "ciHealth",
   "issues",
+  "repos",
 ];
 
 /**

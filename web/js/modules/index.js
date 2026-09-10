@@ -10,6 +10,7 @@ import { issueModules } from "./issues.js";
 import { peopleModules } from "./people.js";
 import { contributorModules } from "./contributor.js";
 import { contributorIssueModules } from "./contributor-issues.js";
+import { repoActivityModules } from "./repo-activity.js";
 import { repoModules } from "./repo.js";
 import { repoIssueModules } from "./repo-issues.js";
 import { versusModules } from "./versus.js";
@@ -27,6 +28,7 @@ const MODULES = {
   ...peopleModules,
   ...contributorModules,
   ...contributorIssueModules,
+  ...repoActivityModules,
   ...repoModules,
   ...repoIssueModules,
   ...versusModules,
