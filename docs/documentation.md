@@ -2549,7 +2549,7 @@ Twelve pages, in three sidebar sections:
 
 | Section | Pages |
 |---|---|
-| **Admin Resources** | Dream Panel, CI Health *(stub)*, Labels *(stub)*, Rulesets *(stub)* |
+| **Admin Resources** | Dream Panel, Labels *(stub)*, CI Health *(locked)*, Rulesets *(locked)* |
 | **Org Analytics** | Org Overview *(stub)*, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity *(stub)* |
 | **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
 
@@ -2642,9 +2642,19 @@ freshness tally counts nothing, and there is no panel to tint a card against.
 Filling one in is adding modules to the array; there is no stub to take back
 out.
 
+A stub with `locked: true` draws a large lock and "You aren't authorized to
+access this resource" in place of the under-construction card. CI Health and
+Rulesets carry it. It is a placeholder only — nothing is checked and nothing is
+hidden — and it stays until the dashboard has real access control for those
+pages to sit behind.
+
+```js
+{ id: "rulesets", label: "Rulesets", section: ADMIN, locked: true, icon: `…`, modules: [] }
+```
+
 They are in the nav now rather than appearing when they work, because the
 sidebar is the map of what this dashboard is going to be. Somebody who can see
-that Rulesets is coming stops wondering whether they missed it — a nav that
+that Labels is coming stops wondering whether they missed it — a nav that
 quietly grows an entry every few weeks tells them nothing until it does.
 
 ### The landing page

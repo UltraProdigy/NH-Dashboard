@@ -520,12 +520,21 @@ function expandedCard(id, grouped) {
  *
  * It says so on the page rather than being left out of the nav until it works.
  * The sidebar is the map of what this dashboard is going to be, and a reader
- * who can see that Rulesets is coming stops wondering whether they missed it.
+ * who can see that Labels is coming stops wondering whether they missed it.
  */
 function stubBody(page) {
+  if (page.locked) return lockedBody();
   return `<section class="card stub" style="--span:12"><div class="body">
     <h2>Under construction</h2>
     <p>${esc(page.label)} hasn't been built yet — come back later.</p>
+  </div></section>`;
+}
+
+function lockedBody() {
+  return `<section class="card stub locked" style="--span:12"><div class="body">
+    <svg class="lock" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 4a4 4 0 0 1 8 0v2h.25c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25v-5.5C2 6.784 2.784 6 3.75 6H4Zm8.25 3.5h-8.5a.25.25 0 0 0-.25.25v5.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25ZM10.5 6V4a2.5 2.5 0 1 0-5 0v2Z"/></svg>
+    <h2>Access denied</h2>
+    <p>You aren't authorized to access this resource.</p>
   </div></section>`;
 }
 

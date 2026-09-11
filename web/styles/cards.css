@@ -48,6 +48,9 @@
 .card.stub .body { padding: 56px 24px; text-align: center; }
 .card.stub h2 { margin: 0 0 6px; font-size: 14px; color: var(--text); }
 .card.stub p { margin: 0; font-size: 13px; color: var(--muted); }
+.card.stub.locked .body { padding: 72px 24px; }
+.card.stub .lock { display: block; width: 96px; height: 96px; margin: 0 auto 20px; color: var(--muted); }
+.card.stub.locked h2 { font-size: 18px; }
 
 /* ---------- kpis ----------
    The column count is pinned per tile count instead of being left to
