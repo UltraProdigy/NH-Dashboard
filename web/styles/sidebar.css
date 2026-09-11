@@ -24,11 +24,9 @@ aside {
   min-height: 57px;
 }
 .brand .mark {
-  width: 26px; height: 26px; flex: none;
-  border-radius: 7px;
-  background: linear-gradient(135deg, var(--accent), var(--purple));
-  display: grid; place-items: center;
-  font-size: 12px; font-weight: 700; color: #0d1117;
+  display: block;
+  height: 32px; width: auto; flex: none;
+  margin-block: -3px;
 }
 .brand .name { font-weight: 600; white-space: nowrap; }
 body.collapsed .brand .name,
