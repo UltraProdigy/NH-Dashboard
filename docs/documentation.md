@@ -2649,15 +2649,15 @@ quietly grows an entry every few weeks tells them nothing until it does.
 
 ### The landing page
 
-A bare URL lands on **Org Overview**, set by `state.page` in `state.js` rather
+A bare URL lands on **Dream Panel**, set by `state.page` in `state.js` rather
 than taken from the top of the sidebar. What somebody should read first is a
 separate decision from what sits first in the nav, and deriving one from the
 other would make reordering the sidebar a change of default that nobody
 announced.
 
-Org Overview is a stub today, so that landing is currently the
-under-construction card. It is pointed there ahead of being built on purpose:
-the alternative is a line in `state.js` that has to be remembered later.
+Dream Panel is the landing page only until Org Overview is built. It used to
+point at Org Overview ahead of time, but that meant every visit opened on the
+under-construction card. Switching back is the one line in `state.js`.
 
 ## Tabs and groups
 

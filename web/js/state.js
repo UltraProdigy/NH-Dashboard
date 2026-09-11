@@ -29,11 +29,11 @@ const blankFind = () => ({
 
 const state = {
   data: null,
-  // Where a bare URL lands. Org Overview rather than the first page in the
+  // Where a bare URL lands. Named here rather than taken from the top of the
   // sidebar: the landing page is a decision about what somebody should read
   // first, and tying it to sidebar order would make reordering the nav a
   // change of default without anyone saying so.
-  page: "overview",
+  page: "dream",
   // A module id, or "@<group>" for a tab holding several cards. Null = the
   // page's overview grid.
   tab: null,
