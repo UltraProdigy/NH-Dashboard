@@ -109,7 +109,7 @@ const truth = {
 };
 
 raw.exec(prUpsert([`(${prRow("Variable-Horizons", truth).join(",")})`]));
-raw.exec(clearReviewsSql("Variable-Horizons", 11));
+raw.exec(clearReviewsSql("Variable-Horizons", 11, truth.updatedAt));
 raw.exec(
   reviewUpsert([
     `('Variable-Horizons',11,'GDCloudstrike','APPROVED','2026-08-29T18:32:22Z')`,
@@ -149,12 +149,64 @@ check(
   [65],
 );
 
-raw.exec(clearReviewsSql("GuideNH", 65));
+raw.exec(clearReviewsSql("GuideNH", 65, "2026-08-31T15:21:41Z"));
 raw.exec(reviewUpsert([`('GuideNH',65,'someone','DISMISSED','2026-08-30T18:00:00Z')`]));
 
 check(
   "and drops off once the review list is replaced",
   await approvedUnmerged(db, Date.parse("2026-08-31T00:00:00Z")),
+  [],
+);
+
+// The other direction, and the one the guard exists for. This walk is
+// sequential over the whole org and its SQL is applied only once the last repo
+// is done, so a pull request merged after its own repo was crawled sits in the
+// file as OPEN with a null merged_at — minutes stale by the time it lands. The
+// webhook has already written the truth; the sweep must leave it alone.
+raw.exec(`
+  INSERT INTO pull_requests
+    (repo, number, title, author, created_at, updated_at, merged_at, closed_at,
+     state, is_draft, labels)
+  VALUES ('GT5-Unofficial', 7891, 'Fix the thing', 'someone',
+          '2026-09-10T08:00:00Z', '2026-09-12T14:06:12Z', '2026-09-12T14:06:12Z',
+          '2026-09-12T14:06:12Z', 'MERGED', 0, '[]');
+
+  INSERT INTO reviews (repo, pr_number, author, state, submitted_at)
+  VALUES ('GT5-Unofficial', 7891, 'reviewer', 'APPROVED', '2026-09-12T13:40:00Z');
+`);
+
+const staleCrawl = {
+  number: 7891,
+  title: "Fix the thing",
+  createdAt: "2026-09-10T08:00:00Z",
+  updatedAt: "2026-09-12T13:40:00Z",
+  mergedAt: null,
+  closedAt: null,
+  state: "OPEN",
+  isDraft: false,
+  author: { login: "someone" },
+};
+
+raw.exec(prUpsert([`(${prRow("GT5-Unofficial", staleCrawl).join(",")})`]));
+raw.exec(clearReviewsSql("GT5-Unofficial", 7891, staleCrawl.updatedAt));
+
+const unmoved = raw
+  .prepare("SELECT state, merged_at, updated_at FROM pull_requests WHERE repo = ? AND number = ?")
+  .get("GT5-Unofficial", 7891);
+
+check("a stale crawl cannot reopen a merged PR", unmoved.state, "MERGED");
+check("nor blank its merge date", unmoved.merged_at, "2026-09-12T14:06:12Z");
+check("nor wind back updated_at", unmoved.updated_at, "2026-09-12T14:06:12Z");
+check(
+  "and the review list it was about to replace survives",
+  raw
+    .prepare("SELECT COUNT(*) AS n FROM reviews WHERE repo = ? AND pr_number = ?")
+    .get("GT5-Unofficial", 7891).n,
+  1,
+);
+check(
+  "so the merged PR stays off the card",
+  await approvedUnmerged(db, Date.parse("2026-09-13T00:00:00Z")),
   [],
 );
 

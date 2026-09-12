@@ -183,7 +183,7 @@ export const refreshTier = (name) =>
  * recomputed and really is current as of now; that is what the timestamp says,
  * and it is a different claim from "the answer moved".
  */
-export async function refreshInstant(env, event = null) {
+export async function refreshInstant(env, event = null, delivery = null) {
   const due = Object.entries(INSTANT).filter(
     ([, p]) => event === null || p.events.includes(event),
   );
@@ -198,14 +198,16 @@ export async function refreshInstant(env, event = null) {
   for (const [name, { fn }] of due) {
     const started = Date.now();
     try {
-      const json = JSON.stringify(await fn(db, now));
+      const rows = await fn(db, now);
+      const json = JSON.stringify(rows);
 
       const prev = await env.DB.prepare(
         "SELECT json FROM panel_cache WHERE name = ?",
       )
         .bind(name)
         .first();
-      if (prev?.json !== json) changed = true;
+      const moved = prev?.json !== json;
+      if (moved) changed = true;
 
       await env.DB.prepare(
         `INSERT INTO panel_cache (name, json, computed_at, ms)
@@ -218,8 +220,27 @@ export async function refreshInstant(env, event = null) {
         .bind(name, json, at, Date.now() - started)
         .run();
       built[name] = Date.now() - started;
+
+      // A rebuild that produced the same answer and a rebuild that never ran
+      // are both silence otherwise, and those are the two halves of every
+      // report that a card did not update. `changed: false` on a
+      // `pull_request` `closed` delivery means this read the store and still
+      // found the pull request open, which is a different fault from the line
+      // being absent entirely.
+      console.log(
+        JSON.stringify({
+          instant: name,
+          delivery,
+          event,
+          rows: Array.isArray(rows) ? rows.length : null,
+          changed: moved,
+          ms: built[name],
+        }),
+      );
     } catch (err) {
-      console.error(JSON.stringify({ instant: name, error: String(err) }));
+      console.error(
+        JSON.stringify({ instant: name, delivery, event, error: String(err) }),
+      );
     }
   }
 

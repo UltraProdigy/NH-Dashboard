@@ -135,6 +135,18 @@ const POLL_MS = 60_000;
 let lastVersion = null;
 let timer = null;
 
+/**
+ * Polls left against the version already recorded.
+ *
+ * `overlay()` keeps the built copy when a panel does not answer, and the number
+ * has already been recorded by then — so the next poll finds it unchanged,
+ * returns, and the panel that timed out stays on build data until something
+ * else bumps the version. Bounded rather than "until it succeeds", because a
+ * panel that 404s permanently would otherwise re-fetch all ten every minute.
+ */
+let retries = 0;
+const MAX_RETRIES = 3;
+
 async function getJSON(path, ms = 8000) {
   // A hung fetch must not leave the page waiting on it forever — the static
   // data is already rendered and the overlay is an improvement, not a
@@ -265,9 +277,12 @@ export function startPolling(onChange) {
     if (document.visibilityState === "hidden") return;
     try {
       const { version } = await getJSON("/api/version");
-      if (version === lastVersion) return;
+      if (version === lastVersion && retries === 0) return;
+      if (version !== lastVersion) retries = MAX_RETRIES;
       lastVersion = state.version = version;
       const applied = await overlay();
+      retries =
+        applied.length < LIVE_PANELS.length + lazy.size ? retries - 1 : 0;
       if (applied.length) onChange(applied);
     } catch {
       // Unreachable Worker: keep the built data, keep polling, say nothing.

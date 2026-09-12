@@ -144,15 +144,30 @@ async function handleWebhook(request, env, ctx) {
   const action = payload.action ?? null;
 
   let result;
+  let failure = null;
   try {
     result = await handleEvent(env.DB, event, payload);
-    await markDirty(env.DB);
   } catch (err) {
+    failure = String(err);
+  }
+
+  // Outside the handler's `try`, and unconditional. A handler that threw partway
+  // may still have written some of what it was going to, and this flag is the
+  // only thing that makes the next cron look at the rows it left behind. Losing
+  // it along with the handler turned a failed delivery into a wrong row that
+  // nothing would ever revisit.
+  await markDirty(env.DB).catch((err) =>
+    console.error(
+      JSON.stringify({ at: "markDirty", delivery, error: String(err) }),
+    ),
+  );
+
+  if (failure) {
     // Still a 200. GitHub retries nothing and disables a webhook that keeps
     // failing, so a handler bug must not cost the subscription — the delivery
     // is logged and the reconcile sweep will correct whatever was missed.
     console.error(
-      JSON.stringify({ event, action, repo, delivery, error: String(err) }),
+      JSON.stringify({ event, action, repo, delivery, error: failure }),
     );
     return json({ ok: false, event, error: "handler failed" });
   }
@@ -170,8 +185,10 @@ async function handleWebhook(request, env, ctx) {
   // `workflow_run` fires constantly and moves none of them.
   if (ctx && INSTANT_EVENTS.has(event)) {
     ctx.waitUntil(
-      refreshInstant(env, event).catch((err) =>
-        console.error(JSON.stringify({ instant: "failed", error: String(err) })),
+      refreshInstant(env, event, delivery).catch((err) =>
+        console.error(
+          JSON.stringify({ instant: "failed", delivery, error: String(err) }),
+        ),
       ),
     );
   }

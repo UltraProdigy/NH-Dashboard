@@ -407,6 +407,55 @@ window — see **The reconcile** above. That closes the hole for pull requests a
 reviews. Every other D1-backed table is still fed by the webhook alone and
 carries the same exposure; see **Not built yet**.
 
+### The sweep only ever moves a row forwards
+
+The walk is sequential over the whole org and the SQL it writes is applied only
+once the last repo is done, so every row in that file is a snapshot from some
+minutes earlier. A pull request merged *after* its own repo was crawled is in
+the file as `OPEN` with a null `merged_at` — and an unguarded upsert would write
+that back over the webhook's correct row, put the PR back on Approved-not-merged,
+and leave it there until the next run six hours later. The sweep would be
+undoing the thing it exists to do.
+
+So both writes are gated on `updated_at`, which a merge always moves: the upsert
+carries `WHERE excluded.updated_at >= pull_requests.updated_at`, and the review
+delete compares the crawl's timestamp against the stored row before removing
+anything. A reconcile can repair a row that is behind GitHub and cannot touch
+one that is ahead. `worker/test/backfill-prs.test.js` asserts both directions —
+the stuck row still flips to `MERGED`, and a stale crawl cannot reopen a PR the
+webhook already closed or delete the reviews under it.
+
+### When a card does not update
+
+Every instant rebuild logs a line per panel, carrying the `x-github-delivery`
+id that triggered it:
+
+```json
+{"instant":"approvedUnmerged","delivery":"…","event":"pull_request","rows":9,"changed":true,"ms":43}
+```
+
+The point of it is that a rebuild which produced the same answer and a rebuild
+that never happened were otherwise both silence, and they are the two halves of
+every "the card didn't move" report. Given a delivery id from GitHub's webhook
+page:
+
+- **No line at all** — the rebuild never ran or threw. Check for the matching
+  `console.error`, and for a `"ok":false` on the delivery itself, which is what
+  `handleWebhook` answers when a handler throws.
+- **`changed: false` on a `pull_request` `closed`** — the rebuild ran, read the
+  store, and still found the pull request open. That is a read that did not see
+  a write which had already returned, so check whether read replication is
+  enabled on the D1 database: nothing here uses `withSession`, so a replica
+  moments behind the primary would produce exactly this.
+- **`changed: true` but the card is stale** — the Worker is right and the page
+  is not. `overlay()` keeps the built copy for any panel that fails to answer,
+  and the card's ring goes red when that happens.
+
+`markDirty` runs on every delivery whatever the handler did, so the ten-minute
+cron rebuilds over anything the instant path got wrong. A card still wrong after
+about eleven minutes is not a rebuild that was missed — it is a row that never
+changed.
+
 ## Dream Panel
 
 Five cards, ordered by how close each one is to "somebody press the button":

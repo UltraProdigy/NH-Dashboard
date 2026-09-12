@@ -30,6 +30,15 @@
  *   would quietly start reading as direct pushes. So the conflict clause names
  *   its columns, exactly as `onPullRequest` does.
  *
+ *   **Neither write may move a row backwards in time.** The walk is sequential
+ *   over the whole org and its SQL is applied only at the end, so every row in
+ *   the file is minutes old by then. A pull request merged after its repo was
+ *   crawled would be written back to `OPEN` with a null `merged_at` and land
+ *   back on Approved-not-merged until the next run six hours later. Both the
+ *   upsert and the review delete are gated on `updated_at`, which a merge
+ *   always moves: this sweep repairs a row that is behind GitHub and never
+ *   touches one that is ahead.
+ *
  *   **Reviews are replaced per PR, not merged.** A review can be dismissed or
  *   deleted, and `review:approved` is current state rather than history — an
  *   upsert alone can only ever add, so a review GitHub no longer reports would
@@ -164,18 +173,50 @@ export function prRow(repo, pr) {
   ];
 }
 
+/**
+ * The sweep may repair a row that is behind GitHub. It may never move one that
+ * is ahead.
+ *
+ * The walk is sequential over the whole org and the SQL it writes is applied
+ * only once the last repo is done, so every row in this file is a snapshot from
+ * some minutes earlier. Without the guard, a pull request merged after its repo
+ * was crawled is written back to the state it was in when the crawl passed it —
+ * `OPEN`, null `merged_at` — and lands back on Approved-not-merged, where it
+ * stays until the next run six hours later. `updated_at` is the only ordering
+ * GitHub gives that both sides share, and a merge always moves it.
+ */
 export const prUpsert = (rows) =>
   `INSERT INTO pull_requests (${PR_COLUMNS.join(",")}) VALUES\n` +
   rows.join(",\n") +
-  `\nON CONFLICT (repo, number) DO UPDATE SET\n${PR_UPDATES};\n`;
+  `\nON CONFLICT (repo, number) DO UPDATE SET\n${PR_UPDATES}\n` +
+  `WHERE excluded.updated_at >= pull_requests.updated_at;\n`;
 
 export const reviewUpsert = (rows) =>
   `INSERT OR REPLACE INTO reviews (${REVIEW_COLUMNS.join(",")}) VALUES\n` +
   rows.join(",\n") +
   ";\n";
 
-export const clearReviewsSql = (repo, number) =>
-  `DELETE FROM reviews WHERE repo = ${q(repo)} AND pr_number = ${q(number)};\n`;
+/**
+ * Same guard, for the same reason.
+ *
+ * Reviews are replaced rather than merged, so a stale snapshot does not leave
+ * the card wrong in the direction above — it deletes an approval the store
+ * already knows about and the pull request drops off the card instead. Wrong
+ * the other way round is still wrong.
+ *
+ * The comparison holds whichever side of this PR's own upsert the delete lands
+ * on, and it lands on both — deletes go straight to the stream while pull
+ * request rows buffer to `ROWS_PER_STATEMENT`. Before the upsert, this compares
+ * the crawl against the row as it stood, which is the same test the upsert is
+ * about to apply. After it, the row already carries this crawl's `updated_at`
+ * if the upsert moved it and a newer one if it declined to. Either way the two
+ * agree, so a pull request never keeps a review list the store has outgrown.
+ */
+export const clearReviewsSql = (repo, number, updatedAt) =>
+  `DELETE FROM reviews WHERE repo = ${q(repo)} AND pr_number = ${q(number)}\n` +
+  `  AND ${q(updatedAt)} >= COALESCE(\n` +
+  `    (SELECT updated_at FROM pull_requests\n` +
+  `      WHERE repo = ${q(repo)} AND number = ${q(number)}), ${q(updatedAt)});\n`;
 
 class Writer {
   constructor(stream) {
@@ -191,9 +232,9 @@ class Writer {
     if (this.prs.length >= ROWS_PER_STATEMENT) this.flushPrs();
   }
 
-  clearReviews(repo, number) {
+  clearReviews(repo, number, updatedAt) {
     this.flushReviews();
-    this.stream.write(clearReviewsSql(repo, number));
+    this.stream.write(clearReviewsSql(repo, number, updatedAt));
     this.counts.cleared++;
   }
 
@@ -269,7 +310,7 @@ async function walkRepo(name, w, tally) {
 
       const nodes = pr.reviews?.nodes ?? [];
       const truncated = (pr.reviews?.totalCount ?? 0) > nodes.length;
-      if (!truncated) w.clearReviews(name, pr.number);
+      if (!truncated) w.clearReviews(name, pr.number, pr.updatedAt);
       for (const rv of nodes) {
         w.review([
           q(name),
