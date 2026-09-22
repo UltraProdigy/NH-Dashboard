@@ -49,15 +49,24 @@ const DAY = 86_400_000;
  *
  * If that index is ever relaxed, this needs a tiebreak, or the card starts
  * flickering between builds.
+ *
+ * Only reviews on open pull requests are ranked, and the `CROSS JOIN` is what
+ * makes that cheap: it pins SQLite to walking the few hundred open PRs through
+ * `idx_pr_open` and reaching their reviews through `idx_reviews_pr`. As a plain
+ * JOIN the planner drives from `reviews` instead, and ranking every review in
+ * the org cost ~180k rows read per card on every pull request delivery against
+ * ~1.4k this way.
  */
 const CURRENT = `
   latest AS (
-    SELECT repo, pr_number, author, state,
-           ROW_NUMBER() OVER (PARTITION BY repo, pr_number, author
-                              ORDER BY submitted_at DESC) AS rn
-      FROM reviews
-     WHERE submitted_at IS NOT NULL
-       AND state IN ('APPROVED', 'CHANGES_REQUESTED', 'DISMISSED')
+    SELECT r.repo, r.pr_number, r.author, r.state,
+           ROW_NUMBER() OVER (PARTITION BY r.repo, r.pr_number, r.author
+                              ORDER BY r.submitted_at DESC) AS rn
+      FROM pull_requests p
+     CROSS JOIN reviews r ON r.repo = p.repo AND r.pr_number = p.number
+     WHERE p.state = 'OPEN'
+       AND r.submitted_at IS NOT NULL
+       AND r.state IN ('APPROVED', 'CHANGES_REQUESTED', 'DISMISSED')
   ),
   current AS (
     SELECT repo, pr_number,
