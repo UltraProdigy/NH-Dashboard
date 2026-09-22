@@ -120,6 +120,31 @@ async function main() {
   check("force ignores the dirty flag", !forced.skipped);
   check("version bumped again", get(db, "version") === "2", get(db, "version"));
 
+  console.log("\na rebuild that moved nothing keeps the version");
+  const setFlag = (key, v) =>
+    db.prepare("UPDATE meta SET value = ? WHERE key = ?").run(String(v), key);
+  setDirty(db, 1);
+  const quiet = await recompute(env);
+  check("rebuilt", !quiet.skipped && !!quiet.built?.analytics);
+  check("reports no change", quiet.changed === false);
+  check("version held at 2", get(db, "version") === "2", get(db, "version"));
+  check("dirty cleared", get(db, "dirty") === "0");
+
+  console.log("\na write the subjects fold from bumps even with identical blobs");
+  setDirty(db, 1);
+  setFlag("dirty_subjects", 1);
+  const subjects = await recompute(env);
+  check("reports a change", subjects.changed === true);
+  check("version bumped to 3", get(db, "version") === "3", get(db, "version"));
+  check("dirty_subjects cleared", get(db, "dirty_subjects") === "0");
+
+  console.log("\na moved blob bumps on its own");
+  setDirty(db, 1);
+  db.prepare("UPDATE panel_cache SET json = '[]' WHERE name = 'ciHealth'").run();
+  const moved = await recompute(env);
+  check("reports a change", moved.changed === true);
+  check("version bumped to 4", get(db, "version") === "4", get(db, "version"));
+
   console.log("\na failing panel does not strand the run");
   setDirty(db, 1);
   const broken = {

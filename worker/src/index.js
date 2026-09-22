@@ -101,15 +101,25 @@ async function verifySignature(secret, header, rawBody) {
   return crypto.subtle.verify("HMAC", key, signature, encoder.encode(rawBody));
 }
 
+const SUBJECT_TABLES = new Set(["pull_requests", "reviews", "issues"]);
+
 /**
  * Mark the aggregates stale. The recompute job clears this.
  *
- * Cheap on purpose — one write per delivery, no reads. Whether anything
- * actually needs rebuilding is the recompute's problem, not the receiver's.
+ * `dirty_subjects` is the drilldown subjects' half. Their caches are keyed on
+ * `version`, so the recompute has to bump it whenever a table they fold from
+ * was written, even when every panel blob comes back identical. An upsert
+ * rather than an UPDATE so a database that predates the key does not need a
+ * migration.
  */
-async function markDirty(db) {
+async function markDirty(db, subjects) {
   await db
-    .prepare("UPDATE meta SET value = '1' WHERE key = 'dirty'")
+    .prepare(
+      subjects
+        ? `INSERT INTO meta (key, value) VALUES ('dirty', '1'), ('dirty_subjects', '1')
+           ON CONFLICT (key) DO UPDATE SET value = excluded.value`
+        : "UPDATE meta SET value = '1' WHERE key = 'dirty'",
+    )
     .run();
 }
 
@@ -159,7 +169,8 @@ async function handleWebhook(request, env, ctx) {
   const wrote = failure !== null || !(result?.skipped || result?.ignored);
 
   if (wrote) {
-    await markDirty(env.DB).catch((err) =>
+    const subjects = failure !== null || SUBJECT_TABLES.has(result?.table);
+    await markDirty(env.DB, subjects).catch((err) =>
       console.error(
         JSON.stringify({ at: "markDirty", delivery, error: String(err) }),
       ),

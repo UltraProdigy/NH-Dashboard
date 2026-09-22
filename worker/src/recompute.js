@@ -255,12 +255,27 @@ export async function refreshInstant(env, event = null, delivery = null) {
   return built;
 }
 
-export async function recompute(env, { force = false } = {}) {
-  const dirty = await env.DB.prepare(
-    "SELECT value FROM meta WHERE key = 'dirty'",
-  ).first();
+// `drilldown` stamps `generatedAt` into its blob, which would read as a change
+// on every rebuild.
+function sameAnswer(prevJson, data, json) {
+  if (prevJson === json) return true;
+  if (!prevJson || !data || typeof data !== "object" || !("generatedAt" in data)) {
+    return false;
+  }
+  const prev = JSON.parse(prevJson);
+  return (
+    JSON.stringify({ ...prev, generatedAt: null }) ===
+    JSON.stringify({ ...data, generatedAt: null })
+  );
+}
 
-  if (!force && dirty?.value !== "1") {
+export async function recompute(env, { force = false } = {}) {
+  const { results: flags } = await env.DB.prepare(
+    "SELECT key, value FROM meta WHERE key IN ('dirty', 'dirty_subjects')",
+  ).all();
+  const flag = (key) => flags.find((f) => f.key === key)?.value === "1";
+
+  if (!force && !flag("dirty")) {
     return { skipped: "clean" };
   }
 
@@ -268,6 +283,7 @@ export async function recompute(env, { force = false } = {}) {
   const at = new Date(now).toISOString();
   const built = {};
   const failed = {};
+  let changed = force || flag("dirty_subjects");
 
   // Panels never see the raw handle. Excluded repos stay in D1 and are filtered
   // out of everything served, and doing it here rather than in each panel means
@@ -280,6 +296,13 @@ export async function recompute(env, { force = false } = {}) {
       const data = await fn(db, now);
       const json = JSON.stringify(data);
       const ms = Date.now() - started;
+
+      const prev = await env.DB.prepare(
+        "SELECT json FROM panel_cache WHERE name = ?",
+      )
+        .bind(name)
+        .first();
+      if (!sameAnswer(prev?.json, data, json)) changed = true;
 
       await env.DB.prepare(
         `INSERT INTO panel_cache (name, json, computed_at, ms)
@@ -315,14 +338,21 @@ export async function recompute(env, { force = false } = {}) {
   // Clear first, bump second. A delivery landing between the two sets `dirty`
   // again and gets picked up next run. The reverse order could clear a flag set
   // by work this run did not see.
-  await env.DB.prepare("UPDATE meta SET value = '0' WHERE key = 'dirty'").run();
+  //
+  // The bump is skipped when nothing moved, because it discards every cached
+  // drilldown subject and makes every open tab refetch all ten panels.
   await env.DB.prepare(
-    "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
+    "UPDATE meta SET value = '0' WHERE key IN ('dirty', 'dirty_subjects')",
   ).run();
+  if (changed) {
+    await env.DB.prepare(
+      "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
+    ).run();
+  }
 
   const version = await env.DB.prepare(
     "SELECT value FROM meta WHERE key = 'version'",
   ).first();
 
-  return { version: Number(version?.value ?? 0), built, failed, pruned, at };
+  return { version: Number(version?.value ?? 0), changed, built, failed, pruned, at };
 }

@@ -800,8 +800,31 @@ const topicPush = await deliver("push", {
 check("a topic-branch push leaves dirty alone", dirty(), "0");
 check("and does not rebuild needsRelease", topicPush.instant, 0);
 
+const subjectsDirty = () =>
+  row("SELECT value FROM meta WHERE key = 'dirty_subjects'").value;
+
 await deliver("workflow_run", wfRun({ id: 900_102 }));
 check("a stored run marks dirty", dirty(), "1");
+check("but not the drilldown subjects", subjectsDirty(), "0");
+
+clean();
+await deliver("pull_request", {
+  action: "edited",
+  repository: REPO,
+  pull_request: {
+    number: 4822,
+    title: "Retitled",
+    state: "open",
+    created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+    user: { login: "someone" },
+    labels: [],
+    assignees: [],
+    requested_reviewers: [],
+  },
+});
+check("a pull request marks dirty", dirty(), "1");
+check("and the drilldown subjects", subjectsDirty(), "1");
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);
