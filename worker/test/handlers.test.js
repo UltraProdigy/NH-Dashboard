@@ -753,5 +753,55 @@ check(
 console.log("\nunknown events are ignored, not errors");
 check("unhandled event", await handleEvent(db, "star", {}), { ignored: "star" });
 
+console.log("\nonly a delivery that wrote marks the store dirty");
+
+const { default: worker } = await import("../src/index.js");
+const SECRET = "test-secret";
+
+async function deliver(event, payload) {
+  const body = JSON.stringify(payload);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = Buffer.from(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)),
+  ).toString("hex");
+  const pending = [];
+  const res = await worker.fetch(
+    new Request("https://worker.test/webhook", {
+      method: "POST",
+      body,
+      headers: { "x-github-event": event, "x-hub-signature-256": `sha256=${sig}` },
+    }),
+    { DB: db, GITHUB_WEBHOOK_SECRET: SECRET },
+    { waitUntil: (p) => pending.push(p) },
+  );
+  await Promise.all(pending);
+  return { status: res.status, instant: pending.length };
+}
+
+const dirty = () => row("SELECT value FROM meta WHERE key = 'dirty'").value;
+const clean = () => raw.prepare("UPDATE meta SET value = '0' WHERE key = 'dirty'").run();
+
+clean();
+await deliver("workflow_run", wfRun({ id: 900_100 }, "in_progress"));
+check("an in-progress run leaves dirty alone", dirty(), "0");
+
+await deliver("workflow_run", wfRun({ id: 900_101, head_branch: "topic" }));
+check("a topic-branch run leaves dirty alone", dirty(), "0");
+
+await deliver("star", { action: "created", repository: REPO });
+check("an ignored event leaves dirty alone", dirty(), "0");
+
+const topicPush = await deliver("push", {
+  ref: "refs/heads/topic", commits: [], repository: REPO,
+});
+check("a topic-branch push leaves dirty alone", dirty(), "0");
+check("and does not rebuild needsRelease", topicPush.instant, 0);
+
+await deliver("workflow_run", wfRun({ id: 900_102 }));
+check("a stored run marks dirty", dirty(), "1");
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

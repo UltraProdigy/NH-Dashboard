@@ -151,16 +151,20 @@ async function handleWebhook(request, env, ctx) {
     failure = String(err);
   }
 
-  // Outside the handler's `try`, and unconditional. A handler that threw partway
-  // may still have written some of what it was going to, and this flag is the
-  // only thing that makes the next cron look at the rows it left behind. Losing
-  // it along with the handler turned a failed delivery into a wrong row that
-  // nothing would ever revisit.
-  await markDirty(env.DB).catch((err) =>
-    console.error(
-      JSON.stringify({ at: "markDirty", delivery, error: String(err) }),
-    ),
-  );
+  // A handler that threw partway may still have written some of what it was
+  // going to, so a failure always marks dirty. A skipped or ignored delivery
+  // only refreshed its repo row, and the columns panels read there move through
+  // `repository` deliveries. Letting those through kept the full recompute
+  // running on nearly every cron tick.
+  const wrote = failure !== null || !(result?.skipped || result?.ignored);
+
+  if (wrote) {
+    await markDirty(env.DB).catch((err) =>
+      console.error(
+        JSON.stringify({ at: "markDirty", delivery, error: String(err) }),
+      ),
+    );
+  }
 
   if (failure) {
     // Still a 200. GitHub retries nothing and disables a webhook that keeps
@@ -183,7 +187,7 @@ async function handleWebhook(request, env, ctx) {
   // The event is passed through rather than only gating on it: `refreshInstant`
   // rebuilds the panels this event can move and leaves the rest alone. A
   // `workflow_run` fires constantly and moves none of them.
-  if (ctx && INSTANT_EVENTS.has(event)) {
+  if (ctx && wrote && INSTANT_EVENTS.has(event)) {
     ctx.waitUntil(
       refreshInstant(env, event, delivery).catch((err) =>
         console.error(
