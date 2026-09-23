@@ -1,50 +1,32 @@
 # Calculations
 
-Every statistical figure the dashboard renders, and exactly how it was arrived
-at. If a number on a page looks wrong, this is where you check whether the
-definition is wrong before you go reading the code.
+How every figure on the dashboard is measured. Search for the label you see on
+screen (the **On screen** lines) or the payload field name.
 
-Formulas are written in words and variables rather than against real data. The
-point is not to reproduce a figure by hand — it is to be able to say "that
-number counts X against a denominator of Y, and my objection is with Y" without
-opening a single `.js` file.
-
-Each entry names the file it lives in, so the code is one search away if the
-description isn't enough.
-
-**Contents**
-
-- [How to read an entry](#how-to-read-an-entry)
-- [Global conventions](#global-conventions) — the rules every number obeys
-- [Shared primitives](#shared-primitives) — percentile, median, rounding, buckets
-- [What the stores contain](#what-the-stores-contain) — derivations made at ingest
-- [Pull request metrics](#pull-request-metrics)
-- [Contributor metrics](#contributor-metrics)
-- [Issue metrics](#issue-metrics)
-- [Drilldown metrics](#drilldown-metrics)
-- [CI health metrics](#ci-health-metrics)
-- [Repository state panels](#repository-state-panels)
-- [Browser-side calculations](#browser-side-calculations)
-- [Known biases and blind spots](#known-biases-and-blind-spots)
-- [Change log](#change-log)
-
----
-
-## How to read an entry
-
-Each metric gets the same five things, in the same order:
+Each entry names its source file. Entries use this shape where it applies:
 
 | Field | Meaning |
 |---|---|
 | **Shows** | What the number claims to be |
-| **Numerator** | What is counted, and what act dates it |
-| **Denominator** | What it is divided by, if anything |
-| **Excluded** | What is deliberately left out of both halves |
-| **Empty case** | What renders when the sample is empty, and why |
+| **Numerator** | What is counted, and which timestamp dates it |
+| **Denominator** | What it is divided by; "none" means it is a count |
+| **Excluded** | Left out of both halves |
+| **Empty case** | What renders on an empty sample |
 
-Where a metric has no denominator it is a count, and the Denominator row says
-so. That distinction matters more than it looks: most disagreements about a
-dashboard number turn out to be disagreements about a denominator nobody stated.
+**Contents** — [Global conventions](#global-conventions) ·
+[Shared primitives](#shared-primitives) ·
+[What the stores contain](#what-the-stores-contain) ·
+[Pull request metrics](#pull-request-metrics) ·
+[Contributor metrics](#contributor-metrics) ·
+[Issue metrics](#issue-metrics) ·
+[Repo activity metrics](#repo-activity-metrics) ·
+[Drilldown metrics](#drilldown-metrics) ·
+[CI health metrics](#ci-health-metrics) ·
+[Repository state panels](#repository-state-panels) ·
+[Browser-side calculations](#browser-side-calculations) ·
+[Org Search](#org-search) ·
+[Known biases and blind spots](#known-biases-and-blind-spots) ·
+[Change log](#change-log)
 
 ---
 
@@ -52,48 +34,33 @@ dashboard number turn out to be disagreements about a denominator nobody stated.
 
 These hold everywhere unless an entry says otherwise.
 
-### Bots are excluded from people-shaped numbers
+### Bots
 
-A login is a bot if it matches `BOT_PATTERN` in `src/shared/contributor-rules.js`
-(re-exported from `src/config.js`): a trailing `[bot]`, or a name starting
-`dependabot`, `github-actions`, `renovate`, `codecov`, `mergify`, or `stale`. A
-null or empty login also counts as a bot, which is how deleted accounts are
-handled.
+`BOT_PATTERN` in `src/shared/contributor-rules.js` (re-exported from
+`src/config.js`): a login is a bot if it ends in `[bot]`, starts with
+`dependabot`, `github-actions`, `renovate`, `codecov`, `mergify` or `stale`, or
+is null/empty (deleted accounts). `isBotSql` is the SQL twin, generated from
+the same prefix list; the analytics parity test runs both over every login in
+the seed.
 
-The rule also exists as a SQL predicate, `isBotSql`, because SQLite has no regex
-and the Worker's panels need it. Both are generated from one list of prefixes,
-and the analytics parity test runs both over every login in the seed — a login
-excluded on one side and counted on the other would be a leaderboard that
-contradicts its own drilldown, with nothing to say which half is wrong.
+| Bots excluded from | Bots included in |
+|---|---|
+| Every author, reviewer, reporter, responder, closer, fixer and assignee count | Raw PR and issue totals |
+| Distinct-people sets (active authors, reporters, reviewers) | Merge and close timings |
+| First review timestamp (a bot comment is not a review) | Comment and reaction counts (GitHub totals) |
+| First response timestamp (a bot reply is not an answer) | Repo activity `opened` and concentration |
+| PR-creation heatmap | Org Search |
+| Dep updates' last direct commit (`DEP_UPDATE_IGNORE_BOTS`, on) | |
 
-Bot exclusion applies to:
-
-- every author, reviewer, reporter, responder, closer, fixer and assignee count
-- distinct-people sets (active authors, reporters, reviewers)
-- the "first review" timestamp — a bot commenting is not a review
-- the "first response" timestamp — a bot replying is not an answer
-- the PR-creation heatmap
-- the "last direct commit" probe in Dep updates, when
-  `DEP_UPDATE_IGNORE_BOTS` is on (it is)
-
-Bot exclusion does **not** apply to:
-
-- raw PR and issue totals — a bot's PR is still a PR that was opened
-- merge and close timings — a bot's PR still took the time it took
-- comment counts and reaction counts, which are totals from GitHub
-
-This asymmetry is deliberate. "How many PRs were opened" and "how many people
-opened PRs" are different questions and only the second one should ignore
-machines.
+"How many PRs were opened" counts bots; "how many people opened PRs" does not.
 
 ### Time windows
 
-Defined once, in `WINDOWS` in `src/panels/contributors.js`, and every panel
-imports that list:
+`WINDOWS` in `src/panels/contributors.js`, imported by every panel.
 
 | id | Label | Days |
 |---|---|---|
-| `all` | All time | *(none)* |
+| `all` | All time | — |
 | `m1` | 1 month | 30 |
 | `m3` | 3 months | 90 |
 | `m6` | 6 months | 180 |
@@ -101,146 +68,100 @@ imports that list:
 | `y2` | 2 years | 730 |
 | `y5` | 5 years | 1825 |
 
-A fixed window is the half-open interval `[now − days × 86,400,000, ∞)`.
-All-time is `(−∞, ∞)`.
+```
+window    = [now − days × 86,400,000, ∞)        all time = (−∞, ∞)
+```
 
-Months are approximated as 30 days and years as 365 — "3 months" is exactly 90
-days, not a calendar quarter. Nothing in the dashboard uses calendar month
-boundaries for windowing; monthly *buckets* are a separate thing and do use
-calendar months.
+Month = 30 days, year = 365, so "3 months" is 90 days, not a calendar quarter.
+Only monthly *buckets* use calendar months.
 
-### Every event is counted against its own timestamp
+### Every event is dated by its own timestamp
 
-This is the single most important rule in the file. An event lands in a window
-if *the date the event happened* falls inside it — not the date its parent
-object was created.
+The most important rule here. An event lands in the window containing the time
+*it* happened, not when its parent was created.
 
-- A PR **opened** counts against the window containing `createdAt`
-- A PR **merged** counts against the window containing `mergedAt`
-- A PR **closed unmerged** counts against the window containing `updatedAt`
-  (GitHub gives no separate close timestamp on the PR record)
-- An issue **opened** counts against `createdAt`
-- An issue **closed** counts against `closedAt`
-- A **first response** counts against `firstResponseAt`
-- An **approval** counts against the reviewer's `submittedAt`
+| Event | Dated by |
+|---|---|
+| PR opened | `createdAt` |
+| PR merged | `mergedAt` |
+| PR closed unmerged | `closedAt`, falling back to `updatedAt` where not backfilled (drilldown uses `updatedAt` only — see Repo activity) |
+| Issue opened | `createdAt` |
+| Issue closed | `closedAt` |
+| First response | `firstResponseAt` |
+| Approval | reviewer's `submittedAt` |
 
-The consequence readers most often trip on: clearing a five-year-old backlog
-shows up entirely in the current period's `closed`, and not at all in its
-`opened`. That is intended. The alternative — dating a close by the issue's open
-date — makes a month of hard triage look like nothing happened.
+So clearing a five-year-old backlog shows entirely in this period's `closed` and
+not at all in its `opened`.
 
 ### Previous-period deltas
 
-Every fixed window gets a second accumulator covering the equal-length period
-immediately before it: `[now − 2×days, now − days)`. That is what "vs. previous"
-compares against. A 3-month view compares against the 3 months before it, never
-against last month.
-
-All-time has no previous period and its deltas are absent, not zero.
-
-Built in `periodsFor()` in `src/panels/issueMetrics.js` and inline in
-`src/panels/analytics.js`.
+Each fixed window also accumulates the equal-length period before it,
+`[now − 2×days, now − days)`; "vs. previous" compares against that. All time has
+no previous period, so its deltas are absent, not zero. `periodsFor()` in
+`src/panels/issueMetrics.js`, inline in `src/panels/analytics.js`.
 
 ### Null versus zero
 
-The codebase distinguishes these everywhere and so should you when reading a
-page:
+- **0** — looked, and the answer is none
+- **null**, rendered `—` — nothing to compute from: an empty sample or a field
+  not yet backfilled
 
-- **0** means "we looked, and the answer is none"
-- **null** (rendered as an em dash `—`) means "there is nothing to compute
-  from", which is either an empty sample or a field the ingest has not
-  backfilled yet
-
-Specifically: medians, percentiles and shares are null on an empty sample.
-`medianPRLines` is null rather than 0 when no PR in the window carries diff data
-— otherwise a half-backfilled store renders as "nobody wrote any code this
-quarter".
+Medians, percentiles and shares are null on an empty sample. `medianPRLines` is
+null (not 0) when no PR in the window has diff data.
 
 ### Rounding
 
-- `round1` — one decimal place, used for hour counts and minute counts
-- `round3` — three decimal places, used for shares, because they render as whole
-  percentages and full float precision was megabytes of payload noise
-- Org-wide CI projections round to whole numbers, because the precision implied
-  by "4,138.7 runs a month" is not there
+Applied at the end of a calculation, never partway.
 
-Rounding happens at the end of a calculation, never partway through.
+- `round1` — 1 dp; hours and minutes
+- `round3` — 3 dp; shares (rendered as whole percentages)
+- Org-wide CI projections — whole numbers
 
 ### Timezone
 
-Everything is UTC. Timestamps come from GitHub as ISO-8601 UTC strings, day keys
-are the first ten characters of those strings, and the browser renders dates in
-UTC too. Nothing in the pipeline consults a local timezone, deliberately —
-rendering in local time would slide half the org's dates a day either way
-depending on who was looking.
+UTC throughout: GitHub's ISO-8601 UTC timestamps, day keys are their first ten
+characters, and the browser renders in UTC. No local timezone is consulted.
 
 ---
 
 ## Shared primitives
 
-### Percentile — nearest-rank, no interpolation
+### Percentile — nearest rank, no interpolation
 
-Defined once in `src/shared/analytics-rules.js`. Every panel that takes a
-percentile imports it from there — `analytics`, `issueMetrics`, `drilldown` —
-and so does the Worker.
-
-It was defined three more times, identically, until the issues port needed a
-single owner for the SQL twin. The copies did agree, which is the point: two
-copies of a definition are not a bug until somebody edits one, and then they are
-a bug with no error message.
+`src/shared/analytics-rules.js`; used by `analytics`, `issueMetrics`,
+`drilldown` and the Worker.
 
 ```
 pct(sorted, p):
-  if sorted is empty        -> null
-  index = floor((p / 100) × length(sorted))
-  index = min(index, length(sorted) − 1)
-  return sorted[index]
+  if empty -> null
+  i = min(floor(p/100 × n), n − 1)
+  return sorted[i]
 ```
 
-Notes that matter when a median looks off by one element:
+Input sorted ascending. `p = 50` is the median, `p = 90` is p90. On an even
+sample the median is the **upper** middle value, not the mean of the two.
 
-- The array must be sorted ascending first. Every call site sorts in place
-  before calling.
-- There is no interpolation between neighbours. On an even-sized sample the
-  "median" is the upper of the two middle values, not their mean.
-- `p = 50` gives the median, `p = 90` gives p90.
-
-This is a deliberate simplification. On samples of the size this dashboard
-works with the difference from a properly interpolated percentile is smaller
-than the noise in the underlying data.
-
-**In SQL.** SQLite has no percentile function, so the Worker ranks rows with
-`ROW_NUMBER() OVER (ORDER BY value)` against `COUNT(*) OVER ()` and takes the
-one row whose rank matches. `pctRankSql` generates that rank, and it is the
-index above plus one because `ROW_NUMBER` counts from one:
+**SQL.** `pctRankSql` ranks with `ROW_NUMBER() OVER (ORDER BY value)` against
+`COUNT(*) OVER ()` and takes the row with
 
 ```
 rank = 1 + min(n − 1, CAST(n × p/100 AS INTEGER))
 ```
 
-`CAST(… AS INTEGER)` truncates toward zero, which is `floor` for the
-non-negative values this ever sees, and the fraction is emitted as the same
-double JavaScript computes — so the two agree bit for bit rather than
-approximately.
+`CAST` truncates, which equals `floor` for non-negative values, and the fraction
+is the same double JS computes, so the two agree exactly.
 
-**Across several periods at once.** The Analytics windows need the same
-percentile taken thirteen times over thirteen overlapping slices of one set.
-Filtering and ranking per slice rebuilds the set thirteen times, so the set is
-built once and each slice gets a running count instead:
+**Several overlapping periods at once** (the thirteen Analytics slices): build
+the set once, keep a running count per period, and take the first row where it
+reaches the rank:
 
 ```
-k_i = SUM(row is in period i) OVER (ORDER BY value ROWS UNBOUNDED PRECEDING)
-percentile_i = MIN(value) WHERE k_i = rank_i, and period i is non-empty
+k_i          = SUM(row in period i) OVER (ORDER BY value ROWS UNBOUNDED PRECEDING)
+percentile_i = MIN(value) WHERE k_i = rank_i          # period i non-empty
 ```
 
-`k_i` first reaches `rank_i` at the row a per-period `ROW_NUMBER()` would have
-picked; later rows outside the period carry the same `k_i` but a larger value,
-so the minimum is that row.
-
-`ROWS UNBOUNDED PRECEDING` is not the default frame and the default is wrong
-here. RANGE lumps in every row tied on the value, so a group of three equal
-values jumps the running count past any rank sitting inside it and the lookup
-finds nothing.
+The frame must be `ROWS`: the default `RANGE` lumps tied values together, so the
+count jumps past a rank inside a tie and nothing matches.
 
 ### Median
 
@@ -248,36 +169,38 @@ finds nothing.
 median(values) = round1(pct(sort_ascending(values), 50))
 ```
 
-The **mean is never used** for PR size, merge time, response time or close time.
-On this org one regenerated language file drags a mean past every real number in
-the list. Where a mean does appear it is labelled as one — see
-`meanRunMinutes` under CI health.
+The mean is never used for PR size, merge time, response time or close time;
+one regenerated file drags a mean past every real value. The only deliberate
+mean is `meanRunMinutes` (CI).
 
 ### Week key
 
-ISO-ish week, Monday-start, matching GitHub's own charts. Defined in
-`src/shared/analytics-rules.js`, used by `src/panels/analytics.js` and
-`src/panels/issueMetrics.js`.
+Monday-start ISO week, matching GitHub. `src/shared/analytics-rules.js`.
 
 ```
-weekKey(date):
-  t = date at UTC midnight
-  dow = (UTC day of week of t + 6) mod 7          # Monday = 0
-  shift t by (−dow + 3) days                       # the week's Thursday
-  firstThu = 4 January of t's (possibly shifted) year
-  week = 1 + round((t − firstThu) / 7 days)
-  return "<year of t>-W<week, zero-padded to 2>"
+t        = date at UTC midnight
+dow      = (UTC weekday of t + 6) mod 7        # Monday = 0
+t        = t + (3 − dow) days                  # that week's Thursday
+firstThu = 4 January of t's year
+week     = 1 + round((t − firstThu) / 7 days)
+key      = "<year of t>-W<week, 2 digits>"
 ```
 
-The Thursday shift is what makes the year correct for weeks straddling New
-Year. The key sorts lexically, which for this format is chronological.
+The Thursday shift fixes weeks straddling New Year. Keys sort chronologically.
+`weekKeySql` spells out the same steps with `date()`/`julianday()`;
+`strftime('%Y-%W')` is **not** equivalent (counts from the first Sunday and
+disagrees at about every other year boundary). The parity test checks every day
+2005–2035.
 
-**In SQL.** `weekKeySql` is the same three steps — find the Thursday, take its
-year, count weeks from that year's 4 January — spelled out with `date()` and
-`julianday()`. `strftime('%Y-%W')` is **not** this: it counts weeks from the
-first Sunday of the calendar year, and disagrees at roughly every other year
-boundary. The parity test runs both over every day from 2005 to 2035, because
-sampling would miss precisely the thirty days where they could differ.
+### Month and day keys
+
+```
+monthKey = "<UTC year>-<UTC month, 2 digits>"
+dayKey   = first 10 chars of the ISO string       # "2026-08-24"
+```
+
+Both sort chronologically. Monthly buckets are the one place calendar months
+are used.
 
 ### Duration in hours
 
@@ -285,1335 +208,899 @@ sampling would miss precisely the thirty days where they could differ.
 hours(from, to) = (epoch_seconds(to) − epoch_seconds(from)) / 3600
 ```
 
-Whole seconds, not `julianday` differences. A julianday is a REAL count of days
-whose rounding error is large enough to reorder two nearly-equal rows, and the
-order is what a percentile reads. Every timestamp GitHub gives these panels is
-at second resolution, which the parity test asserts, so this is exact rather
-than merely close.
+Whole seconds, not `julianday` differences, whose float error can reorder
+near-equal rows and so move a percentile. GitHub timestamps are whole seconds
+(asserted by the parity test), so this is exact.
 
-### Comparing a timestamp against a period boundary
+### Timestamp vs. period boundary (SQL)
 
-Not by parsing it. Every stored timestamp is a fixed-width
-`YYYY-MM-DDTHH:MM:SSZ` from GitHub, so lexical order over the column is
-chronological order and a window is a plain string comparison. The bound is
-ceiled to a whole second first, and both ends ceil the same way:
+Stored timestamps are fixed-width `YYYY-MM-DDTHH:MM:SSZ`, so a window test is a
+string comparison against a bound ceiled to the second:
 
 ```
-isoBound(ms) = ISO string of ceil(ms / 1000) seconds
-
-t × 1000 >= bound   ⟺   t >= ceil(bound / 1000)
-t × 1000 <  bound   ⟺   t <  ceil(bound / 1000)
+isoBound(ms) = ISO of ceil(ms / 1000) s
+t×1000 ≥ bound  ⟺  t ≥ ceil(bound/1000)
+t×1000 < bound  ⟺  t < ceil(bound/1000)
 ```
 
-The second equivalence holds whether or not the bound falls on an exact second,
-which is why one value serves both ends.
+Both hold whether or not the bound is on a whole second, so one value serves
+both ends. Without the ceiling the boundary second compares backwards (`Z` sorts
+after `.`). Parity tests assert the equivalence at ±1 ms and that no compared
+column has a fraction or varies in width.
 
-The ceiling is not a rounding convenience. Comparing a raw ISO string against a
-bound that carries milliseconds gets the boundary second *backwards*: `Z` sorts
-after `.`, so `…:19Z` reads as later than `…:19.825Z` when it is genuinely
-earlier. The parity test asserts the equivalence at the boundary and a
-millisecond either side of it, and separately that no compared column carries a
-fraction or varies in width.
-
-**Why not epoch seconds.** `CAST(strftime('%s', col) AS INTEGER) >= ?` is
-correct and was the first version. It parses a date per row per comparison, and
-this panel compares thirteen bounds against 29,000 rows in a dozen queries —
-43ms a query, against 7ms for the string compare.
-
-The CAST in that form is also not optional, which is worth recording even though
-nothing does it any more: `strftime` returns TEXT, and SQLite orders every TEXT
-value above every number regardless of the digits. Uncast, the comparison is not
-imprecise, it is *constant* — `>=` a bound always true and `<` always false,
-turning a windowed count into either the whole table or zero while looking
-exactly like a working query.
-
-### Month and day keys
-
-```
-monthKey(date) = "<UTC year>-<UTC month + 1, zero-padded>"
-dayKey(date)   = first 10 characters of the ISO string   ->  "2026-08-24"
-```
-
-Both sort lexically as chronological, same as the week key. Monthly buckets use
-real calendar months; this is the one place calendar boundaries are used.
-
-### Backlog age buckets
-
-One list, in `src/shared/analytics-rules.js` and re-exported from
-`src/panels/analytics.js`, imported by every panel that buckets by age so the
-org total always equals the sum of the repos:
-
-| Bucket | Condition |
-|---|---|
-| `< 1 week` | age < 7 days |
-| `1–4 weeks` | 7 ≤ age < 30 |
-| `1–3 months` | 30 ≤ age < 90 |
-| `3–12 months` | 90 ≤ age < 365 |
-| `> 1 year` | age ≥ 365 |
-
-Bucketing takes the **first** bucket whose `max` the value is strictly less
-than; anything past the last bucket falls into it. Ages are whole days,
-`floor((now − timestamp) / 86,400,000)`.
-
-The same list buckets by *staleness* (days since last update) as well as by age,
-on the cards that offer both.
+Not `CAST(strftime('%s', col) AS INTEGER)`: correct, but 43 ms per query vs 7 ms.
+If `strftime` is ever used for comparison the `CAST` is mandatory — SQLite sorts
+all TEXT above all numbers, so an uncast comparison is constant (always true or
+always false) and looks like a working query.
 
 ### Age and staleness
 
 ```
-ageDays(x)   = floor((now − x.createdAt) / 86,400,000)
-staleDays(x) = floor((now − x.updatedAt) / 86,400,000)   # null if no updatedAt
+ageDays   = floor((now − createdAt) / 86,400,000)
+staleDays = floor((now − updatedAt) / 86,400,000)     # null without updatedAt
 ```
 
-`now` is the build's start time, not the reader's clock — every age on a page is
-as of the last build.
+`now` is the build start, not the reader's clock.
 
-### Top-N lists
+### Backlog age buckets
 
-`topRepos`, `topAuthors` and `topReviewers` on the Analytics windows, the six
-`top*` lists on each Issue window, and any other "top eight by count" list.
+`src/shared/analytics-rules.js`, re-exported from `src/panels/analytics.js`,
+shared by every panel that buckets by age so org totals equal the sum of repos.
+
+| Bucket | Days |
+|---|---|
+| `< 1 week` | < 7 |
+| `1–4 weeks` | 7–29 |
+| `1–3 months` | 30–89 |
+| `3–12 months` | 90–364 |
+| `> 1 year` | ≥ 365 |
+
+First bucket whose `max` the value is strictly below; overflow goes to the last.
+Also used for staleness (days since update) on cards that offer both.
+
+### Top-N lists (people and repos)
+
+`topRepos`, `topAuthors`, `topReviewers` (Analytics), the six `top*` lists per
+Issue window, the by-contributor table, and every "top N by count" list.
 
 ```
-sort by count descending, then by key ascending
-take the first n
+sort by count desc, then key (login or repo) asc; take first n
 ```
 
-The tiebreak on the key — the login or the repo name — is the same fix the
-Leaderboard needed. Sorted on count alone, ties come out in whatever order the
-store yielded, so a list reshuffles between builds because somebody unrelated
-opened a pull request. Once the panel exists in two languages that is worse than
-noise: "whatever order the store yielded" is not something SQL can reproduce, so
-the two implementations would disagree by construction.
-
-Compared with `<` rather than `localeCompare`, so two runtimes in two locales
-cannot disagree about the answer.
-
-The by-contributor table is ranked the same way — involvement descending, then
-login — and it is where this mattered most. The cap is 200 out of 6,450
-participants and involvement is a small integer, so in the one-month window
-**256 people are level on an involvement of 1 and only 74 fit**. Adding the
-tiebreak replaced 53 of that window's 200 rows, and 79 across all seven.
-
-The Issue windows' six lists were sorted on count alone until the SQL port, and
-the effect was not cosmetic: of the 42 lists across seven windows, **eight
-changed when the tiebreak was added and six of those changed membership** — a
-different person appearing on the card. `topReporters` for the last year gained
-one name and lost another. Which of two people tied on the same count appeared
-was being decided by the order the store was walked in.
+The key tiebreak makes the order deterministic and reproducible in SQL; without
+it ties come out in store order. It matters: in the 1-month by-contributor
+window 256 people tie at involvement 1 for 74 slots (the tiebreak changed 53 of
+200 rows there, 79 across all windows), and on the Issue lists 8 of 42 lists
+changed, 6 in membership. Strings compare with `<`, not `localeCompare`, so
+locale cannot change the result.
 
 ### Top-N lists of issues
 
-`oldest`, `quietest` and `ignored` on the triage snapshot, and `mostDiscussed`.
+`oldest`, `quietest`, `ignored` (triage snapshot) and `mostDiscussed`.
 
 ```
-sort by the metric descending, then by repo ascending, then by number ascending
-take the first n
+sort by metric desc, then repo asc, then number asc; take first n
 ```
 
-Same reasoning as above, and it bites harder here, because the first three rank
-on a whole **day** count rather than on an event count. Every issue filed on the
-same day is level: nine open issues share the boundary age of the current
-`oldest` list and only six of them fit, so three are excluded by nothing but the
-order the store happened to yield.
+`(repo, number)` is the primary key, so the order is total. It bites here
+because the first three rank on whole days (e.g. nine open issues share the
+boundary age of `oldest` for six slots), and 723 issue pairs share
+`(comments, number)`. Per-repo issue rows: `open` desc, `total` desc, repo name
+(seven repo pairs tie on both counts).
 
-`mostDiscussed` had a tiebreak before this and it was not a total one — it broke
-on `number`, which is unique within a repo and not across them. 723 pairs of
-issues in the store share a `(comments, number)`. The repo completes it, and
-`(repo, number)` is the primary key, so no two rows can be left level.
+### First of two same-second events
 
-Per-repo issue rows sort the same way: `open` descending, `total` descending,
-then the repo name. Seven pairs of repos tie on both counts.
-
-The tiebreak changed the shipped output in exactly one place — two adjacent
-entries of `mostDiscussed`, tied on 54 comments, swapping — because the store is
-walked in roughly `(repo, number)` order already. That is the point: the order
-was right by accident, and an accident the SQL side does not share.
-
-### Which of two same-second issues came first
-
-`newReporters` counts issues that were their author's first ever, so it needs a
-total order over `(createdAt, issue)`. GitHub stamps to the second, and three
-authors in the store have filed more than one issue inside one second — without
-a tiebreak "is this their first?" is true of all of them, which once made the
-all-time first-time-reporter count exceed the reporter count it is a subset of.
+Used by `newReporters` and `newContributors` to decide "first ever".
 
 ```
-earliest createdAt, then the smallest "repo#number" as a string
+earliest createdAt, then smallest "repo#number" as a string
 ```
 
-A **string** comparison, deliberately, and it is the one ordering in the issue
-panels that is not `(repo, number)`: the two differ whenever two numbers in one
-repo have different digit counts, since `t#9` sorts after `t#10` as a string and
-before it as a number. No such pair exists in the store today, so the parity test
-constructs one rather than trusting the agreement to hold.
+A **string** comparison (`t#9` > `t#10`), deliberately; GitHub stamps to the
+second and some authors filed two items in one second, which once made
+first-time reporters exceed reporters. The parity test constructs a digit-count
+case since none exists in the store.
 
 ---
 
 ## What the stores contain
 
-Several numbers are decided at ingest time and merely counted later. If one of
-these derivations is wrong, no amount of reading the panel code will show it.
+Decided at ingest and only counted later.
 
 ### Traffic views and clones
 
-`src/ingest/traffic.js`.
+`src/ingest/traffic.js`. `GET /repos/{repo}/traffic/views` and `/clones` (each
+returns the full retained window). One row per `repo + UTC date` with `views`,
+`viewUniques`, `clones`, `cloneUniques`.
 
-**Shows** — how many times a repo was viewed and cloned, per day.
-
-**Rule** — `GET /repos/{repo}/traffic/views` and `/traffic/clones`, both of which
-return the whole retained window on every call. Each datapoint's `timestamp` is
-truncated to its `YYYY-MM-DD` UTC date and stored as one row per repo per day,
-carrying `views`, `viewUniques`, `clones`, and `cloneUniques`.
-
-**The store is keyed, not appended.** Every row is identified by `repo + date`,
-and a later reading of a day replaces the earlier one rather than adding to it.
-This is what makes the job safely re-runnable: successive runs overlap by
-thirteen days and collapse to nothing.
-
-**The current day is discarded.** GitHub counts today as it goes, so capturing
-it would store a partial number that only gets corrected if another run happens
-before midnight UTC. Rows only exist for days that have closed.
-
-**Yesterday can still arrive late.** GitHub's aggregation lags by some hours, so
-the most recent closed day is sometimes missing or zero at capture time. The
-next run overwrites it with the settled figure, so this self-heals — but a row
-read within a day of capture may be low.
-
-**A day with no traffic has no row.** GitHub omits datapoints for days a repo saw
-nothing, so absent and zero mean the same thing and neither is stored as a gap.
-Consequently the row count is well below `repos × days`.
-
-**Uniques do not sum.** `viewUniques` counts distinct visitors within one day.
-Adding a week of daily uniques counts a returning visitor once per day they
-appeared, so the result is an upper bound on weekly reach, not a headcount. Only
-`views` and `clones` are safely additive across days.
-
-**Clones are not people.** A single CI job cloning in a loop can put six figures
-of clones against a few dozen uniques. Where the two diverge sharply the traffic
-is automated, and the useful signal is `cloneUniques`.
-
-**Excluded repos are absent entirely**, per `NH_INGEST_EXCLUDE` — they are never
-requested, so their traffic is not merely hidden but never collected, and cannot
-be backfilled later.
+- **Keyed, not appended** — a later reading of a day replaces the earlier one,
+  so overlapping runs are idempotent.
+- **Today is discarded** — partial. Only closed days are stored.
+- **Yesterday may be low** — GitHub lags hours; the next run overwrites it.
+- **No traffic, no row** — absent = zero, so rows < repos × days.
+- **Uniques do not sum** — daily uniques summed over a week is an upper bound on
+  reach. Only `views` and `clones` add across days.
+- **Clones are not people** — CI can produce huge clones against few uniques;
+  `cloneUniques` is the useful signal.
+- **Excluded repos** (`NH_INGEST_EXCLUDE`) are never requested, so their traffic
+  can never be backfilled.
 
 ### First response on an issue
 
-`src/ingest/issues.js` (GraphQL path) and `src/ingest/issuesBulk.js` (REST bulk
-path).
+`src/ingest/issues.js` (GraphQL) and `src/ingest/issuesBulk.js` (REST bulk).
 
-**Shows** — when a human other than the reporter first said something.
+```
+firstResponseAt, firstResponder = first comment (creation order) whose author is
+                                  not null, not the issue author, not a bot
+```
 
-**Rule** — walk the issue's comments in creation order and take the first whose
-author is not null, not the issue's author, and not a bot. Record its timestamp
-as `firstResponseAt` and its author as `firstResponder`.
+- GraphQL reads `COMMENT_SAMPLE = 10` comments. No qualifying reply in those and
+  more than 10 comments → `responseUnknown: true`, a third state dropped from
+  **both** sides of every answered/unanswered figure.
+- REST bulk streams every comment, so it never sets `responseUnknown`; it keeps
+  up to `CANDIDATES = 3` early commenters and filters the reporter at merge.
+- Response medians cover issues with a known response only; never-answered
+  issues go to `neverAnswered`.
 
-**The sample limit** — the GraphQL walk fetches `COMMENT_SAMPLE = 10` comments
-per issue. If those ten contain no qualifying reply *and the issue has more than
-ten comments*, the record is stamped `responseUnknown: true`. That is a third
-state, and it is neither "answered" nor "unanswered" — such issues are dropped
-from **both** sides of every answered/unanswered figure rather than counted as
-silence.
+### Who closed an issue
 
-The REST bulk path streams every comment in the repo, so it always knows the
-true first reply and never sets `responseUnknown`. It keeps up to three distinct
-early commenters per issue (`CANDIDATES = 3`) because the reporter replying to
-themselves twice before anyone else speaks is common; the reporter is filtered
-out at merge time.
+`closure()` in `src/ingest/issues.js`; read by `closerOf`/`fixerOf`/`closingPR`
+in `src/panels/issueMetrics.js`. Both are counted, separately:
 
-**Consequence** — median first-response times are computed over issues that have
-a known response only. An issue nobody ever answered contributes to
-`neverAnswered`, not to the median.
+- **`closedBy`, the closer** — actor on the last `CLOSED_EVENT` (`last: 1`, so
+  only the close that stuck).
+- **`closedVia`, the fixer** — author of the closing PR, if the event names one.
 
-### Who closed an issue, and what closed it
-
-`closure()` in `src/ingest/issues.js`, read through `closerOf` / `fixerOf` /
-`closingPR` in `src/panels/issueMetrics.js`.
-
-Two people can reasonably be said to have closed an issue and the dashboard
-counts both, separately:
-
-- **`closedBy` / "the closer"** — the actor on the last `CLOSED_EVENT` in the
-  issue's timeline. Whoever pressed the button.
-- **`closedVia` / "the fixer"** — if the close event names a closing pull
-  request, that PR's author. Whoever wrote the fix.
-
-`last: 1` on the timeline query means an issue closed and reopened several times
-yields only the close that stuck.
-
-**`closerKnown`** is the honesty flag. The GraphQL walk always asks, so it writes
-`true`. The REST bulk path *cannot* ask — REST returns `closed_by` only when
-fetching one issue at a time — so it writes `false`. Any closed record without
-`closerKnown === true` is counted as `unknownCloser`, never as "closed by
-nobody". Every card showing a close count also shows this figure so a
-half-backfilled store reads as incomplete rather than as a team that does no
-triage.
+`closerKnown` is `true` from GraphQL and `false` from REST bulk (REST only
+returns `closed_by` per issue). Any closed record without `closerKnown === true`
+counts as `unknownCloser`, which every close-count card shows alongside.
 
 ### Close reason
 
-GitHub's `stateReason`, passed through. `UNRESOLVED = {NOT_PLANNED, DUPLICATE}`;
-everything else — including `null` — counts as completed.
-
-The null branch is counted separately as `unknownReason` so the assumption is
-visible if it ever fires. GitHub appears to have backfilled `COMPLETED` onto
-issues closed before the field existed, so it currently never does.
-
-New close reasons GitHub adds later will fall into "completed" until this set is
-updated. That fails towards the flattering answer, which is worth knowing.
+GitHub's `stateReason`. `UNRESOLVED = {NOT_PLANNED, DUPLICATE}`; everything
+else, including null, is completed. Null is also counted as `unknownReason`
+(currently never fires; GitHub backfilled `COMPLETED`). New reasons GitHub adds
+will count as completed until the set is updated.
 
 ### Approvals
 
-One approval per reviewer per PR, dated to that reviewer's **earliest**
-approval. Re-approving after a round of requested changes is one act of review,
-not two.
+One per reviewer per PR, dated by that reviewer's **earliest** approval.
+Exception: the contributor drilldown's review queue uses each reviewer's
+**latest** verdict (current state of the review).
 
-The exception is the review queue on a contributor drilldown, which takes each
-reviewer's **latest** verdict instead — it is answering "where does this review
-stand", and there only the newest verdict is still true.
-
-`reviews(first: 50)` caps how many reviews are fetched per PR. Anything beyond
-that sets `reviewsTruncated`, the contributors panel counts how many records
-carry it, and the build prints a warning. Approval counts on those PRs are
-slightly under.
-
-**Deleted accounts are dropped.** A review whose author is null — the account
-was deleted since — cannot be attributed to a reviewer, so it counts toward no
-one and is excluded from the total rather than grouped under a null reviewer.
-Two approvals are in this state today, and 31 reviews overall.
+- `reviews(first: 50)` per PR; more sets `reviewsTruncated`, counted by the
+  contributors panel and warned at build. Approvals on those PRs are floors.
+- Reviews by deleted accounts (null author) count toward no one and are
+  excluded from totals (2 approvals, 31 reviews today).
 
 ### Labels
 
-The GraphQL issue walk fetches `LABEL_SAMPLE = 15` labels per issue and sets
-`labelsTruncated` if there were more. The REST bulk path returns all of them and
-never truncates. PR labels are `labels(first: 10)`.
+GraphQL issue walk: `LABEL_SAMPLE = 15` per issue, sets `labelsTruncated` if
+more. REST bulk: all labels. PRs: `labels(first: 10)`.
 
 ### Reactions
 
-Issue reactions are **not** ingested at all. Three aggregate counts per issue is
-150 aggregations on a 50-issue page, and GitHub's abuse limit refused that query
-on the org's largest tracker on every attempt. Consequently:
+PR reactions are ingested; issue reactions are not (GitHub's abuse limit refused
+the query on the largest tracker). So PR 👍/👎 lists exist, and issue engagement
+is comment count only.
 
-- PR 👍/👎 lists exist (PR reactions *are* ingested)
-- Issue 👍/👎 lists do not exist; issue engagement is comment count only
+### Search API cap
 
-### Search-backed panels are capped at 1,000
-
-`searchIssues()` in `src/github/client.js` pages the Search API to a hard ceiling
-of 1,000 results — GitHub's limit, not ours. A query matching more prints a
-warning at build time. No current panel comes close, but if one ever does, its
-counts are a floor.
+`searchIssues()` in `src/github/client.js` stops at 1,000 results (GitHub's
+limit) and warns at build. Past that, counts are floors.
 
 ---
 
 ## Pull request metrics
 
-All from `src/panels/analytics.js`, over the ingested PR store.
+`src/panels/analytics.js`, over the PR store.
 
-### Totals (all time, not windowed)
+### Totals (all time)
 
 | Figure | Rule |
 |---|---|
-| `prs` | Every PR record with a `createdAt` |
-| `merged` | `mergedAt` is set |
-| `open` | No `mergedAt` and `state == OPEN` |
-| `closed` | Everything else — no `mergedAt`, not open |
-| `approvals` | Sum over PRs of the count of distinct non-bot approvers |
-| `contributors` | Distinct non-bot PR authors, all time |
-| `repos` | Distinct repos with at least one PR |
-| `firstPR` | Earliest first-PR timestamp across all authors |
+| `prs` | Records with `createdAt` |
+| `merged` | `mergedAt` set |
+| `open` | no `mergedAt`, `state = OPEN` |
+| `closed` | the rest |
+| `approvals` | Σ over PRs of distinct non-bot approvers |
+| `contributors` | distinct non-bot authors |
+| `repos` | distinct repos with ≥ 1 PR |
+| `firstPR` | earliest first-PR timestamp across authors |
 
-`merged + open + closed = prs` holds by construction: the three branches are
-exclusive and exhaustive.
+`merged + open + closed = prs` by construction.
 
 ### Time to merge
 
-**Shows** — hours from a PR being opened to being merged.
+On screen: *Median time to merge*, *Median to merge*, *To merge (median)*,
+*To merge (p90)*, *p90 to merge*
 
-**Numerator** — `(mergedAt − createdAt) / 3,600,000`, collected for every merged
-PR in the period.
+```
+mergeHours       = (mergedAt − createdAt) / 3,600,000     # merged PRs
+medianMergeHours = pct(mergeHours, 50)
+p90MergeHours    = pct(mergeHours, 90)
+```
 
-**Denominator** — none; this is a distribution. `medianMergeHours` is `pct(·,50)`
-of it and `p90MergeHours` is `pct(·,90)`.
+Dated by `mergedAt`. Bots included. Null when empty; `mergeN` is the sample
+size.
 
-**Excluded** — PRs never merged contribute nothing. Bots are *not* excluded; a
-bot's PR still took the time it took.
-
-**Empty case** — null, with `mergeN` reporting the sample size beside it.
-
-**Which window** — the sample is attributed to the window containing `mergedAt`.
-
-> **Watch this one.** The *window rollup* dates a merge-time sample by
-> `mergedAt`, but the *time series* buckets pushes the same sample into the
-> bucket containing `createdAt` — see [Time series
-> buckets](#time-series-buckets). So a bucket's `mergeMedianH` answers "PRs
-> opened this week took N hours to merge" while the KPI tile's
-> `medianMergeHours` answers "PRs merged this period took N hours". Those are
-> different questions and they will not agree. If a chart point and a tile
-> disagree, this is almost always why.
+> **Tiles and charts disagree by design.** The window figure dates each sample by
+> `mergedAt` ("PRs merged this period took N hours"). The time series puts the
+> same sample in the bucket containing `createdAt` ("PRs opened this week took N
+> hours"). A chart point and a tile differing is almost always this.
 
 ### Time to first review
 
-**Shows** — hours a PR author waited for anyone to look at their diff.
+On screen: *Median first review*, *To first review (median)*
 
-**Numerator** — `(firstReviewAt − createdAt) / 3,600,000`.
+```
+firstReviewAt   = earliest submittedAt of a review by neither a bot nor the PR author
+firstReviewHours = (firstReviewAt − createdAt) / 3,600,000
+```
 
-`firstReviewAt` is the earliest `submittedAt` among reviews whose author is not
-a bot and **not the PR's own author**. Verdict is irrelevant — a review
-requesting changes is still a review. Self-reviews do not count.
-
-**Empty case** — null; `reviewN` reports the sample size.
-
-**Which window** — attributed to the window containing `createdAt`, not the
-review date. This is the one deliberate exception to "count against your own
-timestamp": the metric is a property of the PR's opening, and the analytics
-series buckets it with `opened`.
+Any verdict counts. Null when empty; `reviewN` is the sample size. **Dated by
+`createdAt`**, the one deliberate exception to the event-timestamp rule: it is a
+property of the PR's opening.
 
 ### Merge rate
 
-```
-mergeRate = merged / (merged + closed)          # null when both are 0
-```
-
-**Denominator is PRs that reached a terminal state in the period.** Still-open
-PRs have no outcome yet and are excluded from both halves — they are not counted
-as failures.
-
-`merged` and `closed` here are the per-period counts, each dated by its own
-event, so a PR opened last year and merged this month contributes to this
-month's numerator.
-
-### Approved share, and unapproved merges
+On screen: *Merge rate*, *Merged share*
 
 ```
-approvedShare    = mergedWithApproval / merged   # null when merged = 0
+mergeRate = merged / (merged + closed)          # null if both 0
+```
+
+Denominator is PRs that reached an outcome in the period, each dated by its own
+event. Still-open PRs are in neither half.
+
+### Approved share and unapproved merges
+
+On screen: *Approved before merge*, *Merged with an approval*, *Merged without
+approval*, *Merged unapproved*
+
+```
+approvedShare    = mergedWithApproval / merged   # null if merged = 0
 unapprovedMerges = merged − mergedWithApproval
 ```
 
-`mergedWithApproval` counts merged PRs that had **at least one** non-bot
-approval at any point, not necessarily before the merge. A PR approved after
-merging still counts. That is a known looseness; in practice it is rare enough
-not to move the number.
-
-Both are dated by `mergedAt`.
+`mergedWithApproval` = merged PRs with ≥ 1 non-bot approval **at any time**,
+including after the merge (rare). Dated by `mergedAt`.
 
 ### Review concentration
 
+On screen: *Top-5 reviewer share* (tinted red above 60%, amber above 40%)
+
 ```
-reviewConcentration = (sum of the top 5 reviewers' approval counts)
-                    / (sum of all reviewers' approval counts)
+reviewConcentration = Σ approvals of top 5 reviewers / Σ approvals of all reviewers
 ```
 
-**Shows** — how much of the reviewing is done by how few people. A high number
-means the org has a bus problem regardless of how healthy the medians look.
-
-**Excluded** — bots. **Empty case** — null when nobody approved anything.
-
-Ties at the fifth position are broken arbitrarily by sort order; with five slots
-out of a reviewer pool this size that has no visible effect.
+Bots excluded. Null when nobody approved. Ties at fifth place follow the Top-N
+tiebreak.
 
 ### PR size
 
+On screen: *Median PR size*, *Lines added*, *Lines removed*, *Lines changed*
+
 ```
-lines(pr)     = pr.additions + pr.deletions
-medianPRLines = pct(sorted lines, 50)
-p90PRLines    = pct(sorted lines, 90)
-linesChanged  = sum of additions + sum of deletions
+lines(pr)     = additions + deletions
+medianPRLines = pct(lines, 50)
+p90PRLines    = pct(lines, 90)
+linesChanged  = Σ additions + Σ deletions
 ```
 
-**Critically**: a PR whose `additions` is not a number — a record ingested
-before diff fields were queried — is **skipped entirely**, not added as zero.
-`sizedPRs` reports how many PRs actually contributed. A half-backfilled store
-therefore reports a smaller *sample*, not a smaller codebase.
-
-Diff size and commit counts are attributed to the window containing
-`createdAt`, so "lines per PR" divides two numbers describing the same set of
-PRs.
-
-`changedFiles` is carried but not aggregated into any headline figure; it exists
-so an implausible line count can be checked against a file count.
+PRs without numeric `additions` (ingested before diff fields) are **skipped**,
+not zero; `sizedPRs` is the sample size. Diff size and commits are dated by
+`createdAt`, so lines per PR divides two figures over the same PRs.
+`changedFiles` is carried only as a sanity check, not aggregated.
 
 ### Changes-requested share
 
+On screen: *Needed changes first*
+
 ```
-changesRequestedShare = mergedAfterChanges / merged   # null when merged = 0
+changesRequestedShare = mergedAfterChanges / merged    # null if merged = 0
 ```
 
-**Shows** — of what landed, how much needed a round of changes first.
-
-**Numerator** — merged PRs carrying at least one non-bot `CHANGES_REQUESTED`
-review at any point, dated by `mergedAt`. The same merged denominator as
-`approvedShare`, deliberately, so the two read together as "was it looked at"
-and "did looking at it change anything".
-
-**Excluded** — bots. No self-exclusion: GitHub will not accept a
-changes-requested review from the PR's own author, so there is nothing to
-exclude.
-
-**Empty case** — null when nothing merged in the period.
-
-Only whether a PR was ever sent back, not how many times. The round count is
-not reported: 94% of PRs have none and the distribution is one bar and four
-slivers.
+`mergedAfterChanges` = merged PRs with ≥ 1 non-bot `CHANGES_REQUESTED` review at
+any time, dated by `mergedAt`. Same denominator as `approvedShare` so they read
+together. GitHub forbids self changes-requested, so no self-exclusion is needed.
+Whether a PR was sent back, not how often (94% never are).
 
 ### Time to abandon
 
+On screen: *Median to abandon*
+
 ```
-abandonHours      = closedAt − createdAt        # closed-unmerged PRs only
-medianAbandonHours = pct(sorted abandonHours, 50)
+abandonHours       = closedAt − createdAt     # state CLOSED, no mergedAt
+medianAbandonHours = pct(abandonHours, 50)
 ```
 
-**Shows** — how long a PR that never landed stayed open.
-
-**Numerator** — PRs with `state = CLOSED` and no `mergedAt`, dated by
-`closedAt`, the same way a merge time is dated by `mergedAt`.
-
-**Empty case** — null, with `abandonedWithTime` reporting the sample size.
-
-**Critically**: only records carrying `closedAt` qualify. The field was added to
-the ingest after the store was built, so a store the close-timestamp backfill
-has not reached reports null here rather than a number — see *Null versus zero*.
-The counts are more forgiving than the median: `closed`, and the closed side of
-the volume series, fall back to `updatedAt` where `closedAt` is absent. That
-fallback is wrong by however long the PR kept drawing comments after it was
-shut, which is why it is a fallback and not the definition, and why the median
-declines to use it at all.
+Dated by `closedAt`. Only records carrying `closedAt` count, so an
+un-backfilled store gives null; `abandonedWithTime` is the sample size. Counts
+(`closed`, closed side of the volume series) fall back to `updatedAt`; this
+median does not, since `updatedAt` overstates by any post-close comments.
 
 ### PR size buckets
 
-```
-lines(pr) = pr.additions + pr.deletions
+On screen: *PR size* card
 
-XS  < 10        S  10–49      M  50–249     L  250–999    XL  1000+
+```
+XS < 10 · S 10–49 · M 50–249 · L 250–999 · XL 1000+     (lines)
 
 per bucket:  prs, merged, mergeRate = merged / prs
-             medianMergeH, p90MergeH = percentiles of merge hours, merged only
+             medianMergeH, p90MergeH over merged PRs only
 ```
 
-**Shows** — how the size of a change relates to how long it takes to land.
-
-**Numerator** — every PR carrying diff data, bucketed on lines changed. The
-percentiles see only the merged ones, because an unmerged PR has no merge time;
-the counts see all of them, which is why `mergeRate` can fall while the medians
-stay flat.
-
-**Excluded** — records with no `additions`, skipped entirely rather than
-bucketed as zero, exactly as *PR size* above.
-
-**Empty case** — a bucket nothing landed in reports null medians, not 0.
-
-All time, not per window. The relationship is a structural property of how the
-org reviews rather than a trend, and thirteen copies of it would cost payload to
-say the same thing thirteen times — the same argument *Most grossing* makes.
-
-Buckets rather than an average, because the mean is indefensible here: it sits
-near 990 lines against a median of 26, and the largest single PR in the org is
-1.9 million lines. Any statistic that sums before it ranks is describing the
-generated and vendored files.
+All PRs with diff data go in the counts; only merged ones in the percentiles,
+so `mergeRate` can fall while medians stay flat. No diff data → skipped. Empty
+bucket → null medians. All time, not windowed. Buckets not means (mean ≈ 990
+lines vs median 26; largest PR 1.9M lines).
 
 ### Active authors, reviewers, repos, new contributors
 
+On screen: *Active authors*, *Active reviewers*, *Reviewers active*,
+*First-time contributors*, *First-time authors*, *First-time*
+
 | Figure | Rule |
 |---|---|
-| `activeAuthors` | Distinct non-bot logins that opened a PR in the period |
-| `activeReviewers` | Distinct non-bot logins that gave a first approval in the period |
-| `activeRepos` | Distinct repos with a PR opened in the period |
-| `newContributors` | PRs opened in the period that were that author's first ever |
+| `activeAuthors` | distinct non-bot logins that opened a PR in the period |
+| `activeReviewers` | distinct non-bot logins that gave a first approval in the period |
+| `activeRepos` | distinct repos with a PR opened in the period |
+| `newContributors` | PRs opened in the period that were the author's first ever |
 
-"First ever" is decided in a pass before bucketing: for each non-bot author,
-find the PR with the earliest `createdAt`, breaking ties on `repo#number`
-lexically. A PR is somebody's first if it *is* that PR.
-
-The tie-break on the identifier rather than on the timestamp is load-bearing.
-GitHub stamps to the second, so two PRs opened in the same second would both
-match a timestamp comparison and both count as somebody's first — which is how
-the issue side once reported more first-time reporters than reporters.
+First ever: per non-bot author, earliest `createdAt`, ties by `repo#number`
+string (see *First of two same-second events*).
 
 ### Open backlog
 
-Built from PRs where `state == OPEN` and `mergedAt` is unset.
+On screen: *Open backlog*, *Open PRs*
+
+Over PRs with `state = OPEN` and no `mergedAt`; not windowed.
 
 | Figure | Rule |
 |---|---|
-| `total` | Count of open PRs |
-| `unreviewed` | Open PRs with no `firstReviewAt` — nobody but the author has spoken |
-| `buckets` | Open PRs bucketed by `ageDays` against the shared bucket list |
-| `oldest` | The 25 highest `ageDays`, descending |
+| `total` | open PRs |
+| `unreviewed` | no `firstReviewAt` |
+| `buckets` | by `ageDays`, shared buckets |
+| `oldest` | 25 highest `ageDays` |
 
-Not windowed. "Open right now" is a statement about now.
-
-`ageDays` is a whole number of days, so the 25 tie constantly. The SQL panel
-orders the tied ones by `createdAt` then `repo#number`; the Node panel leaves
-them in store order. Both lists are 25 PRs of the same ages, and which member of
-a tied group appears is arbitrary either way — the parity test asserts the ages
-rather than the identities for exactly that reason.
+Whole-day ages tie often: SQL breaks ties by `createdAt`, then `repo#number`;
+Node leaves store order. The parity test compares ages, not identities.
 
 ### Time series buckets
 
-Emitted at three granularities — `day`, `week`, `month` — with the same fields.
-Each PR contributes to **two** buckets:
+On screen: *PR volume*, *Review latency*, *Contributor growth*
 
-1. The bucket containing `createdAt` gets `opened`, the author added to the
-   distinct-author set, `newAuthors` if it was their first, and the PR's merge
-   and review latencies pushed onto that bucket's samples.
-2. The bucket containing the PR's *end* — `mergedAt`, or `updatedAt` if closed
-   unmerged — gets `merged` or `closed`.
+Day, week and month granularity, same fields. Each PR contributes to two
+buckets:
 
-So within a single bucket, `merged` is **not** a subset of `opened`. A bucket
-can show 10 opened and 14 merged.
+1. Bucket of `createdAt`: `opened`, author into the author set, `newAuthors` if
+   first ever, and its merge and first-review hours into the samples.
+2. Bucket of its end (`mergedAt`, or close time if unmerged): `merged` or
+   `closed`.
 
-Per-bucket outputs:
+So `merged` is not a subset of `opened` within a bucket.
 
 | Field | Rule |
 |---|---|
-| `opened`, `merged`, `closed` | Counts as above |
-| `authors` | Size of the distinct non-bot author set |
-| `newAuthors` | First-ever PRs opened in the bucket |
-| `mergeMedianH`, `mergeP90H` | Percentiles over that bucket's merge-hour sample |
-| `reviewMedianH` | Median over that bucket's first-review-hour sample |
-| `mergeN`, `reviewN` | Sample sizes, so a wild median can be spotted as a small one |
-| `t` | Earliest timestamp seen in the bucket, for sorting |
+| `opened`, `merged`, `closed` | as above |
+| `authors` | distinct non-bot authors |
+| `newAuthors` | first-ever PRs opened |
+| `mergeMedianH`, `mergeP90H` | percentiles of the bucket's merge hours |
+| `reviewMedianH` | median of its first-review hours |
+| `mergeN`, `reviewN` | sample sizes |
+| `t` | earliest timestamp in the bucket, for sorting |
 
-**Daily buckets only reach back `DAY_SERIES_DAYS = 730` days.** An all-time
-daily series would be ~4,300 buckets in a file committed on every build. The
-payload carries `series.dayFrom` and the frontend says so rather than quietly
-plotting a shorter span than the control promised.
+Daily buckets go back `DAY_SERIES_DAYS = 730` only (all time would be ~4,300
+buckets); `series.dayFrom` carries the
+limit and the frontend states it.
 
 ### Activity heatmap
 
-A 7 × 24 grid of PR-creation counts: `heat[weekday][hour]`, where weekday is
-`(UTC day of week + 6) mod 7` so Monday is row 0, and hour is the UTC hour.
+On screen: *When PRs open*
 
-**Excluded** — bots, and anything older than 365 days. Not affected by the
-window control.
+```
+heat[weekday][hour] = PRs created     weekday = (UTC weekday + 6) mod 7  (Mon = 0)
+shade = count / max(cells)            # in the browser
+```
 
-Cell shading is `count / max(all cells)`, computed in the browser.
+Bots excluded; last 365 days only; ignores the window control.
 
 ### Most grossing
 
-`src/panels/grossing.js`. Three all-time ranked lists — most commented, most 👍,
-most 👎.
+On screen: *Most grossing*
+
+`src/panels/grossing.js`. Three all-time lists: most commented, most 👍, most 👎.
 
 ```
-topGrossing(entries, field, n):
-  keep entries where entries[field] > 0
-  sort descending by field, ties broken by descending PR number
-  take first n
+keep entries with field > 0; sort by field desc, then PR number desc; take n
 ```
 
-**All-time, never windowed.** A window-keyed top 5 across three kinds and seven
-windows is roughly 9 MB across the org's repos, to slice a list whose whole
-appeal is that it is the hall of fame — and it would leave the 1-month view as
-three empty boxes on most repos, since the median PR draws no reaction at all.
-
-Zero-count entries are dropped rather than padding the list to `n`. A list
-padded to five with 0-comment PRs claims a ranking that isn't there.
-
-`n` is 5 on a repo drilldown and 10 on the org-wide Analytics card, because a top
-5 across 1,400 repos is almost entirely one repo's greatest hits.
-
-Ties break on PR number so the output is identical across builds rather than
-reordering with whatever the store happened to yield first.
+n = 5 on a repo drilldown, 10 on the org card (a top 5 across ~1,400 repos is
+mostly one repo). Never windowed (a windowed
+version would be ~9 MB and mostly empty). Zero-count entries are dropped, not
+padded.
 
 ---
 
 ## Contributor metrics
 
-`src/panels/contributors.js`, plus `src/panels/activeDays.js` for the active-day
-half.
+`src/panels/contributors.js`; active days in `src/panels/activeDays.js`.
 
 ### Per-window counts
 
-For each person and each window:
-
 | Field | Counted when | Dated by |
 |---|---|---|
-| `prs` | They opened a PR | `createdAt` |
-| `merged` | A PR of theirs was merged | `mergedAt` |
-| `approvals` | They approved a PR | their earliest approval's `submittedAt` |
+| `prs` | they opened a PR | `createdAt` |
+| `merged` | a PR of theirs merged | `mergedAt` |
+| `approvals` | they approved a PR | their earliest approval |
 
-The bump rule is `ageDays = (now − timestamp) / 86,400,000`, and the event is
-added to every window where `days == null or ageDays ≤ days`. Note this is `≤`,
-where the analytics panel's period test is `≥ from` — the boundary differs by
-one clock tick between the two panels, which is immaterial at day granularity
-but is the kind of thing worth knowing before chasing an off-by-one.
+An event is added to every window with `days == null or ageDays ≤ days`, where
+`ageDays = (now − t) / 86,400,000`. This is `≤`, while analytics uses `≥ from`:
+the boundary differs by one tick between the panels.
 
-`firstSeen` and `lastSeen` are the min and max of every timestamp that ever
-bumped that person, so they cover PRs, merges and approvals but **not** issue
-activity. The drilldown's `first`/`last` do include issues; those two dates can
-legitimately differ for a triager.
+`firstSeen`/`lastSeen` (On screen: *First PR*, *Last active*) = min/max over PRs,
+merges and approvals, **not** issues. A drilldown's `first`/`last` (*Active
+since*) include issues, so they can differ for a triager.
 
 ### Leaderboard ordering
 
-Rows sort descending by `all.prs + all.approvals`. This is a sum of acts, not a
-score — filing a PR and approving one are both work, and weighting them against
-each other would invent a judgement the data cannot support.
+On screen: *Leaderboard*
 
-Rows are filtered by `all.prs + all.approvals ≥ CONTRIBUTOR_MIN_ACTIVITY`, which
-is 0 by default. The useful filtering happens in the browser as a slider.
+```
+rank by all.prs + all.approvals desc
+show if all.prs + all.approvals ≥ CONTRIBUTOR_MIN_ACTIVITY   # default 0
+```
+
+An unweighted sum of acts. Further filtering is a browser slider.
 
 ### Active days
 
-`src/panels/activeDays.js`. Shared by the Leaderboard column and the contributor
-drilldown tile so the two pages cannot disagree about the same person.
+On screen: the active-days share on Leaderboard and drilldown
 
-**A day worked** is a calendar day (UTC, `YYYY-MM-DD`) on which the person did
-at least one of:
-
-- opened a pull request
-- submitted a review of **any** verdict, not just an approval
-- filed an issue
-- was the first responder on an issue
-- closed an issue (pressed the button)
-- authored the pull request that closed an issue
-
-**Not a day worked**: their own PR being merged by somebody else. That is a day
-*they* had, not a day they worked, and counting it would credit people for other
-people's Tuesdays.
-
-The day set is deduplicated, so five PRs in one afternoon is one day.
-
-**The denominator is the load-bearing part:**
+A UTC calendar day on which the person did at least one of: opened a PR,
+submitted a review (any verdict), filed an issue, was first responder on an
+issue, closed an issue, or authored the PR that closed an issue. Their own PR
+being merged by someone else does **not** count. Days are deduplicated.
 
 ```
-fixed window:  days  = count of active days ≥ (today − N)
+fixed window:  days  = active days ≥ today − N
                denom = N
-
-all time:      days  = count of all active days
-               denom = (today − their first active day) in days, + 1
+all time:      days  = all active days
+               denom = (today − first active day) + 1
+activeShare = days / denom                  # ≤ 100% by construction
 ```
 
-**Every period runs to today, never to the person's last active day.** The first
-version divided by `last − first`, which freezes the clock the day somebody
-stops, so leaving is invisible to the arithmetic: somebody who opened four PRs
-in one afternoon of 2023 and never came back had a one-day span, scored 100%,
-and outranked a decade of work. Over half the people in the store are that
-contributor. Running the denominator to today puts the gap since their last
-commit *in* the denominator, where it grows every day they stay away.
-
-The denominator ships with the count rather than being recomputed in the
-browser, precisely so a second implementation cannot drift. `days ≤ denom` holds
-by construction, so the share cannot exceed 100%.
-
-Rendered as `activeShare = activeDays / denom` — see `activeShare()` in
-`web/js/format.js`, which reads `activeSpan` on a drilldown record and
-`activeDenom` on a leaderboard row. Two field names, one meaning.
+The period always runs to **today**, never to the last active day, so time
+away counts against the share (dividing by `last − first` gave a one-afternoon
+contributor 100%). The denominator ships in the payload: `activeSpan` on a
+drilldown record, `activeDenom` on a leaderboard row, read by `activeShare()` in
+`web/js/format.js`.
 
 ### Gone quiet
 
-Browser-side, in `web/js/modules/people.js`. Contributors where
-`all.prs + all.approvals ≥ 20` **and** days since `lastSeen` > 180. Both
-thresholds are hardcoded in that module, not configurable.
+On screen: *Gone quiet*
+
+`web/js/modules/people.js`: `all.prs + all.approvals ≥ 20` and
+`now − lastSeen > 180 days`. Both hardcoded.
 
 ### New faces
 
-Contributors whose `firstSeen` is within the card's own window. This card keeps
-a period separate from the page's, because "who's new" and "who's busiest" want
-different spans by nature.
+On screen: *New faces*
+
+Contributors whose `firstSeen` falls in the card's own period, which is
+separate from the page's.
 
 ---
 
 ## Issue metrics
 
-Definitions live once in `src/panels/issueMetrics.js` because three places
-aggregate the issue store — the org panel, the repo drilldown and the person
-drilldown — and they have to agree.
+Definitions live once in `src/panels/issueMetrics.js`, shared by the org panel,
+the repo drilldown and the person drilldown.
 
-### Tracker-shaped rollup
+### Tracker rollup (org or repo)
 
-The shape used when the subject is a thing issues happen *to* (the org, or one
-repo).
-
-| Metric | Formula | Notes |
+| Metric | On screen | Formula |
 |---|---|---|
-| `opened` | Count of issues created in the period | |
-| `closed` | Count of issues closed in the period | Dated by `closedAt` |
-| `completed` | Closed with `stateReason` not in {NOT_PLANNED, DUPLICATE} | Includes null reason |
-| `notPlanned` | Closed with `stateReason == NOT_PLANNED` | |
-| `duplicate` | Closed with `stateReason == DUPLICATE` | |
-| `unresolved` | `notPlanned + duplicate` | The closes that resolved nothing |
-| `net` | `opened − closed` | Positive means the backlog grew |
-| `completedShare` | `completed / closed` | Null when `closed == 0` |
-| `medianCloseHours` | `pct(closeHours, 50)` | `closeHours = (closedAt − createdAt) / 3.6e6` |
-| `p90CloseHours` | `pct(closeHours, 90)` | |
-| `medianFirstResponseHours` | `pct(responseHours, 50)` | `responseHours = (firstResponseAt − createdAt) / 3.6e6` |
-| `p90FirstResponseHours` | `pct(responseHours, 90)` | |
-| `labeledShare` | `labeled / opened` | Over issues **opened** in the period |
-| `unlabeled` | `opened − labeled` | |
-| `answeredShare` | `answered / (answered + unanswered)` | See below |
-| `neverAnswered` | `unanswered` | |
-| `reporters` | Distinct non-bot authors of issues opened in the period | |
-| `newReporters` | Issues opened that were that author's first ever | Same tie-break rule as PRs |
-| `responders` | Distinct non-bot first responders in the period | |
-| `responses` | Total first replies given in the period | |
-| `closers` | Distinct people who pressed close in the period | |
-| `closedByPR` | Closes where a pull request did the closing | |
-| `closedByHand` | Closes with a known actor and no closing PR | |
-| `unknownCloser` | Closes the store cannot attribute | The honest denominator for the two above |
-| `assignees` | Distinct non-bot assignees on issues opened in the period | |
-| `comments` | Sum of comment counts on issues opened in the period | |
-| `closedN`, `respondedN` | Sample sizes behind the medians | |
+| `opened` | Opened, Issues filed | issues created in the period |
+| `closed` | Closed, Issues closed | issues closed in the period (`closedAt`) |
+| `completed` | Closed as completed | closed, `stateReason ∉ {NOT_PLANNED, DUPLICATE}` (null counts) |
+| `notPlanned` | Closed as not planned | `stateReason = NOT_PLANNED` |
+| `duplicate` | Closed as duplicate | `stateReason = DUPLICATE` |
+| `unresolved` | Closed unresolved | `notPlanned + duplicate` |
+| `net` | Net, Net backlog, Backlog moved | `opened − closed`; positive = backlog grew |
+| `completedShare` | Completed share, Resolved share, Resolved rather than declined | `completed / closed`; null if `closed = 0` |
+| `medianCloseHours` | Median time to close, To close (median), Median close | `pct(closeHours, 50)`, `closeHours = (closedAt − createdAt) / 3.6e6` |
+| `p90CloseHours` | To close (p90) | `pct(closeHours, 90)` |
+| `medianFirstResponseHours` | Median first response, To first response (median) | `pct(responseHours, 50)`, `responseHours = (firstResponseAt − createdAt) / 3.6e6` |
+| `p90FirstResponseHours` | | `pct(responseHours, 90)` |
+| `labeledShare` | Labeled on arrival | `labeled / opened`, over issues opened in the period |
+| `unlabeled` | Unlabeled | `opened − labeled` |
+| `answeredShare` | Answered share, Answered at all | `answered / (answered + unanswered)` |
+| `neverAnswered` | Never answered | `unanswered` |
+| `reporters` | Reporters, Distinct reporters | distinct non-bot authors of issues opened |
+| `newReporters` | First-time reporters | issues opened that were the author's first ever |
+| `responders` | People answering | distinct non-bot first responders |
+| `responses` | First replies | first replies given |
+| `closers` | People closing, Closers | distinct people who pressed close |
+| `closedByPR` | Closed by a PR, Closes from a PR | closes done by a PR |
+| `closedByHand` | Closed by hand | closes with a known actor and no PR |
+| `unknownCloser` | Closer not recorded | closes the store cannot attribute |
+| `assignees` | People assigned | distinct non-bot assignees on issues opened |
+| `comments` | Comments | Σ comments on issues opened |
+| `closedN`, `respondedN` | | sample sizes behind the medians |
 
-**`net` is deliberately a difference, not a ratio.** "12 more than we closed" is
-a number you can act on; "1.04" is not.
+`answeredShare` excludes `responseUnknown` records from both halves, so
+`answered + unanswered` can be less than `opened`.
 
-**`answeredShare`'s denominator is not `opened`.** It is `answered + unanswered`,
-which excludes `responseUnknown` records — issues whose comment sample was
-exhausted without finding a human reply. Those are genuinely undecided and are
-dropped from both halves rather than counted as silence. So on a store with many
-such records, `answered + unanswered < opened`.
+`closedByPR + closedByHand + unknownCloser = closed` by construction.
 
-`closedByPR + closedByHand + unknownCloser = closed` holds by construction.
+### Person rollup
 
-### Person-shaped rollup
+Filing, answering, closing and fixing are kept separate.
 
-The shape used when the subject is somebody doing things *to* issues. Four
-distinct jobs, kept apart: filing, answering, closing, and fixing with a PR.
-Someone who only triages and someone who only writes fixes both look busy on
-this org, and a single "issues" number would describe neither.
+| Metric | On screen | Formula |
+|---|---|---|
+| `filed` | Filed, Issues filed | issues they opened |
+| `filedOpen` / `filedClosed` | Open filed | of those, open / closed |
+| `filedCompleted` / `filedUnresolved` | | of the closed, by close reason |
+| `acceptedShare` | Accepted, Accepted share | `filedCompleted / filedClosed` — a property of the reports, not the person |
+| `filedLabeledShare` | | `filedLabeled / filed` |
+| `filedAnswered` / `filedUnanswered` | | their reports that got a reply / never did |
+| `answeredShare` | Their reports answered | `filedAnswered / (filedAnswered + filedUnanswered)` |
+| `commentsReceived` | Comments received | Σ comments on issues they filed |
+| `medianWaitHours`, `p90WaitHours` | Median wait for a reply, They waited | percentiles of how long **their** reports waited for a reply |
+| `responses` | First replies given | first replies they gave on others' issues, dated by the reply |
+| `medianResponseLagHours`, `p90ResponseLagHours` | Median reply lag, They answered in | issue age when they replied |
+| `closed` | Closed by them | closes where they pressed the button (`closedAt`) |
+| `closedCompleted` / `closedUnresolved` | | of those, by reason |
+| `closedOwn` | | …of their own issues (not triage) |
+| `closedForOthers` | …for others | `closed − closedOwn` |
+| `closedByTheirPR` | Closed by their PR | they pressed close **and** their PR was the closer |
+| `closedByHand` | | they pressed close, no PR |
+| `medianCloseLagHours`, `p90CloseLagHours` | Median age at close | issue age when they closed it |
+| `fixed` | | closed by a PR they authored, whoever pressed close |
+| `assigned` / `assignedOpen` | Assigned, Assigned to them, Assigned, open | issues assigned to them / still open |
+| `triage` | Triage acts | `responses + (closed − closedOwn)` |
+| `involvement` | | `filed + responses + closed + fixed` |
+| `repos` | Repos touched | distinct repos they touched an issue in |
+| `filedRepos` | | distinct repos they filed in |
+| `helped` | People helped | distinct other reporters they answered or closed for |
 
-| Metric | Formula |
-|---|---|
-| `filed` | Issues they opened in the period |
-| `filedOpen` / `filedClosed` | Of those, still open / closed |
-| `filedCompleted` / `filedUnresolved` | Of the closed ones, by close reason |
-| `acceptedShare` | `filedCompleted / filedClosed` |
-| `filedLabeledShare` | `filedLabeled / filed` |
-| `filedAnswered` / `filedUnanswered` | Their reports that got a reply / never did |
-| `answeredShare` | `filedAnswered / (filedAnswered + filedUnanswered)` |
-| `commentsReceived` | Sum of comments on issues they filed |
-| `medianWaitHours`, `p90WaitHours` | Percentiles of how long **their own** reports waited for a reply |
-| `responses` | First replies they gave to somebody else, dated by the reply |
-| `medianResponseLagHours`, `p90ResponseLagHours` | How old the issue was when they replied |
-| `closed` | Closes where they pressed the button, dated by `closedAt` |
-| `closedCompleted` / `closedUnresolved` | Of those, by close reason |
-| `closedOwn` | …of their own issues, which is not triage |
-| `closedForOthers` | `closed − closedOwn` |
-| `closedByTheirPR` | Closes where they pressed the button *and* their PR did the fixing |
-| `closedByHand` | Closes they pressed where no PR was the closer |
-| `medianCloseLagHours`, `p90CloseLagHours` | How old the issues were when they closed them |
-| `fixed` | Issues closed by a PR they authored, whoever pressed the button |
-| `assigned` / `assignedOpen` | Issues they were assigned, and how many are still open |
-| `triage` | `responses + (closed − closedOwn)` |
-| `involvement` | `filed + responses + closed + fixed` |
-| `repos` | Distinct repos they touched an issue in, any way |
-| `filedRepos` | Distinct repos they filed in |
-| `helped` | Distinct other reporters they answered or closed for |
+`triage` and `involvement` are unweighted sums of acts, for ranking.
 
-**`acceptedShare` is a property of the reports, not the person.** A good bug
-report about a mod nobody maintains still ends up not-planned.
+One person can hold several roles on one issue (reporter and closer is common)
+and is credited in each. The `_iclosed` log emits **one row per close**, noting
+whether they pressed close, wrote the PR, or both.
 
-**`triage` and `involvement` are sums of acts, not scores.** No weighting is
-applied between filing, answering and closing, because weighting them would
-invent a judgement the data cannot support. They exist to rank a leaderboard by,
-and a leaderboard ranked by a sum of acts is honest about what it is.
-
-**A person can be several things at once on one issue** — reporter and closer is
-common — and every branch is independent, so they are credited in each. The
-`_iclosed` log emits **one row** per close whether they pressed the button,
-wrote the PR, or both; the row says which. Two rows for one close would
-double-count the log against the counts beside it.
-
-**Assignment carries no date of its own**, so it is dated by the issue's
-`createdAt`. An assignment made today on a five-year-old issue lands in the
-five-year-old window.
+Assignment has no date of its own, so it is dated by the issue's `createdAt`.
 
 ### Label groups
 
-Label names on the modpack follow `Prefix: Value`. Splitting is by the regex
-`^([A-Za-z0-9][A-Za-z0-9 ]*):\s*(.+)$` — anything not matching is grouped as
-`Other` with the whole name as its short form.
+Labels follow `Prefix: Value`, split by `^([A-Za-z0-9][A-Za-z0-9 ]*):\s*(.+)$`;
+non-matching labels go to `Other` with the full name.
 
 Groups sort by `GROUP_ORDER = [Status, Bug, Type, Platform, Mod, Other]`, then
-alphabetically for anything unlisted, then by descending open count, then by
-descending total.
-
-Label stats are keyed by **repo and name**, never name alone. Labels are a
-per-tracker taxonomy; an org-wide sum of "Bug: Minor" across trackers that mean
-different things by it means nothing. See the browser-side note on combining
-them.
-
-### Issue triage snapshot
-
-Not windowed — a statement about right now. Over all open issues:
-
-| Figure | Rule |
-|---|---|
-| `open` | Count of open issues |
-| `unlabeled` | Open with no labels |
-| `unanswered` | Open where `isUnanswered` — no `firstResponseAt` **and** not `responseUnknown` |
-| `unassigned` | Open with no assignees |
-| `stale` | Open where `staleDays ≥ ISSUE_STALE_DAYS` (90) |
-| `ageBuckets` | Open bucketed by `ageDays` |
-| `staleBuckets` | Open bucketed by `staleDays` |
-| `oldest` | 40 highest `ageDays`, ties on `(repo, number)` |
-| `quietest` | 40 highest `staleDays`, ties on `(repo, number)` |
-| `ignored` | Unanswered open issues, 40 highest `ageDays`, ties on `(repo, number)` |
-
-`ISSUE_STALE_DAYS` is 90 rather than 30: on a modpack this size a bug report
-going quiet for a month usually means it is queued behind a release, not that it
-was dropped.
-
-### Per-repo issue stats
-
-| Figure | Rule |
-|---|---|
-| `total`, `open`, `closed` | All-time counts for that repo |
-| `unanswered`, `unlabeled`, `unassigned`, `stale` | Counted over **open** issues only |
-| `closedByPR` | All-time closes with a closing PR |
-| `prShare` | `round3(closedByPR / closed)`, null when `closed == 0` |
-| `reporters`, `closers` | Distinct non-bot logins, all time |
-| `medianCloseHours`, `medianFirstResponseHours` | Medians over the repo's full history |
-| `last` | Max `updatedAt` across its issues |
-
-Note the asymmetry: the counts on the left are all-time, the four in the middle
-are open-only. That is intentional — "how many unanswered issues are in this
-repo" is only a useful question about live ones.
-
-### Issue time series buckets
-
-Same three granularities as the PR series, same `dayFrom` limit of 730 days,
-and the same two-bucket rule: an issue contributes `opened` to the bucket
-containing `createdAt`, and `closed` to the bucket containing `closedAt`.
-
-| Field | Rule |
-|---|---|
-| `opened`, `closed` | As above |
-| `unresolved` | Closes in this bucket whose reason is NOT_PLANNED or DUPLICATE |
-| `net` | `opened − closed`. The only figure on the chart that can go negative, and the one that answers "are we keeping up" |
-| `reporters` | Distinct non-bot authors of issues opened in the bucket |
-| `newReporters` | First-ever issues opened in the bucket |
-| `closeMedianH`, `closeP90H` | Percentiles over close-hour samples |
-| `responseMedianH` | Median first-response hours |
-| `closeN`, `responseN` | Sample sizes |
-
-The latency samples are pushed into the bucket containing `createdAt`, matching
-the PR series and carrying the same caveat: bucket medians are dated by open
-date while window medians are dated by the event.
-
-### Most discussed
-
-The 25 issues with the highest comment count, all time, ties broken on
-`(repo, number)` ascending — see **Top-N lists of issues**. Issues with zero
-comments are excluded.
-
-Comment count is the only engagement signal available on the issue side —
-reactions were dropped from the ingest query when GitHub's abuse limit refused
-them on the org's largest tracker.
+unlisted groups alphabetically, then open desc, then total desc. Label stats are
+keyed by **repo and name**, never name alone, since each tracker has its own
+taxonomy.
 
 ### Label table ordering
 
-Per repo, the label rows sort by group rank, then group name, then `open`
-descending, then `total` descending, then the label name.
+On screen: *Label mix* (Issues)
 
-The name is the tiebreak and it carries a quarter of the table: **86 of the 314
-label rows are level on both `open` and `total` inside their own group**,
-because most labels carry a single issue. Without it that quarter sits in store
-order, which the SQL side cannot reproduce.
+Per repo: group rank, group name, `open` desc, `total` desc, label name. The
+name tiebreak decides 86 of 314 rows (tied on open and total within their
+group). All comparisons use `<`, not `localeCompare`.
 
-Group rank comes from `GROUP_ORDER` — Status, Bug, Type, Platform, Mod, Other —
-with anything unlisted sorting after those, alphabetically. All string
-comparisons use `<` rather than `localeCompare`, including the group name, so
-two runtimes in two locales cannot disagree.
+### Triage snapshot
+
+On screen: *Triage state*, *Needs attention*, *Oldest open*, *Quietest*,
+*Quiet for 3 months or more*
+
+Not windowed; over all open issues.
+
+| Figure | Rule |
+|---|---|
+| `open` | open issues |
+| `unlabeled` | open, no labels |
+| `unanswered` | open and `isUnanswered`: no `firstResponseAt` and not `responseUnknown` |
+| `unassigned` | open, no assignees |
+| `stale` | open, `staleDays ≥ ISSUE_STALE_DAYS` (90) |
+| `ageBuckets` / `staleBuckets` | open by `ageDays` / `staleDays` |
+| `oldest` | 40 highest `ageDays` |
+| `quietest` | 40 highest `staleDays` |
+| `ignored` | unanswered open, 40 highest `ageDays` |
+
+Ties on `(repo, number)`. 90 days rather than 30 because a quiet month on this
+modpack usually means waiting on a release.
+
+### Per-repo issue stats
+
+On screen: *Where the issues are*
+
+| Figure | Rule |
+|---|---|
+| `total`, `open`, `closed` | all time |
+| `unanswered`, `unlabeled`, `unassigned`, `stale` | **open issues only** |
+| `closedByPR` | all-time closes by a PR |
+| `prShare` | `round3(closedByPR / closed)`; null if `closed = 0` |
+| `reporters`, `closers` | distinct non-bot logins, all time |
+| `medianCloseHours`, `medianFirstResponseHours` | over the repo's full history |
+| `last` | max `updatedAt` |
+
+### Issue time series buckets
+
+On screen: *Issue volume*, *Response and resolution*
+
+Same granularities and 730-day daily limit as PRs. `opened` goes to the
+`createdAt` bucket, `closed` to the `closedAt` bucket.
+
+| Field | Rule |
+|---|---|
+| `opened`, `closed` | as above |
+| `unresolved` | closes in the bucket with reason NOT_PLANNED or DUPLICATE |
+| `net` | `opened − closed`; the only chart figure that can go negative |
+| `reporters` | distinct non-bot authors of issues opened |
+| `newReporters` | first-ever issues opened |
+| `closeMedianH`, `closeP90H` | close-hour percentiles |
+| `responseMedianH` | median first-response hours |
+| `closeN`, `responseN` | sample sizes |
+
+Latency samples go in the `createdAt` bucket, with the same tile-vs-chart caveat
+as PRs.
+
+### Most discussed
+
+On screen: *Most discussed*
+
+25 issues with the most comments, all time; zero-comment issues excluded; ties
+by `(repo, number)`. Comments are the only issue engagement signal (see
+Reactions).
 
 ### Per-label monthly series
 
-Only for `ISSUE_LABEL_REPO` (the modpack), only for labels with
-`total ≥ SERIES_MIN` (20), only for the last `SERIES_MONTHS` (60) months.
-Cutoff is computed as `now − 60 × 30.4 days`, truncated to a `YYYY-MM` key.
+Only for `ISSUE_LABEL_REPO` (the modpack), labels with `total ≥ SERIES_MIN` (20),
+over the last `SERIES_MONTHS` (60) months:
 
-Each cell is `[opened, closed]` for that label in that month, keyed by the
-month the issue was opened and the month it was closed respectively. Months with
-nothing in them are absent, not zero.
+```
+cutoff = YYYY-MM of (now − 60 × 30.4 days)
+cell   = [opened, closed]   # by month opened / month closed; empty months absent
+```
 
-Labels are a per-tracker taxonomy and the modpack is the only tracker with
-enough volume for a trend to mean anything; the other repos' label *counts* are
-still there behind the picker.
+Other repos' label counts are still available behind the picker.
 
-### By-contributor table cap
+### By-contributor table
 
-`PEOPLE_CAP = 200` rows per window, ranked by `involvement` descending. The
-store holds roughly 6,400 distinct issue participants, nearly all of them
-someone who filed one bug years ago. Anyone who falls off the table still has a
-complete record on their own drilldown.
+On screen: *By contributor*, *Who files, answers and closes*
 
-If the table is at its cap, the card says `top 200 of N` rather than implying it
-is the whole population.
+`PEOPLE_CAP = 200` rows per window, ranked by `involvement` desc, then login.
+~6,400 participants total; at the cap the card says `top 200 of N`. Everyone
+keeps a full drilldown.
 
 ---
 
 ## Repo activity metrics
 
-`src/panels/repos.js`. One row per repo, org-wide — the counterpart to the repo
-drilldown, which holds one repo in detail. Every per-window figure it carries
-(`opened`, `merged`, `closed`, `mergeRate`, `approvals`, `people`, `reviewers`,
-`medianMergeHours`) is the same arithmetic as the analytics panel's, verified
-against it: the two agree exactly on opened, merged, closed and approvals across
-every window, and on the open pull request total.
+`src/panels/repos.js`; one row per repo. Its per-window `opened`, `merged`,
+`closed`, `mergeRate`, `approvals`, `people`, `reviewers` and
+`medianMergeHours` use the analytics arithmetic, and agree with it exactly on
+opened, merged, closed, approvals and the open PR total.
 
-Two departures from its neighbours are deliberate and are stated below.
+### Last activity and lifecycle
 
-### Last activity, and the lifecycle rung
+On screen: *Last activity*, *Lifecycle*, *Rung*
 
 ```
-last     = max(PR createdAt, PR mergedAt, PR closedAt,
-                issue createdAt, issue closedAt)
-idleDays = floor((now - last) / 1 day)
+last     = max(PR createdAt, mergedAt, closedAt, issue createdAt, closedAt)
+idleDays = floor((now − last) / 1 day)
 ```
 
-**Shows** — how long since anybody did something to this repo.
+A count of days; no denominator. `updatedAt` is excluded (a comment on an old PR
+is not work on the repo); including it would shift the split from
+124/74/64/37 to 133/70/60/36. No activity at all → `silent` (both
+implementations, via the SQL LEFT JOIN null).
 
-**Numerator** — a count of days. No denominator; this is an age.
-
-**Excluded** — `updatedAt`. A comment on a two-year-old pull request moves that
-column, which is a fact about a conversation rather than about the repo being
-worked on. The drilldown's picker takes the same view. Measured both ways the
-lifecycle split moves from 124/74/64/37 to 133/70/60/36, so the rungs below do
-not balance on this choice.
-
-**Empty case** — a repo with no activity at all reads as `silent`, not unknown.
-It cannot arise from the stores, but the SQL twin reaches the same expression
-through a LEFT JOIN that can produce NULL, so both implementations name the
-same answer rather than each picking one.
-
-The rungs are 30, 90 and 365 days:
-
-| Rung | Idle for | Repos |
+| Rung | Idle days | Repos |
 |---|---|---|
-| Active | under 30 days | 124 |
-| Slowing | 30–89 days | 74 |
-| Dormant | 90–364 days | 64 |
-| Silent | 365 days or more | 37 |
+| Active | < 30 | 124 |
+| Slowing | 30–89 | 74 |
+| Dormant | 90–364 | 64 |
+| Silent | ≥ 365 | 37 |
 
-Those are the `m1`, `m3` and `y1` window spans, reused rather than invented — a
-lifecycle cut at some fourth number would be a second vocabulary for the same
-idea. They also split this org into four buckets none of which is a sliver,
-which is what makes the card a distribution rather than one bar and three
-slivers.
+Rungs reuse the `m1`/`m3`/`y1` spans.
 
-### Closed pull requests are dated by `closedAt` here
+### Closed PRs are dated by `closedAt` here
 
-The closed side of every per-window count prefers `closedAt` and falls back to
-`updatedAt` only where the backfill has not reached — the fix the analytics
-panel took when the field was added.
+Falls back to `updatedAt` only where unbackfilled, matching analytics.
+**`src/shared/drilldown-fold.js` still uses `updatedAt` alone**, so a repo's row
+here and its drilldown can disagree on `closed`. Known divergence; the
+drilldown should follow.
 
-**`src/shared/drilldown-fold.js` still dates its closed side by `updatedAt`
-alone.** So this panel and a repo's own drilldown can disagree about `closed`,
-by however long a pull request kept drawing comments after it was shut. The
-analytics side was corrected and the drilldown was not, because fixing one half
-of a parity pair breaks it. The drilldown should follow; until it does, this is
-a known divergence rather than an accident.
+### Stale open PRs
 
-### Stale open pull requests
+On screen: *Stale PRs*, *Older than 6mo*, *Stale backlog*
 
 ```
-staleOpenPRs = open PRs where (now - createdAt) >= 180 days
+staleOpenPRs = open PRs with now − createdAt ≥ 180 days
 ```
 
-**Shows** — open pull requests old enough to be a question about the repo rather
-than a backlog item.
-
-**Denominator** — none; a count, meant to be read per repo and summed org-wide.
-66 across 35 repos today.
-
-**Excluded** — draft status is not considered. A draft left open for six months
-is the same signal as any other.
-
-Six months rather than one of the **Backlog age buckets** boundaries, because
-those describe the shape of what is open and this is a single threshold nobody
-argues with.
+Count per repo, summable org-wide (66 across 35 repos today). Drafts count.
 
 ### Activity concentration
 
+On screen: *Pulse* (Repo Activity)
+
 ```
-activity       = opened + issuesOpened          # per repo, per window
-concentration  = sum(top 5 repos' activity) / sum(all repos' activity)
+activity      = opened + issuesOpened                         # per repo, per window
+concentration = Σ activity of top 5 repos / Σ activity of all repos
 ```
 
-**Shows** — how much of the org's work sits in its busiest few repos. 59.9% over
-the last three months.
+Bots included. Null when the window has no activity. Top 5 to match *Review
+concentration*. 59.9% over 3 months.
 
-**Denominator** — every repo's activity in that window, so the share is a share
-of something the reader can see in the table rather than of a hidden composite.
+### Distinct people per repo
 
-**Excluded** — nothing. Bots included, because a pull request a bot opened still
-happened to the repo — the same rule the drilldown's repo picker states.
+On screen: *Authors*, *Reviewers*
 
-**Empty case** — null when the window holds no activity at all, not zero.
-
-Five repos, matching the top-5 reviewer share on **Review concentration**, so
-the two figures on two pages mean the same kind of thing.
-
-### Distinct people, per repo per window
-
-`people` counts pull request authors excluding bots; `reviewers` counts anyone
-who approved, excluding bots but *including* self-approval. Both are the same
-rules `drilldown-fold.js` applies, so a repo's row here and its drilldown agree.
-
-Note the asymmetry that follows: `opened` counts bots and `people` does not, so
-a repo whose pull requests are mostly Dependabot's shows a high `opened` against
-a low `people`. That is the intended reading — see **Bots are excluded from
-people-shaped numbers**.
+`people` = PR authors excluding bots; `reviewers` = approvers excluding bots but
+**including** self-approval — the same rules as `drilldown-fold.js`. Since
+`opened` counts bots and `people` does not, a Dependabot-heavy repo shows high
+`opened` against low `people`.
 
 ---
 
 ## Drilldown metrics
 
-`src/panels/drilldown.js`. One record per contributor, one per repo. The PR-side
-window summary is the same shape and same arithmetic as the analytics panel's —
-`mergeRate`, `approvedShare`, `medianMergeHours`, `medianPRLines` and the rest
-are computed identically, so a repo's numbers roll up into the org's.
+`src/panels/drilldown.js`; one record per contributor and per repo. The PR
+window summary uses the analytics arithmetic, so repos roll up into the org.
 
-Differences worth stating:
+### `people` and `reviewers` depend on the subject
 
-### `people` means different things by subject type
+| Field | On a repo | On a contributor |
+|---|---|---|
+| `people` | distinct non-bot PR authors (*Contributors*) | distinct repos they opened PRs in (*Repos touched*) |
+| `reviewers` | distinct approvers | distinct PR authors they approved for |
 
-The `people` field on a window is a distinct-set size, and which set depends on
-the subject:
+### Empty windows
 
-- On a **repo**: distinct non-bot authors who opened a PR here in the window
-- On a **contributor**: distinct repos they opened a PR in
-
-Same field name, two questions. The frontend labels them differently
-("Contributors" versus "Repos touched") but the payload does not.
-
-Likewise `reviewers`:
-
-- On a **repo**: distinct logins who approved a PR here
-- On a **contributor**: distinct PR *authors* they approved for
-
-### Empty windows are omitted
-
-A window with `opened == merged == closed == approvals == 0` is left out of the
-payload entirely rather than emitted as zeroes. The frontend substitutes a blank
-window, which is what a zeroed record would have said. Same rule on the issue
-side, where the emptiness test is `involvement` and `assigned` for a person, and
-`opened`, `closed` and `responses` for a repo.
-
-So an absent window means "nothing happened", never "data missing".
+A window with `opened = merged = closed = approvals = 0` is omitted from the
+payload; the frontend fills in a blank. Issue side: empty means `involvement`
+and `assigned` are 0 (person) or `opened`, `closed`, `responses` are 0 (repo).
+An absent window means nothing happened, never missing data.
 
 ### Slim records
 
-A contributor gets a full record if any of these hold — `substantial()`:
+Full record if `substantial()`: ≥ 1 PR opened, or ≥ 1 all-time approval, or an
+open PR, or ≥ 1 first response, or ≥ 1 issue closed, or ≥ 1 issue fixed, or
+ever assigned, or **≥ 3 issues filed**, or anything currently in their review
+queue or assignment log.
 
-- they have opened at least one PR, **or**
-- given at least one all-time approval, **or**
-- have an open PR, **or**
-- given at least one first response, **or**
-- closed at least one issue, **or**
-- fixed at least one issue with a PR, **or**
-- been assigned an issue, **or**
-- filed **three or more** issues, **or**
-- have anything in their review queue or assignment log right now
-
-Everyone else gets a slim record: name, dates, active-day figures and their
-filed-issue log, with no monthly series, ranked-repo maps or partner lists. They
-are still counted in every aggregate — repo reporter lists, org tables — and
-still get a page. A ranked list linking to a page that does not exist is worse
-than either option.
-
-The threshold of three filed issues is the only arbitrary number here; it is
-where "filed enough to have a pattern" was drawn.
+Otherwise slim: name, dates, active days and filed-issue log; no monthly
+series, ranked-repo maps or partner lists. Slim people still count in every
+aggregate and still get a page.
 
 ### Search index ranking
 
-The combobox list is ranked by:
+```
+contributor = totalPRs + all-time approvals + (filed + responses + closed + fixed)
+repo        = totalPRs + total issues filed
+```
 
-- **Contributors**: `totalPRs + all-time approvals + issue involvement`, where
-  issue involvement is `filed + responses + closed + fixed`
-- **Repos**: `totalPRs + total issues filed`
-
-Issue involvement is *in* the contributor ranking rather than beside it because
-a full-time triager has no PRs and no approvals, and ranking on those two buried
-the people doing the most visible work in the org below everyone who ever opened
-a one-line fix.
+Issue involvement is included so triagers without PRs are not buried.
 
 ### Monthly series
 
-PR series are **padded**: every calendar month from the subject's first bucket
-to now gets an entry, with quiet months as `null` (which rehydrates to zeroes).
-Months before the subject existed are not invented — a repo created last March
-does not show a year of flat zeroes leading up to it.
-
-Issue series are **sparse**: only months with something in them appear. Issue
-subjects are dominated by "one bug report, once", for which padding costs ten
-times what the data does. The frontend fills the gaps when it draws.
-
-`SERIES_MONTHS = 240` is a ceiling, not a floor.
+PR series are **padded**: every month from the subject's first bucket to now,
+quiet months `null` (→ zeroes). Issue series are **sparse** (only non-empty
+months; the frontend fills gaps). `SERIES_MONTHS = 240` is a ceiling.
 
 ### Partner lists
 
-`reviewedBy`, `reviewsFor`, `helped`, `helpedBy` are **all-time only**, never
-windowed. They describe a relationship, and slicing a relationship by window
-mostly produces noise.
+On screen: *They approve*, *Approves their PRs*, *They help*, *Helped by*
 
-- `reviewsFor` — counts of PR authors whose PRs this person approved, excluding
-  self-approvals and bot-authored PRs
+All time only.
+
+- `reviewsFor` — PR authors this person approved, excluding self and bot PRs
 - `reviewedBy` — the mirror
-- `helped` — reporters this person answered, closed for, or fixed for, excluding
-  their own issues and bot-filed ones
+- `helped` — reporters they answered, closed for or fixed for, excluding their
+  own and bot-filed issues
 - `helpedBy` — the mirror
 
 ### Backlogs
 
-A subject's PR backlog is null rather than an object of zeroes when nothing is
-open. Additional fields beyond the org backlog:
+On screen: *Backlog*
+
+Null when nothing is open. Beyond the org backlog fields:
 
 | Field | Rule |
 |---|---|
-| `drafts` | Open PRs where `draft === true` |
-| `draftsKnown` | True only if **every** open PR has a non-null draft flag |
+| `drafts` | open PRs with `draft === true` |
+| `draftsKnown` | true only if every open PR has a non-null draft flag |
 
-`draftsKnown` distinguishes "no drafts" from "the ingest has not been asked
-about draft status yet". Records ingested before `isDraft` was queried carry
-null, and null must not render as false.
-
-The oldest-first list is emitted **in full**, not truncated. Truncating it made
-the Backlog tab's own filter lie about what it had searched.
+`draftsKnown` separates "no drafts" from "not yet ingested". The oldest-first
+list is emitted in full so the Backlog filter searches everything.
 
 ### Field coverage
 
-`prFieldCoverage` counts, over the whole PR store, how many records carry fields
-the ingest added later:
+`prFieldCoverage` counts PR records carrying later-added fields, each over the
+population where it is meaningful, only when that population is non-empty:
 
 | Field | Counted over |
 |---|---|
-| `reviewRequests` | Open PRs only — requests are deleted by GitHub when the review lands |
-| `assignees` | All PRs — assignment survives the close |
-| `labels` | All PRs |
+| `reviewRequests` | open PRs (GitHub deletes requests once the review lands) |
+| `assignees` | all PRs |
+| `labels` | all PRs |
 
-Each is checked against the population it is meaningful over, and only when that
-population is non-empty. An org with no open PRs would otherwise be told forever
-that its review-request backfill had not run.
+`closerCoverage` = `{closed, unknown}` over the issue store.
 
-`closerCoverage` does the same job for issues: `{closed, unknown}` over the whole
-store.
-
-**The live index derives these differently, and one of the three cannot survive
-the port.** `closerCoverage` and `issueData` are the same question in SQL —
-`closer_known <> 1` over closed issues, and whether the issue table has any rows
-— and they reconcile against the build exactly, at `{closed: 23675, unknown: 0}`.
-
-`prFieldCoverage` does not, because the distinction it reports is not
-representable in D1. The Node store separates `undefined` from `[]` on the three
-array fields, which is what lets it say "we have never asked"; D1 declares all
-three `NOT NULL DEFAULT '[]'` and the webhook handler writes each of them from
-every payload. So in D1 every row has been asked by construction, and the live
-panel reports `labels` and `assignees` as `total` and `reviewRequests` as
-`openPRs`.
-
-That is the truth about that store rather than a convenient reading of it, but
-it moves the failure: a row the handler somehow wrote without labels reports as a
-PR carrying none rather than as a record nobody has walked, and no count can tell
-the two apart. Closing it needs a `known` flag per field in the schema, the way
-`issues.closer_known` and `issues.response_unknown` already do it — deliberately
-not done, because both fields arrive on every payload GitHub sends.
+**Live (D1) index:** `closerCoverage` and `issueData` match the build exactly
+(`closer_known <> 1` over closed issues; `{closed: 23675, unknown: 0}`).
+`prFieldCoverage` cannot. The Node store distinguishes `undefined` (never
+asked) from `[]` on the three arrays; D1 declares the three arrays `NOT NULL DEFAULT '[]'`
+and the handler writes them from every payload, so it reports `labels` and
+`assignees` as `total` and `reviewRequests` as `openPRs`. Consequence: a row
+written without labels reads as "no labels", not "never asked". Fixing it needs
+a per-field `known` flag like `closer_known`/`response_unknown`; not done since
+every payload carries these fields.
 
 ---
 
 ## CI health metrics
 
-`src/panels/ciHealth.js` from the API, `worker/src/panels/ci-health.js` from D1.
-Both apply the rules in `src/shared/ci-rules.js`, which is the only place any of
-them is written down.
+`src/panels/ciHealth.js` (API) and `worker/src/panels/ci-health.js` (D1), both
+using the rules in `src/shared/ci-rules.js`.
 
-**The sample** is the most recent `CI_RUN_SAMPLE = 20` **completed** workflow
-runs on each repo's **default branch**.
-
-That sampling frame is the biggest caveat on this whole section: PR-triggered
-runs are left out, and on most repos those are the majority of all CI activity.
-Every number below is a floor.
-
-**It is the branch filter that leaves them out, not `exclude_pull_requests`.**
-This documented the parameter as dropping PR-triggered runs, which it does not
-do. Measured against the API on GT5-Unofficial, `exclude_pull_requests=true` and
-`false` return a byte-identical set — 89,979 runs either way, including all 57
-`pull_request`-triggered ones — and the parameter's only effect is to empty each
-run's `pull_requests` array. Adding `branch=<default>` is what takes the sample
-to `push` and `workflow_run` events only. The frame was right; the reason given
-for it was wrong, and the SQL port filters on the branch alone because of it.
-
-Note the corollary, which is easy to misread the other way: runs triggered by
-*other workflows completing* are **in** the sample. On GT5-Unofficial they are
-42 of 100.
+**Sample:** the last `CI_RUN_SAMPLE = 20` **completed** runs per repo on the
+**default branch**. That leaves out PR-triggered runs (the majority), so every
+figure is a floor. The `branch=<default>` filter is what excludes them;
+`exclude_pull_requests` does not (it only empties each run's `pull_requests`
+array — identical 89,979-run sets on GT5-Unofficial either way, including all
+57 `pull_request` runs). With the branch filter the sample is `push` and
+`workflow_run` events only, and the SQL port filters on branch alone. Runs
+triggered by other workflows *are* included (42 of 100 on GT5-Unofficial).
 
 ### Pass rate
 
+On screen: *Pass rate*
+
 ```
-decisive = runs whose conclusion is in {success, failure, timed_out, startup_failure}
-passes   = decisive runs whose conclusion is "success"
-passRate = passes / decisive                  # null when decisive == 0
-failures = decisive − passes
+decisive = conclusion ∈ {success, failure, timed_out, startup_failure}
+passRate = success / decisive             # null if decisive = 0
+failures = decisive − success
 ```
 
-`cancelled`, `skipped` and `action_required` are excluded from **both** halves.
-They say something about the humans, not the code — counting them as failures
-would make every repo where somebody cancels a slow run look broken.
-
-Null rather than 0 when nothing was decisive: "no verdict" and "all red" are
-very different and must not render the same.
+`cancelled`, `skipped`, `action_required` are in neither half (they reflect
+people, not code). Null, not 0, when nothing was decisive.
 
 ### Run duration
 
+On screen: *Median run*
+
 ```
-duration(run) = (updated_at − (run_started_at or created_at)) / 60,000   minutes
-                                                        # null if > CI_MAX_RUN_MINUTES
+duration = (updated_at − (run_started_at ?? created_at)) / 60,000   min
+keep if finite, ≥ 0 and ≤ CI_MAX_RUN_MINUTES (360)
+medianMinutes = s[floor(n/2)]         # upper middle, same as pct(·,50)
+totalMinutes  = Σ kept durations;  timedRuns = count kept
 ```
 
-Kept only if finite, non-negative, and **at most `CI_MAX_RUN_MINUTES = 360`**.
-`medianMinutes` is the middle element of the sorted list — note this uses
-`s[floor(length/2)]`, a plain midpoint, not the shared `pct()` helper. On an
-even-sized sample it takes the upper middle, same as `pct` would.
+**Why the ceiling.** Runs have no end timestamp: `/actions/runs` returns
+`run_started_at` and `updated_at`, and only `/actions/runs/{id}/timing` has a
+real duration, at one request per run. `updated_at` is last-touched
+and GitHub bumps it long after (log expiry, artifact cleanup, re-runs). Three
+EnderStorage runs of ~5 min read as ~580,000 min each, 99.99% of that repo's
+time, inflating org `sampledMinutes` to 22.6M and `hoursPerMonth` to ~33,654.
+360 is GitHub's per-job limit and sits in an empty band: across 201 sampled
+runs the longest believable was 44.5 min and the shortest unbelievable exactly
+1,440 (GitHub's 24-hour queued-job kill).
 
-`totalMinutes` is the sum over the sampled runs; `timedRuns` is how many
-contributed. A run missing a usable timestamp contributes nothing and is not
-counted in the denominator.
+**Discarded, not clamped.** Dropped runs stay in `runs` and leave `timedRuns`.
+Org-wide: 53 of 3,156 runs (1.7%) across 29 of 252 repos, holding 99.95% of the
+old minutes; no repo loses all its durations.
 
-#### Why there is a ceiling
-
-There is no end timestamp on a workflow run. `/actions/runs` returns
-`run_started_at` and `updated_at`, and the only endpoint carrying a real
-duration is `/actions/runs/{id}/timing`, at one request per run.
-
-`updated_at` is the run's **last-touched** time, not its end time, and GitHub
-bumps it long after a run finishes — log expiry, artifact cleanup, one job
-re-run. For a recent run the difference is invisible; for an old one it is the
-whole value.
-
-Measured, and this is what the ceiling was added for:
-
-| | |
-|---|---|
-| EnderStorage runs started Jul 2025, `updated_at` Aug 2026 | 3 |
-| what each read as | ~580,000 minutes |
-| what each actually took | ~5 minutes |
-| share of that repo's reported Actions time | 99.99% |
-| org-wide `sampledMinutes` before | 22,630,939 |
-| org-wide `hoursPerMonth` before | ~33,654 |
-
-The cutoff is 360 because that is GitHub's own per-job execution limit, and
-because it sits in an empty band rather than through a distribution. Across 201
-sampled runs on 14 repos the longest believable duration was **44.5 minutes**
-and the shortest unbelievable one was **exactly 1,440** — the 24-hour mark where
-GitHub terminates a job left queued, which is queue time rather than compute and
-does not belong in the total under any ceiling. Nothing falls between the two,
-so the number can move a long way either way without changing a verdict.
-
-**Discarded, not clamped.** A clamp invents a number and hides that it did.
-Dropping leaves the run counted in `runs` and absent from `timedRuns`, which is
-a denominator the panel already reports. Measured org-wide: **53 of 3,156
-sampled runs, 1.7%, across 29 of 252 repos**, and no repo loses all of its
-durations. So `timedRuns < runs` is normal on a minority of repos rather than a
-symptom — and those 53 runs held 99.95% of the minutes the panel used to
-report.
-
-This is the one defect found during the port that made the org look **worse**
-than it was rather than healthier. The direction differs; the cause does not —
-a number nothing in the panel's own output could contradict.
-
-**This is wall-clock time, not GitHub's billable minutes.** Billing is per job: a
-matrix of eight jobs in parallel bills roughly eight times what the run took on
-the clock, macOS bills 10×, Windows 2×. The only endpoint giving the real figure
-is one request per run — roughly 4,000 per build — for a number nobody is going
-to reconcile against an invoice.
+**Wall-clock, not billable minutes.** Billing is per job (a matrix of 8 bills
+~8×; macOS 10×, Windows 2×). The real figure costs one request per run,
+~4,000 per build.
 
 ### Sample span
 
@@ -1621,606 +1108,420 @@ to reconcile against an invoice.
 sampleSpanDays = (newest run start − oldest run start) / 86,400,000
 ```
 
-Null when there are fewer than two runs, or when the span is not positive. A
-single timestamp has no width, and dividing by zero days would report an
-infinite rate for the least active repos in the org.
-
-The sample is "the last 20 completed runs", so the span it covers is **not** a
-fixed period. A busy repo's 20 runs might be two days and a quiet one's might be
-two years. Recording the span is what lets a sample become a rate.
+Null with fewer than two runs or a non-positive span. Twenty runs can span two
+days or two years; the span is what turns the sample into a rate.
 
 ### Org-wide projection
 
-Per repo, skipping any repo with no `sampleSpanDays` or no `timedRuns`:
+On screen: *Runs per month*, *Est. runs/month*, *Est. minutes/month*,
+*Wall-clock hours per month*, *Average run*, *Actions load*
+
+Per repo, skipping repos without `sampleSpanDays` or `timedRuns`:
 
 ```
 perDay      = runs / sampleSpanDays
-meanMinutes = totalMinutes / timedRuns
-```
+meanMinutes = totalMinutes / timedRuns          # deliberate mean: projecting a total
 
-Summed across repos:
+runsPerMonth    = round(Σ perDay × 30)
+minutesPerMonth = round(Σ perDay × 30 × meanMinutes)
+hoursPerMonth   = round1(minutesPerMonth / 60)
+projectedFrom   = repos that contributed
 
-```
-runsPerMonth    = round( Σ perDay × 30 )
-minutesPerMonth = round( Σ perDay × 30 × meanMinutes )
-hoursPerMonth   = round1( minutesPerMonth / 60 )
-projectedFrom   = how many repos had enough sample width to contribute
-```
-
-A "month" is exactly 30 days.
-
-Note `meanMinutes` is a **mean**, the one place a mean is used deliberately —
-projecting a total needs an average, and a median times a count is not a total.
-
-Also reported, so the card can show its work:
-
-```
-sampledRuns    = Σ runs across all repos
+sampledRuns    = Σ runs
 sampledMinutes = Σ totalMinutes
-meanRunMinutes = sampledMinutes / sampledRuns       # null when sampledRuns == 0
-passRate       = Σ passes / Σ decisive
+meanRunMinutes = sampledMinutes / sampledRuns   # null if 0
+passRate       = Σ success / Σ decisive
 ```
 
-Note that `meanRunMinutes` divides by `sampledRuns` while each repo's own mean
-divides by `timedRuns`. Runs missing timestamps therefore drag the org-wide mean
-slightly down relative to the per-repo ones.
+Month = 30 days. Not a bill, a total, or a job count (the endpoint returns runs,
+not jobs).
 
-The frontend recomputes the per-repo projection independently in
-`web/js/modules/analytics.js` for its "where the time goes" table, using the same
-two lines. If that table ever disagrees with the tiles above it, one of the two
-copies has drifted.
+`meanRunMinutes` divides by `sampledRuns`, not `timedRuns`, so discarded runs
+bias the org mean **down** relative to per-repo means. Left as is to avoid
+moving a number for an unrelated reason.
 
-**What this figure is not:** a bill, a total, or a job count. The runs endpoint
-returns runs, not jobs.
+The "where the time goes" table in `web/js/modules/analytics.js` recomputes
+`perDay` and `meanMinutes` itself; if it disagrees with the tiles, one copy has
+drifted.
 
-Note `meanRunMinutes` dividing by `sampledRuns` matters more now than it did.
-With the duration ceiling discarding roughly one run in seven, the gap between
-that denominator and `timedRuns` is no longer negligible, and it biases the
-org-wide mean **downwards** — the opposite direction from the bug the ceiling
-fixed. Left as it is because the per-repo and org-wide figures answering
-slightly different questions is the existing behaviour, and changing it would
-move a number for a reason unrelated to the port.
+### The D1 version
 
-### The store's reading
-
-`worker/src/panels/ci-health.js` computes all of the above from `workflow_runs`
-rather than from the API. Every rule is shared rather than translated — the
-selection is SQL, the arithmetic is `shared/ci-rules.js`, and `summarizeOrg` is
-reused outright because it is pure arithmetic over 250 small objects.
-
-Three places the SQL has to reproduce a JavaScript answer explicitly rather than
-by doing the obvious thing:
+Reads the `workflow_runs` table. Selection in SQL, arithmetic from `shared/ci-rules.js`, `summarizeOrg` reused
+directly. Three things the SQL must reproduce explicitly:
 
 ```
-median position   rank floor(n / 2) + 1 over the timed runs only
-                  # a discarded duration is not a zero-minute run and must not
-                  # sort to the bottom
-sample span       null on one run
-                  # MAX − MIN over a single row is 0, and 0 is what divides
-sample cap        ORDER BY run_started_at DESC, run_id DESC
-                  # two runs can share a start to the second; without the second
-                  # key the cap takes an arbitrary one and the median moves
+median position   rank floor(n/2) + 1 over timed runs only   # discarded ≠ 0 minutes
+sample span       null on one run                            # MAX − MIN = 0 would divide
+sample cap        ORDER BY run_started_at DESC, run_id DESC  # same-second starts
 ```
 
-Durations use `strftime`, which every other panel here refuses. The distinction
-is that elsewhere it appears in *window comparisons*, where a string compare
-answers the same question for a sixth of the cost; a duration is arithmetic on
-two timestamps, which a string compare cannot do at all. The `CAST` to INTEGER
-is still mandatory — `strftime` returns TEXT and SQLite orders every TEXT value
-above every number.
-
-`worker/test/ci-health.parity.test.js` runs both implementations over the same
-fixture and compares every field. It is the only true parity test in this repo:
-the others compare two readings of one store, this one compares two readings of
-one input.
+Durations use `strftime` (arithmetic, which a string compare cannot do), with
+the mandatory `CAST` to INTEGER. `worker/test/ci-health.parity.test.js` runs
+both implementations over the same fixture — the only parity test comparing two
+readings of one input rather than of one store.
 
 ---
 
 ## Repository state panels
 
-Both panels in this section have a **second implementation in SQL**, in
-`worker/src/panels/releases.js`, reading D1 rather than GitHub. The definitions
-below describe the Node originals; where the SQL asks a different question, it
-is called out inline and the reason is always the same one — a webhook payload
-carries less than a GraphQL query does.
-
-The shared half of both rules lives in `src/shared/commit-rules.js`, paired with
-its SQL twin the way `issue-rules.js` is, and `worker/test/releases.parity.test.js`
-asserts the two readings agree.
+Both have a SQL twin in `worker/src/panels/releases.js`. Shared rules are in
+`src/shared/commit-rules.js` (paired with its SQL twin, as `issue-rules.js` is); `worker/test/releases.parity.test.js` checks
+agreement. Where the SQL differs, it is because a webhook carries less than
+GraphQL.
 
 ### Needs a release
 
-`src/panels/needsRelease.js`. Four filters, applied in order — cheap ones first,
-so an excluded or up-to-date repo never costs a request.
+On screen: *Needs a release*, *Last release*, *Released*
 
-1. **Sweep** — every non-archived repo in the org, ordered by `pushedAt`
-   descending, stopping at the first repo pushed longer ago than
-   `STALE_REPO_CUTOFF_DAYS` (365). Since the order is descending, the first
-   stale repo means every repo after it is stale too.
-2. **Candidate test** — a repo is a candidate if it has a non-draft release
-   (prereleases count — a repo that just cut an rc is not "needing a release")
-   whose tag commit SHA differs from the default branch's HEAD SHA.
-3. **Commit count** — a REST `compare` between tag and HEAD gives `ahead_by`.
-   Repos with `ahead_by < RELEASE_COMMIT_THRESHOLD` (1) drop out.
-4. **PR test** — a candidate survives only if **at least one commit in the
-   range has a pull request attached**. Buildscript bumps and workflow edits go
-   straight to the default branch and nobody is waiting on a release for those;
-   anything that does want one arrives as a PR.
+`src/panels/needsRelease.js`. Filters in order, cheapest first:
+
+1. **Sweep** — non-archived repos by `pushedAt` desc, stopping at the first
+   pushed more than `STALE_REPO_CUTOFF_DAYS` (365) ago.
+2. **Candidate** — has a non-draft release (prereleases count) whose tag SHA ≠
+   default-branch HEAD.
+3. **Commit count** — REST `compare` tag…HEAD gives `ahead_by`; drop if
+   `< RELEASE_COMMIT_THRESHOLD` (1).
+4. **PR test** — keep only if ≥ 1 commit in the range has a PR (direct pushes
+   like buildscript bumps don't need a release).
 
 ```
 daysSinceRelease = floor((now − release.publishedAt) / 86,400,000)
+sort: commitsAhead desc
 ```
 
-Results sort by `commitsAhead` descending.
+If `compare` fails (force-push, deleted tag), the repo stays with
+`commitsAhead: null` and skips step 4. `RELEASE_EXCLUDED_REPOS` (globs, `!`
+re-includes, later wins, case-insensitive) is applied before `compare`.
 
-**Failure handling**: if the `compare` call fails — a force-push or deleted tag
-can orphan the base commit — the repo stays in the list with `commitsAhead:
-null` and skips the PR test, rather than being dropped on a guess.
-
-Repos matching `RELEASE_EXCLUDED_REPOS` (glob patterns, `!` re-includes, later
-rules win, case-insensitive) are filtered before the compare call, so an
-excluded repo costs nothing.
-
-**In SQL, step 2 asks a different question.** The candidate test above compares
-the release's tag commit SHA against the default branch's HEAD SHA. A `release`
-webhook carries no tag SHA — it has `tag_name` and `target_commitish`, and the
-latter is normally a branch name — so the D1 version asks instead:
+**SQL step 2:** a `release` webhook has no tag SHA (only `tag_name` and
+`target_commitish`, usually a branch name), so D1 asks instead
 
 ```
-is there any commit on the default branch with
-  committed_at > latest_release.published_at
+∃ commit on the default branch with committed_at > latest_release.published_at
 ```
 
-which has the same meaning over the data the store holds, and behaves better on
-a repo whose tag was force-moved. `commitsAhead` then falls out as `COUNT(*)` of
-those same rows rather than a REST `compare`, and the failure mode above — a
-`compare` that fails and leaves `commitsAhead: null` — cannot arise, because
-there is no second call to fail. `draft = 0 AND published_at IS NOT NULL` is
-what "non-draft" becomes; prereleases still count as releases.
-
-Step 4's PR test is the one that loses accuracy. See **Pull-request association**
-below.
+Same meaning, and more robust to a moved tag. `commitsAhead = COUNT(*)` of those
+rows, so the `compare` failure case cannot happen. Non-draft =
+`draft = 0 AND published_at IS NOT NULL`; prereleases count. Step 4 loses
+accuracy — see *Pull-request association*.
 
 ### Dep updates
 
-`src/panels/depUpdates.js`. **This panel is an explicit proxy and the card says
-so.**
+On screen: *Time since last update*
 
-**What it actually measures**: the newest commit on the default branch that has
-**no pull request attached** and (with `DEP_UPDATE_IGNORE_BOTS` on) was not
-authored by a bot.
+`src/panels/depUpdates.js`. **A proxy, and the card says so.**
 
-**What it claims to measure**: how long since dependencies were touched.
-
-The proxy holds because in this org practically everything arrives as a pull
-request, and the things that do not are almost always a maintainer bumping a
-dependency straight on the default branch. A repo where somebody pushed a typo
-fix directly will read younger than it is.
-
-There is no cheap way to ask GitHub what a commit changed — GraphQL gives a
-changed-file *count* and no names, so a real answer costs one REST call per
-commit.
+Measures: the newest default-branch commit with **no PR** and (with
+`DEP_UPDATE_IGNORE_BOTS`) a non-bot author. Claims: time since dependencies were
+touched. It holds because nearly everything here arrives by PR and direct
+commits are usually maintainer dependency bumps; a direct typo fix makes a repo
+read fresher. GitHub cannot cheaply say what a commit changed.
 
 ```
 daysSinceDirect = floor((now − commit.committedDate) / 86,400,000)
 ```
 
-**Floors**: history is only walked back `DEP_UPDATE_LOOKBACK_DAYS` (365) and at
-most `DEP_UPDATE_MAX_PAGES` (10) pages of 100 commits per repo. A repo where the
-walk ran out reports `approx: true` and a floor value:
+The walk stops at `DEP_UPDATE_LOOKBACK_DAYS` (365) or `DEP_UPDATE_MAX_PAGES`
+(10 × 100 commits). If nothing is found, `approx: true` with a floor:
 
-- If the walk reached the lookback horizon (`exhausted`), the floor is 365 —
-  every such repo reads the same "≥ 1 yr" rather than a per-repo floor that
-  means something different each time
-- Otherwise the floor is the age of the oldest commit actually seen
+- reached the lookback horizon (`exhausted`) → 365 (shown "≥ 1 yr")
+- ran out of pages first → age of the oldest commit seen
 
-Sort is `daysSinceDirect` descending, then exact answers before approximate
-ones, then repo name — among things that cannot be dated exactly, the quietest
-is the better guess at worst.
+Sort: `daysSinceDirect` desc, exact before approximate, then repo name.
 
-**In SQL, the floor means something narrower.** The Node walk knows it reached
-the lookback horizon and reports 365 for it. The D1 version cannot claim that:
-it only knows how far back `commits` happens to go for that repo, which since
-the webhook captures forward is the capture window until a backfill has run. So
-its floor is `min(365, age of the oldest commit stored for that repo)`, and it
-under-claims rather than asserting a horizon it never reached.
+**SQL floor** = `min(365, age of the oldest stored commit for that repo)`: D1
+only knows how far its own capture goes, so it under-claims instead of asserting
+a horizon it never reached.
 
 ### Pull-request association
 
-Both panels above turn on one question — did this commit arrive through a pull
-request — and they read it in opposite directions. `needsRelease` wants at least
-one commit that did; `depUpdates` wants the newest that did not.
+Both panels ask whether a commit came through a PR (`needsRelease` wants ≥ 1
+that did; `depUpdates` the newest that did not).
 
-| Source | How it answers | Exact? |
+| Source | Method | Exact? |
 |---|---|---|
-| GraphQL (Node build, backfill) | `associatedPullRequests.totalCount` | yes |
-| `push` webhook | **cannot** — no such field exists on the payload | — |
-| D1 read path | `commits.sha = pull_requests.merge_commit_sha` | mostly |
+| GraphQL (build, backfill) | `associatedPullRequests.totalCount` | yes |
+| `push` webhook | not available in the payload | — |
+| D1 read | `commits.sha = pull_requests.merge_commit_sha` | mostly |
 
-A push payload's commit carries exactly `id, tree_id, distinct, message,
-timestamp, url, author, committer, added, removed, modified`. There is no
-pull-request field, which is why `commits.via_pr` is **nullable**: 0 and 1 mean
-the build resolved it, NULL means a delivery wrote it and the read must fall
-back to the `merge_commit_sha` join.
-
-That join is exact for squash merges and merge commits, and misses a **rebase
-merge**, whose commits GitHub replays under fresh SHAs that no PR row names.
-The residual error is one-directional:
-
-- On `depUpdates`, a missed PR commit reads as *direct*, dating the repo younger
-  than it is — staleness hidden, never invented.
-- On `needsRelease`, it can only add a repo that should not be listed, never
-  drop one that should.
-
-It is also temporary: the backfill overwrites `via_pr` with GitHub's own answer
-on its next pass, which is why re-running it is a repair and not just a top-up.
+So `commits.via_pr` is nullable: 0/1 = resolved by the build, NULL = written by
+a delivery, read through the join. The join is exact for squash and merge
+commits but misses **rebase merges** (new SHAs). The error is one-directional:
+`depUpdates` can read a repo as fresher (never staler); `needsRelease` can add a
+repo wrongly, never drop one. The next backfill overwrites `via_pr` with
+GitHub's answer.
 
 ### Timestamp normalisation
 
-Everything in D1 is Z-normalised whole seconds, and both panels compare
-timestamps as **strings** — `strftime` parses a date per row per call and
-measured 43ms against 7ms for the equivalent compare in `analytics`.
-
-A push payload breaks that assumption if written through unchanged: its commit
-timestamps carry the committer's UTC offset (`2026-08-30T12:34:56+02:00`), and
-`+02:00` sorts below `Z`, so an unnormalised commit sinks beneath every commit
-sharing its date and `MAX(committed_at)` silently stops meaning "newest".
-`utcSeconds` in `src/shared/commit-rules.js` normalises on the way in; the
-handler and parity tests both assert it.
+D1 stores Z-normalised whole seconds and compares as strings. Push payloads carry
+the committer's offset (`2026-08-30T12:34:56+02:00`), which sorts below `Z` and would break
+`MAX(committed_at)`; `utcSeconds` in `src/shared/commit-rules.js` normalises on
+the way in (asserted by handler and parity tests).
 
 ### Search-backed PR panels
 
-`src/panels/pullRequests.js`. No arithmetic beyond age, but the *query* is the
-definition:
+On screen: *Approved, not merged*, *Changes requested*, *By label*
+
+`src/panels/pullRequests.js`. The query is the definition:
 
 | Panel | Query |
 |---|---|
 | Approved, not merged | `org:X is:pr is:open review:approved -is:draft` |
 | Changes requested | `org:X is:pr is:open review:changes_requested -is:draft` |
-| PRs by label | `org:X is:pr is:open label:"L"` for each managed label |
+| By label | `org:X is:pr is:open label:"L"` per managed label |
 
-`review:approved` and `review:changes_requested` reflect the PR's **current**
-review state, so "approved and later got changes requested" appears in the
-second list and not the first. The two lists are mutually exclusive by GitHub's
-definition, not by ours.
-
-`is:open` already implies unmerged: merging closes the PR.
-
-Label list comes from `Label-Sync-GTNH` on every build — adding a label there
-makes it appear here on the next run with no code change — capped at
-`MAX_TRACKED_LABELS` (40) since each label costs one search request.
+`review:` reflects **current** review state, so the first two are mutually
+exclusive by GitHub's definition. `is:open` implies unmerged. Labels come from
+`Label-Sync-GTNH` each build, capped at `MAX_TRACKED_LABELS` (40), one search
+each.
 
 ---
 
 ## Browser-side calculations
 
-Most numbers arrive precomputed. These are the ones the browser derives itself,
-and therefore the ones that can disagree with the payload if a bug creeps in.
+Derived in the browser, so these can drift from the payload.
 
-### Which drilldown numbers a card is showing
+### Which drilldown payload a card shows
 
-`web/js/drilldown-data.js`, and it is a lookup rather than a calculation — but
-it decides which of two payloads every number on a drilldown comes from, so it
-belongs here.
-
-A subject's payload is cached in the browser under `state.subjects[kind][id]` as
-`{ s, labelNames, version, from }` and is chosen like this:
+`web/js/drilldown-data.js`. Cached per subject at `state.subjects[kind][id]` as
+`{ s, labelNames, version, from }`:
 
 ```
-subject()       →  the cached payload, whatever version it was folded at
-subjectStale()  →  version != null  &&  version != state.version
-drillOnBuild()  →  from == "build",  or the index itself came from the file
+subject()       → cached payload, any version
+subjectStale()  → version != null && version != state.version
+drillOnBuild()  → from == "build", or the index came from the file
 ```
 
-Three consequences worth stating, because each one is a number on screen:
-
-**A stale payload still renders.** `subject()` does not check the version, so a
-card can be showing figures folded up to ten minutes ago — which is what `cron`
-means and what its blue ring already claims. `subjectStale` only decides whether
-to go and fetch a fresher one.
-
-**The version is the Worker's own**, from the `x-version` header, so the
-browser's copy expires exactly when the Worker's cached row does rather than on
-a timer of its own.
-
-**A payload out of the build file records the version the page was on**, not a
-null. The file has no version, but "the version has moved since" is still the
-signal wanted — it means the Worker is answering, so a card sitting on
-build-file numbers should ask again. A bump is at most every ten minutes, which
-is what stops that retry being a loop.
+- A stale payload still renders (up to ~10 min old, which the `cron` ring
+  indicates); `subjectStale` only triggers a refetch.
+- The version is the Worker's `x-version` header, so the cache expires with the
+  Worker's row.
+- A payload from the build file records the page's current version, so a
+  version bump prompts a refetch; bumps are at most every 10 minutes, so no loop.
 
 ### Label names on a drilldown row
 
-`labelText(l, names)` in `web/js/drilldown-data.js`. Rows carry integer indexes
-into a `labelNames` table, and **the table is the subject's own, not a global
-one**:
+`labelText(l, names)` in `web/js/drilldown-data.js`. Rows hold indexes into
+the **subject's own** `labelNames`:
 
 ```
-names  =  subjects[kind][id].labelNames     # a payload from the Worker
-       ?? drill.labelNames                  # the build file's single table
-       ?? []
+names = subjects[kind][id].labelNames  ??  drill.labelNames  ??  []
 ```
 
-The fallback order is not a preference, it is two different storage models. The
-build file is one consistent snapshot, so one global table is correct there. A
-cached payload is not: the recompute renumbers the global table underneath a
-cached row at any tick, and an index into a renumbered table resolves to **the
-wrong name** rather than to nothing.
-
-Getting it wrong is silent in both directions. Resolving against a table that
-does not exist gives `""` for every chip, and `labelsOf` filters blanks out, so
-the label filter matches nothing and no error is raised. Resolving against the
-*wrong* subject's table gives a plausible wrong name.
+The build file is one snapshot with one global table; a cached payload is not,
+because the recompute renumbers the global table. A wrong table gives a
+plausible wrong name; a missing one gives `""`, which `labelsOf` filters out,
+so the label filter silently matches nothing.
 
 ### Delta arrows
 
 `delta()` in `web/js/data.js`.
 
 ```
-ordinary metric:  diff = (current − previous) / previous
-share metric:     diff = current − previous            # reported in points
+ordinary: diff = (current − previous) / previous
+share:    diff = current − previous                 # percentage points (pp: true)
+flat (•) if |diff| < 0.02 (ordinary) or < 0.005 (share)
 ```
 
-Rendered flat (`•`) when `|diff| < 0.02` for an ordinary metric or `< 0.005` for
-a share. Direction is coloured good/bad by the metric's `invert` flag — for
-latency and unapproved merges, down is good.
-
-Returns the fallback when either side is null, or when `previous == 0` on an
-ordinary metric (division by zero).
-
-**Note the asymmetry**: a share's delta is a difference in percentage *points*,
-not a percentage change of a percentage. `pp: true` at the call site is what
-selects that.
+Colour follows the metric's `invert` flag (latency and unapproved merges: down
+is good). Fallback when either side is null or `previous = 0` on an ordinary
+metric.
 
 ### Series slicing
 
 ```
-seriesSlice:  keep the last  ceil(windowDays / bucketDays)  buckets
-sliceMonths:  keep the last  max(1, ceil(windowDays / 30.4))  buckets
+seriesSlice: last ceil(windowDays / bucketDays) buckets
+sliceMonths: last max(1, ceil(windowDays / 30.4)) buckets
 ```
 
-`bucketDays` comes from the granularity list; monthly slicing uses 30.4 days per
-month. A 1-month window over monthly buckets is therefore a single bar —
-honest, if sparse.
-
-Slicing is by **bucket count from the end**, not by comparing bucket dates
-against a cutoff. A gap in the series shifts what a slice covers.
+Counts buckets from the end rather than comparing dates, so a gap in the series
+shifts what the slice covers. 1-month window on monthly buckets = one bar.
 
 ### Chart scaling
 
-- `niceMax(v)` rounds an axis maximum up to 1, 2, 2.5, 5 or 10 times a power of
-  ten, so grid lines land on readable numbers
-- Bar widths in horizontal bar lists are `value / max(all values) × 100%`
-- The `share` percentage on a bar row is `round(value / sum(all values) × 100)`
-  — note this is the sum over the *rendered* rows, so a truncated list's shares
-  do not sum to 100% of the underlying population
-- Heatmap cell shading is `round(cell / max(all cells) × 100)` as a colour mix
-- Head-to-head bars scale against the leading row, `value / rows[0].value × 100%`
+- `niceMax(v)` — axis max rounded up to 1, 2, 2.5, 5 or 10 × 10ⁿ
+- Bar width = `value / max(values)`
+- Bar row `share` = `round(value / Σ rendered values × 100)` — over rendered rows
+  only, so a truncated list's shares don't reflect the full population
+- Heatmap shade = `round(cell / max(cells) × 100)`
+- Head-to-head bars = `value / rows[0].value`
 
 ### Combining label rows across repos
 
-`labelRows()` in `web/js/data.js`. When more than one repo is selected in the
-Label mix card:
-
-- **Counts add.** `open`, `closed`, `total` and `unanswered` are summed across
-  repos, and `repos` counts how many trackers use that label.
-- **Medians do not, and are set to null.** A median of medians is not a median
-  of anything. The table drops those two columns entirely when more than one
-  repo is in view rather than printing a plausible fiction.
-
-With exactly one repo selected, the medians are the repo's own and are shown.
+`labelRows()` in `web/js/data.js`, Label mix with several repos selected:
+`open`, `closed`, `total`, `unanswered` are summed and `repos` counts trackers
+using the label; medians become null and the columns are hidden. One repo
+selected shows its own medians.
 
 ### Head-to-head leaders
 
-`leaders()` in `web/js/modules/versus.js`. Returns a **set** of column indexes,
-so a tie highlights every tied cell rather than silently picking whoever was
-added first.
+On screen: *Head to head*
 
-- Rows with `dir: null` have no leader — nobody is winning at having been here
-  since 2015
-- Null values never lead; a subject with no data has not won
-- Fewer than two real values means no leader is marked
-- A row where everybody scores zero has no leader, only a shared blank
+`leaders()` in `web/js/modules/versus.js` returns a **set** of column indexes, so
+ties highlight all. No leader when the row has `dir: null`, fewer than two
+non-null values, or everyone is zero. Null never leads.
 
-### Windowing the drilldown logs
+### Windowing drilldown logs
 
-The filed and closed issue logs, and the resolved-PR list, are filtered
-client-side by `at >= now − windowDays × 86,400,000`. Each half is windowed by
-the only date it has:
-
-- **Open** PRs and issues by their **open** date (via `ageDays ≤ windowDays`)
-- **Resolved** PRs by the date they ended, **closed** issues by their close date
-
-That is what the separate Backlog and Closed cards each did, so no row changes
-which window it lands in when they are read together.
+Filed/closed issue logs and the resolved-PR list are filtered by
+`at ≥ now − windowDays × 86,400,000`: open PRs and issues by open date
+(`ageDays ≤ windowDays`), resolved PRs by end date, closed issues by close date.
 
 ### Latency chart sample floor
 
-The Review latency chart drops any bucket with `mergeN ≤ 3`. Small samples swing
-a median wildly, which is why a daily view of that chart is mostly gaps. The
-hint under the chart says so.
+*Review latency* drops buckets with `mergeN ≤ 3`; the hint under the chart says
+so.
 
-### Analytics volume KPIs
+### Volume KPIs
 
-Computed over the *sliced* series, not from the window rollup:
+On screen: *Opened in range*, *Merged in range*, *…% of opened*, *Peak*
+(PR volume); *Opened in range*, *Closed in range* (Issue volume)
+
+Over the visible (sliced) buckets, not the window rollup:
 
 ```
-"Opened in range"  = Σ opened over visible buckets
-"Merged in range"  = Σ merged over visible buckets
-"…% of opened"     = Σ merged / Σ opened
-"Peak <gran>"      = max opened across visible buckets, and which bucket
+Opened in range = Σ opened
+Merged in range = Σ merged                 # PRs
+% of opened     = Σ merged / Σ opened      # PRs
+Peak <gran>     = max opened, and its bucket
+Closed in range = Σ closed                 # issues; subtitle Σ unresolved
 ```
 
-Because merges and opens are bucketed by different dates, "merged in range" can
-exceed "opened in range" and the share can exceed 100%. That is not a bug; it
-means the period closed out more than it took in.
+Merged can exceed opened (and the share can pass 100%) because they are dated by
+different events.
+
+### Triage concentration
+
+On screen: *Done by the top five*, *Triage acts*, *People involved* (By
+contributor card, Issues)
+
+`web/js/modules/issues.js`, over the rows of the by-contributor table for the
+window:
+
+```
+Triage acts          = Σ triage                         # subtitle: Σ closed closes
+Done by the top five = Σ triage of top 5 rows by triage / Σ triage   # null if 0
+People involved      = row count (capped at PEOPLE_CAP)
+```
+
+Tinted red above 80%. Rows are capped at 200, so both sums cover the top 200 by
+involvement only.
 
 ---
 
 ## Org Search
 
-`/api/search` is the one read that returns records rather than figures, so it
-has no numerator and no denominator. What it does have is a set of rules about
-which records come back and in what order, and those are as capable of being
-quietly wrong as any average.
+On screen: *Org Search*
 
-### What counts as a match
+`/api/search` returns records, not figures.
 
-**Shows** — issues and pull requests whose *title* contains the query.
+### Matching
 
-**Matched by** — `instr(lower(title), ?) > 0`, with the query lowered in
-JavaScript before it is bound. A substring, anywhere in the title,
-case-insensitive over ASCII.
+```
+title match:  instr(lower(title), lower(query)) > 0     # lowered in JS
+number:       query ~ /^#?\d+$/ → match on number only (4821 = #4821)
+```
 
-Deliberately `instr` rather than `LIKE '%…%'`. The same scan, with two fewer
-ways to be wrong: nothing in the query is a wildcard, so a search for `100%` or
-`a_b` matches those characters instead of everything; and the case folding is
-JavaScript's rather than SQLite's, which is what makes it identical to the
-`applyFilter` predicate a card's own filter box uses. A filter typed on a card
-and a search typed on Org Search therefore agree about what a match is.
+Substring, anywhere, ASCII case-insensitive. `instr` rather than `LIKE`, so `%`
+and `_` are literal and case folding matches a card's `applyFilter`. A number
+lookup uses the `(repo, number)` key and can return several rows (numbers are
+per repo).
 
-**Excluded** — issue bodies, comments, review text, commit messages, branch
-names. None of them are in the store. Also every record in an excluded repo,
-filtered by `scopedDb` before the query sees it.
+Not searched: bodies, comments, review text, commit messages, branch names (not
+stored). Excluded repos are filtered by `scopedDb`.
 
-**Empty case** — an empty form returns the fifty most recently updated records
-across the org rather than nothing. The alternative was inconsistent in a way
-anybody would notice: `state=open` on its own is equally "no question asked" and
-always returned a list. A genuine miss — a query that matched nothing — is an
-empty table with a note saying titles are all that is searched.
-
-### Numbers are a lookup, not a match
-
-A query matching `/^#?\d+$/` is read as an issue or pull request number and the
-title predicate is dropped entirely. `4821` and `#4821` are the same search.
-Because `(repo, number)` is the primary key on both tables, this is an index hit
-rather than a scan, and it can return more than one row: numbers are unique
-within a repo, not across the org.
+Empty form → the 50 most recently updated records. A query with no match → empty
+table with a note that only titles are searched.
 
 ### Order
 
 | Sort | Expression |
 |---|---|
-| Recently updated *(default)* | `updated_at DESC, repo ASC, number ASC` |
-| Newest | `created_at DESC, repo ASC, number ASC` |
-| Oldest | `created_at ASC, repo ASC, number ASC` |
-| Most discussed | `comments DESC, repo ASC, number ASC` |
+| Recently updated (default) | `updated_at DESC, repo, number` |
+| Newest | `created_at DESC, repo, number` |
+| Oldest | `created_at ASC, repo, number` |
+| Most discussed | `comments DESC, repo, number` |
 
-Every one is total, and that is load-bearing rather than tidy. 723 pairs in this
-store share a `(comments, number)`, and an unstable order under a `LIMIT` returns
-whichever rows D1 felt like on that query plan — so the same search run twice
-would return different rows and read as data changing.
+Always total (723 pairs share `(comments, number)`), so repeated searches under a
+`LIMIT` return the same rows. `(repo, number)` is unique across issues and PRs
+together, since GitHub numbers both from one sequence per repo.
 
-`(repo, number)` is unique across *both* tables at once, because GitHub numbers
-issues and pull requests from one sequence per repo. So the tiebreak is total
-over the union and not merely within each half of it.
+### Page
 
-### The page
-
-50 rows, and the query asks for 51. The extra row's existence is the whole of
-what "there is more" means — there is no total, because counting everything that
-matched would be a second scan of both tables for a number that changes nobody's
-next move.
-
-Sorting a column in the results table reorders those 50 rows only. The sort
-control reorders the search.
+50 rows; the query fetches 51 and the extra row means "there is more". No total
+count. Sorting a results column reorders those 50 rows only.
 
 ### States
-
-`open`, `closed` and `merged` name the states they mean rather than being
-derived from each other:
 
 | Filter | Matches |
 |---|---|
 | open | `state = 'OPEN'` |
-| closed | `state = 'CLOSED'` |
-| merged | `state = 'MERGED'` |
-
-**Closed is not "not open".** A pull request has three states and an issue has
-two, so reading closed as `state <> 'OPEN'` would fold merged pull requests into
-it — and "closed" is precisely the word this org uses for the ones that were
-*not* merged. Asking for merged issues returns no issues rather than every
-issue: the predicate becomes `1 = 0` on that half of the union, so the other
-half still answers normally.
+| closed | `state = 'CLOSED'` — **not** "not open", so merged PRs are excluded |
+| merged | `state = 'MERGED'`; for issues the predicate is `1 = 0` |
 
 ### Bots
 
-Not excluded, and this is the one place on the dashboard where they are not.
-Every people-shaped figure nulls a bot author because a leaderboard credited to a
-bot is a wrong answer about people. A search for a bot's pull request is an
-ordinary thing to want, and hiding the name would only make the row
-unattributable.
+Included; the one place bots are not excluded from anything.
 
 ---
 
 ## Known biases and blind spots
 
-Collected in one place so an auditor does not have to reconstruct them.
-
 **Toward flattery**
 
-- New `stateReason` values GitHub adds will count as "completed" until the
-  `UNRESOLVED` set is updated
-- `approvedShare` counts an approval given *after* the merge as an approval
-  before it
-- Dep updates reads a direct typo-fix commit as a dependency update, making a
-  repo look fresher than it is
+- New `stateReason` values count as completed until `UNRESOLVED` is updated
+- `approvedShare` counts approvals given after the merge
+- Dep updates treats a direct non-dependency commit as a dependency update
+- D1 `via_pr` misses rebase merges, making Dep updates read fresher
 
 **Toward pessimism**
 
-- CI figures exclude PR-triggered runs entirely — a floor, not a total
+- CI excludes PR-triggered runs — a floor
 - `reviewsTruncated` PRs undercount approvals
-- Search-backed panels cap at 1,000 results
-- Any close the store cannot attribute lands in `unknownCloser`, so
-  `closedByHand` reads low on a half-backfilled store
+- Search panels cap at 1,000
+- Unattributable closes go to `unknownCloser`, so `closedByHand` reads low on a
+  half-backfilled store
+- `meanRunMinutes` divides by `sampledRuns`, biasing the org mean down
 
-**Neither, but easy to misread**
+**Easy to misread**
 
-- Within any one bucket or window, `merged` is not a subset of `opened` — the
-  two are dated by different events
-- A series bucket's `mergeMedianH` is dated by open date, while the KPI tile's
-  `medianMergeHours` is dated by merge date; the two will not agree and neither
-  is wrong
-- `net` on a monthly bucket is the only chart figure that can go negative
-- `people` and `reviewers` on a drilldown window mean different things on a repo
-  than on a contributor
-- Medians are nearest-rank, so on an even sample they are the upper middle value
-  rather than a mean of two
-- All-time percentile figures are over the whole store, so they move very
-  slowly and a recent regression is invisible in them
-- `firstSeen`/`lastSeen` on the Leaderboard cover PR activity only;
-  `first`/`last` on a drilldown include issue activity
+- `merged` is not a subset of `opened` in a bucket or window
+- A series bucket's `mergeMedianH` is dated by open date, the tile's
+  `medianMergeHours` by merge date
+- `net` is the only chart figure that can go negative
+- `people`/`reviewers` mean different things on a repo vs a contributor
+- Medians are nearest-rank: upper middle on an even sample
+- All-time percentiles move slowly and hide recent regressions
+- Leaderboard `firstSeen`/`lastSeen` are PR-only; drilldown `first`/`last`
+  include issues
+- Repo activity and the repo drilldown date closed PRs differently
 
-**Sampling limits that become wrong answers at scale**
+**Sampling limits**
 
-| Limit | Value | What breaks past it |
+| Limit | Value | Past it |
 |---|---|---|
-| `COMMENT_SAMPLE` | 10 | Issues open with 10+ bot/self comments record `responseUnknown` |
-| `LABEL_SAMPLE` | 15 | An issue with more labels sets `labelsTruncated` |
-| `reviews(first:)` | 50 | Approval counts undercount, flagged per record |
-| `CI_RUN_SAMPLE` | 20 | Wider sample, same math — safe to raise |
-| Search cap | 1,000 | Panel counts become floors, warned at build |
-| `MAX_TRACKED_LABELS` | 40 | Labels past the 40th get no PR-by-label card |
-| `PEOPLE_CAP` | 200 | Table is a top-200, and says so |
-| `ISSUE_TOP_N` | 200 | Drilldown ranked lists truncate at 200 |
-| `DAY_SERIES_DAYS` | 730 | Daily charts cannot reach further back, and say so |
+| `COMMENT_SAMPLE` | 10 | issue records `responseUnknown` |
+| `LABEL_SAMPLE` | 15 | `labelsTruncated` set |
+| `reviews(first:)` | 50 | approvals undercount, flagged |
+| `CI_RUN_SAMPLE` | 20 | same math, safe to raise |
+| Search cap | 1,000 | counts become floors, warned |
+| `MAX_TRACKED_LABELS` | 40 | no By label card past the 40th |
+| `PEOPLE_CAP` | 200 | top-200 table, says so |
+| `ISSUE_TOP_N` | 200 | drilldown ranked lists truncate |
+| `DAY_SERIES_DAYS` | 730 | daily charts stop, say so |
 
 ---
 
 ## Change log
 
-Append an entry whenever a definition changes — not when a number moves because
-the data moved. Newest first.
-
-The point of this section is that a figure changing shape between two builds
-should be explainable from this file alone.
+Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
-| 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. See **Org Search** in documentation.md. |
 | 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |
-| 2026-09-08 | Org Search empty form | An empty form now returns the fifty most recently updated records rather than no rows, because `state=open` alone was equally "no question" and always returned a list. See **Org Search**. |
-| 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`, so a query containing `%` or `_` is literal; order is total on `(repo, number)`; `closed` excludes merged rather than meaning "not open". See **Org Search**. |
-| 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state the Node store can. No number moves; what changes is that the "we have never asked" hint can no longer fire against the live panel. See **Field coverage**. |
-| 2026-09-03 | Drilldown label names | Resolved against the rendering subject's own `labelNames` rather than one global table, because a per-subject payload is cached across recomputes that renumber the global one. See **Label names on a drilldown row**. |
-| — | *(initial)* | Document created; describes the pipeline as it stands. |
+| 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. |
+| 2026-09-08 | Org Search empty form | An empty form returns the fifty most recently updated records rather than no rows. See **Org Search**. |
+| 2026-09-08 | Search matching and order | New endpoint, no existing figure moves. Titles matched by `instr` on a lowered string rather than `LIKE`; order is total on `(repo, number)`; `closed` excludes merged. See **Org Search**. |
+| 2026-09-03 | `prFieldCoverage` | The live index reports complete coverage, because D1 declares the three array columns `NOT NULL DEFAULT '[]'` and cannot represent the unasked state. No number moves; the "never asked" hint can no longer fire on the live panel. See **Field coverage**. |
+| 2026-09-03 | Drilldown label names | Resolved against the subject's own `labelNames` rather than one global table, because cached payloads outlive recomputes that renumber it. See **Label names on a drilldown row**. |
+| — | *(initial)* | Document created. |
