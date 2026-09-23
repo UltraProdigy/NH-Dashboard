@@ -753,7 +753,7 @@ check(
 console.log("\nunknown events are ignored, not errors");
 check("unhandled event", await handleEvent(db, "star", {}), { ignored: "star" });
 
-console.log("\nonly a delivery that wrote marks the store dirty");
+console.log("\nonly a delivery that wrote stamps its table");
 
 const { default: worker } = await import("../src/index.js");
 const SECRET = "test-secret";
@@ -781,31 +781,32 @@ async function deliver(event, payload) {
   return { status: res.status, instant: pending.length };
 }
 
-const dirty = () => row("SELECT value FROM meta WHERE key = 'dirty'").value;
-const clean = () => raw.prepare("UPDATE meta SET value = '0' WHERE key = 'dirty'").run();
+const stamp = (table) =>
+  row("SELECT value FROM meta WHERE key = ?", `wrote:${table}`)?.value ?? null;
+const stamped = () =>
+  raw.prepare("SELECT key FROM meta WHERE key LIKE 'wrote:%' ORDER BY key").all()
+    .map((r) => r.key.slice("wrote:".length));
+const clean = () => raw.prepare("DELETE FROM meta WHERE key LIKE 'wrote:%'").run();
 
 clean();
 await deliver("workflow_run", wfRun({ id: 900_100 }, "in_progress"));
-check("an in-progress run leaves dirty alone", dirty(), "0");
+check("an in-progress run stamps nothing", stamped(), []);
 
 await deliver("workflow_run", wfRun({ id: 900_101, head_branch: "topic" }));
-check("a topic-branch run leaves dirty alone", dirty(), "0");
+check("a topic-branch run stamps nothing", stamped(), []);
 
 await deliver("star", { action: "created", repository: REPO });
-check("an ignored event leaves dirty alone", dirty(), "0");
+check("an ignored event stamps nothing", stamped(), []);
 
 const topicPush = await deliver("push", {
   ref: "refs/heads/topic", commits: [], repository: REPO,
 });
-check("a topic-branch push leaves dirty alone", dirty(), "0");
+check("a topic-branch push stamps nothing", stamped(), []);
 check("and does not rebuild needsRelease", topicPush.instant, 0);
 
-const subjectsDirty = () =>
-  row("SELECT value FROM meta WHERE key = 'dirty_subjects'").value;
-
 await deliver("workflow_run", wfRun({ id: 900_102 }));
-check("a stored run marks dirty", dirty(), "1");
-check("but not the drilldown subjects", subjectsDirty(), "0");
+check("a stored run stamps only workflow_runs", stamped(), ["workflow_runs"]);
+check("with a timestamp", !Number.isNaN(Date.parse(stamp("workflow_runs"))), true);
 
 clean();
 await deliver("pull_request", {
@@ -823,8 +824,7 @@ await deliver("pull_request", {
     requested_reviewers: [],
   },
 });
-check("a pull request marks dirty", dirty(), "1");
-check("and the drilldown subjects", subjectsDirty(), "1");
+check("a pull request stamps only pull_requests", stamped(), ["pull_requests"]);
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

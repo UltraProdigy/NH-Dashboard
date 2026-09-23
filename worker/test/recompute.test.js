@@ -2,10 +2,10 @@
  * The recompute's contract, against a real seed.
  *
  * Checks the parts that are easy to get subtly wrong and impossible to notice
- * afterwards: that a clean database is skipped rather than rebuilt, that the
- * cached blob is what the panel produced, that `dirty` is cleared and `version`
- * bumped exactly once, and that a panel throwing does not take the run down or
- * strand `dirty` set forever.
+ * afterwards: that a clean database is skipped rather than rebuilt, that a
+ * write rebuilds only the panels reading that table, that the cached blob is
+ * what the panel produced, that `version` is bumped exactly once, and that a
+ * panel throwing does not take the run down and is retried on the next tick.
  *
  *   node --experimental-sqlite worker/test/recompute.test.js
  *
@@ -74,10 +74,24 @@ function load() {
   return { db, file };
 }
 
-const setDirty = (db, v) =>
-  db.prepare("UPDATE meta SET value = ? WHERE key = 'dirty'").run(String(v));
 const get = (db, key) =>
   db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.value;
+
+const touch = (db, table) =>
+  db
+    .prepare(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(`wrote:${table}`, new Date().toISOString());
+
+const stamps = (db) =>
+  new Map(
+    db.prepare("SELECT name, computed_at FROM panel_cache").all()
+      .map((r) => [r.name, r.computed_at]),
+  );
+
+const sameSet = (a, b) => [...a].sort().join() === [...b].sort().join();
 
 async function main() {
   if (!existsSync(SEED)) {
@@ -89,24 +103,18 @@ async function main() {
   const { db, file } = load();
   const env = { DB: d1(db) };
 
-  console.log("a clean database is left alone");
-  setDirty(db, 0);
-  const clean = await recompute(env);
-  check("skipped when not dirty", clean.skipped === "clean");
-  check("version not bumped", get(db, "version") === "0");
-  check("nothing cached", db.prepare("SELECT COUNT(*) n FROM panel_cache").get().n === 0);
-
-  console.log("\na dirty database rebuilds");
-  setDirty(db, 1);
+  console.log("an empty cache builds every panel");
   const run = await recompute(env);
   check("contributors was built", !!run.built?.contributors);
   check("analytics was built", !!run.built?.analytics);
+  check("every panel was built", Object.keys(run.built ?? {}).length === 11,
+        Object.keys(run.built ?? {}).join());
   check("nothing failed", Object.keys(run.failed ?? {}).length === 0, JSON.stringify(run.failed));
   for (const [name, r] of Object.entries(run.built ?? {})) {
     console.log(`        ${name}: ${(r.bytes / 1024).toFixed(0)} KB in ${r.ms}ms`);
   }
-  check("dirty cleared", get(db, "dirty") === "0");
   check("version bumped to 1", get(db, "version") === "1", get(db, "version"));
+  check("checked_at recorded", get(db, "checked_at") === run.at);
 
   const row = db.prepare("SELECT json, computed_at, ms FROM panel_cache WHERE name = 'contributors'").get();
   check("blob was cached", !!row?.json);
@@ -115,38 +123,64 @@ async function main() {
   check("blob under the 2MB row cap", row.json.length < 2_000_000, `${(row.json.length / 1024).toFixed(0)} KB`);
   console.log(`        (${(row.json.length / 1024).toFixed(0)} KB, built in ${row.ms}ms)`);
 
+  console.log("\nnothing written since is left alone");
+  const clean = await recompute(env);
+  check("skipped when nothing was written", clean.skipped === "clean");
+  check("version held at 1", get(db, "version") === "1", get(db, "version"));
+  check("checked_at still moves", get(db, "checked_at") === clean.at);
+
   console.log("\nforce rebuilds a clean database");
   const forced = await recompute(env, { force: true });
-  check("force ignores the dirty flag", !forced.skipped);
+  check("force ignores the stamps", !forced.skipped && Object.keys(forced.built).length === 11);
   check("version bumped again", get(db, "version") === "2", get(db, "version"));
 
-  console.log("\na rebuild that moved nothing keeps the version");
-  const setFlag = (key, v) =>
-    db.prepare("UPDATE meta SET value = ? WHERE key = ?").run(String(v), key);
-  setDirty(db, 1);
-  const quiet = await recompute(env);
-  check("rebuilt", !quiet.skipped && !!quiet.built?.analytics);
-  check("reports no change", quiet.changed === false);
+  console.log("\na write rebuilds only the panels that read that table");
+  let snap = stamps(db);
+  touch(db, "workflow_runs");
+  const ci = await recompute(env);
+  check("a CI run rebuilds only ciHealth", sameSet(Object.keys(ci.built), ["ciHealth"]),
+        Object.keys(ci.built).join());
+  check("and moves nothing", ci.changed === false);
   check("version held at 2", get(db, "version") === "2", get(db, "version"));
-  check("dirty cleared", get(db, "dirty") === "0");
+  const now1 = stamps(db);
+  check("analytics kept its old computed_at", now1.get("analytics") === snap.get("analytics"));
+
+  touch(db, "labels");
+  const labels = await recompute(env);
+  check("a label rebuilds the three panels that colour by it",
+        sameSet(Object.keys(labels.built), ["approvedUnmerged", "changesRequested", "byLabel"]),
+        Object.keys(labels.built).join());
+
+  touch(db, "repo_labels");
+  check("a table no panel reads rebuilds nothing", (await recompute(env)).skipped === "clean");
 
   console.log("\na write the subjects fold from bumps even with identical blobs");
-  setDirty(db, 1);
-  setFlag("dirty_subjects", 1);
+  touch(db, "issues");
   const subjects = await recompute(env);
+  check("an issue rebuilds the panels that read issues",
+        sameSet(Object.keys(subjects.built), ["contributors", "issues", "drilldown", "repos"]),
+        Object.keys(subjects.built).join());
   check("reports a change", subjects.changed === true);
   check("version bumped to 3", get(db, "version") === "3", get(db, "version"));
-  check("dirty_subjects cleared", get(db, "dirty_subjects") === "0");
+  check("and only once", (await recompute(env)).skipped === "clean" && get(db, "version") === "3");
+
+  console.log("\na quiet panel is still rebuilt once it is an hour old");
+  const old = new Date(Date.now() - 2 * 3_600_000).toISOString();
+  db.prepare("UPDATE panel_cache SET computed_at = ? WHERE name = 'depUpdates'").run(old);
+  const aged = await recompute(env);
+  check("only the old panel rebuilt", sameSet(Object.keys(aged.built), ["depUpdates"]),
+        Object.keys(aged.built).join());
 
   console.log("\na moved blob bumps on its own");
-  setDirty(db, 1);
+  touch(db, "workflow_runs");
   db.prepare("UPDATE panel_cache SET json = '[]' WHERE name = 'ciHealth'").run();
   const moved = await recompute(env);
   check("reports a change", moved.changed === true);
   check("version bumped to 4", get(db, "version") === "4", get(db, "version"));
 
   console.log("\na failing panel does not strand the run");
-  setDirty(db, 1);
+  touch(db, "pull_requests");
+  snap = stamps(db);
   const broken = {
     DB: {
       prepare(sql) {
@@ -161,11 +195,12 @@ async function main() {
   };
   const afterFail = await recompute(broken);
   check("failure is reported", !!afterFail.failed?.contributors);
-  // The claim in recompute.js that one panel failing does not cost the others
-  // their rebuild is only assertable now that there is more than one panel.
   check("the other panels still built", !!afterFail.built?.analytics);
-  check("dirty still cleared", get(db, "dirty") === "0");
   check("previous blob still served", !!db.prepare("SELECT json FROM panel_cache WHERE name='contributors'").get()?.json);
+  check("and keeps its old computed_at", stamps(db).get("contributors") === snap.get("contributors"));
+  const retry = await recompute(env);
+  check("the next tick retries only the failed panel",
+        sameSet(Object.keys(retry.built), ["contributors"]), Object.keys(retry.built).join());
 
   console.log("\nthe instant path rebuilds only the cheap panels");
   // The delivery path rebuilds the instant tier and leaves the rest to the
@@ -251,10 +286,12 @@ async function main() {
     check("a changed rebuild bumps", false, "seed has no approvedUnmerged rows");
   }
 
-  // `dirty` must survive: the cron still owes the other panels a rebuild.
-  setDirty(db, 1);
+  // The stamp must survive: the cron still owes the other panels a rebuild.
+  touch(db, "pull_requests");
   await refreshInstant(env, "pull_request");
-  check("dirty is left set for the cron", get(db, "dirty") === "1");
+  const owed = await recompute(env);
+  check("the cron still rebuilds the rest after an instant refresh",
+        !!owed.built?.analytics && !!owed.built?.byLabel);
 
   const totalMs = Object.values(built).reduce((n, v) => n + v, 0);
   check(`the instant tier is inside a delivery's budget (${totalMs}ms local)`,

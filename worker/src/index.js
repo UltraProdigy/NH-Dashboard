@@ -23,6 +23,7 @@ import {
   recompute,
   refreshInstant,
   refreshTier,
+  TABLES,
 } from "./recompute.js";
 import { facets, parseSearch, search } from "./search.js";
 import { subject } from "./panels/drilldown-subject.js";
@@ -101,25 +102,19 @@ async function verifySignature(secret, header, rawBody) {
   return crypto.subtle.verify("HMAC", key, signature, encoder.encode(rawBody));
 }
 
-const SUBJECT_TABLES = new Set(["pull_requests", "reviews", "issues"]);
-
 /**
- * Mark the aggregates stale. The recompute job clears this.
- *
- * `dirty_subjects` is the drilldown subjects' half. Their caches are keyed on
- * `version`, so the recompute has to bump it whenever a table they fold from
- * was written, even when every panel blob comes back identical. An upsert
- * rather than an UPDATE so a database that predates the key does not need a
+ * Stamp the tables a delivery wrote, so the recompute rebuilds only the panels
+ * that read them. An upsert so a database that predates a key needs no
  * migration.
  */
-async function markDirty(db, subjects) {
+async function markWritten(db, tables) {
+  const at = new Date().toISOString();
   await db
     .prepare(
-      subjects
-        ? `INSERT INTO meta (key, value) VALUES ('dirty', '1'), ('dirty_subjects', '1')
-           ON CONFLICT (key) DO UPDATE SET value = excluded.value`
-        : "UPDATE meta SET value = '1' WHERE key = 'dirty'",
+      `INSERT INTO meta (key, value) VALUES ${tables.map(() => "(?, ?)").join(", ")}
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
     )
+    .bind(...tables.flatMap((t) => [`wrote:${t}`, at]))
     .run();
 }
 
@@ -161,18 +156,18 @@ async function handleWebhook(request, env, ctx) {
     failure = String(err);
   }
 
-  // A handler that threw partway may still have written some of what it was
-  // going to, so a failure always marks dirty. A skipped or ignored delivery
-  // only refreshed its repo row, and the columns panels read there move through
-  // `repository` deliveries. Letting those through kept the full recompute
-  // running on nearly every cron tick.
+  // A handler that threw partway may have written any of its tables, so a
+  // failure stamps all of them. A skipped or ignored delivery only refreshed its
+  // repo row, and the columns panels read there move through `repository`
+  // deliveries. Letting those through kept the full recompute running on
+  // nearly every cron tick.
   const wrote = failure !== null || !(result?.skipped || result?.ignored);
 
   if (wrote) {
-    const subjects = failure !== null || SUBJECT_TABLES.has(result?.table);
-    await markDirty(env.DB, subjects).catch((err) =>
+    const tables = failure !== null ? TABLES : [result?.table ?? "repos"];
+    await markWritten(env.DB, tables).catch((err) =>
       console.error(
-        JSON.stringify({ at: "markDirty", delivery, error: String(err) }),
+        JSON.stringify({ at: "markWritten", delivery, error: String(err) }),
       ),
     );
   }

@@ -216,10 +216,10 @@ GraphQL queries to ~30, and it would also skip exactly what this job exists to
 catch: a PR closed without merging and a review submitted both change state
 without pushing anything.
 
-**The forced recompute is not optional.** `recompute` returns
-`{ skipped: "clean" }` when `dirty` is 0, and `dirty` is only set by a delivery
-— so without `?force=1` this job would correct rows underneath a cache that
-never rebuilt over them. It is skipped entirely when the window was quiet, which
+**The forced recompute is not optional.** `recompute` only rebuilds a panel when
+a delivery has stamped one of the tables it reads, and the reconcile writes D1
+directly without stamping anything — so without `?force=1` this job would
+correct rows underneath a cache that never rebuilt over them. It is skipped entirely when the window was quiet, which
 is the normal case.
 
 Two new repo secrets, alongside `GH_DASHBOARD_TOKEN` and `NH_INGEST_EXCLUDE`:
@@ -317,6 +317,45 @@ both drilldown subject caches are keyed on `version`, so a bump discards up to
 produce a byte-identical panel, and those cost nothing beyond the ~12ms rebuild.
 `computed_at` is still written, because the panel really was recomputed; that is
 a different claim from "the answer moved".
+
+### Which panels a tick rebuilds
+
+A delivery that wrote something stamps `wrote:<table>` in `meta` with the time
+of the write. Each entry in `PANELS` lists the tables it reads, and the cron
+rebuilds a panel only when one of those was stamped after the panel's own
+`computed_at`:
+
+| Panel | Reads |
+|---|---|
+| analytics | pull_requests, reviews |
+| contributors, drilldown, repos | pull_requests, reviews, issues |
+| issues | issues |
+| approvedUnmerged, changesRequested | pull_requests, reviews, labels |
+| needsRelease, depUpdates | repos, commits, releases, pull_requests |
+| ciHealth | repos, workflow_runs |
+| byLabel | labels, pull_requests |
+
+A tick that only saw CI runs rebuilds `ciHealth` (~80k rows) instead of all
+eleven panels (~11.6M). A `label` delivery writes `repo_labels`, which no panel
+reads, so it rebuilds nothing.
+
+A few rules sit on top of that:
+
+- **A panel older than an hour is rebuilt anyway.** Several panels bake day
+  counts against the time they were built (`ageDays`, `daysSinceRelease`), so a
+  panel whose tables have been quiet still has to move with the clock.
+- **A handler that throws stamps every table**, since it may have written any
+  of them before it failed.
+- **A failed panel keeps its old `computed_at`**, so the next tick sees it as
+  due and tries again, while the previous blob stays served.
+- **The drilldown subjects** fold from pull_requests, reviews and issues, and
+  their caches are keyed on `version`. A stamp on any of those newer than the
+  last run (`checked_at`) bumps `version` even when every panel blob came back
+  the same. This replaces the old `dirty_subjects` flag.
+- **`?force=1` rebuilds everything**, whatever the stamps say.
+
+`dirty` and `dirty_subjects` are no longer read. Production D1 still has both
+rows, and they are harmless.
 
 **The drilldown is the one panel whose tint is not decided by the panel alone.**
 It arrives in two pieces — an index once per session and one payload per subject
@@ -451,10 +490,10 @@ page:
   is not. `overlay()` keeps the built copy for any panel that fails to answer,
   and the card's ring goes red when that happens.
 
-`markDirty` runs on every delivery whatever the handler did, so the ten-minute
-cron rebuilds over anything the instant path got wrong. A card still wrong after
-about eleven minutes is not a rebuild that was missed — it is a row that never
-changed.
+`markWritten` stamps the table on every delivery that wrote one, so the
+ten-minute cron rebuilds over anything the instant path got wrong. A card still
+wrong after about eleven minutes is not a rebuild that was missed — it is a row
+that never changed.
 
 ## Dream Panel
 

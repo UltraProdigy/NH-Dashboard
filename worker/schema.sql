@@ -379,18 +379,16 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   at                TEXT
 );
 
--- Holds `version` (bumped by the recompute, polled by the browser), `dirty`
--- (set by webhook handlers, cleared when the recompute runs) and
--- `dirty_subjects` (set when a delivery wrote a table the drilldown subjects
--- fold from, so the recompute bumps `version` even if no panel moved).
+-- Holds `version` (bumped by the recompute when an answer moved, polled by the
+-- browser), `wrote:<table>` (stamped by the webhook handlers with the time of
+-- each write, so the recompute rebuilds only the panels that read that table)
+-- and `checked_at` (when the recompute last ran).
 CREATE TABLE IF NOT EXISTS meta (
   key               TEXT PRIMARY KEY,
   value             TEXT NOT NULL
 );
 
 INSERT OR IGNORE INTO meta (key, value) VALUES ('version', '0');
-INSERT OR IGNORE INTO meta (key, value) VALUES ('dirty', '0');
-INSERT OR IGNORE INTO meta (key, value) VALUES ('dirty_subjects', '0');
 
 -- One row per panel, holding its rendered JSON.
 --

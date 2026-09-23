@@ -4,10 +4,12 @@
  * Runs on a cron trigger rather than on the delivery path. A webhook handler
  * has ten seconds before GitHub calls it failed, and rebuilding a panel per
  * delivery would both blow that and rebuild the same panel three hundred times
- * an hour. Handlers set `dirty`; this clears it.
+ * an hour.
  *
- * The debounce is `dirty` itself. If nothing has arrived since the last run
- * there is nothing to rebuild, and the whole invocation is one read.
+ * Handlers stamp `wrote:<table>` in `meta` with the time of each write, and a
+ * panel is rebuilt only when one of the tables it reads was written after its
+ * cached copy was computed. A tick that only saw CI runs rebuilds `ciHealth`
+ * and nothing else.
  */
 
 import { analytics } from "./panels/analytics.js";
@@ -83,18 +85,45 @@ import { scopedDb } from "./scope.js";
  * Still outside: `issueMetrics` and `activeDays`, neither blocked on data.
  */
 const PANELS = {
-  contributors,
-  analytics,
-  approvedUnmerged,
-  changesRequested,
-  needsRelease,
-  depUpdates,
-  byLabel,
-  ciHealth,
-  issues,
-  drilldown,
-  repos,
+  contributors: { fn: contributors, reads: ["pull_requests", "reviews", "issues"] },
+  analytics: { fn: analytics, reads: ["pull_requests", "reviews"] },
+  approvedUnmerged: { fn: approvedUnmerged, reads: ["pull_requests", "reviews", "labels"] },
+  changesRequested: { fn: changesRequested, reads: ["pull_requests", "reviews", "labels"] },
+  needsRelease: { fn: needsRelease, reads: ["repos", "commits", "releases", "pull_requests"] },
+  depUpdates: { fn: depUpdates, reads: ["repos", "commits", "releases", "pull_requests"] },
+  byLabel: { fn: byLabel, reads: ["labels", "pull_requests"] },
+  ciHealth: { fn: ciHealth, reads: ["repos", "workflow_runs"] },
+  issues: { fn: issues, reads: ["issues"] },
+  drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"] },
+  repos: { fn: repos, reads: ["pull_requests", "reviews", "issues"] },
 };
+
+export const TABLES = [
+  "repos",
+  "pull_requests",
+  "reviews",
+  "issues",
+  "commits",
+  "releases",
+  "workflow_runs",
+  "labels",
+  "repo_labels",
+];
+
+// The drilldown subjects fold from these, and their caches are keyed on
+// `version`, so a write to any of them has to bump it even when every panel
+// blob comes back identical.
+const SUBJECT_TABLES = ["pull_requests", "reviews", "issues"];
+
+// Several panels bake day counts against `now`, so a panel whose tables have
+// been quiet is still rebuilt once it is this old.
+const STALE_AFTER = 60 * 60_000;
+
+function isDue({ reads }, computedAt, wrote, now) {
+  if (!computedAt) return true;
+  if (now - Date.parse(computedAt) >= STALE_AFTER) return true;
+  return reads.some((t) => wrote[t] && wrote[t] >= computedAt);
+}
 
 /**
  * Panels cheap enough to rebuild on the delivery path itself, and the events
@@ -118,8 +147,8 @@ const PANELS = {
  * four — the review cards recomputed on a push that cannot touch them, which is
  * the ~120ms this split exists to avoid spending.
  *
- * `dirty` is deliberately *not* cleared here — the cron still owes the others a
- * rebuild.
+ * The `wrote:` stamps are left alone here — the cron still owes the other
+ * panels reading those tables a rebuild.
  */
 const INSTANT = {
   approvedUnmerged: {
@@ -270,30 +299,44 @@ function sameAnswer(prevJson, data, json) {
 }
 
 export async function recompute(env, { force = false } = {}) {
-  const { results: flags } = await env.DB.prepare(
-    "SELECT key, value FROM meta WHERE key IN ('dirty', 'dirty_subjects')",
-  ).all();
-  const flag = (key) => flags.find((f) => f.key === key)?.value === "1";
-
-  if (!force && !flag("dirty")) {
-    return { skipped: "clean" };
-  }
-
   const now = Date.now();
   const at = new Date(now).toISOString();
+
+  const { results: stamps } = await env.DB.prepare(
+    "SELECT key, value FROM meta WHERE key LIKE 'wrote:%' OR key = 'checked_at'",
+  ).all();
+  const wrote = {};
+  let checkedAt = null;
+  for (const { key, value } of stamps) {
+    if (key === "checked_at") checkedAt = value;
+    else wrote[key.slice("wrote:".length)] = value;
+  }
+
+  const { results: cached } = await env.DB.prepare(
+    "SELECT name, computed_at FROM panel_cache",
+  ).all();
+  const computedAt = Object.fromEntries(cached.map((r) => [r.name, r.computed_at]));
+
+  const due = Object.keys(PANELS).filter(
+    (name) => force || isDue(PANELS[name], computedAt[name], wrote, now),
+  );
+  const subjectsMoved = SUBJECT_TABLES.some(
+    (t) => wrote[t] && (!checkedAt || wrote[t] >= checkedAt),
+  );
+
   const built = {};
   const failed = {};
-  let changed = force || flag("dirty_subjects");
+  let changed = force || subjectsMoved;
 
   // Panels never see the raw handle. Excluded repos stay in D1 and are filtered
   // out of everything served, and doing it here rather than in each panel means
   // a new panel cannot forget. See scope.js.
   const db = scopedDb(env.DB, env);
 
-  for (const [name, fn] of Object.entries(PANELS)) {
+  for (const name of due) {
     const started = Date.now();
     try {
-      const data = await fn(db, now);
+      const data = await PANELS[name].fn(db, now);
       const json = JSON.stringify(data);
       const ms = Date.now() - started;
 
@@ -317,33 +360,36 @@ export async function recompute(env, { force = false } = {}) {
 
       built[name] = { bytes: json.length, ms };
     } catch (err) {
-      // One panel failing must not cost the others their rebuild, nor leave
-      // `dirty` set forever — the previous cached copy stays served, which is
-      // stale rather than absent, and the next run tries again.
+      // The previous cached copy stays served and keeps its old `computed_at`,
+      // so the next tick sees it as due and tries again.
       failed[name] = String(err);
     }
   }
 
-  // Bound the one table that grows without limit. After the rebuild rather than
-  // before it, so a run that would have been trimmed still contributed to the
-  // panel it was trimmed for — and on the raw handle, because `scope.js`
-  // rewrites `FROM workflow_runs` and `DELETE FROM (SELECT …)` is not SQL.
+  // After the rebuild rather than before it, so a run that would have been
+  // trimmed still contributed to the panel it was trimmed for — and on the raw
+  // handle, because `scope.js` rewrites `FROM workflow_runs` and
+  // `DELETE FROM (SELECT …)` is not SQL.
   let pruned = 0;
-  try {
-    ({ pruned } = await pruneWorkflowRuns(env.DB));
-  } catch (err) {
-    failed.pruneWorkflowRuns = String(err);
+  if (due.includes("ciHealth")) {
+    try {
+      ({ pruned } = await pruneWorkflowRuns(env.DB));
+    } catch (err) {
+      failed.pruneWorkflowRuns = String(err);
+    }
   }
 
-  // Clear first, bump second. A delivery landing between the two sets `dirty`
-  // again and gets picked up next run. The reverse order could clear a flag set
-  // by work this run did not see.
-  //
-  // The bump is skipped when nothing moved, because it discards every cached
-  // drilldown subject and makes every open tab refetch all ten panels.
   await env.DB.prepare(
-    "UPDATE meta SET value = '0' WHERE key IN ('dirty', 'dirty_subjects')",
-  ).run();
+    `INSERT INTO meta (key, value) VALUES ('checked_at', ?)
+     ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+  )
+    .bind(at)
+    .run();
+
+  if (!due.length && !changed) return { skipped: "clean", at };
+
+  // Skipped when nothing moved, because a bump discards every cached drilldown
+  // subject and makes every open tab refetch all ten panels.
   if (changed) {
     await env.DB.prepare(
       "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'version'",
