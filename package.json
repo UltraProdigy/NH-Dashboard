@@ -39,7 +39,8 @@
     "test:search": "node --experimental-sqlite worker/test/search.test.js",
     "test:freshness": "node test/freshness.test.js",
     "test:drilldown-live": "node test/drilldown-live.test.js",
-    "test:backfill-prs": "node --experimental-sqlite worker/test/backfill-prs.test.js"
+    "test:backfill-prs": "node --experimental-sqlite worker/test/backfill-prs.test.js",
+    "test:rows-read": "node worker/test/rows-read.test.js"
   },
   "engines": {
     "node": ">=20.6"

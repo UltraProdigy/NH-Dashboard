@@ -426,6 +426,26 @@ move. `refreshedAt` in `web/js/data.js` then dates each card:
 
 The topbar shows the oldest time among the cards on screen in each tier.
 
+### Rows-read budget
+
+D1 bills on rows read, and a query that quietly starts scanning full history
+looks fine in every other test. `npm run test:rows-read` loads `worker/seed.sql`
+into local D1 through wrangler's `getPlatformProxy`, sums the `meta.rows_read`
+each query reports, and fails when any of these goes over its budget:
+
+| Measured | On the seed | Budget |
+|---|---|---|
+| A forced full build | ~11.8M | 13M |
+| A clean cron tick | 17 | 100 |
+| The instant refresh for a `pull_request` delivery | ~2.8k | 5k |
+| `/api/search/facets` once the cache is built | 1 | 10 |
+
+The five most expensive queries are printed under each result, so a failure
+names what regressed. The budgets live in `BUDGET` at the top of
+`worker/test/rows-read.test.js`. When a change makes something cheaper, lower
+its budget there so it can't drift back up. Like `test:recompute` it skips when
+the seed is absent, so it only runs locally.
+
 ## Reconciling D1
 
 A green ring says the card was rebuilt seconds after GitHub delivered. It does
