@@ -397,6 +397,33 @@ nothing on screen to check it against.
 exported so `test/freshness.test.js` can assert the unit directly. Tiers with no
 cards print nothing rather than a zero.
 
+### When a card last refreshed
+
+The blue and purple counts in the topbar carry how long ago their cards were
+last known to be current — `11 hourly (38 min ago)` — and the tooltip gives the
+clock time. Green cards carry none, since they are as current as the last
+delivery, and amber and red have no live source to date.
+
+"Last refreshed" is not the same as `computed_at`. A panel whose tables had
+nothing new is not rebuilt, and it is just as current as one that was. So every
+run of the recompute writes two keys to `meta`:
+
+- `checked_at`, the time of the run.
+- `behind`, a JSON list of the panels that run left out of date: the hourly
+  panels it held and any panel that failed.
+
+`/api/version` returns both alongside the version, so the page learns them on
+the same one-minute poll and repaints the topbar even when the version did not
+move. `refreshedAt` in `web/js/data.js` then dates each card:
+
+| Card | Refreshed at |
+|---|---|
+| Panel listed in `behind` | its own `computed_at` |
+| Any other blue or purple panel | the later of `computed_at` and `checked_at` |
+| Drilldown subject | `checked_at`, since it is folded against the version that run left |
+
+The topbar shows the oldest time among the cards on screen in each tier.
+
 ## Reconciling D1
 
 A green ring says the card was rebuilt seconds after GitHub delivered. It does

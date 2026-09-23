@@ -381,8 +381,10 @@ CREATE TABLE IF NOT EXISTS ingest_state (
 
 -- Holds `version` (bumped by the recompute when an answer moved, polled by the
 -- browser), `wrote:<table>` (stamped by the webhook handlers with the time of
--- each write, so the recompute rebuilds only the panels that read that table)
--- and `checked_at` (when the recompute last ran).
+-- each write, so the recompute rebuilds only the panels that read that table),
+-- `checked_at` (when the recompute last ran) and `behind` (a JSON list of the
+-- panels that run left waiting or failed, so everything else is current as of
+-- `checked_at`).
 CREATE TABLE IF NOT EXISTS meta (
   key               TEXT PRIMARY KEY,
   value             TEXT NOT NULL

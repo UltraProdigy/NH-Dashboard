@@ -91,7 +91,24 @@ function freshness(m, id) {
   const down = p.down || (drill && drillOnBuild());
   const refresh = drill ? subjectRefresh() : p.refresh;
   const tier = down ? "down" : p.live ? (refresh ?? "cron") : "build";
-  return { panel: name, tier, computedAt: drill ? null : p.computedAt ?? null };
+  const computedAt = drill ? null : p.computedAt ?? null;
+  return { panel: name, tier, computedAt, refreshedAt: refreshedAt(name, tier, computedAt) };
+}
+
+/**
+ * When a card's numbers were last known to be current. A panel the recompute
+ * did not list as `behind` was either rebuilt or had nothing new to read, so it
+ * is current as of the last run; a held or failed one is only as current as
+ * its own build. A drilldown subject is folded against the version the last
+ * run left, so it takes the run's time too.
+ */
+function refreshedAt(name, tier, computedAt) {
+  if (tier !== "cron" && tier !== "hourly") return null;
+  const checked = state.checkedAt;
+  if (name === "drilldown" && isDrill(state.page)) return checked;
+  if (!computedAt) return null;
+  if (!checked || state.behind.includes(name)) return computedAt;
+  return computedAt > checked ? computedAt : checked;
 }
 
 /**

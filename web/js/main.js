@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 import { loadExclusions, loadLabels } from "./dream.js";
-import { render } from "./render.js";
+import { render, renderMeta } from "./render.js";
 import { BASE, href } from "./paths.js";
 import { readRoute } from "./router.js";
 import { applyTheme } from "./theme.js";
@@ -49,7 +49,7 @@ try {
   // alone repaints the current view with the new numbers in it, and the
   // freshness line with it — a panel that was unreachable at load and came back
   // on a later poll has to move out of the red count.
-  startPolling(render);
+  startPolling(render, renderMeta);
 } catch (err) {
   document.getElementById("meta").textContent = "no data";
   document.getElementById("view").innerHTML =

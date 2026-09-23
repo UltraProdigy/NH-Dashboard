@@ -207,11 +207,21 @@ async function handleWebhook(request, env, ctx) {
 }
 
 async function handleVersion(env) {
-  const row = await env.DB.prepare(
-    "SELECT value FROM meta WHERE key = 'version'",
-  ).first();
+  const { results } = await env.DB.prepare(
+    "SELECT key, value FROM meta WHERE key IN ('version', 'checked_at', 'behind')",
+  ).all();
+  const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
 
-  return json({ version: Number(row?.value ?? 0) });
+  let behind = [];
+  try {
+    behind = JSON.parse(meta.behind ?? "[]");
+  } catch {}
+
+  return json({
+    version: Number(meta.version ?? 0),
+    checkedAt: meta.checked_at ?? null,
+    behind,
+  });
 }
 
 /**

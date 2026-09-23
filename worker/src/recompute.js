@@ -404,11 +404,14 @@ export async function recompute(env, { force = false } = {}) {
     }
   }
 
+  // Every panel not listed in `behind` is current as of `checked_at`. The page
+  // reads both from `/api/version` to say when each card last refreshed.
+  const behind = [...held, ...Object.keys(failed).filter((name) => name in PANELS)];
   await env.DB.prepare(
-    `INSERT INTO meta (key, value) VALUES ('checked_at', ?)
+    `INSERT INTO meta (key, value) VALUES ('checked_at', ?), ('behind', ?)
      ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
   )
-    .bind(at)
+    .bind(at, JSON.stringify(behind))
     .run();
 
   if (!due.length && !changed) return { skipped: "clean", held, at };

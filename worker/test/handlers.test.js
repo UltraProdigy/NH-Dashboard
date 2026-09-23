@@ -826,5 +826,21 @@ await deliver("pull_request", {
 });
 check("a pull request stamps only pull_requests", stamped(), ["pull_requests"]);
 
+console.log("\n/api/version says when the recompute last ran");
+raw.prepare(
+  `INSERT INTO meta (key, value) VALUES ('checked_at', '2026-09-22T12:00:00.000Z'),
+     ('behind', '["analytics"]')
+   ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+).run();
+const versionRes = await worker.fetch(
+  new Request("https://worker.test/api/version"),
+  { DB: db },
+  { waitUntil() {} },
+);
+const versionBody = await versionRes.json();
+check("carries checkedAt", versionBody.checkedAt, "2026-09-22T12:00:00.000Z");
+check("carries behind", versionBody.behind, ["analytics"]);
+check("still carries the version", typeof versionBody.version, "number");
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

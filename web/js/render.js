@@ -779,21 +779,42 @@ function tierCounts(ids) {
   return counts;
 }
 
+/** The oldest refresh time among these cards, per tier. */
+function tierRefreshed(ids) {
+  const oldest = {};
+  for (const id of ids) {
+    const f = freshness(MODULES[id], id);
+    if (!f?.refreshedAt) continue;
+    if (!oldest[f.tier] || f.refreshedAt < oldest[f.tier]) oldest[f.tier] = f.refreshedAt;
+  }
+  return oldest;
+}
+
+const minsAgo = (iso) => {
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  return mins < 1 ? "just now" : mins < 90 ? `${mins} min ago` : `${Math.round(mins / 60)} hr ago`;
+};
+
+const clockTime = (iso) =>
+  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
 function renderMeta() {
   const el = document.getElementById("meta");
   if (!el || !state.data) return;
 
   const mins = Math.round((Date.now() - new Date(state.data.generatedAt)) / 60000);
-  const ageText = mins < 1 ? "just now"
-    : mins < 90 ? `${mins} min ago`
-    : `${Math.round(mins / 60)} hr ago`;
+  const ageText = minsAgo(state.data.generatedAt);
 
-  const counts = tierCounts(visibleIds());
+  const ids = visibleIds();
+  const counts = tierCounts(ids);
+  const refreshed = tierRefreshed(ids);
 
-  const dots = TIERS.filter(([tier]) => counts[tier]).map(
-    ([tier, label, title]) =>
-      `<span class="tier tier-${tier}" title="${esc(title)}"><i></i>${counts[tier]} ${label}</span>`
-  );
+  const dots = TIERS.filter(([tier]) => counts[tier]).map(([tier, label, title]) => {
+    const at = refreshed[tier];
+    const tip = at ? `${title}. Last refreshed ${clockTime(at)}` : title;
+    const when = at ? ` (${minsAgo(at)})` : "";
+    return `<span class="tier tier-${tier}" title="${esc(tip)}"><i></i>${counts[tier]} ${label}${when}</span>`;
+  });
 
   el.innerHTML = [`${esc(state.data.org)} · built ${ageText}`, ...dots].join(" · ");
   // Older than a couple of cron cycles usually means a workflow run failed
@@ -1072,7 +1093,9 @@ export {
   pickerHtml,
   positionExclPop,
   render,
+  renderMeta,
   tierCounts,
+  tierRefreshed,
   updateComboPop,
   visibleIds,
 };

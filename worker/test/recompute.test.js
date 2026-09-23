@@ -176,6 +176,9 @@ async function main() {
   const again = await recompute(env);
   check("and only once", again.skipped === "clean" && get(db, "version") === "3");
   check("the held panels stay held", sameSet(again.held, ["contributors", "issues", "drilldown", "repos"]));
+  check("and are recorded as behind",
+        sameSet(JSON.parse(get(db, "behind")), ["contributors", "issues", "drilldown", "repos"]),
+        get(db, "behind"));
 
   backdate(db, HEAVY, 56);
   const hour = await recompute(env);
@@ -184,6 +187,7 @@ async function main() {
         Object.keys(hour.built).join());
   check("analytics does not read issues and stays put", !hour.built.analytics);
   check("nothing is held after", hour.held.length === 0, hour.held.join());
+  check("and nothing is behind", get(db, "behind") === "[]", get(db, "behind"));
 
   backdate(db, ["analytics"], 5 * 60);
   check("a quiet heavy panel is left alone for hours",
@@ -228,6 +232,8 @@ async function main() {
   check("the other panels still built", !!afterFail.built?.analytics);
   check("previous blob still served", !!db.prepare("SELECT json FROM panel_cache WHERE name='contributors'").get()?.json);
   check("and keeps its old computed_at", stamps(db).get("contributors") === snap.get("contributors"));
+  check("and is recorded as behind", JSON.parse(get(db, "behind")).includes("contributors"),
+        get(db, "behind"));
   const retry = await recompute(env);
   check("the next tick retries only the failed panel",
         sameSet(Object.keys(retry.built), ["contributors"]), Object.keys(retry.built).join());

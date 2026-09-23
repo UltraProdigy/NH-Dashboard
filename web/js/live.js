@@ -147,6 +147,13 @@ let timer = null;
 let retries = 0;
 const MAX_RETRIES = 3;
 
+async function getVersion() {
+  const { version, checkedAt, behind } = await getJSON("/api/version");
+  state.checkedAt = checkedAt ?? null;
+  state.behind = Array.isArray(behind) ? behind : [];
+  return version;
+}
+
 async function getJSON(path, ms = 8000) {
   // A hung fetch must not leave the page waiting on it forever — the static
   // data is already rendered and the overlay is an improvement, not a
@@ -272,12 +279,12 @@ async function overlay() {
  * while the tab is hidden and checks immediately when it comes back — a
  * backgrounded dashboard left open overnight should not spend the night asking.
  */
-export function startPolling(onChange) {
+export function startPolling(onChange, onTick) {
   const tick = async () => {
     if (document.visibilityState === "hidden") return;
     try {
-      const { version } = await getJSON("/api/version");
-      if (version === lastVersion && retries === 0) return;
+      const version = await getVersion();
+      if (version === lastVersion && retries === 0) return onTick?.();
       if (version !== lastVersion) retries = MAX_RETRIES;
       lastVersion = state.version = version;
       const applied = await overlay();
@@ -305,7 +312,7 @@ export function startPolling(onChange) {
  */
 export async function primeLive() {
   try {
-    const { version } = await getJSON("/api/version");
+    const version = await getVersion();
     // Recorded on state as well as here, because a drilldown subject is cached
     // in the browser against the same version the Worker caches it against —
     // see `subjectEntry` in drilldown-data.js. Held in one place so the two

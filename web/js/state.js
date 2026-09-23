@@ -29,6 +29,8 @@ const blankFind = () => ({
 
 const state = {
   data: null,
+  checkedAt: null,
+  behind: [],
   // Where a bare URL lands. Named here rather than taken from the top of the
   // sidebar: the landing page is a decision about what somebody should read
   // first, and tying it to sidebar order would make reordering the nav a

@@ -69,6 +69,36 @@ state.data.panels.approvedUnmerged = {
 t({ panelId: "approvedUnmerged" }, "instant", "a recovered panel clears down");
 
 /* ==========================================================================
+   When a card last refreshed
+   ========================================================================== */
+
+console.log("\nlast refreshed\n");
+
+const at = (m) => freshness(m, "x")?.refreshedAt ?? null;
+state.data.panels.analytics = {
+  ok: true, data: {}, live: true, refresh: "hourly", computedAt: "2026-09-22T11:00:00.000Z",
+};
+state.checkedAt = "2026-09-22T11:40:00.000Z";
+state.behind = [];
+check("a panel the last run did not list is current as of that run",
+  at({ page: "analytics" }) === "2026-09-22T11:40:00.000Z", at({ page: "analytics" }));
+state.behind = ["analytics"];
+check("a held panel is only as current as its own build",
+  at({ page: "analytics" }) === "2026-09-22T11:00:00.000Z", at({ page: "analytics" }));
+state.behind = [];
+state.data.panels.analytics.computedAt = "2026-09-22T11:45:00.000Z";
+check("a build newer than the last run wins",
+  at({ page: "analytics" }) === "2026-09-22T11:45:00.000Z", at({ page: "analytics" }));
+state.checkedAt = null;
+check("with no run on record it falls back to the build",
+  at({ page: "analytics" }) === "2026-09-22T11:45:00.000Z", at({ page: "analytics" }));
+state.checkedAt = "2026-09-22T11:40:00.000Z";
+check("an instant card claims no refresh time", at({ panelId: "approvedUnmerged" }) === null);
+check("nor does a built one", at({ page: "issues" }) === null);
+state.data.panels.analytics = { ok: true, data: {}, live: true, refresh: "cron" };
+state.checkedAt = null;
+
+/* ==========================================================================
    The drilldown, which arrives in two pieces
 
    Every other panel is one fetch, so `p.down` says everything. This one is an
@@ -99,6 +129,10 @@ check("and claims no computed time of its own",
 state.subjects.contributors["Dream-Master"].refresh = "instant";
 t({ page: "contributor" }, "instant", "the subject's own header decides its tier");
 delete state.subjects.contributors["Dream-Master"].refresh;
+state.checkedAt = "2026-09-22T11:40:00.000Z";
+check("a subject is current as of the last run",
+  freshness({ page: "contributor" }, "x").refreshedAt === "2026-09-22T11:40:00.000Z");
+state.checkedAt = null;
 state.data.panels.drilldown.refresh = "cron";
 
 // A subject out of the file says so, whatever version it happens to record.
@@ -135,7 +169,7 @@ state.subject = "Dream-Master";
    the cards the current view drew.
    ========================================================================== */
 
-const { tierCounts, visibleIds } = await import("../web/js/render.js");
+const { tierCounts, tierRefreshed, visibleIds } = await import("../web/js/render.js");
 const { PAGES } = await import("../web/js/pages.js");
 
 console.log("\nfreshness tally\n");
@@ -170,6 +204,16 @@ check(
   analytics.cron === 12 && analytics.build === 1,
   JSON.stringify(analytics),
 );
+
+state.checkedAt = "2026-09-22T11:40:00.000Z";
+state.data.panels.depUpdates.computedAt = "2026-09-22T11:30:00.000Z";
+state.data.panels.byLabel.computedAt = "2026-09-22T11:20:00.000Z";
+state.behind = ["byLabel"];
+const dreamAt = tierRefreshed(modulesOf("dream"));
+check("the tally reports the oldest refresh in each tier",
+  dreamAt.cron === "2026-09-22T11:20:00.000Z" && !("instant" in dreamAt), JSON.stringify(dreamAt));
+state.behind = [];
+state.checkedAt = null;
 
 const dream = tierCounts(modulesOf("dream"));
 check("a mixed page reports every tier it holds",
