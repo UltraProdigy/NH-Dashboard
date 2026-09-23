@@ -11,7 +11,7 @@
  * cached copy was computed. A tick that only saw CI runs rebuilds `ciHealth`
  * and nothing else.
  *
- * The five `hourly` panels are 11.4M of the 11.6M rows a full build reads, and
+ * The `hourly` panels are 11.8M of the 12M rows a full build reads, and
  * they chart months and years, so they are rebuilt at most once an hour even
  * when their tables move every tick.
  */
@@ -28,6 +28,7 @@ import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
 import { drilldown } from "./panels/drilldown.js";
 import { repos } from "./panels/repos.js";
+import { facets } from "./search.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -100,6 +101,7 @@ const PANELS = {
   issues: { fn: issues, reads: ["issues"], hourly: true },
   drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"], hourly: true },
   repos: { fn: repos, reads: ["pull_requests", "reviews", "issues"], hourly: true },
+  facets: { fn: facets, reads: ["pull_requests", "issues"], hourly: true },
 };
 
 export const TABLES = [

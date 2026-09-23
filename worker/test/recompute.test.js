@@ -93,7 +93,7 @@ const stamps = (db) =>
 
 const sameSet = (a, b) => [...a].sort().join() === [...b].sort().join();
 
-const HEAVY = ["contributors", "analytics", "issues", "drilldown", "repos"];
+const HEAVY = ["contributors", "analytics", "issues", "drilldown", "repos", "facets"];
 
 const backdate = (db, names, minutes) => {
   const at = new Date(Date.now() - minutes * 60_000).toISOString();
@@ -116,7 +116,7 @@ async function main() {
   const run = await recompute(env);
   check("contributors was built", !!run.built?.contributors);
   check("analytics was built", !!run.built?.analytics);
-  check("every panel was built", Object.keys(run.built ?? {}).length === 11,
+  check("every panel was built", Object.keys(run.built ?? {}).length === 12,
         Object.keys(run.built ?? {}).join());
   check("nothing failed", Object.keys(run.failed ?? {}).length === 0, JSON.stringify(run.failed));
   for (const [name, r] of Object.entries(run.built ?? {})) {
@@ -140,7 +140,7 @@ async function main() {
 
   console.log("\nforce rebuilds a clean database");
   const forced = await recompute(env, { force: true });
-  check("force ignores the stamps", !forced.skipped && Object.keys(forced.built).length === 11);
+  check("force ignores the stamps", !forced.skipped && Object.keys(forced.built).length === 12);
   check("version bumped again", get(db, "version") === "2", get(db, "version"));
 
   console.log("\na write rebuilds only the panels that read that table");
@@ -168,22 +168,22 @@ async function main() {
   const subjects = await recompute(env);
   check("an issue inside the hour rebuilds nothing", Object.keys(subjects.built).length === 0,
         Object.keys(subjects.built).join());
-  check("and holds the four that read issues",
-        sameSet(subjects.held, ["contributors", "issues", "drilldown", "repos"]),
+  check("and holds the five that read issues",
+        sameSet(subjects.held, ["contributors", "issues", "drilldown", "repos", "facets"]),
         subjects.held.join());
   check("the subjects still bump the version", subjects.changed === true);
   check("version bumped to 3", get(db, "version") === "3", get(db, "version"));
   const again = await recompute(env);
   check("and only once", again.skipped === "clean" && get(db, "version") === "3");
-  check("the held panels stay held", sameSet(again.held, ["contributors", "issues", "drilldown", "repos"]));
+  check("the held panels stay held", sameSet(again.held, ["contributors", "issues", "drilldown", "repos", "facets"]));
   check("and are recorded as behind",
-        sameSet(JSON.parse(get(db, "behind")), ["contributors", "issues", "drilldown", "repos"]),
+        sameSet(JSON.parse(get(db, "behind")), ["contributors", "issues", "drilldown", "repos", "facets"]),
         get(db, "behind"));
 
   backdate(db, HEAVY, 56);
   const hour = await recompute(env);
   check("once the hour is up they rebuild",
-        sameSet(Object.keys(hour.built), ["contributors", "issues", "drilldown", "repos"]),
+        sameSet(Object.keys(hour.built), ["contributors", "issues", "drilldown", "repos", "facets"]),
         Object.keys(hour.built).join());
   check("analytics does not read issues and stays put", !hour.built.analytics);
   check("nothing is held after", hour.held.length === 0, hour.held.join());
@@ -335,7 +335,7 @@ async function main() {
 
   console.log("\neach panel reports the tier it is rebuilt on");
   check("the review cards are instant", refreshTier("approvedUnmerged") === "instant");
-  check("the heavy five are hourly",
+  check("the heavy six are hourly",
         HEAVY.every((name) => refreshTier(name) === "hourly"),
         HEAVY.map(refreshTier).join());
   check("the rest are cron",

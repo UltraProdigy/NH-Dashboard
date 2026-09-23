@@ -251,10 +251,9 @@ const days = (from, to) =>
    None of that is a hint being thin; it is a picker that cannot offer the thing
    you came to filter by. So the lists come from the store instead.
 
-   Three scans, ~165k rows, once per session — the page fetches this on its
-   first render and keeps it. Set against the searches it makes possible that is
-   nothing, and it is the reason this is its own route rather than something
-   `/api/search` returns on every keystroke.
+   Three scans, ~382k rows, so the recompute builds this hourly as the `facets`
+   panel and the route serves the cached blob. It stays its own route rather
+   than something `/api/search` returns on every keystroke.
    ========================================================================== */
 
 /**

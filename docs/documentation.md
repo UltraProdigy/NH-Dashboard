@@ -335,17 +335,19 @@ rebuilds a panel only when one of those was stamped after the panel's own
 | needsRelease, depUpdates | repos, commits, releases, pull_requests |
 | ciHealth | repos, workflow_runs |
 | byLabel | labels, pull_requests |
+| facets | pull_requests, issues |
 
 A tick that only saw CI runs rebuilds `ciHealth` (~80k rows) instead of all
-eleven panels (~11.6M). A `label` delivery writes `repo_labels`, which no panel
+twelve panels (~12M). A `label` delivery writes `repo_labels`, which no panel
 reads, so it rebuilds nothing.
 
 A few rules sit on top of that:
 
-- **The heavy five are rebuilt at most once an hour.** `analytics`, `issues`,
-  `repos`, `contributors` and `drilldown` carry `hourly: true` in `PANELS`. They
-  are 11.4M of the 11.6M rows a full build reads, and they chart months and
-  years, so a ten-minute cadence buys nothing anyone can see. A written table
+- **The heavy six are rebuilt at most once an hour.** `analytics`, `issues`,
+  `repos`, `contributors`, `drilldown` and `facets` carry `hourly: true` in
+  `PANELS`. They are 11.8M of the 12M rows a full build reads, and they chart
+  months and years or feed a picker, so a ten-minute cadence buys nothing
+  anyone can see. A written table
   holds them until they are 55 minutes old rather than 60, because a tick lands
   a few seconds either side of the one an hour before. The recompute reports
   them as `held` in its result while they wait, and `refreshTier` answers
@@ -1765,9 +1767,13 @@ it is a broken control, so the store answers instead. `DISTINCT` does the
 de-duplication, which is also why a label carried by nine repos appears once
 rather than nine times.
 
-Three scans, about 165k rows, once per session — set against the searches it
-makes possible that is nothing, and it is why this is its own route rather than
-something `/api/search` returns on every keystroke. A value the list has never
+The three scans read about 382k rows, so the lists are built by the recompute
+as the `facets` panel, hourly like the other heavy panels, and the route serves
+that cached blob. A Find visit costs one row read instead of 382k. A repo,
+author or label seen for the first time can take up to an hour to appear in a
+picker. If the cache has no `facets` row yet (a fresh database, before the
+first tick), the route runs the live query instead. It is still its own route
+rather than something `/api/search` returns on every keystroke. A value the list has never
 heard of still searches, so typing beats the list when the list is wrong.
 
 ### Label palettes

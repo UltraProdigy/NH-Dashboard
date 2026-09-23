@@ -842,5 +842,25 @@ check("carries checkedAt", versionBody.checkedAt, "2026-09-22T12:00:00.000Z");
 check("carries behind", versionBody.behind, ["analytics"]);
 check("still carries the version", typeof versionBody.version, "number");
 
+console.log("\n/api/search/facets is served from the cache");
+const getFacets = async () => {
+  const res = await worker.fetch(
+    new Request("https://worker.test/api/search/facets"),
+    { DB: db },
+    { waitUntil() {} },
+  );
+  return { status: res.status, body: await res.json() };
+};
+raw.prepare("DELETE FROM panel_cache WHERE name = 'facets'").run();
+const live = await getFacets();
+check("falls back to the live query with no cached row", live.status, 200);
+check("and still offers the stored repos", live.body.repos.length > 0, true);
+
+const cachedFacets = { repos: [{ name: "cached", n: 1 }], authors: [], labels: [] };
+raw.prepare(
+  `INSERT INTO panel_cache (name, json, computed_at, ms) VALUES ('facets', ?, '2026-09-22T12:00:00.000Z', 1)`,
+).run(JSON.stringify(cachedFacets));
+check("serves the cached blob when there is one", (await getFacets()).body, cachedFacets);
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

@@ -328,14 +328,21 @@ async function handleSearch(env, url) {
 /**
  * What the search page's three pickers can offer.
  *
- * Its own route rather than something `/api/search` returns, because it is
- * fetched once per session and the search is fetched on every keystroke —
- * bundling them would pay for three extra scans per letter typed.
+ * Served from the `facets` panel the recompute builds hourly, since the live
+ * query reads ~382k rows per Find visit. Falls back to it when there is no
+ * cached row yet.
  */
 async function handleFacets(env) {
-  const db = scopedDb(env.DB, env);
   try {
-    return json(await facets(db));
+    const row = await env.DB.prepare(
+      "SELECT json, computed_at FROM panel_cache WHERE name = 'facets'",
+    ).first();
+    if (row) {
+      return new Response(row.json, {
+        headers: { ...JSON_HEADERS, "x-computed-at": row.computed_at },
+      });
+    }
+    return json(await facets(scopedDb(env.DB, env)));
   } catch (err) {
     console.log(JSON.stringify({ at: "facets", error: String(err) }));
     return json({ error: "facets failed" }, 503);
