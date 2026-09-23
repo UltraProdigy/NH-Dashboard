@@ -10,6 +10,10 @@
  * panel is rebuilt only when one of the tables it reads was written after its
  * cached copy was computed. A tick that only saw CI runs rebuilds `ciHealth`
  * and nothing else.
+ *
+ * The five `hourly` panels are 11.4M of the 11.6M rows a full build reads, and
+ * they chart months and years, so they are rebuilt at most once an hour even
+ * when their tables move every tick.
  */
 
 import { analytics } from "./panels/analytics.js";
@@ -85,17 +89,17 @@ import { scopedDb } from "./scope.js";
  * Still outside: `issueMetrics` and `activeDays`, neither blocked on data.
  */
 const PANELS = {
-  contributors: { fn: contributors, reads: ["pull_requests", "reviews", "issues"] },
-  analytics: { fn: analytics, reads: ["pull_requests", "reviews"] },
+  contributors: { fn: contributors, reads: ["pull_requests", "reviews", "issues"], hourly: true },
+  analytics: { fn: analytics, reads: ["pull_requests", "reviews"], hourly: true },
   approvedUnmerged: { fn: approvedUnmerged, reads: ["pull_requests", "reviews", "labels"] },
   changesRequested: { fn: changesRequested, reads: ["pull_requests", "reviews", "labels"] },
   needsRelease: { fn: needsRelease, reads: ["repos", "commits", "releases", "pull_requests"] },
   depUpdates: { fn: depUpdates, reads: ["repos", "commits", "releases", "pull_requests"] },
   byLabel: { fn: byLabel, reads: ["labels", "pull_requests"] },
   ciHealth: { fn: ciHealth, reads: ["repos", "workflow_runs"] },
-  issues: { fn: issues, reads: ["issues"] },
-  drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"] },
-  repos: { fn: repos, reads: ["pull_requests", "reviews", "issues"] },
+  issues: { fn: issues, reads: ["issues"], hourly: true },
+  drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"], hourly: true },
+  repos: { fn: repos, reads: ["pull_requests", "reviews", "issues"], hourly: true },
 };
 
 export const TABLES = [
@@ -115,14 +119,24 @@ export const TABLES = [
 // blob comes back identical.
 const SUBJECT_TABLES = ["pull_requests", "reviews", "issues"];
 
+const HOUR = 60 * 60_000;
+
 // Several panels bake day counts against `now`, so a panel whose tables have
 // been quiet is still rebuilt once it is this old.
-const STALE_AFTER = 60 * 60_000;
+const STALE_AFTER = HOUR;
+const HOURLY_STALE_AFTER = 6 * HOUR;
 
-function isDue({ reads }, computedAt, wrote, now) {
-  if (!computedAt) return true;
-  if (now - Date.parse(computedAt) >= STALE_AFTER) return true;
-  return reads.some((t) => wrote[t] && wrote[t] >= computedAt);
+// A cron tick lands a few seconds either side of the one an hour earlier, so a
+// strict hour would hold the heavy panels for an extra tick about half the time.
+const HOURLY_EVERY = HOUR - 5 * 60_000;
+
+function status({ reads, hourly }, computedAt, wrote, now) {
+  if (!computedAt) return "due";
+  const age = now - Date.parse(computedAt);
+  const written = reads.some((t) => wrote[t] && wrote[t] >= computedAt);
+  if (!hourly) return written || age >= STALE_AFTER ? "due" : "clean";
+  if (!written && age < HOURLY_STALE_AFTER) return "clean";
+  return age >= HOURLY_EVERY ? "due" : "held";
 }
 
 /**
@@ -181,7 +195,13 @@ export const INSTANT_EVENTS = new Set(
  * it.
  */
 export const refreshTier = (name) =>
-  name in INSTANT ? "instant" : name in PANELS ? "cron" : "build";
+  name in INSTANT
+    ? "instant"
+    : PANELS[name]?.hourly
+      ? "hourly"
+      : name in PANELS
+        ? "cron"
+        : "build";
 
 /**
  * Rebuild the cheap panels this event can move, for one delivery.
@@ -317,9 +337,14 @@ export async function recompute(env, { force = false } = {}) {
   ).all();
   const computedAt = Object.fromEntries(cached.map((r) => [r.name, r.computed_at]));
 
-  const due = Object.keys(PANELS).filter(
-    (name) => force || isDue(PANELS[name], computedAt[name], wrote, now),
+  const states = Object.fromEntries(
+    Object.keys(PANELS).map((name) => [
+      name,
+      force ? "due" : status(PANELS[name], computedAt[name], wrote, now),
+    ]),
   );
+  const due = Object.keys(states).filter((name) => states[name] === "due");
+  const held = Object.keys(states).filter((name) => states[name] === "held");
   const subjectsMoved = SUBJECT_TABLES.some(
     (t) => wrote[t] && (!checkedAt || wrote[t] >= checkedAt),
   );
@@ -386,7 +411,7 @@ export async function recompute(env, { force = false } = {}) {
     .bind(at)
     .run();
 
-  if (!due.length && !changed) return { skipped: "clean", at };
+  if (!due.length && !changed) return { skipped: "clean", held, at };
 
   // Skipped when nothing moved, because a bump discards every cached drilldown
   // subject and makes every open tab refetch all ten panels.
@@ -400,5 +425,13 @@ export async function recompute(env, { force = false } = {}) {
     "SELECT value FROM meta WHERE key = 'version'",
   ).first();
 
-  return { version: Number(version?.value ?? 0), changed, built, failed, pruned, at };
+  return {
+    version: Number(version?.value ?? 0),
+    changed,
+    built,
+    held,
+    failed,
+    pruned,
+    at,
+  };
 }

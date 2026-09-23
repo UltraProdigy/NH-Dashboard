@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
-import { recompute, refreshInstant } from "../src/recompute.js";
+import { recompute, refreshInstant, refreshTier } from "../src/recompute.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SEED = path.join(HERE, "..", "seed.sql");
@@ -93,6 +93,15 @@ const stamps = (db) =>
 
 const sameSet = (a, b) => [...a].sort().join() === [...b].sort().join();
 
+const HEAVY = ["contributors", "analytics", "issues", "drilldown", "repos"];
+
+const backdate = (db, names, minutes) => {
+  const at = new Date(Date.now() - minutes * 60_000).toISOString();
+  for (const name of names) {
+    db.prepare("UPDATE panel_cache SET computed_at = ? WHERE name = ?").run(at, name);
+  }
+};
+
 async function main() {
   if (!existsSync(SEED)) {
     console.log("\nskipped: needs worker/seed.sql, which is not committed\n");
@@ -154,15 +163,35 @@ async function main() {
   touch(db, "repo_labels");
   check("a table no panel reads rebuilds nothing", (await recompute(env)).skipped === "clean");
 
-  console.log("\na write the subjects fold from bumps even with identical blobs");
+  console.log("\nthe heavy panels wait out the hour");
   touch(db, "issues");
   const subjects = await recompute(env);
-  check("an issue rebuilds the panels that read issues",
-        sameSet(Object.keys(subjects.built), ["contributors", "issues", "drilldown", "repos"]),
+  check("an issue inside the hour rebuilds nothing", Object.keys(subjects.built).length === 0,
         Object.keys(subjects.built).join());
-  check("reports a change", subjects.changed === true);
+  check("and holds the four that read issues",
+        sameSet(subjects.held, ["contributors", "issues", "drilldown", "repos"]),
+        subjects.held.join());
+  check("the subjects still bump the version", subjects.changed === true);
   check("version bumped to 3", get(db, "version") === "3", get(db, "version"));
-  check("and only once", (await recompute(env)).skipped === "clean" && get(db, "version") === "3");
+  const again = await recompute(env);
+  check("and only once", again.skipped === "clean" && get(db, "version") === "3");
+  check("the held panels stay held", sameSet(again.held, ["contributors", "issues", "drilldown", "repos"]));
+
+  backdate(db, HEAVY, 56);
+  const hour = await recompute(env);
+  check("once the hour is up they rebuild",
+        sameSet(Object.keys(hour.built), ["contributors", "issues", "drilldown", "repos"]),
+        Object.keys(hour.built).join());
+  check("analytics does not read issues and stays put", !hour.built.analytics);
+  check("nothing is held after", hour.held.length === 0, hour.held.join());
+
+  backdate(db, ["analytics"], 5 * 60);
+  check("a quiet heavy panel is left alone for hours",
+        (await recompute(env)).skipped === "clean");
+  backdate(db, ["analytics"], 7 * 60);
+  const drift = await recompute(env);
+  check("and rebuilt once it is six hours old", sameSet(Object.keys(drift.built), ["analytics"]),
+        Object.keys(drift.built).join());
 
   console.log("\na quiet panel is still rebuilt once it is an hour old");
   const old = new Date(Date.now() - 2 * 3_600_000).toISOString();
@@ -179,6 +208,7 @@ async function main() {
   check("version bumped to 4", get(db, "version") === "4", get(db, "version"));
 
   console.log("\na failing panel does not strand the run");
+  backdate(db, HEAVY, 56);
   touch(db, "pull_requests");
   snap = stamps(db);
   const broken = {
@@ -291,11 +321,20 @@ async function main() {
   await refreshInstant(env, "pull_request");
   const owed = await recompute(env);
   check("the cron still rebuilds the rest after an instant refresh",
-        !!owed.built?.analytics && !!owed.built?.byLabel);
+        !!owed.built?.byLabel && owed.held.includes("analytics"));
 
   const totalMs = Object.values(built).reduce((n, v) => n + v, 0);
   check(`the instant tier is inside a delivery's budget (${totalMs}ms local)`,
         totalMs < 2000, "GitHub allows 10s, and waitUntil runs after the 200");
+
+  console.log("\neach panel reports the tier it is rebuilt on");
+  check("the review cards are instant", refreshTier("approvedUnmerged") === "instant");
+  check("the heavy five are hourly",
+        HEAVY.every((name) => refreshTier(name) === "hourly"),
+        HEAVY.map(refreshTier).join());
+  check("the rest are cron",
+        ["depUpdates", "byLabel", "ciHealth"].every((name) => refreshTier(name) === "cron"));
+  check("an unknown panel is build", refreshTier("nosuch") === "build");
 
   db.close();
   try {

@@ -9,7 +9,7 @@ Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install s
 **Hosted (no setup):** the build workflow deploys to
 [GitHub Pages](https://ultraprodigy.github.io/NH-Dashboard/), so the dashboard
 is just a URL — nothing to install or run. The seven ported panels refresh
-themselves from the Worker, within seconds or within ten minutes depending on
+themselves from the Worker, within seconds, ten minutes or an hour depending on
 the tier. The rest refresh when the
 [build workflow](https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml)
 crawls the org: daily at 05:00 UTC, or on demand via **Run workflow**. A push to
@@ -277,8 +277,8 @@ topbar counts the rings on the page you're looking at.
 |---|---|---|
 | Green | `direct` | Read from the database on every request, with nothing cached in between — Org Search, and only Org Search |
 | Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged, Changes requested and Needs a release |
-| Blue | `cron` | Recomputed by the Worker every 10 minutes — everything else, which is now every remaining card |
-| Purple | `hourly` | Recomputed by the Worker at most once an hour |
+| Blue | `cron` | Recomputed by the Worker every 10 minutes — Time since last update, By label, Label mix and Actions load on PR Analytics, and every card on the contributor and repo drilldowns |
+| Purple | `hourly` | Recomputed by the Worker at most once an hour — the rest of PR Analytics, Issue Analytics, Repo Activity and Contributor Activity |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
 
@@ -342,7 +342,17 @@ reads, so it rebuilds nothing.
 
 A few rules sit on top of that:
 
-- **A panel older than an hour is rebuilt anyway.** Several panels bake day
+- **The heavy five are rebuilt at most once an hour.** `analytics`, `issues`,
+  `repos`, `contributors` and `drilldown` carry `hourly: true` in `PANELS`. They
+  are 11.4M of the 11.6M rows a full build reads, and they chart months and
+  years, so a ten-minute cadence buys nothing anyone can see. A written table
+  holds them until they are 55 minutes old rather than 60, because a tick lands
+  a few seconds either side of the one an hour before. The recompute reports
+  them as `held` in its result while they wait, and `refreshTier` answers
+  `hourly` for them so their cards are purple. A quiet heavy panel is rebuilt
+  after six hours rather than one.
+
+- **Any other panel older than an hour is rebuilt anyway.** Several panels bake day
   counts against the time they were built (`ageDays`, `daysSinceRelease`), so a
   panel whose tables have been quiet still has to move with the clock.
 - **A handler that throws stamps every table**, since it may have written any
