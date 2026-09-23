@@ -757,6 +757,7 @@ const TIERS = [
   ["direct", "direct", "Read from the database on every request — nothing cached in between"],
   ["instant", "instant", "Rebuilt the moment GitHub delivers the webhook"],
   ["cron", "live", "Recomputed by the Worker every 10 minutes"],
+  ["hourly", "hourly", "Recomputed by the Worker at most once an hour"],
   ["build", "built", "From the last Actions build — no live source yet"],
   ["down", "down", "Should be live; the API did not answer, so these are build-old"],
 ];
@@ -1029,6 +1030,7 @@ async function fetchSubject(kind, id) {
       // Worker that stopped sending the header from being refetched forever.
       version: stamped == null ? state.version : Number(stamped),
       from: "api",
+      refresh: res.headers.get("x-refresh") ?? "cron",
     };
   } catch (err) {
     if (err.missing) throw err;

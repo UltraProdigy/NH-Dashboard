@@ -52,6 +52,10 @@ t({ page: "nosuchpage" },          null,      "a card with no panel gets no tint
 state.data.panels.changesRequested.refresh = "instant";
 t({ panelId: "changesRequested" }, "instant", "promoting a panel needs no frontend change");
 
+state.data.panels.analytics.refresh = "hourly";
+t({ page: "analytics" }, "hourly", "an hourly panel reads hourly");
+state.data.panels.analytics.refresh = "cron";
+
 // An outage is not the same as being built by design, and the whole point of
 // the indicator is that those two look different.
 state.data.panels.approvedUnmerged = { ok: true, data: [], down: true };
@@ -85,6 +89,17 @@ state.data.panels.drilldown = {
 state.drillSource = "api";
 state.subjects.contributors["Dream-Master"] = { s: {}, labelNames: [], version: 7, from: "api" };
 t({ page: "contributor" }, "cron", "index and subject both from the Worker read cron");
+
+// The index is rebuilt hourly and only feeds the pickers. The cards are the
+// subject's, which is folded on the request, so its tier is the one they wear.
+state.data.panels.drilldown.refresh = "hourly";
+t({ page: "contributor" }, "cron", "an hourly index leaves the subject's cards blue");
+check("and claims no computed time of its own",
+  freshness({ page: "contributor" }, "x").computedAt === null);
+state.subjects.contributors["Dream-Master"].refresh = "instant";
+t({ page: "contributor" }, "instant", "the subject's own header decides its tier");
+delete state.subjects.contributors["Dream-Master"].refresh;
+state.data.panels.drilldown.refresh = "cron";
 
 // A subject out of the file says so, whatever version it happens to record.
 state.subjects.contributors["Dream-Master"].from = "build";

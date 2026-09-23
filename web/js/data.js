@@ -58,7 +58,8 @@ const PAGE_PANEL = {
 const sourcePanel = (m, id) => m?.reads ?? m?.panelId ?? PAGE_PANEL[m?.page] ?? null;
 
 /**
- * How fresh a card's data can be — `instant`, `cron`, `build`, or `down`.
+ * How fresh a card's data can be — `instant`, `cron`, `hourly`, `build`, or
+ * `down`.
  *
  * Reported per render rather than per panel, because it describes what actually
  * happened on this page load and not what was supposed to.
@@ -86,9 +87,20 @@ function freshness(m, id) {
   if (!name) return null;
   const p = panel(name);
   if (!p?.ok) return null;
-  const down = p.down || (name === "drilldown" && drillOnBuild());
-  const tier = down ? "down" : p.live ? (p.refresh ?? "cron") : "build";
-  return { panel: name, tier, computedAt: p.computedAt ?? null };
+  const drill = name === "drilldown" && isDrill(state.page);
+  const down = p.down || (drill && drillOnBuild());
+  const refresh = drill ? subjectRefresh() : p.refresh;
+  const tier = down ? "down" : p.live ? (refresh ?? "cron") : "build";
+  return { panel: name, tier, computedAt: drill ? null : p.computedAt ?? null };
+}
+
+/**
+ * The drilldown cards draw from the subject payload, not the index. The index
+ * only feeds the pickers and is rebuilt hourly; a subject is folded on the
+ * request against the current version, so it carries its own tier.
+ */
+function subjectRefresh() {
+  return state.subjects?.[DRILL[state.page]]?.[state.subject]?.refresh ?? "cron";
 }
 
 /**

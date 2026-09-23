@@ -27,6 +27,7 @@ main { min-width: 0; display: flex; flex-direction: column; }
 .meta .tier-direct  { --fresh: var(--good); }
 .meta .tier-instant { --fresh: var(--good); }
 .meta .tier-cron    { --fresh: var(--accent); }
+.meta .tier-hourly  { --fresh: var(--purple); }
 .meta .tier-build   { --fresh: var(--warn); }
 /* Red is not a tier but a fault — see cards.css. It's the one count worth
    reading before the others, so it takes the text colour too. */

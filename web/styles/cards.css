@@ -126,8 +126,8 @@
    How recently a card's numbers could have changed, as a tint on its edge.
 
    Four states, describing the pipeline rather than the data: green is rebuilt
-   on the webhook delivery, blue on the ten-minute recompute, amber is the
-   static build the page loads before either.
+   on the webhook delivery, blue on the ten-minute recompute, purple at most
+   once an hour, amber is the static build the page loads before any of them.
 
    Red is the one that is not a tier. It marks a card that should have been
    live and whose API did not answer — the data underneath is the same stale
@@ -154,6 +154,7 @@
 .card.fresh-direct  { --fresh: var(--good); }
 .card.fresh-instant { --fresh: var(--good); }
 .card.fresh-cron    { --fresh: var(--accent); }
+.card.fresh-hourly  { --fresh: var(--purple); }
 .card.fresh-build   { --fresh: var(--warn); }
 
 /* Red carries a little more weight than the other three. They are ambient

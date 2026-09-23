@@ -278,6 +278,7 @@ topbar counts the rings on the page you're looking at.
 | Green | `direct` | Read from the database on every request, with nothing cached in between — Org Search, and only Org Search |
 | Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged, Changes requested and Needs a release |
 | Blue | `cron` | Recomputed by the Worker every 10 minutes — everything else, which is now every remaining card |
+| Purple | `hourly` | Recomputed by the Worker at most once an hour |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
 
@@ -364,6 +365,12 @@ index over a build-file subject would be a confident blue about data the API
 never served, across 22 of the 53 cards at once. `drillOnBuild` in
 `web/js/data.js` reads both halves, and either one on the file makes the card
 red.
+
+The colour itself comes from the subject, not the index. The index only feeds
+the pickers, while every card on a drilldown page draws from the subject
+payload, which is folded on the request against the current `version`.
+`fetchSubject` keeps the subject's own `x-refresh` header on its cache entry and
+`freshness` reads that, so the cards stay blue whatever the index's tier is.
 
 **The topbar counts cards, not panels.** That distinction is the whole reason
 the line was rewritten. A panel is a data source and a card is a thing on
