@@ -12,6 +12,7 @@ import {
   pctFmt,
   repoHref,
   repoLink,
+  safeUrl,
 } from "../format.js";
 import {
   barChart,
@@ -52,7 +53,7 @@ const issueUrl = (r) =>
   `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/issues/${r.number}`;
 
 const issueTitle = (r) =>
-  `<a href="${r.url ?? issueUrl(r)}" target="_blank" rel="noopener">${
+  `<a href="${safeUrl(r.url ?? issueUrl(r))}" target="_blank" rel="noopener">${
     esc(r.title || `#${r.number}`)}</a> <span class="repo">#${r.number}</span>`;
 
 /**

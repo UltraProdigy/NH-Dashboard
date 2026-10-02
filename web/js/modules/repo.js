@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, bucketLabel, contribName, daysSince, dur, esc, fmt, kfmt, pctFmt } from "../format.js";
+import { age, bucketLabel, contribName, daysSince, dur, esc, fmt, kfmt, pctFmt, safeUrl } from "../format.js";
 import {
   barChart,
   grossingBoxes,
@@ -237,7 +237,7 @@ export const repoModules = {
 
       const release = rel
         ? `<div class="kpis" style="margin:18px -14px 0">
-             ${kpi("Last release", `<a href="${rel.releaseUrl}" target="_blank" rel="noopener" style="font-size:18px">${esc(rel.tagName)}</a>`,
+             ${kpi("Last release", `<a href="${safeUrl(rel.releaseUrl)}" target="_blank" rel="noopener" style="font-size:18px">${esc(rel.tagName)}</a>`,
                    `${rel.commitsAheadApprox ? "at least " : ""}${fmt(rel.commitsAhead ?? "?")} commits behind ${esc(rel.defaultBranch)}`)}
              ${kpi("Released", age(rel.daysSinceRelease), rel.isPrerelease ? "prerelease" : "")}
            </div>`

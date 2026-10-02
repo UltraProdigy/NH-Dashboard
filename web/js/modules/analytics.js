@@ -13,6 +13,7 @@ import {
   pctFmt,
   repoHref,
   repoLink,
+  safeUrl,
 } from "../format.js";
 import {
   barChart,
@@ -170,7 +171,7 @@ export const analyticsModules = {
 
       const cols = [
         { key: "repo",   label: "Repo",   render: r => repoLink(r.repo) },
-        { key: "number", label: "PR",     render: r => `<a href="${r.url}" target="_blank" rel="noopener">#${r.number}</a>` },
+        { key: "number", label: "PR",     render: r => `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener">#${r.number}</a>` },
         { key: "author", label: "Author", render: r => contribName(r.author) },
         { key: "ageDays",  label: "Opened",  render: r => age(r.ageDays) },
         { key: "staleDays",label: "Updated", render: r => age(r.staleDays) },

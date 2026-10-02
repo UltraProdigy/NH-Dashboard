@@ -105,7 +105,7 @@ function barChart(buckets, series, { height = 190, everyLabel = false } = {}) {
 
   const hover = buckets.map((b, i) => `
     <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
-      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${s.label}: ${fmt(b[s.key] ?? 0)}`).join("\n")}</title>
+      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${esc(s.label)}: ${fmt(b[s.key] ?? 0)}`).join("\n")}</title>
     </rect>`).join("");
 
   return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
@@ -133,7 +133,7 @@ function lineChart(buckets, series, { height = 190, fmtV = fmt, everyLabel = fal
 
   const hover = buckets.map((b, i) => `
     <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
-      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${s.label}: ${b[s.key] == null ? "—" : fmtV(b[s.key])}`).join("\n")}</title>
+      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${esc(s.label)}: ${b[s.key] == null ? "—" : fmtV(b[s.key])}`).join("\n")}</title>
     </rect>`).join("");
 
   return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
@@ -222,7 +222,7 @@ function prList(rows, { unit = "", repo = null, kind = "pull" } = {}) {
     const id = r.repo ? `${where}#${r.number}` : `#${r.number}`;
     // Titles are absent until the ingest backfill has run; fall back to the
     // identifier rather than rendering a blank row.
-    const text = r.title ? esc(r.title) : id;
+    const text = esc(r.title || id);
     return `<div class="prrow">
       <span class="rk">${i + 1}</span>
       <span class="ttl" title="${esc(r.title || id)}">

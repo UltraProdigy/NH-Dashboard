@@ -6,7 +6,7 @@ import {
   DREAM_LABELS_OVERVIEW,
   state,
 } from "./state.js";
-import { age, bareRepo, esc, fmt, repoHref } from "./format.js";
+import { age, bareRepo, esc, fmt, repoHref, safeUrl } from "./format.js";
 import { panel } from "./data.js";
 import { applyFilter } from "./table.js";
 
@@ -254,7 +254,7 @@ function labelCardControlsHtml() {
  */
 const labelRowHtml = (r) => `
   <div class="bl-row">
-    <a class="t" href="${r.url}" target="_blank" rel="noopener" title="${esc(r.title)}">${esc(r.title)}</a>
+    <a class="t" href="${safeUrl(r.url)}" target="_blank" rel="noopener" title="${esc(r.title)}">${esc(r.title)}</a>
     <div class="m"><a class="repo" href="${repoHref(r.repo)}" data-drilllink
         title="${esc(r.repo)}">${esc(bareRepo(r.repo))}</a><span class="sep">·</span>${age(r.ageDays)}${
       r.draft ? `<span class="label">draft</span>` : ""}</div>

@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { age, agoText, contribName, esc, fmt, repoLink } from "./format.js";
+import { age, agoText, contribName, esc, fmt, repoLink, safeUrl } from "./format.js";
 import { labelsOf } from "./drilldown-data.js";
 
 /* ==========================================================================
@@ -57,15 +57,15 @@ const sortOf = () =>
 const COLUMNS = {
   pr: [
     { key: "repo",      label: "Repo",   render: r => repoLink(r.repo) },
-    { key: "title",     label: "Title",  render: r => `<a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
+    { key: "title",     label: "Title",  render: r => `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="repo">#${r.number}</span>` },
     { key: "author",    label: "Author", render: r => contribName(r.author) },
-    { key: "labels",    label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${l.color}">${esc(l.name)}</span>`).join("") },
+    { key: "labels",    label: "Labels", sortable: false, render: r => r.labels.map(l => `<span class="label" style="border-color:#${esc(l.color)}">${esc(l.name)}</span>`).join("") },
     { key: "ageDays",   label: "Opened", render: r => age(r.ageDays) },
     { key: "staleDays", label: "Updated",render: r => age(r.staleDays) },
   ],
   release: [
-    { key: "repo",             label: "Repo",          render: r => `<a href="${r.repoUrl}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
-    { key: "tagName",          label: "Last release",  render: r => `<a href="${r.releaseUrl}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
+    { key: "repo",             label: "Repo",          render: r => `<a href="${safeUrl(r.repoUrl)}" target="_blank" rel="noopener">${esc(r.repo)}</a>` },
+    { key: "tagName",          label: "Last release",  render: r => `<a href="${safeUrl(r.releaseUrl)}" target="_blank" rel="noopener">${esc(r.tagName)}</a>${r.isPrerelease ? ' <span class="label">pre</span>' : ""}` },
     // `≥` when the store cannot see back as far as the release: the count is
     // then only the commits inside the swept window, which measured 20 against
     // a true 106. Build-served rows carry no flag and read as exact, which they
@@ -84,7 +84,7 @@ const COLUMNS = {
       render: r => (r.approx
         ? `<span class="num age-ancient" title="Nothing was pushed directly in the history we read — this is a floor, not a date">≥ ${
             esc(agoText(r.daysSinceDirect).replace(/ ago$/, ""))}</span>`
-        : `<a href="${r.commitUrl}" target="_blank" rel="noopener">${age(r.daysSinceDirect)}</a>`),
+        : `<a href="${safeUrl(r.commitUrl)}" target="_blank" rel="noopener">${age(r.daysSinceDirect)}</a>`),
     },
     {
       key: "message", label: "Commit", sortable: false,

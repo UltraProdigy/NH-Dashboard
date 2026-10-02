@@ -1,5 +1,5 @@
 import { state } from "../state.js";
-import { age, avatar, contribLink, contribName, esc, fmt, repoLink } from "../format.js";
+import { age, avatar, contribLink, contribName, esc, fmt, repoLink, safeUrl } from "../format.js";
 import { renderTable, sortRows, withOwner } from "../table.js";
 import { ensureFacets, ensureSearch } from "../find-data.js";
 import { render as repaint } from "../render.js";
@@ -175,7 +175,7 @@ const COLS = [
   { key: "repo", label: "Repo", render: (r) => repoLink(r.repo) },
   {
     key: "title", label: "Title",
-    render: (r) => `<a href="${r.url}" target="_blank" rel="noopener">${
+    render: (r) => `<a href="${safeUrl(r.url)}" target="_blank" rel="noopener">${
       esc(r.title || `#${r.number}`)}</a> <span class="repo">#${r.number}</span>`,
   },
   {

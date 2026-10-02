@@ -1,4 +1,4 @@
-import { diff, dur, esc, fmt, pctFmt } from "./format.js";
+import { diff, dur, esc, fmt, pctFmt, safeUrl } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel, windowList } from "./data.js";
 import { labelsOf, prLabelsMissing } from "./drilldown-data.js";
@@ -161,7 +161,7 @@ function ciSection(repo) {
   const c = ci.latest?.conclusion;
   const tone = CI_TONE[c] ?? "neutral";
   const badge = ci.latest
-    ? `<a href="${ci.latest.url}" target="_blank" rel="noopener" class="pill ${tone}" style="font-size:12px">${esc(c ?? "unknown")}</a>`
+    ? `<a href="${safeUrl(ci.latest.url)}" target="_blank" rel="noopener" class="pill ${tone}" style="font-size:12px">${esc(c ?? "unknown")}</a>`
     : `<span class="pill unknown">no verdict</span>`;
 
   const rate = ci.passRate;

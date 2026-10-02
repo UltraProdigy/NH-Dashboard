@@ -6,6 +6,7 @@ import { pageSlug } from "./pages.js";
    ========================================================================== */
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const safeUrl = u => (/^https:\/\//i.test(u ?? "") ? esc(u) : "#");
 
 /**
  * A GitHub avatar, by login.
@@ -204,4 +205,5 @@ export {
   pctFmt,
   repoHref,
   repoLink,
+  safeUrl,
 };
