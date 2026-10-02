@@ -185,7 +185,7 @@ development needs one of the three options above rather than reusing the secret.
 
 `.github/workflows/worker.yml` deploys on any push to `main` touching
 `worker/**`, `src/shared/**`, or the lockfile. It runs the four self-contained
-suites first — handlers, recompute, backfill-prs, freshness — then
+suites first — handlers, private, recompute, backfill-prs, freshness — then
 `wrangler deploy`, then reads `/api/health`.
 
 **`src/shared/**` is in the path filter deliberately.** The panels import their
@@ -209,6 +209,68 @@ so a broken binding fails here instead.
 Secrets are untouched by deploys. `GITHUB_WEBHOOK_SECRET` and the App key were
 set with `wrangler secret put` and persist; putting them in the workflow would
 make every rotation a git operation.
+
+### Private routes
+
+Everything under `/api/private/` is for members of the GTNewHorizons Admin team
+only, enforced by Cloudflare Access with GitHub as the login. The plan behind it
+is the Private Dashboard Plan in the project docs.
+
+The Worker doesn't trust that a request came through Access. `private.js`
+checks the `Cf-Access-Jwt-Assertion` header on every request under the prefix
+before it looks up a route: RS256 signature against the team's published keys,
+audience, issuer, expiry and not-before, with a minute of leeway. Signing keys
+are cached for an hour and refetched at most once a minute when an unknown key
+id turns up.
+
+Private responses differ from public ones in three ways:
+
+- No `access-control-allow-origin` header, not even on a refusal or a
+  preflight. The private pages are meant to be served from the Worker's own
+  origin, so they never need one, and a wildcard would let any site read an
+  admin's data through their browser.
+- `Cache-Control: private, no-store`.
+- No token is a 401, and a token that fails any check is a 403. An unknown
+  route is a 404, but only after the token passes, so the route list isn't
+  visible to anyone who isn't logged in.
+
+Two values turn it on, both set as `[vars]` in `worker/wrangler.toml`. Neither
+is a secret.
+
+| Var | Value |
+|---|---|
+| `ACCESS_TEAM_DOMAIN` | The Zero Trust team domain, e.g. `gtnh.cloudflareaccess.com` |
+| `ACCESS_AUD` | The Access application's Audience (AUD) tag, from its overview page |
+
+Until both are set, every private request is refused, including one carrying
+an otherwise valid token. Deploying this code changes nothing for the public
+dashboard.
+
+To set up Access:
+
+1. Put the Worker on a custom domain. Access can't protect `*.workers.dev`.
+2. In Zero Trust, add GitHub as a login method.
+3. Add a self-hosted application on the custom domain covering
+   `/api/private/*` (and later the private pages' path), with a policy that
+   allows GitHub organization `GTNewHorizons`, team = the Admin team's slug.
+   Session duration 8 to 24 hours.
+4. Copy the application's AUD tag and the team domain into the two vars and
+   deploy.
+5. Once `live.js` points at the custom domain, set `workers_dev = false` in
+   `wrangler.toml` and turn preview URLs off, so there is no unprotected
+   hostname left.
+
+`GET /api/private/whoami` returns the logged-in email and when the session
+expires. The frontend uses a 200 from it to decide whether to show private
+tabs, which is only a display choice: each private route is still guarded on
+its own request.
+
+To add a private route, add a handler to `ROUTES` in `worker/src/private.js`.
+It receives `{ env, identity, url }` and returns a JSON-serializable value, and
+it never needs to check the token itself. Any private aggregate the recompute
+caches must use a `panel_cache` name with a character the public
+`/api/panel/:name` route rejects (it only accepts `[a-z0-9]`), such as
+`private:issues`, so no public request can ever read it.
 
 ### The reconcile
 

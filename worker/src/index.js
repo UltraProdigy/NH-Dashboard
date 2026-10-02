@@ -28,6 +28,7 @@ import {
 import { facets, parseSearch, search } from "./search.js";
 import { subject } from "./panels/drilldown-subject.js";
 import { scopedDb } from "./scope.js";
+import { handlePrivate, isPrivatePath } from "./private.js";
 
 /**
  * The read API is public and cross-origin by necessity — the dashboard is
@@ -422,6 +423,8 @@ async function handleSubject(env, ctx, kind, id) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (isPrivatePath(url.pathname)) return handlePrivate(request, env, url);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS });
