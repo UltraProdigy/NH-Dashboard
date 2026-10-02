@@ -181,6 +181,39 @@ it's scoped to this repo alone and can't read the GTNewHorizons org.
 GitHub Secrets are only readable from inside a workflow run, which is why local
 development needs one of the three options above rather than reusing the secret.
 
+### Page security
+
+The page builds its HTML from template strings, and much of what goes into them
+was written by someone on GitHub: titles, label names, logins, commit messages.
+Two rules keep that text from becoming markup:
+
+- Text from data goes through `esc()`.
+- URLs from data go through `safeUrl()`, which escapes them and replaces
+  anything that isn't `https://` with `#`. URLs the page builds itself from
+  `encodeURIComponent` parts don't need it.
+
+Label colors go into a `style` attribute, so they are escaped too, even though
+GitHub only ever sends hex.
+
+Behind those rules sits a Content Security Policy in a `<meta>` tag, since
+Pages can't send headers. Scripts load only from the site itself, so inline
+`<script>` and inline handlers like `onerror=` are refused. That means a value
+that slips past `esc()` can put markup on the page but can't run anything.
+Event handling belongs in a listener in JS, the way `main.js` removes broken
+avatars. `connect-src` allows only the Worker and `http://localhost:8787`, so
+`?api=` can't point the page at any other origin. Inline `style` attributes are
+still allowed, because the cards set widths and colors that way.
+
+`404.html` keeps its inline redirect script and allows it by its SHA-256 hash.
+Any edit to that script changes the hash. `npm run test:csp` recomputes it and
+fails on a mismatch, and the Pages job runs that test before staging. A stale
+hash would otherwise break every deep link without an error anywhere but the
+visitor's console. To update it, take the hash the failing test prints and put
+it in the policy at the top of `404.html`.
+
+If the Worker moves to a custom domain, add it to `connect-src` in
+`index.html`. The test checks that `DEFAULT_API` in `live.js` is listed.
+
 ### Deploying the worker
 
 `.github/workflows/worker.yml` deploys on any push to `main` touching
