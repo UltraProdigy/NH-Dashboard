@@ -36,6 +36,7 @@
     "test:parity:releases": "node --experimental-sqlite worker/test/releases.parity.test.js",
     "test:parity:by-label": "node --experimental-sqlite worker/test/by-label.parity.test.js",
     "test:find-route": "node test/find-route.test.js",
+    "test:csp": "node test/csp.test.js",
     "test:search": "node --experimental-sqlite worker/test/search.test.js",
     "test:freshness": "node test/freshness.test.js",
     "test:drilldown-live": "node test/drilldown-live.test.js",

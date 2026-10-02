@@ -22,7 +22,7 @@ const safeUrl = u => (/^https:\/\//i.test(u ?? "") ? esc(u) : "#");
  */
 function avatar(id, size = 16, cls = "") {
   const s = String(id ?? "");
-  return `<span class="pfp${cls ? ` ${cls}` : ""}" style="--pfp:${size}px" data-ini="${esc((s[0] ?? "?").toUpperCase())}"><img src="https://github.com/${encodeURIComponent(s)}.png?size=${size * 2}" alt="" loading="lazy" decoding="async" onerror="this.remove()"></span>`;
+  return `<span class="pfp${cls ? ` ${cls}` : ""}" style="--pfp:${size}px" data-ini="${esc((s[0] ?? "?").toUpperCase())}"><img src="https://github.com/${encodeURIComponent(s)}.png?size=${size * 2}" alt="" loading="lazy" decoding="async"></span>`;
 }
 
 /**

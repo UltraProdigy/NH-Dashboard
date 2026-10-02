@@ -17,6 +17,11 @@ const prefersLight =
   window.matchMedia("(prefers-color-scheme: light)").matches;
 applyTheme(localStorage.getItem("nh:theme") ?? (prefersLight ? "light" : "dark"));
 
+document.addEventListener("error", (e) => {
+  if (e.target instanceof HTMLImageElement && e.target.parentElement?.classList.contains("pfp"))
+    e.target.remove();
+}, true);
+
 try {
   // Resolved against the app's mount point rather than the document URL: on
   // GitHub Pages this lives under /NH-Dashboard/, and once the router has

@@ -165,6 +165,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # A Content-Security-Policy that no longer matches the page fails in the
+      # browser without a word, and on 404.html it takes every deep link with it.
+      - name: Check the security policy
+        run: node test/csp.test.js
+
       # `data/` is gitignored, but gitignore does not untrack what was already
       # committed, and six files from before the switch to the Actions cache are
       # still in the tree — `data/dashboard.json` among them, last written in
