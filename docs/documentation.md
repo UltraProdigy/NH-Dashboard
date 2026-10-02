@@ -88,6 +88,16 @@ closed. A record that was never fetched cannot be leaked by a panel that forgot
 to filter; one sitting in the store depends on every present and future panel
 remembering.
 
+The Worker can't exclude at ingest, because webhooks arrive for every repo, so
+D1 holds excluded repos and the exclusion is applied on the way out instead.
+Every panel, search and drilldown query runs through `scopedDb` in
+`worker/src/scope.js`, which rewrites each `FROM`/`JOIN` on a repo-bearing
+table into a filtered subquery. That covers `repos` too, filtered on its `name`
+column. Before it did, depUpdates published excluded repos: they had a `repos`
+row, no commits, and survived the LEFT JOIN. A new table that names repos
+needs an entry in that map, and a CTE must never be named after one of those
+tables, because it would be rewritten as well.
+
 ### Builds and Pages
 
 `.github/workflows/build.yml` holds three jobs, and the split between the first

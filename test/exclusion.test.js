@@ -300,6 +300,59 @@ async function checkScopedPanels() {
   db.close();
 }
 
+/**
+ * The repos table is written for every repo a webhook mentions, excluded or
+ * not, and depUpdates LEFT JOINs it. Seeded here rather than read from
+ * worker/seed.sql so it runs everywhere: an excluded repo with a repos row and
+ * no commits is exactly the shape that reached the public card.
+ */
+async function checkReposScope() {
+  const { scopeSql, scopedDb } = await import("../worker/src/scope.js");
+  const { depUpdates } = await import("../worker/src/panels/releases.js");
+
+  const rewritten = scopeSql("SELECT name FROM repos JOIN commits c ON c.repo = name", ["hidden-repo"]);
+  check(
+    "FROM repos is scoped on its name column",
+    /FROM \(SELECT \* FROM repos WHERE [^)]*\bname\b/.test(rewritten) &&
+      /JOIN \(SELECT \* FROM commits WHERE [^)]*\brepo\b/.test(rewritten),
+    rewritten,
+  );
+
+  const db = new DatabaseSync(":memory:");
+  db.exec(readFileSync(path.join(ROOT, "worker", "schema.sql"), "utf8"));
+  const now = Date.now();
+  const recent = new Date(now - 40 * 86_400_000).toISOString().replace(/\.\d+Z$/, "Z");
+  const addRepo = db.prepare(
+    "INSERT INTO repos (name, full_name, archived, default_branch, pushed_at) VALUES (?, ?, 0, 'main', ?)",
+  );
+  addRepo.run("open-repo", "GTNewHorizons/open-repo", recent);
+  addRepo.run("hidden-repo", "GTNewHorizons/hidden-repo", recent);
+  db.prepare("INSERT INTO commits (repo, sha, committed_at, author, message) VALUES (?, ?, ?, ?, ?)")
+    .run("open-repo", "a".repeat(40), recent, "someone", "Update dependencies");
+
+  const d1 = (h) => ({
+    prepare(sql) {
+      let params = [];
+      const api = {
+        bind(...p) { params = p; return api; },
+        async all() { return { results: h.prepare(sql).all(...params) }; },
+        async first() { return h.prepare(sql).get(...params) ?? null; },
+      };
+      return api;
+    },
+  });
+
+  const named = (rows) => rows.filter((r) => r.repo === "hidden-repo").length;
+  const open = await depUpdates(d1(db), now);
+  const scoped = await depUpdates(scopedDb(d1(db), { NH_INGEST_EXCLUDE: "hidden-repo" }), now);
+
+  check("depUpdates lists a repo with no commits when nothing is excluded", named(open) === 1);
+  check("depUpdates drops an excluded repo that only has a repos row", named(scoped) === 0,
+    `${named(scoped)} rows`);
+  check("depUpdates keeps the repos that are not excluded", scoped.some((r) => r.repo === "open-repo"));
+  db.close();
+}
+
 async function main() {
   console.log("\ningest exclusion\n");
   checkWiring();
@@ -307,6 +360,7 @@ async function main() {
   checkMatcherTwins();
   await checkStores();
   await checkScopedPanels();
+  await checkReposScope();
   console.log(`\n${pass} passed, ${failures.length} failed\n`);
   if (failures.length) process.exit(1);
 }

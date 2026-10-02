@@ -34,24 +34,27 @@
 
 import { includedRepoSql, parseRepoList } from "../../src/shared/repo-rules.js";
 
-/** Tables carrying a `repo` column, and therefore filterable. */
-const TABLES = [
-  "pull_requests",
-  "reviews",
-  "issues",
-  "traffic_daily",
-  "commits",
-  "releases",
-  "workflow_runs",
+/** Each filterable table, and the column that holds its repo's name. */
+const TABLES = {
+  pull_requests: "repo",
+  reviews: "repo",
+  issues: "repo",
+  traffic_daily: "repo",
+  commits: "repo",
+  releases: "repo",
+  workflow_runs: "repo",
   // A palette rather than a record, and still filtered: the rows name repos,
   // and this list is what stops one appearing on a public endpoint. `labels`
   // is deliberately absent — it has no repo column, being the org-wide managed
   // set — and the rewrite only fires on a whole word, so `FROM labels` is
   // untouched by the entry above it.
-  "repo_labels",
-];
+  repo_labels: "repo",
+  // Webhooks and the commit backfill write a row for every repo, excluded or
+  // not. Unscoped, depUpdates LEFT JOINed it and published excluded repos.
+  repos: "name",
+};
 
-const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${TABLES.join("|")})\\b`, "g");
+const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${Object.keys(TABLES).join("|")})\\b`, "g");
 
 /**
  * The rewritten SQL for one exclusion list. Exported so the test can assert the
@@ -59,11 +62,10 @@ const REFERENCE = new RegExp(`\\b(FROM|JOIN)\\s+(${TABLES.join("|")})\\b`, "g");
  */
 export function scopeSql(sql, patterns) {
   if (!patterns.length) return sql;
-  const where = includedRepoSql("repo", patterns);
   return sql.replace(
     REFERENCE,
     (_, keyword, table) =>
-      `${keyword} (SELECT * FROM ${table} WHERE ${where})`,
+      `${keyword} (SELECT * FROM ${table} WHERE ${includedRepoSql(TABLES[table], patterns)})`,
   );
 }
 
