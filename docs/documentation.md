@@ -276,6 +276,11 @@ spliced in as text rather than parsed, since it runs to megabytes. A panel
 with no cached row comes back `ok: false`, `down: true`, with an empty shape,
 so the page renders it red rather than breaking.
 
+**Signing out.** The sidebar's **Sign out** links to `/cdn-cgi/access/logout`,
+which Access serves itself. It ends the person's session across every Access
+application. To switch GitHub accounts they also have to sign out of GitHub,
+or the next login quietly reuses whoever is signed in there.
+
 **Removing someone.** Access remembers a person's teams from when they signed
 in, so removal from the org or from `admin` takes effect at their next login,
 up to a month later. To cut them off at once, revoke their session in Zero
