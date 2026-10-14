@@ -96,17 +96,13 @@ jobs:
             echo "wrote=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Stamped the way a webhook stamps its writes, so the cron rebuilds
+          # the panels that read these tables instead of skipping them as clean.
+          cat >> prs.sql <<'SQL'
+          INSERT INTO meta (key, value) VALUES
+            ('wrote:pull_requests', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            ('wrote:reviews', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+          SQL
           npx wrangler d1 execute nh-dashboard --remote --file prs.sql --yes
           echo "wrote=true" >> "$GITHUB_OUTPUT"
-
-      # The panels are cached blobs; correcting a row underneath one changes
-      # nothing anybody can see until the cache is rebuilt. The cron would get
-      # there within ten minutes, but only because a delivery happened to set
-      # `dirty` — and if no delivery has arrived, `dirty` is 0 and the recompute
-      # returns `{ skipped: "clean" }` over rows this job just changed. Hence
-      # force: this job knows it wrote, and the flag is the only way to say so.
-      - name: Rebuild the panels
-        if: steps.apply.outputs.wrote == 'true'
-        run: |
-          curl -fsS -X POST "https://nh-dashboard.gtnh.workers.dev/api/recompute?force=1" \
-            | head -c 2000

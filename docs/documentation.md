@@ -289,7 +289,8 @@ Trust → **Users**.
 ### The reconcile
 
 `.github/workflows/reconcile.yml` runs `worker/backfill-prs.js` every six hours
-over a three-day window, applies the SQL to D1, and forces a panel rebuild.
+over a three-day window, applies the SQL to D1, and stamps the tables it wrote
+so the next cron tick rebuilds the panels over them.
 **Reconciling D1** below has the why; this is the shape.
 
 The window overlaps itself eleven times over, so a failed run is corrected by
@@ -302,11 +303,14 @@ GraphQL queries to ~30, and it would also skip exactly what this job exists to
 catch: a PR closed without merging and a review submitted both change state
 without pushing anything.
 
-**The forced recompute is not optional.** `recompute` only rebuilds a panel when
-a delivery has stamped one of the tables it reads, and the reconcile writes D1
-directly without stamping anything — so without `?force=1` this job would
-correct rows underneath a cache that never rebuilt over them. It is skipped entirely when the window was quiet, which
-is the normal case.
+**The stamps are not optional.** `recompute` only rebuilds a panel when one of
+the tables it reads has a `wrote:<table>` stamp newer than the panel, and a
+write straight to D1 leaves none. So the SQL the job applies ends by stamping
+`wrote:pull_requests` and `wrote:reviews` in the same format the webhook uses,
+and the cron picks them up within ten minutes (an hour for the hourly panels).
+This used to be a `POST /api/recompute?force=1` to the webhook Worker, which
+no longer has that route, and the app Worker's copy needs a login. A quiet
+window applies nothing and stamps nothing, which is the normal case.
 
 Two new repo secrets, alongside `GH_DASHBOARD_TOKEN` and `NH_INGEST_EXCLUDE`:
 
