@@ -6,25 +6,37 @@ Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install s
 
 ## Viewing it
 
-**Hosted (no setup):** the build workflow deploys to
-[GitHub Pages](https://ultraprodigy.github.io/NH-Dashboard/), so the dashboard
-is just a URL — nothing to install or run. The seven ported panels refresh
-themselves from the Worker, within seconds, ten minutes or an hour depending on
-the tier. The rest refresh when the
-[build workflow](https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml)
-crawls the org: daily at 05:00 UTC, or on demand via **Run workflow**. A push to
-`main` redeploys the site without recrawling. This is the way to read it from
-any machine.
+**Hosted:** <https://nh-dashboard-app.gtnh.workers.dev>. It's behind a GitHub
+login: anyone in the GTNewHorizons org can sign in, and members of the `admin`
+team also see the Admin Resources pages (Dream Panel, Labels, CI Health,
+Rulesets). Logins last a month per browser. Every panel refreshes itself from
+D1, within seconds, ten minutes or an hour depending on its tier. How the login
+works, and how to set it up again, is under [Login and roles](#login-and-roles).
 
-**Locally (fresh data on demand):** double-click `Dashboard.command` in Finder.
-It builds, starts the server, and opens your browser. Closing the Terminal
-window stops it.
+**Locally:** the page loads everything from the app Worker's API, so it needs
+`wrangler dev` rather than a static server. Put `DEV_ROLE=admin` (or `member`)
+in `worker/.dev.vars`, then:
 
-Or from a shell:
+```bash
+cd worker
+npx wrangler dev -c wrangler.app.toml
+```
+
+`DEV_ROLE` stands in for the login, and only on `localhost`. By default the
+local D1 is empty, so either seed it (`worker/seed.sql`) or add `remote = true`
+to the `[[d1_databases]]` binding in `wrangler.app.toml` to read the real
+database while the code runs locally (untested here; check Cloudflare's
+"remote bindings" docs for the current syntax).
+
+`npm start` and `Dashboard.command` still build `data/` and start the static
+server, but the page no longer reads `data/dashboard.json`, so they don't show
+the dashboard any more.
+
+The Node crawl itself still needs a token:
 
 ```bash
 gh auth login     # once — no token stored on disk
-npm start         # build + serve
+npm run build
 ```
 
 Without a token you get 60 requests/hour instead of 5,000, which isn't enough
@@ -98,88 +110,20 @@ row, no commits, and survived the LEFT JOIN. A new table that names repos
 needs an entry in that map, and a CTE must never be named after one of those
 tables, because it would be rewritten as well.
 
-### Builds and Pages
+### The crawl
 
-`.github/workflows/build.yml` holds three jobs, and the split between the first
-two is the thing to understand.
+`.github/workflows/build.yml` used to crawl the org daily and publish `web/` and
+the built JSON to GitHub Pages. Pages is retired: a static site can't be put
+behind a login, and it served `dashboard.json` and `drilldown.json` to anyone.
+Every panel now comes from D1 through the app Worker.
 
-| Job | Runs on | Costs | Does |
-|---|---|---|---|
-| `data` | schedule, dispatch | 15–25 min | Ingests, builds `data/*.json`, caches them |
-| `site` | everything | seconds | Restores the built JSON, stages `_site` |
-| `deploy` | everything | seconds | Publishes to Pages |
+What's left is the crawl (`npm run ingest` then `npm run build`), run by hand
+with **Run workflow** when the local tooling needs a fresh ingest store, for
+the parity tests or `worker/seed.js`. Its output goes into the Actions cache
+only. It still needs the `GH_DASHBOARD_TOKEN` and `NH_INGEST_EXCLUDE` repo
+secrets.
 
-**A push runs `site` and `deploy` only.** Rebuilding the data means crawling the
-org — an incremental ingest, `ciHealth` sweeping 252 repos, `needsRelease`'s
-per-repo GraphQL, `depUpdates`' year-long look-back, a search per tracked label
-— and it is bound by GitHub's API, not by anything here. Deploying means copying
-`web/` and four JSON files. Welding them into one job meant a CSS change cost a
-full org crawl to republish byte-identical data, and that is the whole reason
-pushes took twenty minutes. The built JSON comes back out of the cache the last
-`data` run left behind, so a push publishes today's frontend against last
-night's numbers — which is exactly what the freshness tints already say.
-
-Use **Run workflow** with `deploy_only` **unchecked** to force a fresh crawl,
-**checked** to redeploy from cache without one.
-
-**The daily run is the floor, not a fallback for anything unported.** All ten
-panels are served from D1 now, so nothing on the dashboard is build-only. What
-this run produces is the copy the page falls back to when the Worker is
-unreachable — the difference between an amber card and a red one.
-
-The drilldown is the exception to how that floor is *used*. Every other panel
-renders from `dashboard.json` and is overlaid by the Worker, so the fallback is
-already in hand before the first API call. The drilldown's floor is
-`data/drilldown.json` at 23 MB, and fetching that eagerly to have it ready would
-keep the whole cost the live drilldown removes — so it is fetched only once the
-API has actually failed, and a drilldown page running on it reads **red** rather
-than amber. See **The drilldowns**.
-
-Nothing is committed. The ingest store used to be, so each run could resume from
-the last watermark, but that made every run a push into an org that broadcasts
-push events — which is why the schedule sat parked. State now rides the Actions
-cache instead, and the workflow holds `contents: read`.
-
-**Runs are never cancelled in flight.** Cancelling on a new trigger would kill a
-long crawl before it reached the cache save — the watermarks would never advance
-and each replacement would redo the same work indefinitely. GitHub keeps at most
-one run pending per concurrency group, so letting them queue cannot pile up.
-`data` and `deploy` hold separate groups now, so a fast push-deploy never waits
-behind a crawl.
-
-**The cache key must be unique per run.** Entries are immutable, so a stable key
-like `ingest-v1` restores on every run and then silently skips the save, freezing
-the watermarks at whatever the first run wrote. `ingest-${{ github.run_id }}`
-with `restore-keys: ingest-` never hits exactly, so the newest prefix match is
-restored and the post-job save always writes a fresh entry. `site-data-` carries
-the built JSON on the same scheme, for the same reason.
-
-**Both jobs delete `data/*.json` after checkout.** `data/` is gitignored, but
-gitignore does not untrack what was already committed, and six files from before
-the switch to the cache are still in the tree — `data/dashboard.json` among
-them. Checkout materialises it, where it would pass the `site` job's
-did-the-data-come-back guard and get published: a stale dashboard, with no
-`drilldown.json` beside it because that one was never tracked. Deleting it makes
-the cache the only thing that can be deployed.
-
-**A cache miss fails the deploy rather than publishing a blank page.** Reachable
-once — the first push after this split, before any `data` run has written the
-entry — and after a seven-day gap, which is when GitHub evicts an unused cache.
-The daily schedule keeps it warm. The error names the fix.
-
-**The deploy copies `data/*.json`, not `data/`.** The raw store in `data/ingest`
-is far larger than anything the page reads and, with private repos in scope, not
-publishable at all. `cp -r data` would serve every NDJSON file as a static asset.
-
-One-time setup: Settings → Pages → Source → **GitHub Actions**.
-
-It still needs the repo secret **`GH_DASHBOARD_TOKEN`** (Settings → Secrets and
-variables → Actions) holding a PAT with `public_repo` scope, until the ingest
-moves to App auth. Actions' built-in `secrets.GITHUB_TOKEN` will *not* work —
-it's scoped to this repo alone and can't read the GTNewHorizons org.
-
-GitHub Secrets are only readable from inside a workflow run, which is why local
-development needs one of the three options above rather than reusing the secret.
+To finish retiring Pages: repo **Settings** → **Pages** → unpublish the site.
 
 ### Page security
 
@@ -195,115 +139,132 @@ Two rules keep that text from becoming markup:
 Label colors go into a `style` attribute, so they are escaped too, even though
 GitHub only ever sends hex.
 
-Behind those rules sits a Content Security Policy in a `<meta>` tag, since
-Pages can't send headers. Scripts load only from the site itself, so inline
+Behind those rules sits a Content Security Policy in a `<meta>` tag. Scripts load only from the site itself, so inline
 `<script>` and inline handlers like `onerror=` are refused. That means a value
 that slips past `esc()` can put markup on the page but can't run anything.
 Event handling belongs in a listener in JS, the way `main.js` removes broken
-avatars. `connect-src` allows only the Worker and `http://localhost:8787`, so
-`?api=` can't point the page at any other origin. Inline `style` attributes are
+avatars. `connect-src` allows only the page's own origin (the app Worker) and
+`http://localhost:8787`, so `?api=` can't point the page at any other origin. Inline `style` attributes are
 still allowed, because the cards set widths and colors that way.
 
 `404.html` keeps its inline redirect script and allows it by its SHA-256 hash.
 Any edit to that script changes the hash. `npm run test:csp` recomputes it and
-fails on a mismatch, and the Pages job runs that test before staging. A stale
+fails on a mismatch, and the deploy workflow runs that test before deploying. A stale
 hash would otherwise break every deep link without an error anywhere but the
 visitor's console. To update it, take the hash the failing test prints and put
 it in the policy at the top of `404.html`.
 
-If the Worker moves to a custom domain, add it to `connect-src` in
-`index.html`. The test checks that `DEFAULT_API` in `live.js` is listed.
+`DEFAULT_API` in `live.js` is empty, meaning the page's own origin. If it ever
+points somewhere else, that origin has to be added to `connect-src`; the test
+checks it is.
 
-### Deploying the worker
+### Deploying the Workers
 
-`.github/workflows/worker.yml` deploys on any push to `main` touching
-`worker/**`, `src/shared/**`, or the lockfile. It runs the four self-contained
-suites first — handlers, private, recompute, backfill-prs, freshness — then
-`wrangler deploy`, then reads `/api/health`.
+There are two Workers on the one D1 database:
+
+| Worker | Config | Serves | Behind Access |
+|---|---|---|---|
+| `nh-dashboard` | `worker/wrangler.toml`, `src/index.js` | `/webhook`, the cron recompute, `/api/health` | No |
+| `nh-dashboard-app` | `worker/wrangler.app.toml`, `src/app.js` | `web/` as static files, and the read API under `/api/` | Yes |
+
+They're split because GitHub's webhooks can't log in, and Cloudflare's Access
+for Workers covers every hostname a Worker has. So the webhook Worker serves no
+dashboard data at all, only row counts on `/api/health`, and everything a person
+reads comes from the app Worker.
+
+`.github/workflows/worker.yml` deploys both on any push to `main` touching
+`worker/**`, `src/shared/**`, `web/**` or the lockfile. It runs the
+self-contained suites first (handlers, app, csp, recompute, backfill-prs,
+freshness), then `wrangler deploy` for each Worker, then two checks:
+`/api/health` on the webhook Worker must answer, and `/api/dashboard` on the
+app Worker must *not* answer without a login. A 200 there fails the run.
 
 **`src/shared/**` is in the path filter deliberately.** The panels import their
 rules from there and those modules are compiled into the bundle, so a change
-that skipped a deploy would leave the live cards computing by the old rule while
-the built file used the new one — and every parity test would pass on both,
-because each compares a D1 reading against a Node reading of the same source.
+that skipped a deploy would leave the live cards computing by the old rule.
 
-**The parity suites are not in the gate.** They read `data/ingest`, which is a
-30 MB Actions cache belonging to `build.yml`. Gating a Worker deploy on the
-state of that cache would couple two things that have nothing to do with each
-other. The four that run build their own SQLite from `schema.sql`.
+**The parity suites are not in the gate.** They read `data/ingest`, a 30 MB
+Actions cache from the crawl. Gating a deploy on that cache would couple two
+things that have nothing to do with each other.
 
-**The health check is the point of the job, not decoration.** A Worker carries
-no version anyone can read against a commit, so a deploy that uploads and then
-answers 500 is worse than one that fails — the run is green either way. Worse,
-the first thing to notice would be a webhook delivery, and `handleWebhook`
-returns 200 no matter what the handler did. `/api/health` touches every table,
-so a broken binding fails here instead.
+**Secrets live on each Worker separately.** `GITHUB_WEBHOOK_SECRET` and
+`GH_APP_PRIVATE_KEY` belong to `nh-dashboard`. `ACCESS_AUD` belongs to
+`nh-dashboard-app`. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
+`nh-dashboard-app` too, or search and the drilldowns will show excluded repos
+that the cached panels hide. Set secrets with `wrangler secret put NAME` (add
+`-c wrangler.app.toml` for the app) or in the Cloudflare dashboard; they
+survive deploys.
 
-Secrets are untouched by deploys. `GITHUB_WEBHOOK_SECRET` and the App key were
-set with `wrangler secret put` and persist; putting them in the workflow would
-make every rotation a git operation.
+### Login and roles
 
-### Private routes
+The whole dashboard is behind Cloudflare Access with GitHub as the only login
+method. The setup steps are in the "Cloudflare Login Setup" project doc. In
+short: a Zero Trust team (`nh-dashboard.cloudflareaccess.com`), a GitHub OAuth
+App owned by the org, Access turned on for all of `nh-dashboard-app`'s traffic,
+and one policy allowing GitHub organization `GTNewHorizons`.
 
-Everything under `/api/private/` is for members of the GTNewHorizons Admin team
-only, enforced by Cloudflare Access with GitHub as the login. The plan behind it
-is the Private Dashboard Plan in the project docs.
+**The Worker checks the login itself.** Access sits in front, but every `/api/`
+request also goes through `access.js`, which verifies the
+`Cf-Access-Jwt-Assertion` token: RS256 signature against the team's published
+keys, audience (`ACCESS_AUD`), issuer (`ACCESS_TEAM_DOMAIN`), expiry and
+not-before, with a minute of leeway. Without `ACCESS_AUD` set, every request is
+refused. No token is a 401, a bad one a 403. No `/api/` response carries a CORS
+header, and all are `private, no-store`.
 
-The Worker doesn't trust that a request came through Access. `private.js`
-checks the `Cf-Access-Jwt-Assertion` header on every request under the prefix
-before it looks up a route: RS256 signature against the team's published keys,
-audience, issuer, expiry and not-before, with a minute of leeway. Signing keys
-are cached for an hour and refetched at most once a minute when an unknown key
-id turns up.
+Static files (`web/`) are served without running the Worker
+(`run_worker_first = ["/api/*"]`). They're the same files that are public in
+this repo and hold no data. Deep links get `404.html`, which hands the route
+back to the app (`not_found_handling = "404-page"`).
 
-Private responses differ from public ones in three ways:
+**Roles.** Access only lets org members in, so everyone who reaches the Worker
+is at least a member. `roles.js` asks Access for the person's identity
+(`ctx.access.getIdentity()`, or the team's `get-identity` endpoint) and makes
+them admin only if one of their groups is the org's admin team, written as
+`GTNewHorizons:admin` or `GTNewHorizons/admin`, or as an object naming both.
+A bare `admin` from some other org doesn't count, and a failed lookup falls
+back to member. The answer is cached per person for five minutes.
+`GITHUB_ORG` and `ADMIN_TEAM` in `wrangler.app.toml` name the org and team.
 
-- No `access-control-allow-origin` header, not even on a refusal or a
-  preflight. The private pages are meant to be served from the Worker's own
-  origin, so they never need one, and a wildcard would let any site read an
-  admin's data through their browser.
-- `Cache-Control: private, no-store`.
-- No token is a 401, and a token that fails any check is a 403. An unknown
-  route is a 404, but only after the token passes, so the route list isn't
-  visible to anyone who isn't logged in.
+`/api/whoami` returns `{ email, role, groups, sessionExpires }`. If an admin
+lands as a member, the `groups` it shows are what to match against in
+`isAdminTeam`.
 
-Two values turn it on, both set as `[vars]` in `worker/wrangler.toml`. Neither
-is a secret.
+What each role gets:
 
-| Var | Value |
+| | Member | Admin |
+|---|---|---|
+| Pages | All except Admin Resources | All |
+| Panels | All except `ADMIN_PANELS` | All |
+| `POST /api/recompute` | No | Yes (same origin only) |
+
+`ADMIN_PANELS` in `web/js/roles.js` is the one list both sides read: the
+Worker refuses those panels to members, and the page leaves them out of the
+poll. They're the three only the Dream Panel uses (`approvedUnmerged`,
+`changesRequested`, `depUpdates`). `needsRelease` and `byLabel` also feed
+member pages, so they stay open to everyone. Hiding a page in the sidebar is
+only for display. What actually protects a panel is the Worker refusing it.
+
+**Routes**, all `GET` except the recompute:
+
+| Route | Returns |
 |---|---|
-| `ACCESS_TEAM_DOMAIN` | The Zero Trust team domain, e.g. `gtnh.cloudflareaccess.com` |
-| `ACCESS_AUD` | The Access application's Audience (AUD) tag, from its overview page |
+| `/api/whoami` | Who you are and your role |
+| `/api/dashboard` | Every panel this role may read, from `panel_cache`, in one response |
+| `/api/version` | The version number the page polls |
+| `/api/panel/:name` | One cached panel |
+| `/api/search`, `/api/search/facets` | Org Search |
+| `/api/contributor/:id`, `/api/repo/:id` | One drilldown subject |
+| `POST /api/recompute` | Admin only; `?force=1` rebuilds everything |
 
-Until both are set, every private request is refused, including one carrying
-an otherwise valid token. Deploying this code changes nothing for the public
-dashboard.
+`/api/dashboard` replaces the old `data/dashboard.json`. The cached JSON is
+spliced in as text rather than parsed, since it runs to megabytes. A panel
+with no cached row comes back `ok: false`, `down: true`, with an empty shape,
+so the page renders it red rather than breaking.
 
-To set up Access:
-
-1. Put the Worker on a custom domain. Access can't protect `*.workers.dev`.
-2. In Zero Trust, add GitHub as a login method.
-3. Add a self-hosted application on the custom domain covering
-   `/api/private/*` (and later the private pages' path), with a policy that
-   allows GitHub organization `GTNewHorizons`, team = the Admin team's slug.
-   Session duration 8 to 24 hours.
-4. Copy the application's AUD tag and the team domain into the two vars and
-   deploy.
-5. Once `live.js` points at the custom domain, set `workers_dev = false` in
-   `wrangler.toml` and turn preview URLs off, so there is no unprotected
-   hostname left.
-
-`GET /api/private/whoami` returns the logged-in email and when the session
-expires. The frontend uses a 200 from it to decide whether to show private
-tabs, which is only a display choice: each private route is still guarded on
-its own request.
-
-To add a private route, add a handler to `ROUTES` in `worker/src/private.js`.
-It receives `{ env, identity, url }` and returns a JSON-serializable value, and
-it never needs to check the token itself. Any private aggregate the recompute
-caches must use a `panel_cache` name with a character the public
-`/api/panel/:name` route rejects (it only accepts `[a-z0-9]`), such as
-`private:issues`, so no public request can ever read it.
+**Removing someone.** Access remembers a person's teams from when they signed
+in, so removal from the org or from `admin` takes effect at their next login,
+up to a month later. To cut them off at once, revoke their session in Zero
+Trust → **Users**.
 
 ### The reconcile
 
@@ -2741,8 +2702,8 @@ through it. The fetches especially: `pushState` moves the document URL, so
 `fetch("data/drilldown.json")` from `/contributor/Dream-Master` would go looking
 for `/contributor/data/drilldown.json`.
 
-`web/404.html` catches deep links on Pages, which has no rewrite rule and will
-404 anything that isn't a file. It hands the route back in `?route=`, and the
+`web/404.html` catches deep links. The app Worker serves it for any path that
+isn't a file (`not_found_handling = "404-page"`), as GitHub Pages used to. It hands the route back in `?route=`, and the
 router puts it in the address bar with `replaceState` before the first render —
 so the redirect is a flicker in the address bar rather than something you end up
 looking at. It works out the mount point by checking whether the first path
@@ -3168,7 +3129,7 @@ src/github/client.js API client: auth, pagination, rate limits, caching
 src/panels/          one module per panel
 src/panels/grossing.js  shared by analytics and drilldown, owned by neither
 src/build.js         runs all panels → data/dashboard.json + data/drilldown.json
-src/serve.js         local static server
+src/serve.js         local static server (the page itself now needs the app Worker)
 web/index.html       page markup — no logic, no styles
 web/styles/          one stylesheet per region of the page
 web/js/              frontend (native ES modules, no build step)
@@ -3201,7 +3162,8 @@ js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
 js/router.js           path routing, and the back trail behind the drilldowns
 js/events.js           every delegated listener
 js/theme.js            dark/light toggle
-js/main.js             entry point: boot, load dashboard.json, first render
+js/main.js             entry point: boot, /api/whoami, /api/dashboard, first render
+js/roles.js            LIVE_PANELS and ADMIN_PANELS, shared with the app Worker
 ```
 
 ```
@@ -3345,9 +3307,9 @@ and the only way to tell an exhausted quota from a pace limit was to guess.
 
 The GitHub API layer is isolated in `src/github/client.js` and reads its token
 from `src/config.js`. To cover private repos, swap in a token with full `repo`
-scope — no panel code changes. Note that GitHub Pages access control is
-Enterprise Cloud only, so if this ends up serving private-repo data it needs
-somewhere other than Pages to live.
+scope — no panel code changes. GitHub Pages access control is Enterprise
+Cloud only, which is why the dashboard moved to a Worker behind Cloudflare
+Access instead.
 
 **Team review requests need this too.** The Reviews card tracks individual
 reviewers only: a team request resolves to a `Team`, which carries a name rather
