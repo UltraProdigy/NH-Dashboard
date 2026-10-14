@@ -1,70 +1,25 @@
-name: Build and deploy dashboard
+name: Crawl the org into data/
 
-# Two things happen here, and they used to be one job.
+# Nothing is published from here any more. The dashboard is served by the
+# nh-dashboard-app Worker behind a GitHub login, and every panel comes from D1,
+# so GitHub Pages is retired: a static site can't be put behind a login, and
+# it published dashboard.json and drilldown.json to anyone.
 #
-# Rebuilding the data means crawling the org: an incremental ingest, then
-# ciHealth sweeping 252 repos, needsRelease's per-repo GraphQL, depUpdates'
-# year-long look-back and a search per tracked label. Fifteen to twenty-five
-# minutes, and it is bound by GitHub's API rather than by anything in this repo.
-#
-# Deploying the site means copying `web/` and four JSON files into `_site`.
-# Seconds.
-#
-# Welding them together meant a CSS change cost a full org crawl to republish
-# byte-identical data, which is the whole reason pushes were slow. They are
-# separate jobs now, and a push runs only the second one — the built JSON comes
-# back out of the cache the last data run left behind.
+# What remains is the Node crawl, run by hand when the local tooling needs a
+# fresh ingest store (the parity tests, worker/seed.js). Its output goes into
+# the Actions cache only.
 
 on:
-  # Daily, and no more often than that on purpose.
-  #
-  # This job was parked for a long time on the belief that Actions minutes were
-  # billed. They are not — the repo is public, so the minutes come from the
-  # unlimited pool and a long build costs nothing. That belief is the only thing
-  # that kept the dashboard on manual builds.
-  #
-  # Daily rather than half-hourly because the webhook pipeline keeps the seven
-  # ported panels fresh on its own. This run exists for the three the Worker
-  # cannot answer — `issues` and `drilldown`, which have no panel in
-  # `worker/src/panels/` yet, and `ciHealth`, which needs `workflow_run`
-  # captured the way `push` and `release` are. Between them that is 32 of the
-  # dashboard's 53 cards, so this is not a fallback job. It is where most of the
-  # page still comes from.
-  #
-  # It also keeps the static file the page loads first from drifting too far
-  # behind, which is what the seven ported panels fall back to when the Worker
-  # is unreachable — the difference between an amber card and a red one.
-  #
-  # 05:00 UTC is outside the org's active hours, so a long run does not overlap
-  # the traffic it would otherwise be measuring.
-  schedule:
-    - cron: "0 5 * * *"
-
   workflow_dispatch:
-    inputs:
-      deploy_only:
-        description: "Redeploy the site from the cached data, skipping the crawl"
-        type: boolean
-        default: false
 
-  push:
-    branches: [main]
-    paths-ignore:
-      - "README.md"
-      - "docs/**"
-
-# Read-only: nothing here writes to the repo any more.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   # ==========================================================================
-  # Crawl the org and rebuild data/*.json. Not on push.
+  # Crawl the org and rebuild data/*.json.
   # ==========================================================================
   data:
-    if: github.event_name != 'push' && inputs.deploy_only != true
     runs-on: ubuntu-latest
 
     # Never cancel a run in flight. Builds range from 15 to 25 minutes, so
@@ -136,131 +91,3 @@ jobs:
           # without it the build would republish from the cache alone.
           NH_INGEST_EXCLUDE: ${{ secrets.NH_INGEST_EXCLUDE }}
         run: node src/build.js --no-cache
-
-      # What the `site` job below reads on a push, when there is no crawl to
-      # take it from. Only the built JSON — `data/ingest` is the raw store,
-      # cached separately above, far larger, and not publishable at all.
-      #
-      # `cache/save` rather than `cache`: this job produces the entry and never
-      # wants to restore one, and saying so is clearer than a restore whose hit
-      # would be ignored. Same run-scoped key as the ingest store, for the same
-      # immutability reason.
-      - name: Save built data
-        uses: actions/cache/save@v4
-        with:
-          path: data/*.json
-          key: site-data-${{ github.run_id }}
-
-  # ==========================================================================
-  # Stage and upload the site. Always — this is the only path to a deploy.
-  # ==========================================================================
-  site:
-    needs: [data]
-    # `always()` because `needs` otherwise fails a job whose dependency was
-    # skipped, and skipped is the normal case here: every push takes this
-    # branch. The result check is what keeps a failed crawl from deploying
-    # half-built data on top of good data.
-    if: always() && (needs.data.result == 'success' || needs.data.result == 'skipped')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      # A Content-Security-Policy that no longer matches the page fails in the
-      # browser without a word, and on 404.html it takes every deep link with it.
-      - name: Check the security policy
-        run: node test/csp.test.js
-
-      # `data/` is gitignored, but gitignore does not untrack what was already
-      # committed, and six files from before the switch to the Actions cache are
-      # still in the tree — `data/dashboard.json` among them, last written in
-      # August. Checkout materialises it, and it would then sail straight past
-      # the guard below and get published: a stale dashboard, with no
-      # `drilldown.json` beside it because that one was never tracked.
-      #
-      # So the checkout's copy goes, and what the cache returns is the only
-      # thing that can be deployed. Deleting it here rather than relying on
-      # `git rm --cached` having happened, because that is a separate decision
-      # about the repo's history and this job must be correct either way.
-      - name: Drop the checkout's stale copy
-        run: rm -f data/*.json
-
-      # On a data run this hits its own run-scoped key exactly. On a push it
-      # misses and restore-keys picks the newest `site-data-` entry, which is
-      # whatever the last crawl left — the deploy publishes today's frontend
-      # against last night's numbers, which is what the page's own freshness
-      # tints already describe.
-      - name: Restore built data
-        uses: actions/cache/restore@v4
-        with:
-          path: data/*.json
-          key: site-data-${{ github.run_id }}
-          restore-keys: site-data-
-
-      # A deploy with no data is a blank dashboard, and Pages would serve it
-      # cheerfully. Fail instead, and say the one thing that fixes it.
-      #
-      # Reachable exactly once: the first push after this split lands, before
-      # any data run has written the cache. Also after a 7-day gap, which is
-      # when GitHub evicts an unused entry — the daily schedule keeps it warm.
-      - name: Check the data came back
-        run: |
-          if [ ! -f data/dashboard.json ]; then
-            echo "::error::No cached data/dashboard.json. Run this workflow from the Actions tab (workflow_dispatch, deploy_only unchecked) to populate the cache, then push again."
-            exit 1
-          fi
-          echo "Publishing data built $(node -p "require('./data/dashboard.json').generatedAt")"
-
-      # Stage the site: index.html at the root, data/ beside it. The frontend
-      # fetches "data/dashboard.json" relatively, so this layout works both
-      # here and under `npm run serve` locally.
-      #
-      # Only the built JSON is copied. data/ingest holds the raw store, which is
-      # both far larger than anything the page reads and — once private repos
-      # are ingested — not publishable at all. `cp -r data` would serve it.
-      - name: Stage site
-        run: |
-          mkdir -p _site/data
-          cp -r web/* _site/
-          cp data/*.json _site/data/
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-  deploy:
-    needs: site
-    # `always()` here too, and it is not redundant with the one on `site`.
-    #
-    # A skip propagates down the whole graph, not just one edge. `data` is
-    # skipped on a push; `site` survives that because of its own `always()`; and
-    # `deploy` then inherits the skip through `site` even though `site` itself
-    # succeeded. Its default condition is `success()`, which a chain containing a
-    # skipped job does not satisfy.
-    #
-    # The failure is silent and reads as the opposite of what happened: `site`
-    # stages the page and uploads the artifact, `deploy` is skipped, and the run
-    # is **green** while Pages still serves whatever the last non-push run
-    # published. Observed once — the push of the ciHealth port built an artifact
-    # nothing ever deployed, and the only symptom was the site's Last-Modified
-    # staying at the previous run's timestamp.
-    #
-    # The explicit result check is what keeps the guard honest: `always()` alone
-    # would deploy on top of a failed `site`.
-    if: always() && needs.site.result == 'success'
-    runs-on: ubuntu-latest
-    # Pages allows one deploy at a time and cancelling one mid-flight can leave
-    # the site on a half-published state, so a second deploy queues behind the
-    # first rather than replacing it.
-    concurrency:
-      group: pages-deploy
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4

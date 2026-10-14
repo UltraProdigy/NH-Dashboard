@@ -1,4 +1,4 @@
-name: Deploy the worker
+name: Deploy the Workers
 
 # The Worker was deployed by hand from a laptop. That is fine until the day the
 # thing running in production is not the thing in main, and there is no way to
@@ -23,6 +23,8 @@ on:
       # by the old rule while the built file used the new one, and the parity
       # tests would pass on both.
       - "src/shared/**"
+      # The app Worker serves web/ as its static files.
+      - "web/**"
       - ".github/workflows/worker.yml"
       - "package-lock.json"
 
@@ -62,6 +64,7 @@ jobs:
         run: |
           npm run test:handlers
           npm run test:app
+          npm run test:csp
           npm run test:recompute
           npm run test:backfill-prs
           npm run test:freshness
@@ -75,7 +78,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: worker
-        run: npx wrangler deploy
+        run: |
+          npx wrangler deploy
+          npx wrangler deploy -c wrangler.app.toml
 
       # A deploy that uploads and then answers 500 is worse than a failed one,
       # because the run is green. `/api/health` touches D1 on every table it
@@ -86,3 +91,12 @@ jobs:
         run: |
           sleep 5
           curl -fsS "https://nh-dashboard.gtnh.workers.dev/api/health" | head -c 2000
+
+      # The app Worker must never hand data to a request without a login. Before
+      # Access is on, the Worker refuses it itself (401/403); after, Access
+      # redirects to GitHub. A 200 here means the dashboard is open to anyone.
+      - name: Check the dashboard API needs a login
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" "https://nh-dashboard-app.gtnh.workers.dev/api/dashboard")
+          echo "unauthenticated /api/dashboard: $code"
+          case "$code" in 2??) exit 1 ;; esac
