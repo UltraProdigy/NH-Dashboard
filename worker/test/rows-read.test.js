@@ -126,12 +126,8 @@ async function main() {
     check("the instant refresh for a pull_request delivery", instant.rows, BUDGET.instantPullRequest);
     showTop(instant.top);
 
-    const { default: worker } = await import("../src/index.js");
-    const res = await worker.fetch(
-      new Request("https://worker.test/api/search/facets"),
-      env,
-      { waitUntil() {} },
-    );
+    const { handleFacets } = await import("../src/reads.js");
+    const res = await handleFacets(env);
     await res.text();
     check(`/api/search/facets (${res.status})`, db.take().rows, BUDGET.facets);
   } finally {

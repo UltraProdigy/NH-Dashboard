@@ -832,11 +832,8 @@ raw.prepare(
      ('behind', '["analytics"]')
    ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 ).run();
-const versionRes = await worker.fetch(
-  new Request("https://worker.test/api/version"),
-  { DB: db },
-  { waitUntil() {} },
-);
+const { handleFacets, handleVersion } = await import("../src/reads.js");
+const versionRes = await handleVersion({ DB: db });
 const versionBody = await versionRes.json();
 check("carries checkedAt", versionBody.checkedAt, "2026-09-22T12:00:00.000Z");
 check("carries behind", versionBody.behind, ["analytics"]);
@@ -844,11 +841,7 @@ check("still carries the version", typeof versionBody.version, "number");
 
 console.log("\n/api/search/facets is served from the cache");
 const getFacets = async () => {
-  const res = await worker.fetch(
-    new Request("https://worker.test/api/search/facets"),
-    { DB: db },
-    { waitUntil() {} },
-  );
+  const res = await handleFacets({ DB: db });
   return { status: res.status, body: await res.json() };
 };
 raw.prepare("DELETE FROM panel_cache WHERE name = 'facets'").run();

@@ -1,9 +1,10 @@
 /**
- * Webhook receiver and read API.
+ * Webhook receiver and the cron recompute.
  *
- * Two jobs, deliberately kept apart: accept deliveries from GitHub as fast as
- * possible, and answer the dashboard's queries. Neither should be able to make
- * the other slow.
+ * This Worker is not behind Cloudflare Access, because GitHub cannot log in to
+ * deliver a webhook, so it serves no dashboard data. The pages and the read API
+ * are the app Worker's (app.js), which is. /api/health returns row counts only,
+ * for the deploy check.
  *
  * GitHub gives a delivery ten seconds before it counts as failed, and a failing
  * endpoint eventually gets its subscription disabled. So the handler verifies,
@@ -18,49 +19,8 @@
  */
 
 import { handleEvent } from "./handlers.js";
-import {
-  INSTANT_EVENTS,
-  recompute,
-  refreshInstant,
-  refreshTier,
-  TABLES,
-} from "./recompute.js";
-import { facets, parseSearch, search } from "./search.js";
-import { subject } from "./panels/drilldown-subject.js";
-import { scopedDb } from "./scope.js";
-import { handlePrivate, isPrivatePath } from "./private.js";
-
-/**
- * The read API is public and cross-origin by necessity — the dashboard is
- * served from Pages and this Worker from workers.dev, which are different
- * origins, so without this every panel fetch fails in the browser.
- *
- * `*` rather than an allowlist because the data is public: it is the same
- * content the dashboard renders to anyone who loads it. There is nothing here
- * that an origin check would protect, and an allowlist would only break the
- * next preview deployment. The webhook is a different matter and is not
- * covered by this — it is authenticated by signature, not by origin.
- */
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
-  // Without this the browser hides these from cross-origin JavaScript, and the
-  // page cannot tell how stale the panel it is showing actually is, nor how
-  // fresh it was entitled to expect.
-  "access-control-expose-headers":
-    "x-computed-at, x-refresh, x-subject-cache, x-version",
-  "access-control-max-age": "86400",
-};
-
-const JSON_HEADERS = {
-  "content-type": "application/json; charset=utf-8",
-  ...CORS,
-};
-
-function json(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
+import { INSTANT_EVENTS, recompute, refreshInstant, TABLES } from "./recompute.js";
+import { handleHealth, json } from "./reads.js";
 
 function hexToBytes(hex) {
   if (hex.length % 2) return null;
@@ -207,260 +167,16 @@ async function handleWebhook(request, env, ctx) {
   return json({ ok: true, event, action, repo, result });
 }
 
-async function handleVersion(env) {
-  const { results } = await env.DB.prepare(
-    "SELECT key, value FROM meta WHERE key IN ('version', 'checked_at', 'behind')",
-  ).all();
-  const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
-
-  let behind = [];
-  try {
-    behind = JSON.parse(meta.behind ?? "[]");
-  } catch {}
-
-  return json({
-    version: Number(meta.version ?? 0),
-    checkedAt: meta.checked_at ?? null,
-    behind,
-  });
-}
-
-/**
- * `repos`, `commits` and `releases` are counted here because their emptiness is
- * invisible everywhere else.
- *
- * The seed never wrote a `repos` row, and the two release panels join it — so
- * "the backfill has not run" and "no repo needs a release" produce the same
- * empty card. A count is the only place the difference shows.
- */
-async function handleHealth(env) {
-  const counts = {};
-  for (const table of [
-    "repos",
-    "pull_requests",
-    "reviews",
-    "issues",
-    "commits",
-    "releases",
-    "workflow_runs",
-    "traffic_daily",
-  ]) {
-    const row = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM ${table}`,
-    ).first();
-    counts[table] = row?.n ?? 0;
-  }
-
-  // The release panels read far fewer rows than the tables hold, and every
-  // stage of that narrowing has been wrong at least once: the seed wrote no
-  // repos at all, a flat lookback truncated the commit counts, and a stray
-  // `private = 0` withheld seven repos. A row count per table cannot tell any
-  // of those apart from "nothing to report", which is the failure mode this
-  // whole endpoint exists to prevent.
-  //
-  // So this reports the funnel itself. If `withCommitsInWindow` matches what
-  // the backfill wrote but a panel returns fewer rows, the rows are present and
-  // the query is dropping them — which is a different bug from a partial load,
-  // and telling those two apart from the outside is otherwise guesswork.
-  //
-  // Counts only, deliberately: repo names would put the private ones on a
-  // public endpoint, and no question here needs them.
-  const window = `date('now', '-365 days') || 'T00:00:00Z'`;
-  const scope = await env.DB.prepare(
-    `SELECT
-       (SELECT COUNT(*) FROM repos WHERE archived = 0) AS live,
-       (SELECT COUNT(*) FROM repos WHERE commits_since IS NOT NULL) AS withHorizon,
-       (SELECT COUNT(*) FROM repos
-         WHERE archived = 0
-           AND pushed_at IS NOT NULL
-           AND pushed_at < ${window}) AS droppedAsDormant,
-       (SELECT COUNT(DISTINCT repo) FROM commits) AS withCommits,
-       (SELECT COUNT(DISTINCT repo) FROM commits
-         WHERE committed_at >= ${window}) AS withCommitsInWindow,
-       (SELECT COUNT(*) FROM commits WHERE via_pr IS NULL) AS commitsAwaitingPrAnswer,
-       -- Should be 0. A pushed_at made only of digits is a Unix epoch that was
-       -- written where an ISO date belongs, which sorts below every real date
-       -- and silently reads as dormant. Counted rather than assumed, because
-       -- the symptom is a repo quietly missing from a card.
-       (SELECT COUNT(*) FROM repos
-         WHERE pushed_at IS NOT NULL
-           AND pushed_at NOT GLOB '*[^0-9]*') AS reposWithEpochPushedAt,
-       -- The CI panel's own funnel. A run is stored with the branch it ran on,
-       -- and the panel keeps only runs matching the repo's *current* default
-       -- branch — so a repo that renames master to main keeps every row it had
-       -- and shows nothing at all. These two counts are the only place that
-       -- difference is visible: reposWithRuns holds steady while
-       -- reposWithRunsOnDefault drops, and the card just goes quiet.
-       (SELECT COUNT(DISTINCT repo) FROM workflow_runs) AS reposWithRuns,
-       (SELECT COUNT(DISTINCT r.repo) FROM workflow_runs r
-          JOIN repos p ON p.name = r.repo
-         WHERE p.archived = 0
-           AND p.default_branch = r.head_branch) AS reposWithRunsOnDefault`,
-  ).first();
-
-  return json({ ok: true, counts, scope });
-}
-
-/**
- * Answer one search.
- *
- * Not a panel, and the differences are worth stating because every other read
- * route here is one. There is no cache to consult — each query is its own
- * answer — and no `x-refresh` header, because the tables are read directly and
- * a tier would be a claim about a rebuild that never happens. The frontend
- * draws no freshness tint on this page for the same reason.
- *
- * A failure is a 503 rather than an empty result set. "No issue matches that"
- * and "the database did not answer" are the two things a search must never
- * confuse, and an empty array would say the first while meaning the second.
- */
-async function handleSearch(env, url) {
-  const db = scopedDb(env.DB, env);
-  const opts = parseSearch(url.searchParams);
-
-  try {
-    return json(await search(db, opts));
-  } catch (err) {
-    console.log(JSON.stringify({ at: "search", error: String(err) }));
-    return json({ error: "search failed" }, 503);
-  }
-}
-
-/**
- * What the search page's three pickers can offer.
- *
- * Served from the `facets` panel the recompute builds hourly, since the live
- * query reads ~382k rows per Find visit. Falls back to it when there is no
- * cached row yet.
- */
-async function handleFacets(env) {
-  try {
-    const row = await env.DB.prepare(
-      "SELECT json, computed_at FROM panel_cache WHERE name = 'facets'",
-    ).first();
-    if (row) {
-      return new Response(row.json, {
-        headers: { ...JSON_HEADERS, "x-computed-at": row.computed_at },
-      });
-    }
-    return json(await facets(scopedDb(env.DB, env)));
-  } catch (err) {
-    console.log(JSON.stringify({ at: "facets", error: String(err) }));
-    return json({ error: "facets failed" }, 503);
-  }
-}
-
-/**
- * Serve a cached panel.
- *
- * Straight blob read, no assembly — the recompute already paid that cost, once,
- * rather than once per viewer. That is the point of the cache table, and it
- * holds regardless of plan: rebuilding a 720 KB panel on every page load would
- * be the same work repeated for an answer that changes every ten minutes.
- */
-async function handlePanel(env, name) {
-  const row = await env.DB.prepare(
-    "SELECT json, computed_at FROM panel_cache WHERE name = ?",
-  )
-    .bind(name)
-    .first();
-
-  if (!row) return json({ error: "no such panel, or never computed" }, 404);
-
-  return new Response(row.json, {
-    headers: {
-      ...JSON_HEADERS,
-      "x-computed-at": row.computed_at,
-      // How this panel is rebuilt, so the card can say so without the frontend
-      // keeping its own copy of the split. See `refreshTier`.
-      "x-refresh": refreshTier(name),
-    },
-  });
-}
-
-/**
- * Serve one drilldown subject.
- *
- * `x-refresh` is `cron` on a hit and on a miss alike, and that is honest rather
- * than convenient: the payload is only as current as the version it was folded
- * against, and a miss folds against that same version. Reporting `instant`
- * because the work just happened would be a confident blue over data that is up
- * to ten minutes old — precisely the lie the four-colour scheme exists to
- * prevent.
- *
- * A missing subject is a 404 rather than an empty payload. The picker only
- * offers subjects the index carries, so a request for one that does not exist
- * is a stale bookmark or a typed URL, and an empty record renders as a person
- * who has done nothing rather than as a person who is not there.
- */
-async function handleSubject(env, ctx, kind, id) {
-  const db = scopedDb(env.DB, env);
-
-  let result;
-  try {
-    result = await subject(env, db, kind, id);
-  } catch (err) {
-    console.log(JSON.stringify({ at: "subject", kind, id, error: String(err) }));
-    return json({ error: "could not compute subject" }, 500);
-  }
-
-  if (!result.payload) return json({ error: "no such subject" }, 404);
-
-  // The cache write never blocks the response, and a failed one costs a
-  // recomputation next time rather than an error now.
-  if (result.write) ctx.waitUntil(result.write.catch(() => {}));
-
-  return new Response(result.payload, {
-    headers: {
-      ...JSON_HEADERS,
-      "x-refresh": "cron",
-      "x-subject-cache": result.hit ? "hit" : "miss",
-      "x-version": String(result.version),
-    },
-  });
-}
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
-    if (isPrivatePath(url.pathname)) return handlePrivate(request, env, url);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS });
-    }
 
     if (url.pathname === "/webhook") {
       if (request.method !== "POST") return json({ error: "POST only" }, 405);
       return handleWebhook(request, env, ctx);
     }
 
-    if (url.pathname === "/api/version") return handleVersion(env);
     if (url.pathname === "/api/health") return handleHealth(env);
-    if (url.pathname === "/api/search") return handleSearch(env, url);
-    if (url.pathname === "/api/search/facets") return handleFacets(env);
-
-    const panel = url.pathname.match(/^\/api\/panel\/([a-z][a-z0-9]*)$/i);
-    if (panel) return handlePanel(env, panel[1]);
-
-    // One drilldown subject. Not `/api/panel/drilldown`, which is the picker
-    // index and stays an ordinary cached blob — these two are the 7,047
-    // payloads behind it, and they are computed per request.
-    const person = url.pathname.match(/^\/api\/contributor\/(.+)$/);
-    if (person) return handleSubject(env, ctx, "contributors", decodeURIComponent(person[1]));
-
-    const repo = url.pathname.match(/^\/api\/repo\/(.+)$/);
-    if (repo) return handleSubject(env, ctx, "repos", decodeURIComponent(repo[1]));
-
-    // Manual trigger, for checking a rebuild without waiting for the cron. It
-    // only rebuilds and cannot destroy anything, so it is unauthenticated on
-    // purpose — but it is the one route that costs real work per call, so it
-    // requires POST to keep crawlers and link previews off it.
-    if (url.pathname === "/api/recompute") {
-      if (request.method !== "POST") return json({ error: "POST only" }, 405);
-      const force = url.searchParams.get("force") === "1";
-      return json(await recompute(env, { force }));
-    }
 
     return json({ error: "not found" }, 404);
   },

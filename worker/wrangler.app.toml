@@ -1,0 +1,26 @@
+name = "nh-dashboard-app"
+main = "src/app.js"
+compatibility_date = "2026-08-29"
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nh-dashboard"
+database_id = "ed20adc3-f434-4f0a-8832-80862af30201"
+
+[assets]
+directory = "../web"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api/*"]
+
+[observability]
+enabled = true
+
+# ACCESS_AUD is the Access application's AUD tag. Set it as a secret in the
+# Cloudflare dashboard (or `wrangler secret put ACCESS_AUD -c wrangler.app.toml`)
+# so it survives deploys. Until it is set, every /api/ request is refused.
+[vars]
+GITHUB_ORG = "GTNewHorizons"
+ADMIN_TEAM = "admin"
+ACCESS_TEAM_DOMAIN = "nh-dashboard.cloudflareaccess.com"
