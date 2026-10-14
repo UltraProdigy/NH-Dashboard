@@ -60,10 +60,17 @@ const good = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
 const rogue = await crypto.subtle.generateKey(alg, true, ["sign", "verify"]);
 const jwk = { ...(await crypto.subtle.exportKey("jwk", good.publicKey)), kid: "k1" };
 
-const GROUPS = {
-  "admin-user": [{ name: "GTNewHorizons" }, { name: "GTNewHorizons:admin" }],
-  "member-user": [{ name: "GTNewHorizons" }, { name: "GTNewHorizons:developers" }],
-  "other-admin": [{ name: "GTNewHorizons" }, { name: "SomeOtherOrg:admin" }],
+const GTNH = { id: 12788076, name: "GTNewHorizons" };
+const OTHER = { id: 5, name: "SomeOtherOrg" };
+const IDENTITIES = {
+  "admin-user": {
+    idp: { type: "github" },
+    orgs: [GTNH],
+    teams: [{ name: "Admin", org_id: GTNH.id }, { name: "Developers", org_id: GTNH.id }, { name: "Triage team", org_id: GTNH.id }],
+  },
+  "member-user": { idp: { type: "github" }, orgs: [GTNH], teams: [{ name: "Developers", org_id: GTNH.id }] },
+  "other-admin": { idp: { type: "github" }, orgs: [GTNH, OTHER], teams: [{ name: "Admin", org_id: OTHER.id }] },
+  "groups-admin": { groups: [{ name: "GTNewHorizons:admin" }] },
 };
 let identityFetches = 0;
 const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -76,7 +83,7 @@ const fetchImpl = async (url, init = {}) => {
     const token = (init.headers?.cookie ?? "").replace("CF_Authorization=", "");
     const sub = JSON.parse(Buffer.from(token.split(".")[1], "base64url")).sub;
     if (sub === "broken") return new Response("", { status: 500 });
-    return Response.json({ email: `${sub}@example.com`, groups: GROUPS[sub] ?? [] });
+    return Response.json({ email: `${sub}@example.com`, ...(IDENTITIES[sub] ?? {}) });
   }
   return new Response("", { status: 404 });
 };
@@ -131,12 +138,14 @@ console.log("\nroles\n");
   resetRoles();
   const a = await call("/api/whoami", { sub: "admin-user" });
   check("an admin team member is an admin", a.body?.role === "admin", JSON.stringify(a.body));
-  check("whoami shows the groups Access reported", a.body?.groups?.includes("GTNewHorizons:admin"));
+  check("whoami shows the teams Access reported", a.body?.groups?.includes("GTNewHorizons:Admin"), JSON.stringify(a.body?.groups));
   check("whoami carries no CORS header and isn't cached", noCors(a) && a.headers.get("cache-control") === "private, no-store");
   const m = await call("/api/whoami", { sub: "member-user" });
   check("an org member is a member", m.body?.role === "member", JSON.stringify(m.body));
   const o = await call("/api/whoami", { sub: "other-admin" });
   check("another org's admin team doesn't count", o.body?.role === "member");
+  const g = await call("/api/whoami", { sub: "groups-admin" });
+  check("an admin reported through groups still counts", g.body?.role === "admin");
   const b = await call("/api/whoami", { sub: "broken" });
   check("a failed identity lookup falls back to member", b.status === 200 && b.body?.role === "member");
 
@@ -202,8 +211,18 @@ console.log("\ngroup matching\n");
     { groups: [{ name: "GTNewHorizons:admin" }] },
     { groups: [{ organization: "GTNewHorizons", slug: "admin" }] },
   ];
+  const github = (teams, orgs = [GTNH]) => ({ orgs, teams });
+  yes.push(
+    github([{ name: "Admin", org_id: GTNH.id }]),
+    github([{ name: "admin", org_id: GTNH.id }]),
+  );
   const no = [
     {},
+    github([{ name: "Admin", org_id: OTHER.id }], [GTNH, OTHER]),
+    github([{ name: "Admin", org_id: 999 }]),
+    github([{ name: "Administrators", org_id: GTNH.id }]),
+    github([{ name: "Developers", org_id: GTNH.id }]),
+    github([{ name: "Admin", org_id: GTNH.id }], []),
     { groups: ["admin"] },
     { groups: [{ name: "admin" }] },
     { groups: ["GTNewHorizons:administrators"] },

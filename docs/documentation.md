@@ -218,16 +218,31 @@ back to the app (`not_found_handling = "404-page"`).
 
 **Roles.** Access only lets org members in, so everyone who reaches the Worker
 is at least a member. `roles.js` asks Access for the person's identity
-(`ctx.access.getIdentity()`, or the team's `get-identity` endpoint) and makes
-them admin only if one of their groups is the org's admin team, written as
-`GTNewHorizons:admin` or `GTNewHorizons/admin`, or as an object naming both.
-A bare `admin` from some other org doesn't count, and a failed lookup falls
-back to member. The answer is cached per person for five minutes.
-`GITHUB_ORG` and `ADMIN_TEAM` in `wrangler.app.toml` name the org and team.
+(`ctx.access.getIdentity()`, or the team's `get-identity` endpoint). For a
+GitHub login that identity has no `groups`. It lists `orgs` as `{ id, name }`
+and `teams` as `{ name, org_id }`, using the team's display name (`Admin`)
+rather than its slug:
 
-`/api/whoami` returns `{ email, role, groups, sessionExpires }`. If an admin
-lands as a member, the `groups` it shows are what to match against in
-`isAdminTeam`.
+```json
+"orgs":  [{ "id": 12788076, "name": "GTNewHorizons" }],
+"teams": [{ "name": "Admin", "org_id": 12788076 }, { "name": "Developers", "org_id": 12788076 }]
+```
+
+A person is admin when one of their teams belongs to the GTNewHorizons org
+(matched through `org_id`) and its name, slugified, is `admin`. An `Admin`
+team in some other org doesn't count, and a failed lookup falls back to
+member. `groups` in the `GTNewHorizons:admin` form is also accepted, in case
+the identity provider ever changes. The answer is cached per person for five
+minutes. `GITHUB_ORG` and `ADMIN_TEAM` in `wrangler.app.toml` name the org and
+team.
+
+Access records teams when a person signs in, so someone added to `admin`
+becomes admin at their next sign-in. To make it immediate, revoke their
+session in Zero Trust → **Users** and have them reload.
+
+`/api/whoami` returns `{ email, role, groups, sessionExpires }`, with `groups`
+listing teams as `GTNewHorizons:Admin`. To see the raw identity, open
+`/cdn-cgi/access/get-identity` on the dashboard's address while signed in.
 
 What each role gets:
 
