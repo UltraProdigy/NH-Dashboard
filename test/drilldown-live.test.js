@@ -87,7 +87,7 @@ globalThis.requestAnimationFrame = (f) => f();
    rebuilding the stub.
    ========================================================================== */
 
-const WORKER = "https://nh-dashboard.gtnh.workers.dev";
+const WORKER = "";
 
 /** Two subjects, two label tables, holding the same names in *different* order. */
 const DREAM = {

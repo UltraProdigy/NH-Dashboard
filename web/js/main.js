@@ -1,11 +1,12 @@
 import { state } from "./state.js";
 import { loadExclusions, loadLabels } from "./dream.js";
 import { render, renderMeta } from "./render.js";
-import { BASE, href } from "./paths.js";
+import { PAGES, restrictToMembers } from "./pages.js";
+import { isAdmin } from "./roles.js";
 import { readRoute } from "./router.js";
 import { applyTheme } from "./theme.js";
 import { collapseBtn } from "./events.js";
-import { primeLive, startPolling } from "./live.js";
+import { API, primeLive, setRole, startPolling } from "./live.js";
 
 if (localStorage.getItem("nh:collapsed") === "1") {
   document.body.classList.add("collapsed");
@@ -22,41 +23,35 @@ document.addEventListener("error", (e) => {
     e.target.remove();
 }, true);
 
+async function getJson(path) {
+  const res = await fetch(`${API}/api/${path}`, { cache: "no-store" });
+  if (!res.ok) throw Object.assign(new Error(`${path} → ${res.status}`), { status: res.status });
+  return res.json();
+}
+
 try {
-  // Resolved against the app's mount point rather than the document URL: on
-  // GitHub Pages this lives under /NH-Dashboard/, and once the router has
-  // pushed a route the document URL is no longer the directory the data is in.
-  const res = await fetch(href("data/dashboard.json"), { cache: "no-store" });
-  if (!res.ok) throw new Error("no data yet");
-  state.data = await res.json();
+  const who = await getJson("whoami");
+  state.role = who.role;
+  if (!isAdmin(who.role)) {
+    restrictToMembers();
+    setRole(who.role);
+    if (!PAGES.some((p) => p.id === state.page))
+      state.page = (PAGES.find((p) => p.modules.length) ?? PAGES[0]).id;
+  }
 
-  // Before the first render, so the page paints live numbers rather than
-  // painting built ones and rewriting them a moment later.
+  state.data = await getJson("dashboard");
   await primeLive();
-
-  // Derive the workflow URL from wherever this is hosted, so a fork or a
-  // move into the org doesn't need this hardcoded value updated.
-  // BASE rather than location.pathname: routes are real paths now, so the
-  // first segment of the address bar is as likely to be a page as the repo.
-  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
-  const repo = m ? `${m[1]}/${BASE.split("/").filter(Boolean)[0] ?? ""}` : null;
-  document.getElementById("refresh").href = repo
-    ? `https://github.com/${repo}/actions/workflows/build.yml`
-    : "https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml";
 
   loadExclusions();
   loadLabels();
   readRoute();
   render();
 
-  // Re-render on the Worker's word that something changed. Re-reading the route
-  // first would fight the user for the scroll position and the open tab; render
-  // alone repaints the current view with the new numbers in it, and the
-  // freshness line with it — a panel that was unreachable at load and came back
-  // on a later poll has to move out of the red count.
   startPolling(render, renderMeta);
 } catch (err) {
   document.getElementById("meta").textContent = "no data";
-  document.getElementById("view").innerHTML =
-    `<div class="error">No data found. Run <code>npm run build</code> first.</div>`;
+  const message = err.status === 401 || err.status === 403
+    ? "You're not signed in, or this GitHub account isn't in GTNewHorizons. Reload the page to sign in again."
+    : "The dashboard couldn't load its data. Try reloading in a minute.";
+  document.getElementById("view").innerHTML = `<div class="error">${message}</div>`;
 }

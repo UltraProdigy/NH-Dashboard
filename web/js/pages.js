@@ -212,4 +212,8 @@ const pageBySlug = (seg) =>
   PAGES.find((p) => p.id === seg) ??
   null;
 
-export { PAGES, pageBySlug, pageSlug, slugify };
+function restrictToMembers() {
+  for (let i = PAGES.length - 1; i >= 0; i--) if (PAGES[i].section === ADMIN) PAGES.splice(i, 1);
+}
+
+export { PAGES, pageBySlug, pageSlug, restrictToMembers, slugify };

@@ -18,6 +18,7 @@
  */
 
 import { state } from "./state.js";
+import { panelsFor } from "./roles.js";
 
 /**
  * Panels the Worker can serve, fetched on every load.
@@ -64,18 +65,11 @@ import { state } from "./state.js";
  * `prFieldCoverage` reports complete coverage because D1 cannot represent the
  * unasked state the Node store can. Also in `docs/Calculations.md`.
  */
-const LIVE_PANELS = [
-  "contributors",
-  "analytics",
-  "approvedUnmerged",
-  "changesRequested",
-  "needsRelease",
-  "depUpdates",
-  "byLabel",
-  "ciHealth",
-  "issues",
-  "repos",
-];
+let LIVE_PANELS = panelsFor("admin");
+
+export function setRole(role) {
+  LIVE_PANELS = panelsFor(role);
+}
 
 /**
  * Panels nothing fetches until something asks for one — and the reason
@@ -105,15 +99,11 @@ const LIVE_PANELS = [
 const lazy = new Map();
 
 /**
- * Where the API lives.
- *
- * Hardcoded, unlike BASE in paths.js, because there is nothing to derive it
- * from: the Worker is on a different origin from the page by design, and a
- * document cannot know its API's hostname the way a module knows its own path.
- * `?api=` overrides it, which is how you point a local page at production or a
- * preview deployment without editing this file.
+ * Where the API lives: the same origin as the page, since the app Worker serves
+ * both and the Access login only covers its own hostname. `?api=` can point a
+ * page at a local `wrangler dev` instead; the CSP allows nothing else.
  */
-const DEFAULT_API = "https://nh-dashboard.gtnh.workers.dev";
+const DEFAULT_API = "";
 
 /**
  * Exported because the drilldown's per-subject routes are not panels and are
@@ -304,11 +294,9 @@ export function startPolling(onChange, onTick) {
 }
 
 /**
- * First overlay, before the initial render.
- *
- * Awaited so the page paints live numbers rather than painting the built ones
- * and visibly rewriting them a moment later. It cannot hang the page: every
- * fetch is on a timeout and every failure falls through to the built data.
+ * Records the version the page is on. The eager panels came in with
+ * /api/dashboard, so only lazily registered ones (the drilldown index) are
+ * refetched here; the rest wait for the version to move.
  */
 export async function primeLive() {
   try {
@@ -321,5 +309,5 @@ export async function primeLive() {
   } catch {
     // Version unknown just means the next poll treats whatever it finds as new.
   }
-  return overlay();
+  await Promise.all([...lazy.keys()].map(refreshLazy));
 }

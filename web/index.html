@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://github.com https://avatars.githubusercontent.com; connect-src 'self' https://nh-dashboard.gtnh.workers.dev http://localhost:8787; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://github.com https://avatars.githubusercontent.com; connect-src 'self' http://localhost:8787; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NH Dashboard</title>
 <link rel="stylesheet" href="styles/tokens.css">
@@ -31,10 +31,6 @@
   </div>
   <div class="pages" id="pages"></div>
   <div class="side-foot">
-    <a id="refresh" target="_blank" rel="noopener" title="Opens the build workflow — 'Run workflow' there rebuilds the data">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 1 0 4.546 2.914.75.75 0 0 1 1.36-.63A6.5 6.5 0 1 1 8 1.5v1.5Z"/><path d="M8 .5 11 3 8 5.5V.5Z"/></svg>
-      <span>Refresh data</span>
-    </a>
     <button id="theme" title="Switch theme">
       <svg id="themeIcon" viewBox="0 0 16 16" fill="currentColor"></svg>
       <span id="themeLabel">Light mode</span>

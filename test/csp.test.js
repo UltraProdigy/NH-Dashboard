@@ -31,8 +31,8 @@ check("scripts only from the site itself", directive(policy, "script-src").join(
 check("index.html has no inline script", !/<script(?![^>]*\bsrc=)[^>]*>/.test(index));
 check("index.html has no inline handlers", !/\son[a-z]+=/i.test(index));
 
-const api = (await read("js/live.js")).match(/const DEFAULT_API = "([^"]+)"/)?.[1];
-check("connect-src allows the Worker", directive(policy, "connect-src").includes(api), api);
+const api = (await read("js/live.js")).match(/const DEFAULT_API = "([^"]*)"/)?.[1];
+check("connect-src allows the API", directive(policy, "connect-src").includes(api || "'self'"), api);
 
 const notFound = await read("404.html");
 const script = notFound.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
