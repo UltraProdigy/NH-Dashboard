@@ -1,8 +1,9 @@
 # NH-Dashboard
 
-[**View the dashboard**](https://ultraprodigy.github.io/NH-Dashboard/)
+Dashboard is private only for GTNH Developers.
+Page availability depends on permission level, DM me if needed.
 
-[**Refresh the data**](https://github.com/UltraProdigy/NH-Dashboard/actions/workflows/build.yml) — Run workflow → main
+[**View the dashboard**](https://nh-dashboard-app.gtnh.workers.dev/)
 
 See [docs/documentation.md](docs/documentation.md) for setup, panels, and
 architecture, and [docs/Calculations.md](docs/Calculations.md) for how every
