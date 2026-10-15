@@ -79,6 +79,21 @@ async function markWritten(db, tables) {
     .run();
 }
 
+// Cloudflare documents these D1 errors as transient and safe to retry. Every
+// handler is an upsert, so running one twice writes the same rows.
+const TRANSIENT = /network connection lost|storage caused object to be reset|reset because its code was updated|overloaded|internal error/i;
+
+export async function withRetry(fn, attempts = 3, wait = (n) => 150 * n) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt >= attempts || !TRANSIENT.test(String(err))) throw err;
+      await new Promise((resolve) => setTimeout(resolve, wait(attempt)));
+    }
+  }
+}
+
 async function handleWebhook(request, env, ctx) {
   const secret = env.GITHUB_WEBHOOK_SECRET;
   if (!secret) return json({ error: "webhook secret not configured" }, 500);
@@ -112,7 +127,7 @@ async function handleWebhook(request, env, ctx) {
   let result;
   let failure = null;
   try {
-    result = await handleEvent(env.DB, event, payload);
+    result = await withRetry(() => handleEvent(env.DB, event, payload));
   } catch (err) {
     failure = String(err);
   }
@@ -134,13 +149,13 @@ async function handleWebhook(request, env, ctx) {
   }
 
   if (failure) {
-    // Still a 200. GitHub retries nothing and disables a webhook that keeps
-    // failing, so a handler bug must not cost the subscription — the delivery
-    // is logged and the reconcile sweep will correct whatever was missed.
+    // A 500, so GitHub records the delivery as failed. It used to be a 200, which
+    // showed green on the App's delivery page while the row stayed wrong, and
+    // nothing ever looked at it again. GitHub does not retry on its own.
     console.error(
       JSON.stringify({ event, action, repo, delivery, error: failure }),
     );
-    return json({ ok: false, event, error: "handler failed" });
+    return json({ ok: false, event, error: "handler failed" }, 500);
   }
 
   console.log(JSON.stringify({ event, action, repo, delivery, result }));

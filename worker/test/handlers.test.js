@@ -902,6 +902,50 @@ await deliver("pull_request", {
 });
 check("a pull request stamps only pull_requests", stamped(), ["pull_requests"]);
 
+console.log("\na delivery that fails is answered as a failure");
+const { withRetry } = await import("../src/index.js");
+let tries = 0;
+check(
+  "a transient D1 error is retried",
+  await withRetry(async () => {
+    if (++tries < 3) throw new Error("D1_ERROR: Network connection lost.");
+    return "written";
+  }, 3, () => 0),
+  "written",
+);
+check("on the third attempt", tries, 3);
+
+tries = 0;
+const permanent = await withRetry(async () => {
+  tries++;
+  throw new Error("D1_ERROR: no such column: nope");
+}, 3, () => 0).catch((err) => String(err));
+check("anything else is not retried", tries, 1);
+check("and still throws", permanent.includes("no such column"), true);
+
+const broken = {
+  prepare() {
+    throw new Error("D1_ERROR: no such table: pull_requests");
+  },
+};
+const failedBody = JSON.stringify({ action: "closed", repository: REPO, pull_request: { number: 1 } });
+const failedKey = await crypto.subtle.importKey(
+  "raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+);
+const failedSig = Buffer.from(
+  await crypto.subtle.sign("HMAC", failedKey, new TextEncoder().encode(failedBody)),
+).toString("hex");
+const failedRes = await worker.fetch(
+  new Request("https://worker.test/webhook", {
+    method: "POST",
+    body: failedBody,
+    headers: { "x-github-event": "pull_request", "x-hub-signature-256": `sha256=${failedSig}` },
+  }),
+  { DB: broken, GITHUB_WEBHOOK_SECRET: SECRET },
+  { waitUntil: () => {} },
+);
+check("a handler that throws answers 500, so GitHub marks it failed", failedRes.status, 500);
+
 console.log("\n/api/version says when the recompute last ran");
 raw.prepare(
   `INSERT INTO meta (key, value) VALUES ('checked_at', '2026-09-22T12:00:00.000Z'),
