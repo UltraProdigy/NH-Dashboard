@@ -21,6 +21,7 @@
 import { handleEvent } from "./handlers.js";
 import { INSTANT_EVENTS, recompute, refreshInstant, TABLES } from "./recompute.js";
 import { handleHealth, json } from "./reads.js";
+import { redeliverFailed } from "./github.js";
 
 function hexToBytes(hex) {
   if (hex.length % 2) return null;
@@ -151,7 +152,9 @@ async function handleWebhook(request, env, ctx) {
   if (failure) {
     // A 500, so GitHub records the delivery as failed. It used to be a 200, which
     // showed green on the App's delivery page while the row stayed wrong, and
-    // nothing ever looked at it again. GitHub does not retry on its own.
+    // nothing ever looked at it again. GitHub does not retry on its own;
+    // `redeliverFailed` in the cron does, and it can only find what GitHub was
+    // told had failed.
     console.error(
       JSON.stringify({ event, action, repo, delivery, error: failure }),
     );
@@ -182,6 +185,22 @@ async function handleWebhook(request, env, ctx) {
   return json({ ok: true, event, action, repo, result });
 }
 
+// Each step runs whatever the one before it did, so a GitHub outage that stops
+// the first still leaves the panels being rebuilt.
+export async function runCron(env) {
+  const step = async (name, fn) => {
+    try {
+      const result = await fn();
+      const log = result?.gaveUp ? console.error : console.log;
+      log(JSON.stringify({ cron: name, result }));
+    } catch (err) {
+      console.error(JSON.stringify({ cron: name, error: String(err) }));
+    }
+  };
+  await step("redeliver", () => redeliverFailed(env));
+  await step("recompute", () => recompute(env));
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -197,8 +216,6 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(
-      recompute(env).then((r) => console.log(JSON.stringify({ cron: r }))),
-    );
+    ctx.waitUntil(runCron(env));
   },
 };

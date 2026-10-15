@@ -67,6 +67,7 @@ jobs:
           npm run test:csp
           npm run test:recompute
           npm run test:backfill-prs
+          npm run test:verify
           npm run test:freshness
 
       # Secrets are not touched. `wrangler deploy` uploads code and bindings;

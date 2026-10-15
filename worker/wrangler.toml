@@ -23,9 +23,13 @@ crons = ["*/10 * * * *"]
 # Secrets are set with `wrangler secret put`, never written here:
 #
 #   GITHUB_WEBHOOK_SECRET   the value also pasted into the App's webhook config
-#   GH_APP_PRIVATE_KEY      PKCS#8, only needed once the Worker calls the API
+#   GH_APP_PRIVATE_KEY      PKCS#8. The cron uses it to redeliver failed
+#                           deliveries. Without it that is skipped and
+#                           everything else still runs.
 #
 # For local development they go in worker/.dev.vars, which is gitignored.
 
 [vars]
 GITHUB_ORG = "GTNewHorizons"
+# NH-Dashbot. Public: it is in the App's own URL. GH_APP_PRIVATE_KEY is the secret.
+GH_APP_ID = "4745300"
