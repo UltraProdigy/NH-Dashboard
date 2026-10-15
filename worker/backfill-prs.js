@@ -53,7 +53,7 @@ import { pathToFileURL } from "node:url";
 
 import { graphql, stats } from "../src/github/client.js";
 import { ORG, isIngestExcluded } from "../src/config.js";
-import { PR_FIELDS } from "../src/ingest/pullRequests.js";
+import { PR_COLUMNS, PR_FIELDS, prValues } from "../src/shared/pr-fields.js";
 
 const args = new Map();
 for (let i = 2; i < process.argv.length; i++) {
@@ -88,7 +88,6 @@ if (Number.isNaN(Date.parse(SINCE))) {
   process.exit(1);
 }
 
-const MAX_TITLE = 160;
 const ROWS_PER_STATEMENT = 200;
 
 function q(value) {
@@ -98,7 +97,6 @@ function q(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-const jsonList = (value) => q(JSON.stringify(value ?? []));
 
 const REPOS = `
   query($org: String!, $cursor: String) {
@@ -127,12 +125,6 @@ const PRS = `
   }
 `;
 
-const PR_COLUMNS = [
-  "repo", "number", "title", "author", "created_at", "updated_at", "merged_at",
-  "closed_at", "state", "is_draft", "additions", "deletions", "changed_files",
-  "commits", "comments", "reactions", "thumbs_up", "thumbs_down",
-  "review_count", "reviews_truncated", "labels", "assignees", "review_requests",
-];
 
 /** Everything but the key. `merge_commit_sha` is not here on purpose. */
 const PR_UPDATES = PR_COLUMNS.slice(2)
@@ -142,35 +134,7 @@ const PR_UPDATES = PR_COLUMNS.slice(2)
 const REVIEW_COLUMNS = ["repo", "pr_number", "author", "state", "submitted_at"];
 
 export function prRow(repo, pr) {
-  return [
-    q(repo),
-    q(pr.number),
-    q(pr.title ? pr.title.slice(0, MAX_TITLE) : null),
-    q(pr.author?.login ?? null),
-    q(pr.createdAt),
-    q(pr.updatedAt),
-    q(pr.mergedAt ?? null),
-    q(pr.closedAt ?? null),
-    q(pr.state),
-    q(pr.isDraft ?? null),
-    q(pr.additions ?? null),
-    q(pr.deletions ?? null),
-    q(pr.changedFiles ?? null),
-    q(pr.commits?.totalCount ?? null),
-    q(pr.comments?.totalCount ?? null),
-    q(pr.reactions?.totalCount ?? null),
-    q(pr.thumbsUp?.totalCount ?? null),
-    q(pr.thumbsDown?.totalCount ?? null),
-    q(pr.reviews?.totalCount ?? null),
-    q((pr.reviews?.totalCount ?? 0) > (pr.reviews?.nodes?.length ?? 0)),
-    jsonList((pr.labels?.nodes ?? []).map((l) => l.name).filter(Boolean)),
-    jsonList((pr.assignees?.nodes ?? []).map((a) => a.login).filter(Boolean)),
-    jsonList(
-      (pr.reviewRequests?.nodes ?? [])
-        .map((n) => n.requestedReviewer?.login)
-        .filter(Boolean),
-    ),
-  ];
+  return prValues(repo, pr).map(q);
 }
 
 /**
