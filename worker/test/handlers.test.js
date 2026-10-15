@@ -143,6 +143,56 @@ check("thumbs_down preserved", pr.thumbs_down, 2);
 check("reviews_truncated preserved", pr.reviews_truncated, 1);
 check("no duplicate row", row("SELECT COUNT(*) n FROM pull_requests").n, 1);
 
+console.log("\n  a late payload from before the merge must not reopen it");
+const stalePr = (over = {}) => ({
+  action: "labeled",
+  repository: { name: "GT5-Unofficial" },
+  pull_request: {
+    number: 4821, title: "Fix crash on world load", state: "open", merged: false,
+    merged_at: null, closed_at: null, created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-08-29T11:59:58Z", user: { login: "someone" },
+    labels: [{ name: "bug" }], assignees: [], requested_reviewers: [], ...over,
+  },
+});
+await handleEvent(db, "pull_request", stalePr());
+pr = row("SELECT state, merged_at, labels FROM pull_requests WHERE repo='GT5-Unofficial' AND number=4821");
+check("still MERGED", pr.state, "MERGED");
+check("merged_at kept", pr.merged_at, "2026-08-29T12:00:00Z");
+check("stale labels not written", pr.labels, '["bug","ready"]');
+
+await handleEvent(db, "pull_request", stalePr({ action: "edited", state: "closed", merged: true,
+  merged_at: "2026-08-29T12:00:00Z", closed_at: "2026-08-29T12:00:00Z",
+  updated_at: "2026-08-30T09:00:00Z", title: "Fix crash on world load (renamed)" }));
+check("an edit after the merge still lands",
+  row("SELECT title FROM pull_requests WHERE number=4821").title, "Fix crash on world load (renamed)");
+
+console.log("\n  a closed PR reopens only on a newer payload");
+const closedPr = (over = {}) => ({
+  action: "closed",
+  repository: { name: "GT5-Unofficial" },
+  pull_request: {
+    number: 4900, title: "Abandoned idea", state: "closed", merged: false,
+    merged_at: null, closed_at: "2026-09-01T10:00:00Z", created_at: "2026-08-20T00:00:00Z",
+    updated_at: "2026-09-01T10:00:00Z", user: { login: "someone" },
+    labels: [], assignees: [], requested_reviewers: [], ...over,
+  },
+});
+await handleEvent(db, "pull_request", closedPr());
+await handleEvent(db, "issue_comment", {
+  action: "created",
+  repository: { name: "GT5-Unofficial" },
+  issue: { number: 4900, comments: 2, updated_at: "2026-09-01T10:05:00Z", pull_request: {} },
+});
+await handleEvent(db, "pull_request", closedPr({ action: "labeled", state: "open", closed_at: null,
+  updated_at: "2026-09-01T09:59:59Z" }));
+check("a stale open payload leaves it CLOSED",
+  row("SELECT state FROM pull_requests WHERE number=4900").state, "CLOSED");
+await handleEvent(db, "pull_request", closedPr({ action: "reopened", state: "open", closed_at: null,
+  updated_at: "2026-09-02T08:00:00Z" }));
+check("a real reopen still reopens it",
+  row("SELECT state FROM pull_requests WHERE number=4900").state, "OPEN");
+raw.prepare("DELETE FROM pull_requests WHERE number=4900").run();
+
 console.log("\npull_request_review: an approval arrives");
 await handleEvent(db, "pull_request_review", {
   action: "submitted",
@@ -187,6 +237,19 @@ await handleEvent(db, "pull_request_review", {
 });
 check("state now DISMISSED", row("SELECT state FROM reviews").state, "DISMISSED");
 check("replaced, not added", row("SELECT COUNT(*) n FROM reviews").n, 1);
+
+console.log("\n  a late copy of the original review must not undo the dismissal");
+await handleEvent(db, "pull_request_review", {
+  action: "submitted",
+  repository: { name: "GT5-Unofficial" },
+  pull_request: { number: 4821 },
+  review: {
+    user: { login: "reviewer-one" },
+    state: "approved",
+    submitted_at: "2026-08-29T11:00:00Z",
+  },
+});
+check("still DISMISSED", row("SELECT state FROM reviews").state, "DISMISSED");
 
 console.log("\nissues: closing an issue");
 await handleEvent(db, "issues", {
@@ -511,6 +574,19 @@ check(
   "publishing a draft updates the same row",
   row("SELECT draft, published_at FROM releases WHERE tag_name='v2.0.0'"),
   { draft: 0, published_at: "2026-08-20T10:00:00Z" },
+);
+
+await handleEvent(db, "release", release({ tag_name: "v2.0.0", draft: true, published_at: null }, "edited"));
+check(
+  "a draft payload arriving after the publish does not un-publish it",
+  row("SELECT draft, published_at FROM releases WHERE tag_name='v2.0.0'"),
+  { draft: 0, published_at: "2026-08-20T10:00:00Z" },
+);
+await handleEvent(db, "release", release({ tag_name: "v2.0.0", draft: true, published_at: null }, "unpublished"));
+check(
+  "unpublished does take it back to a draft",
+  row("SELECT draft, published_at FROM releases WHERE tag_name='v2.0.0'"),
+  { draft: 1, published_at: null },
 );
 
 await handleEvent(db, "release", release({ tag_name: "v2.0.0" }, "deleted"));

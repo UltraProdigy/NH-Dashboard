@@ -89,6 +89,18 @@ async function upsertRepo(db, repo) {
  *
  * review_count and the thumbs fields are deliberately absent from the update
  * list: the payload carries neither, and the sweep owns them.
+ *
+ * GitHub does not deliver in order. A merge fires several events at once, and a
+ * `labeled` or `review_requested` built a moment before the merge can land after
+ * the `closed`, carrying the pull request as it was: open. Written blindly that
+ * put the row back to OPEN and the PR back on Approved-not-merged, with nothing
+ * left to correct it until the reconcile. So the update refuses to move a row
+ * backwards: nothing un-merges a merged PR, and an open payload only reopens a
+ * closed one when it is newer than the close.
+ *
+ * The close is the yardstick rather than `updated_at`, because `issue_comment`
+ * moves `updated_at` too and a comment landing first would otherwise make the
+ * real `closed` delivery look stale.
  */
 async function onPullRequest(db, payload) {
   const pr = payload.pull_request;
@@ -121,7 +133,10 @@ async function onPullRequest(db, payload) {
          -- may send null on a later edit. Overwriting would erase the only
          -- link between a stored commit and the PR that produced it, and the
          -- commits it orphans would silently start reading as direct pushes.
-         merge_commit_sha = COALESCE(excluded.merge_commit_sha, pull_requests.merge_commit_sha)`,
+         merge_commit_sha = COALESCE(excluded.merge_commit_sha, pull_requests.merge_commit_sha)
+       WHERE NOT (pull_requests.state = 'MERGED' AND excluded.state <> 'MERGED')
+         AND NOT (excluded.state = 'OPEN' AND pull_requests.state = 'CLOSED'
+                  AND excluded.updated_at <= COALESCE(pull_requests.closed_at, pull_requests.updated_at))`,
     )
     .bind(
       repo,
@@ -161,14 +176,15 @@ async function onPullRequestReview(db, payload) {
   const number = payload.pull_request?.number;
   if (!review || !repo || number == null) return { skipped: "no review" };
 
-  const state =
-    payload.action === "dismissed"
-      ? "DISMISSED"
-      : (review.state ?? "commented").toUpperCase();
+  const dismissed = payload.action === "dismissed";
+  const state = dismissed ? "DISMISSED" : (review.state ?? "commented").toUpperCase();
 
+  // A review's verdict only ever changes by being dismissed, so anything else
+  // arriving for a review already stored is a late copy of the original and must
+  // not bring a dismissed approval back.
   await db
     .prepare(
-      `INSERT OR REPLACE INTO reviews (repo, pr_number, author, state, submitted_at)
+      `INSERT OR ${dismissed ? "REPLACE" : "IGNORE"} INTO reviews (repo, pr_number, author, state, submitted_at)
        VALUES (?1, ?2, ?3, ?4, ?5)`,
     )
     .bind(repo, number, login(review.user), state, review.submitted_at ?? null)
@@ -461,14 +477,21 @@ async function onRelease(db, payload) {
     return { table: "releases", repo, tag: release.tag_name, action: "deleted" };
   }
 
+  // Publishing a release usually fires `created`, `edited`, `published` and
+  // `released` within a second or two, and they arrive in any order. A draft
+  // payload landing after the publish would put the row back to a draft, the
+  // repo would fall back to its previous release and reappear on Needs a
+  // release. Only `unpublished` is allowed to take a release back to draft.
   await db
     .prepare(
       `INSERT INTO releases (repo, tag_name, published_at, created_at, draft, prerelease)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
        ON CONFLICT (repo, tag_name) DO UPDATE SET
-         published_at = excluded.published_at,
+         published_at = CASE WHEN ?7 THEN excluded.published_at
+                             ELSE COALESCE(excluded.published_at, releases.published_at) END,
          created_at = excluded.created_at,
-         draft = excluded.draft,
+         draft = CASE WHEN ?7 THEN excluded.draft
+                      ELSE MIN(excluded.draft, releases.draft) END,
          prerelease = excluded.prerelease`,
     )
     .bind(
@@ -478,6 +501,7 @@ async function onRelease(db, payload) {
       utcSeconds(release.created_at),
       release.draft ? 1 : 0,
       release.prerelease ? 1 : 0,
+      payload.action === "unpublished" ? 1 : 0,
     )
     .run();
 
