@@ -24,8 +24,8 @@ crons = ["*/10 * * * *"]
 #
 #   GITHUB_WEBHOOK_SECRET   the value also pasted into the App's webhook config
 #   GH_APP_PRIVATE_KEY      PKCS#8. The cron uses it to redeliver failed
-#                           deliveries. Without it that is skipped and
-#                           everything else still runs.
+#                           deliveries and to verify the Dream Panel. Without it
+#                           both are skipped and everything else still runs.
 #
 # For local development they go in worker/.dev.vars, which is gitignored.
 

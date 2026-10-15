@@ -116,6 +116,22 @@ export const TABLES = [
   "repo_labels",
 ];
 
+/**
+ * Stamp the tables a delivery wrote, so the recompute rebuilds only the panels
+ * that read them. An upsert so a database that predates a key needs no
+ * migration.
+ */
+export async function markWritten(db, tables) {
+  const at = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO meta (key, value) VALUES ${tables.map(() => "(?, ?)").join(", ")}
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    )
+    .bind(...tables.flatMap((t) => [`wrote:${t}`, at]))
+    .run();
+}
+
 // The drilldown subjects fold from these, and their caches are keyed on
 // `version`, so a write to any of them has to bump it even when every panel
 // blob comes back identical.

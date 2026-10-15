@@ -1,11 +1,13 @@
 /**
  *   node --experimental-sqlite worker/test/verify.test.js
  *
- * The failed-delivery redeliver, against a stubbed GitHub.
+ * The Dream Panel verify and the failed-delivery redeliver, against a real
+ * SQLite database and a stubbed GitHub.
  */
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { verifyDreamPanel } from "../src/verify.js";
 import { appJwt, forgetToken, redeliverFailed } from "../src/github.js";
 
 class Shim {
@@ -156,6 +158,180 @@ check(
 check("gives up after three attempts", redelivery.gaveUp, 1);
 check("follows the next page and stops at the window", redelivery.scanned, 9);
 check("skips cleanly with no key", await redeliverFailed({ DB: db }), { skipped: "GH_APP_ID or GH_APP_PRIVATE_KEY not set" });
+
+// --- verify -----------------------------------------------------------------
+
+console.log("\nverifyDreamPanel");
+
+const prNode = (over = {}) => ({
+  repository: { name: "GT5-Unofficial" },
+  number: 5000,
+  title: "Add a thing",
+  createdAt: "2026-10-01T00:00:00Z",
+  updatedAt: "2026-10-10T00:00:00Z",
+  mergedAt: null,
+  closedAt: null,
+  state: "OPEN",
+  isDraft: false,
+  author: { login: "someone" },
+  additions: 1, deletions: 1, changedFiles: 1,
+  commits: { totalCount: 1 },
+  comments: { totalCount: 0 },
+  assignees: { nodes: [] },
+  labels: { nodes: [] },
+  reviewRequests: { nodes: [] },
+  reactions: { totalCount: 0 },
+  thumbsUp: { totalCount: 0 },
+  thumbsDown: { totalCount: 0 },
+  reviews: { totalCount: 1, nodes: [{ state: "APPROVED", submittedAt: "2026-10-09T00:00:00Z", author: { login: "rev" } }] },
+  mergeCommit: null,
+  ...over,
+});
+
+const insertPr = (number, state, updated, mergedAt = null) =>
+  raw.prepare(
+    `INSERT INTO pull_requests (repo, number, title, author, created_at, updated_at, merged_at, state, is_draft, labels)
+     VALUES ('GT5-Unofficial', ?, 't', 'someone', '2026-10-01T00:00:00Z', ?, ?, ?, 0, '[]')`,
+  ).run(number, updated, mergedAt, state);
+const insertReview = (number, state = "APPROVED") =>
+  raw.prepare(
+    `INSERT INTO reviews (repo, pr_number, author, state, submitted_at)
+     VALUES ('GT5-Unofficial', ?, 'rev', ?, '2026-10-09T00:00:00Z')`,
+  ).run(number, state);
+
+// 5000: correct already. 5001: merged on GitHub, stuck OPEN here.
+// 5002: approved on GitHub, the approval never arrived here.
+insertPr(5000, "OPEN", "2026-10-10T00:00:00Z");
+insertReview(5000);
+insertPr(5001, "OPEN", "2026-10-08T00:00:00Z");
+insertReview(5001);
+insertPr(5002, "OPEN", "2026-10-09T00:00:00Z");
+raw.prepare(
+  `INSERT INTO panel_cache (name, json, computed_at, ms) VALUES ('approvedUnmerged', ?, '2026-10-10T00:00:00Z', 1)`,
+).run(JSON.stringify([
+  { repo: "GTNewHorizons/GT5-Unofficial", number: 5000 },
+  { repo: "GTNewHorizons/GT5-Unofficial", number: 5001 },
+]));
+raw.prepare(
+  `INSERT INTO repos (name, full_name, private, archived, default_branch) VALUES ('GT5-Unofficial', 'GTNewHorizons/GT5-Unofficial', 0, 0, 'master')`,
+).run();
+raw.prepare(
+  `INSERT INTO releases (repo, tag_name, published_at, created_at, draft, prerelease)
+   VALUES ('GT5-Unofficial', '5.09.51', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z', 0, 0),
+          ('GT5-Unofficial', '5.09.52', NULL, '2026-10-11T00:00:00Z', 1, 0)`,
+).run();
+
+const searches = [];
+routes = {
+  ...tokenRoutes,
+  "POST /graphql": (_, { query, variables }) => {
+    if (query.includes("search(")) {
+      searches.push(variables.q);
+      const nodes = variables.q.includes("review:approved")
+        ? [
+            prNode(),
+            prNode({ number: 5002, updatedAt: "2026-10-11T00:00:00Z" }),
+          ]
+        : [];
+      return { data: { search: { pageInfo: { hasNextPage: false }, nodes } } };
+    }
+    if (query.includes("releases(")) {
+      return {
+        data: {
+          organization: {
+            repositories: {
+              pageInfo: { hasNextPage: false },
+              nodes: [
+                {
+                  name: "GT5-Unofficial",
+                  releases: {
+                    nodes: [
+                      { tagName: "5.09.52", publishedAt: "2026-10-12T00:00:00Z", createdAt: "2026-10-11T00:00:00Z", isDraft: false, isPrerelease: false },
+                      { tagName: "5.09.51", publishedAt: "2026-09-01T00:00:00Z", createdAt: "2026-09-01T00:00:00Z", isDraft: false, isPrerelease: false },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      };
+    }
+    return {
+      data: {
+        p0: {
+          pullRequest: prNode({
+            number: 5001,
+            state: "MERGED",
+            mergedAt: "2026-10-12T00:00:00Z",
+            closedAt: "2026-10-12T00:00:00Z",
+            updatedAt: "2026-10-12T00:00:00Z",
+            mergeCommit: { oid: "abc123" },
+          }),
+        },
+      },
+    };
+  },
+};
+
+forgetToken();
+const result = await verifyDreamPanel(env, { reason: "test" });
+check("asks GitHub for both review states", searches.map((q) => q.split(" ").pop()), ["review:approved", "review:changes_requested"]);
+check(
+  "fixes the merged PR and adds the missing approval, and leaves the right one alone",
+  result.fixed.prs.map((f) => [f.number, f.was, f.now, f.reviews]),
+  [[5002, "OPEN", "OPEN", true], [5001, "OPEN", "MERGED", false]],
+);
+check(
+  "the stuck PR is MERGED with its merge commit",
+  row("SELECT state, merged_at, merge_commit_sha FROM pull_requests WHERE number = 5001"),
+  { state: "MERGED", merged_at: "2026-10-12T00:00:00Z", merge_commit_sha: "abc123" },
+);
+check(
+  "the missing approval is stored",
+  row("SELECT state FROM reviews WHERE pr_number = 5002")?.state,
+  "APPROVED",
+);
+check(
+  "the release stuck as a draft is published",
+  row("SELECT draft, published_at FROM releases WHERE tag_name = '5.09.52'"),
+  { draft: 0, published_at: "2026-10-12T00:00:00Z" },
+);
+check("and only that release is reported", result.fixed.releases.map((r) => [r.tag, r.was]), [["5.09.52", "draft"]]);
+check("the instant panels are rebuilt", result.rebuilt.sort(), ["approvedUnmerged", "changesRequested", "needsRelease"]);
+check(
+  "the cards now say what GitHub says",
+  JSON.parse(row("SELECT json FROM panel_cache WHERE name = 'approvedUnmerged'").json).map((r) => r.number),
+  [5000, 5002],
+);
+check("stamps what it wrote", !!row("SELECT value FROM meta WHERE key = 'wrote:releases'"), true);
+
+console.log("\n  a second run finds nothing to fix");
+raw.prepare("DELETE FROM meta WHERE key LIKE 'wrote:%'").run();
+const again = await verifyDreamPanel(env, { reason: "test" });
+check("no PR fixes", again.fixed.prs, []);
+check("no release fixes", again.fixed.releases, []);
+check("and stamps nothing", row("SELECT COUNT(*) n FROM meta WHERE key LIKE 'wrote:%'").n, 0);
+
+console.log("\n  labels in another order are not a difference");
+raw.prepare(`UPDATE pull_requests SET labels = '["b","a"]' WHERE number = 5000`).run();
+const relabel = routes["POST /graphql"];
+routes["POST /graphql"] = (u, body) => {
+  const out = relabel(u, body);
+  for (const n of out.data?.search?.nodes ?? []) {
+    if (n.number === 5000) n.labels = { nodes: [{ name: "a" }, { name: "b" }] };
+  }
+  return out;
+};
+const reordered = await verifyDreamPanel(env, { reason: "test" });
+check("not rewritten", reordered.fixed.prs, []);
+routes["POST /graphql"] = relabel;
+
+console.log("\n  a row newer than GitHub's answer is left alone");
+raw.prepare("UPDATE pull_requests SET updated_at = '2026-10-13T00:00:00Z', state = 'CLOSED' WHERE number = 5000").run();
+const newer = await verifyDreamPanel(env, { reason: "test" });
+check("not rewritten", newer.fixed.prs, []);
+check("still CLOSED", row("SELECT state FROM pull_requests WHERE number = 5000").state, "CLOSED");
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed ? 1 : 0);

@@ -8,13 +8,14 @@
  * hold no data.
  *
  * Members see every page except Admin Resources. The data only those pages use
- * (ADMIN_PANELS) and the manual recompute are refused to anyone who isn't on
+ * (ADMIN_PANELS), the manual recompute and the Dream Panel verify are refused to anyone who isn't on
  * the admin team, whatever the page shows.
  */
 
 import { verifyAccess } from "./access.js";
 import { roleFor } from "./roles.js";
 import { recompute } from "./recompute.js";
+import { verifyDreamPanel } from "./verify.js";
 import {
   handleDashboard,
   handleFacets,
@@ -47,6 +48,18 @@ async function route(request, env, ctx, url, who) {
     if (!admin) return json({ error: "admin only" }, 403);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
     return json(await recompute(env, { force: url.searchParams.get("force") === "1" }));
+  }
+
+  if (path === "/api/verify") {
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    try {
+      return json(await verifyDreamPanel(env, { reason: "button" }));
+    } catch (err) {
+      console.error(JSON.stringify({ at: "verify", error: String(err) }));
+      return json({ error: "verify failed", detail: String(err) }, 502);
+    }
   }
 
   if (request.method !== "GET") return json({ error: "GET only" }, 405);

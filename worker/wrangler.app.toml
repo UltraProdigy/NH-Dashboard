@@ -20,7 +20,12 @@ enabled = true
 # ACCESS_AUD is the Access application's AUD tag. Set it as a secret in the
 # Cloudflare dashboard (or `wrangler secret put ACCESS_AUD -c wrangler.app.toml`)
 # so it survives deploys. Until it is set, every /api/ request is refused.
+#
+# GH_APP_PRIVATE_KEY is the same PKCS#8 key the webhook Worker holds. The Verify
+# button on the Dream Panel needs it here too; without it the button reports so.
 [vars]
 GITHUB_ORG = "GTNewHorizons"
+# NH-Dashbot. Public: it is in the App's own URL. GH_APP_PRIVATE_KEY is the secret.
+GH_APP_ID = "4745300"
 ADMIN_TEAM = "admin"
 ACCESS_TEAM_DOMAIN = "nh-dashboard.cloudflareaccess.com"

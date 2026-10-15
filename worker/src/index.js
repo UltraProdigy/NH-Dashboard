@@ -19,9 +19,10 @@
  */
 
 import { handleEvent } from "./handlers.js";
-import { INSTANT_EVENTS, recompute, refreshInstant, TABLES } from "./recompute.js";
+import { INSTANT_EVENTS, markWritten, recompute, refreshInstant, TABLES } from "./recompute.js";
 import { handleHealth, json } from "./reads.js";
 import { redeliverFailed } from "./github.js";
+import { verifyDreamPanel } from "./verify.js";
 
 function hexToBytes(hex) {
   if (hex.length % 2) return null;
@@ -62,22 +63,6 @@ async function verifySignature(secret, header, rawBody) {
   );
 
   return crypto.subtle.verify("HMAC", key, signature, encoder.encode(rawBody));
-}
-
-/**
- * Stamp the tables a delivery wrote, so the recompute rebuilds only the panels
- * that read them. An upsert so a database that predates a key needs no
- * migration.
- */
-async function markWritten(db, tables) {
-  const at = new Date().toISOString();
-  await db
-    .prepare(
-      `INSERT INTO meta (key, value) VALUES ${tables.map(() => "(?, ?)").join(", ")}
-       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-    )
-    .bind(...tables.flatMap((t) => [`wrote:${t}`, at]))
-    .run();
 }
 
 // Cloudflare documents these D1 errors as transient and safe to retry. Every
@@ -186,7 +171,7 @@ async function handleWebhook(request, env, ctx) {
 }
 
 // Each step runs whatever the one before it did, so a GitHub outage that stops
-// the first still leaves the panels being rebuilt.
+// the first two still leaves the panels being rebuilt.
 export async function runCron(env) {
   const step = async (name, fn) => {
     try {
@@ -198,6 +183,7 @@ export async function runCron(env) {
     }
   };
   await step("redeliver", () => redeliverFailed(env));
+  await step("verify", () => verifyDreamPanel(env));
   await step("recompute", () => recompute(env));
 }
 
