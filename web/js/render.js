@@ -33,6 +33,7 @@ import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
 import { withOwner } from "./table.js";
 import { backFrom } from "./router.js";
 import { teamsOf } from "./teams.js";
+import { isAdmin } from "./roles.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -417,6 +418,13 @@ function renderToolbar() {
   for (const name of wanted) {
     const html = controlHtml(name);
     if (html) bits.push(html);
+  }
+
+  if (state.page === "dream" && isAdmin(state.role)) {
+    bits.push(`<button class="ghost" id="verifyBtn"${state.verify.busy ? " disabled" : ""}
+      title="Look up every PR and release on these cards on GitHub and fix any the dashboard has wrong">${
+      state.verify.busy ? "Checking GitHub…" : "Verify against GitHub"}</button>`);
+    if (state.verify.note) bits.push(`<span class="minlabel" id="verifyNote">${esc(state.verify.note)}</span>`);
   }
 
   if (wanted.has("minActivity"))

@@ -24,6 +24,7 @@ import { defaultSortOf } from "./table.js";
 import { routeOf } from "./paths.js";
 import { pageBySlug } from "./pages.js";
 import { tabTwin } from "./modules/index.js";
+import { API, checkNow } from "./live.js";
 import {
   addOpponent,
   clearOpponents,
@@ -389,8 +390,36 @@ document.getElementById("toolbar").addEventListener("input", e => {
   }
 });
 
+function verifyNote(r) {
+  if (r.skipped) return `Not run: ${r.skipped}`;
+  const prs = r.fixed?.prs?.length ?? 0;
+  const releases = r.fixed?.releases?.length ?? 0;
+  if (!prs && !releases) return `All ${r.checked?.prs ?? 0} PRs and every repo's latest release match GitHub`;
+  const parts = [];
+  if (prs) parts.push(`${prs} PR${prs === 1 ? "" : "s"}`);
+  if (releases) parts.push(`${releases} release${releases === 1 ? "" : "s"}`);
+  return `Fixed ${parts.join(" and ")} the dashboard had wrong`;
+}
+
+async function runVerify() {
+  if (state.verify.busy) return;
+  state.verify = { busy: true, note: "" };
+  render();
+  try {
+    const res = await fetch(`${API}/api/verify`, { method: "POST", cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+    state.verify.note = res.ok ? verifyNote(body) : `Verify failed: ${body.error ?? res.status}`;
+    if (res.ok) await checkNow();
+  } catch {
+    state.verify.note = "Verify failed: the dashboard couldn't be reached";
+  }
+  state.verify.busy = false;
+  render();
+}
+
 document.getElementById("toolbar").addEventListener("click", e => {
   if (e.target.closest("#backBtn")) return goBack();
+  if (e.target.closest("#verifyBtn")) return runVerify();
 
   const opt = e.target.closest(".combo-opt[data-pick]");
   if (opt) return drillTo(state.page, opt.dataset.pick);

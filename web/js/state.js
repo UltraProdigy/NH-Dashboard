@@ -54,6 +54,8 @@ const state = {
   gran: "month",      // x-axis granularity: day | week | month
   filter: "",
   minActivity: 3,
+  role: null,
+  verify: { busy: false, note: "" },
   // Module id -> { key, dir }. Per module rather than per page because a group
   // tab stacks several sortable tables that share column keys — see table.js.
   sort: {},

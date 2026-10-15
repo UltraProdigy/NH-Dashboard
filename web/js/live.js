@@ -269,6 +269,10 @@ async function overlay() {
  * while the tab is hidden and checks immediately when it comes back — a
  * backgrounded dashboard left open overnight should not spend the night asking.
  */
+let tickNow = null;
+
+export const checkNow = () => tickNow?.();
+
 export function startPolling(onChange, onTick) {
   const tick = async () => {
     if (document.visibilityState === "hidden") return;
@@ -286,6 +290,7 @@ export function startPolling(onChange, onTick) {
     }
   };
 
+  tickNow = tick;
   clearInterval(timer);
   timer = setInterval(tick, POLL_MS);
   document.addEventListener("visibilitychange", () => {
