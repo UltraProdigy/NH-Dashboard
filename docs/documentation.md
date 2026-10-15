@@ -187,9 +187,12 @@ that skipped a deploy would leave the live cards computing by the old rule.
 Actions cache from the crawl. Gating a deploy on that cache would couple two
 things that have nothing to do with each other.
 
-**Secrets live on each Worker separately.** `GITHUB_WEBHOOK_SECRET` and
-`GH_APP_PRIVATE_KEY` belong to `nh-dashboard`. `ACCESS_AUD` belongs to
-`nh-dashboard-app`. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
+**Secrets live on each Worker separately.** `GITHUB_WEBHOOK_SECRET` belongs to
+`nh-dashboard` and `ACCESS_AUD` to `nh-dashboard-app`. `GH_APP_PRIVATE_KEY`
+belongs to both: the webhook Worker's cron uses it to redeliver failed
+deliveries and verify the Dream Panel, and the app Worker uses it for the
+Verify button. It must be the PKCS#8 file (`nh-dashbot-pk8.pem`), pasted whole.
+`GH_APP_ID` is public and lives in both `wrangler` files. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
 `nh-dashboard-app` too, or search and the drilldowns will show excluded repos
 that the cached panels hide. Set secrets with `wrangler secret put NAME` (add
 `-c wrangler.app.toml` for the app) or in the Cloudflare dashboard; they
@@ -251,6 +254,7 @@ What each role gets:
 | Pages | All except Admin Resources | All |
 | Panels | All except `ADMIN_PANELS` | All |
 | `POST /api/recompute` | No | Yes (same origin only) |
+| `POST /api/verify` | No | Yes (same origin only) |
 
 `ADMIN_PANELS` in `web/js/roles.js` is the one list both sides read: the
 Worker refuses those panels to members, and the page leaves them out of the
@@ -270,6 +274,7 @@ only for display. What actually protects a panel is the Worker refusing it.
 | `/api/search`, `/api/search/facets` | Org Search |
 | `/api/contributor/:id`, `/api/repo/:id` | One drilldown subject |
 | `POST /api/recompute` | Admin only; `?force=1` rebuilds everything |
+| `POST /api/verify` | Admin only; checks the Dream Panel against GitHub and fixes what's wrong |
 
 `/api/dashboard` replaces the old `data/dashboard.json`. The cached JSON is
 spliced in as text rather than parsed, since it runs to megabytes. A panel
@@ -544,7 +549,7 @@ not say the row underneath it is right, and for four days it wasn't.
 D1 was loaded once by `worker/seed.js` and every row since has come from a
 webhook delivery. That makes the store forward-only in a way worth stating
 plainly: GitHub does not re-send a delivery it has already made, `handleWebhook`
-answers 200 even when the handler threw, and the daily workflow writes
+answered 200 even when the handler threw, and the daily workflow writes
 `data/*.json` rather than D1. A delivery that never arrives — or arrives and
 fails — leaves a row wrong permanently, and nothing anywhere reports it.
 `worker/src/index.js` said the reconcile sweep would correct whatever was
@@ -635,7 +640,7 @@ every "the card didn't move" report. Given a delivery id from GitHub's webhook
 page:
 
 - **No line at all** — the rebuild never ran or threw. Check for the matching
-  `console.error`, and for a `"ok":false` on the delivery itself, which is what
+  `console.error`, and for a 500 on the delivery itself, which is what
   `handleWebhook` answers when a handler throws.
 - **`changed: false` on a `pull_request` `closed`** — the rebuild ran, read the
   store, and still found the pull request open. That is a read that did not see
@@ -650,6 +655,85 @@ page:
 ten-minute cron rebuilds over anything the instant path got wrong. A card still
 wrong after about eleven minutes is not a rebuild that was missed — it is a row
 that never changed.
+
+### Missed and out-of-order deliveries
+
+The rows behind the Dream Panel used to go wrong a few times a month: a PR
+merged or a release published, and the card kept listing it until somebody
+found the delivery on the App's page and pressed Redeliver. Redelivering always
+fixed it, which says the first delivery's write never stuck. Four things now
+stand between that and a stale card, cheapest first.
+
+**Handlers only move rows forwards.** GitHub sends a merge as several events at
+once and does not deliver them in order, so a `labeled` or `review_requested`
+built a moment before the merge can arrive after the `closed`, still saying
+`open`. The upsert used to write that, which reopened the PR and put it back on
+Approved-not-merged. Now:
+
+- A `MERGED` row only takes payloads that also say merged. Nothing un-merges a PR.
+- An open payload only reopens a `CLOSED` row when its `updated_at` is later than
+  the row's `closed_at`. The close is the yardstick rather than `updated_at`,
+  because `issue_comment` moves `updated_at` too, and a comment that landed first
+  would otherwise make the real `closed` look stale.
+- A review that is already stored is only replaced by a `dismissed`. A late copy
+  of the original can't bring back an approval that was withdrawn.
+- A release can't go from published back to draft unless the action is
+  `unpublished`. Publishing fires `created`, `edited`, `published` and `released`
+  within a second or two, and a draft payload landing last used to make the repo
+  fall back to its previous release and reappear on Needs a release.
+
+**Failures are retried, then reported as failures.** A handler that throws on one
+of the errors Cloudflare documents as transient (`Network connection lost`, an
+object reset, overloaded) is run again, up to three times. Every handler is an
+upsert, so a second run writes the same rows. If it still fails, the delivery is
+answered 500. It used to be a 200 with `"ok": false`, which showed green on the
+App's delivery page while the row stayed wrong.
+
+**The cron redelivers what failed.** `redeliverFailed` in `worker/src/github.js`
+runs first on every ten-minute tick. It reads the App's last hour of deliveries
+from `GET /app/hook/deliveries` and groups them by `guid`, which a redelivery
+keeps. A group with no `OK` attempt is redelivered with
+`POST /app/hook/deliveries/{id}/attempts`. After three attempts it stops and
+logs the delivery with `console.error`, since a delivery that fails three times
+is a bug rather than bad luck. It only sees what GitHub was told had failed,
+which is why the 500 matters. A timeout counts too: GitHub marks anything over
+ten seconds as failed.
+
+**The cron checks the cards against GitHub.** `verifyDreamPanel` in
+`worker/src/verify.js` runs next and asks GitHub directly:
+
+- Every PR on Approved-not-merged and Changes requested is looked up. One that
+  was merged or closed behind a lost delivery comes off.
+- GitHub's own `review:approved` and `review:changes_requested` searches are run.
+  A PR the cards should list and don't is added, with its reviews.
+- Every repo's newest published release is compared with `releases`. A release
+  whose delivery never arrived, or that is stuck as a draft, is written.
+
+That is about eight API calls a tick. Rows are only written when they differ from
+GitHub, and never over a row with a newer `updated_at`, so it can't undo a
+delivery that landed while it was looking. When it fixes anything, it stamps the
+tables and rebuilds the three instant panels on the spot. Merged PRs get their
+`merge_commit_sha` too, which Needs a release joins on. It does not reach
+commits, so Needs a release can still miss a repo whose `push` never arrived.
+That is still the reconcile's job (see **Not built yet**).
+
+The Dream Panel has a **Verify against GitHub** button in its toolbar for admins.
+It runs the same check right away through `POST /api/verify` on the app Worker
+and says what it fixed, or that everything matched.
+
+Both cron steps are skipped, and say so in the log, until `GH_APP_PRIVATE_KEY`
+is set. Each cron step catches its own errors, so if GitHub is down the
+recompute still runs. The log lines are `{"cron":"redeliver",…}`,
+`{"cron":"verify",…}` and `{"cron":"recompute",…}`. In Workers Logs, search for
+`"cron":"verify"` with a non-empty `fixed` to see what the webhook missed.
+
+**Deploying it.** Order matters for the secret, not the code:
+
+1. `wrangler secret put GH_APP_PRIVATE_KEY` from `worker/`, and again with
+   `-c wrangler.app.toml`. Paste the PKCS#8 key.
+2. Push to `main`; `worker.yml` deploys both Workers.
+
+No migration is needed.
 
 ## Dream Panel
 
@@ -3356,8 +3440,9 @@ hand in the meantime.
 ## Not built yet
 
 - **Reconciling issues, commits, releases and runs.** `reconcile.yml` covers
-  pull requests and reviews, which is where the gap was caught — not where it
-  ends. Every D1-backed table is fed by the same forward-only webhook path and
+  pull requests and reviews, and the cron's Dream Panel verify covers the PRs on
+  those cards and each repo's latest release. That is where the gap was caught,
+  not where it ends. Every D1-backed table is fed by the same forward-only webhook path and
   carries the same exposure: `onIssueComment` in particular issues a bare
   `UPDATE`, so a comment on a PR whose `opened` delivery was lost changes no
   rows and reports nothing. The sweep's shape generalises; each table needs its
