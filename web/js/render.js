@@ -34,7 +34,7 @@ import { withOwner } from "./table.js";
 import { backFrom } from "./router.js";
 import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
-import { logsBody, syncLogs } from "./logs.js";
+import { logsBody, logsTally, syncLogs } from "./logs.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -815,8 +815,9 @@ function renderMeta() {
   const ageText = minsAgo(state.data.generatedAt);
 
   const ids = visibleIds();
-  const counts = tierCounts(ids);
-  const refreshed = tierRefreshed(ids);
+  const { counts, refreshed } = state.page === "logs"
+    ? logsTally()
+    : { counts: tierCounts(ids), refreshed: tierRefreshed(ids) };
 
   const dots = TIERS.filter(([tier]) => counts[tier]).map(([tier, label, title]) => {
     const at = refreshed[tier];
@@ -843,7 +844,7 @@ function render() {
   if (isDrill(state.page)) renderDrill(view);
   else if (state.page === "logs") view.innerHTML = logsBody();
   else view.innerHTML = pageBody();
-  syncLogs(state.page === "logs");
+  syncLogs(state.page === "logs", renderMeta);
 
   // After the view, never before: the popup is positioned against a button
   // that only exists once the cards have been written out.

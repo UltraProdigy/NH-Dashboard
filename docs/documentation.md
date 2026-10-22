@@ -1891,6 +1891,12 @@ so they can't disagree. A newly subscribed event needs no code to show up: it
 lands in Other until it's given a box there, and gets a generic line until
 `DESCRIBE` in `worker/src/event-log.js` learns to word it.
 
+Every box carries the green `instant` ring and counts toward the top bar's
+instant tally, since each line lands the moment GitHub delivers it. If the
+socket drops, the boxes turn red and count as `down` until it reconnects, the
+same way a panel whose API didn't answer does. The tally's "ago" is the newest
+line on the page.
+
 CI off the default branch is dropped before it is stored. It is roughly 85% of
 `workflow_run` traffic and is all PR builds. Excluded repos (`NH_INGEST_EXCLUDE`)
 are dropped too, for the same reason every panel drops them.

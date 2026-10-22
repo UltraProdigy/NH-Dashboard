@@ -15,9 +15,11 @@ let retryTimer = null;
 let pingTimer = null;
 let status = "connecting";
 let loaded = false;
+let notify = () => {};
 
 const socketUrl = () => `${API || location.origin}/api/logs`.replace(/^http/, "ws");
 const boxFor = (entry) => (BOX_IDS.has(entry.box) ? entry.box : "other");
+const tier = () => (status === "reconnecting" ? "down" : "instant");
 const countText = (n) => (n >= KEEP_PER_BOX ? `latest ${KEEP_PER_BOX}` : String(n));
 
 function when(iso) {
@@ -46,7 +48,7 @@ const emptyHtml = () =>
 
 function boxHtml(box) {
   const rows = feed.get(box.id);
-  return `<section class="card logbox" style="--span:6" data-logbox="${box.id}">
+  return `<section class="card logbox fresh-${tier()}" style="--span:6" data-logbox="${box.id}">
     <header><h2>${esc(box.label)}</h2><span class="sub" data-logcount>${countText(rows.length)}</span></header>
     <div class="body flush"><ol class="log-rows">${
       rows.length ? rows.map((e) => rowHtml(e)).join("") : emptyHtml()}</ol></div>
@@ -59,8 +61,19 @@ export function logsBody() {
   <div class="grid logs">${BOXES.map(boxHtml).join("")}</div>`;
 }
 
+export function logsTally() {
+  let newest = null;
+  for (const list of feed.values()) if (list[0]?.at && (!newest || list[0].at > newest)) newest = list[0].at;
+  return { counts: { [tier()]: BOXES.length }, refreshed: newest ? { [tier()]: newest } : {} };
+}
+
 function setStatus(next) {
   status = next;
+  for (const box of document.querySelectorAll("[data-logbox]")) {
+    box.classList.toggle("fresh-instant", tier() === "instant");
+    box.classList.toggle("fresh-down", tier() === "down");
+  }
+  notify();
   const el = document.querySelector("[data-logstatus]");
   if (!el) return;
   el.dataset.logstatus = next;
@@ -100,8 +113,10 @@ function receive(data) {
     }
     loaded = true;
     redraw();
+    notify();
   } else if (msg.type === "event" && msg.event) {
     add(msg.event);
+    notify();
   }
 }
 
@@ -146,8 +161,9 @@ function disconnect() {
   ws.close();
 }
 
-export function syncLogs(active) {
+export function syncLogs(active, onChange = () => {}) {
   wanted = active;
+  notify = active ? onChange : () => {};
   if (active) connect();
   else disconnect();
 }
