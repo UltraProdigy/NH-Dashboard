@@ -1868,6 +1868,91 @@ accidentally shadow; an org containing a repo named `org` would have overwritten
 it. The frontend reads `p.data.repos ?? p.data`, so a stale `dashboard.json`
 still renders while a rebuild is pending.
 
+## GitHub Logs
+
+The last page under Admin Resources. One line for every webhook delivery the
+App receives, sorted into boxes by kind, and pushed to the page the moment it
+lands. No polling: the page holds a WebSocket open while you're on it and closes
+it when you leave.
+
+| Box | Events |
+|---|---|
+| CI on default branches | `workflow_run` where `head_branch` is the repo's default branch |
+| Pull requests | `pull_request` |
+| Reviews | `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread` |
+| Issues & comments | `issues`, `issue_comment`, `discussion`, `discussion_comment` |
+| Pushes & branches | `push`, `create`, `delete` |
+| Releases | `release` |
+| Repository & org settings | `repository`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset`, `label`, `member`, `membership`, `organization`, `team`, `team_add`, `public`, `deploy_key`, `custom_property_values`, `installation`, `installation_repositories` |
+| Other | anything not listed above |
+
+The mapping is `web/js/log-boxes.js`, shared by the page and the webhook Worker
+so they can't disagree. A newly subscribed event needs no code to show up: it
+lands in Other until it's given a box there, and gets a generic line until
+`DESCRIBE` in `worker/src/event-log.js` learns to word it.
+
+CI off the default branch is dropped before it is stored. It is roughly 85% of
+`workflow_run` traffic and is all PR builds. Excluded repos (`NH_INGEST_EXCLUDE`)
+are dropped too, for the same reason every panel drops them.
+
+### Where it lives
+
+A Durable Object, `EventLog`, defined in the webhook Worker (`nh-dashboard`) and
+bound into the app Worker by `script_name`. There is one instance, named
+`github-logs`.
+
+- The webhook hands each delivery to it through `ctx.waitUntil`, after GitHub
+  already has its answer, so a slow or failing log never fails a delivery.
+- It is not D1 on purpose. Nothing here stamps a table, so it can never set the
+  heavy recompute running, and it costs nothing against the D1 rows-read budget.
+- It keeps the newest 200 lines per box (`KEEP_PER_BOX`) in its own SQLite and
+  trims on every insert. A busy box can't push a quiet one out.
+- Sockets use the hibernation API, and the page's 30-second `ping` is answered
+  by the runtime without waking the object. An open page that's just waiting
+  isn't billed.
+
+The app Worker serves it at `/api/logs`. It refuses anyone not on the admin
+team, any request that isn't a WebSocket upgrade (426), and any upgrade whose
+`Origin` isn't the dashboard's own. The page is also missing from the sidebar
+for members, but the server check is the one that matters.
+
+### Cost
+
+About 1,800 deliveries a day reach the object after the CI filter, so around
+55k Durable Object requests a month against the 1M included in Workers Paid.
+Each costs a few rows written in the object's own SQLite, against 50M included.
+Opening the page reads at most 1,600 rows. None of it touches D1.
+
+### Deploying
+
+The webhook Worker has to deploy before the app Worker the first time, because
+the app's binding points at a class that must already exist. `worker.yml`
+already deploys in that order. The `[[migrations]]` block in `wrangler.toml`
+creates the class; never edit or remove `v1`, only add new tags after it.
+
+### Event subscriptions
+
+What the boxes can show depends on what the App is subscribed to, under the
+App's settings → Permissions & events → Subscribe to events. A greyed-out event
+needs a permission the App doesn't have yet, and adding a permission has to be
+approved by an org owner before deliveries start.
+
+Don't subscribe to `workflow_job`, `check_run`, `check_suite` or `status` for
+this page. GitHub can't filter them by branch, so every PR build would arrive
+three times per job, and the page would drop them anyway.
+
+### Testing
+
+`npm run test:event-log` covers the summaries, the filters, the per-box cap and
+the broadcast against a SQLite shim. `npm run test:app` covers the route's
+refusals. Neither runs the real socket.
+
+A WebSocket can't cross between two separate `wrangler dev` sessions, so to see
+the page live, run them as one from `worker/`:
+`wrangler dev -c wrangler.app.toml -c wrangler.toml --var DEV_ROLE:admin`. Only
+the app is reachable that way, so send test deliveries to a webhook-only session
+first. They're stored locally and show up as the page's history.
+
 ## Org Search
 
 **Org Search** — `/find`, first under **Queries** in the sidebar — looks up one
@@ -2877,11 +2962,11 @@ left, which is the cheaper of the two.
 
 ## Pages and sections
 
-Twelve pages, in three sidebar sections:
+Thirteen pages, in three sidebar sections:
 
 | Section | Pages |
 |---|---|
-| **Admin Resources** | Dream Panel, Labels *(stub)*, CI Health *(locked)*, Rulesets *(locked)* |
+| **Admin Resources** | Dream Panel, Labels *(stub)*, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs |
 | **Org Analytics** | Org Overview *(stub)*, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity *(stub)* |
 | **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
 
