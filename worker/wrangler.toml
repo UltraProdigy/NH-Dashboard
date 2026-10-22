@@ -12,6 +12,14 @@ database_id = "ed20adc3-f434-4f0a-8832-80862af30201"
 [observability]
 enabled = true
 
+[[durable_objects.bindings]]
+name = "EVENT_LOG"
+class_name = "EventLog"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EventLog"]
+
 # The recompute. Ten minutes is a debounce, not a poll: the job returns
 # immediately when `dirty` is 0, so a quiet stretch costs one read per tick.
 #

@@ -23,6 +23,9 @@ import { INSTANT_EVENTS, markWritten, recompute, refreshInstant, TABLES } from "
 import { handleHealth, json } from "./reads.js";
 import { redeliverFailed } from "./github.js";
 import { verifyDreamPanel } from "./verify.js";
+import { EventLog, logDelivery } from "./event-log.js";
+
+export { EventLog };
 
 function hexToBytes(hex) {
   if (hex.length % 2) return null;
@@ -105,6 +108,14 @@ async function handleWebhook(request, env, ctx) {
   // how the App's settings page shows a green tick.
   if (event === "ping") {
     return json({ ok: true, pong: payload.zen ?? null });
+  }
+
+  if (ctx && env.EVENT_LOG) {
+    ctx.waitUntil(
+      logDelivery(env, event, payload, delivery).catch((err) =>
+        console.error(JSON.stringify({ at: "eventLog", delivery, error: String(err) })),
+      ),
+    );
   }
 
   const repo = payload.repository?.name ?? null;
