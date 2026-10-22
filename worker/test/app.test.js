@@ -180,6 +180,31 @@ for (const name of ADMIN_PANELS) {
   check("reads are GET only", r3.status === 405, r3.status);
 }
 
+console.log("\nGitHub Logs\n");
+{
+  const forwarded = [];
+  const withLog = {
+    ...ENV,
+    EVENT_LOG: {
+      idFromName: (n) => `id:${n}`,
+      get: (id) => ({ fetch: async (req) => (forwarded.push({ id, path: new URL(req.url).pathname }), new Response("socket")) }),
+    },
+  };
+  const ws = { upgrade: "websocket", origin: "https://nh-dashboard-app.gtnh.workers.dev" };
+  const none = await call("/api/logs", { env: withLog, headers: ws });
+  check("the log needs a login", none.status === 401, none.status);
+  const m = await call("/api/logs", { sub: "member-user", env: withLog, headers: ws });
+  check("a member is refused the log", m.status === 403 && forwarded.length === 0, m.status);
+  const plain = await call("/api/logs", { sub: "admin-user", env: withLog });
+  check("a plain GET is told it needs a WebSocket", plain.status === 426, plain.status);
+  const evil = await call("/api/logs", { sub: "admin-user", env: withLog, headers: { ...ws, origin: "https://evil.example" } });
+  check("a socket opened from another origin is refused", evil.status === 403 && forwarded.length === 0, evil.status);
+  const a = await call("/api/logs", { sub: "admin-user", env: withLog, headers: ws });
+  check("an admin's socket goes to the one named log", a.text === "socket" && forwarded.length === 1 && forwarded[0].id === "id:github-logs", a.status);
+  const unbound = await call("/api/logs", { sub: "admin-user", headers: ws });
+  check("without the binding it says so", unbound.status === 503, unbound.status);
+}
+
 console.log("\ndashboard\n");
 {
   const a = await call("/api/dashboard", { sub: "admin-user" });

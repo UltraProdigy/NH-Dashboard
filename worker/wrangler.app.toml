@@ -17,6 +17,12 @@ run_worker_first = ["/api/*"]
 [observability]
 enabled = true
 
+# The class lives in the webhook Worker, so that one has to deploy first.
+[[durable_objects.bindings]]
+name = "EVENT_LOG"
+class_name = "EventLog"
+script_name = "nh-dashboard"
+
 # ACCESS_AUD is the Access application's AUD tag. Set it as a secret in the
 # Cloudflare dashboard (or `wrangler secret put ACCESS_AUD -c wrangler.app.toml`)
 # so it survives deploys. Until it is set, every /api/ request is refused.

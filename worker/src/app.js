@@ -26,6 +26,7 @@ import {
   json,
 } from "./reads.js";
 import { ADMIN_PANELS, isAdmin } from "../../web/js/roles.js";
+import { LOG_NAME } from "./event-log.js";
 
 const LOCAL = new Set(["localhost", "127.0.0.1"]);
 
@@ -71,6 +72,14 @@ async function route(request, env, ctx, url, who) {
       groups: who.groups,
       sessionExpires: who.identity.exp ? new Date(who.identity.exp * 1000).toISOString() : null,
     });
+  }
+  if (path === "/api/logs") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if ((request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") return json({ error: "websocket only" }, 426);
+    const devOrigin = env.DEV_ROLE && LOCAL.has(url.hostname);
+    if (!devOrigin && request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    if (!env.EVENT_LOG) return json({ error: "event log not bound" }, 503);
+    return env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME)).fetch(request);
   }
   if (path === "/api/dashboard") return handleDashboard(env, who.role);
   if (path === "/api/version") return handleVersion(env);
