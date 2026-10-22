@@ -1,0 +1,49 @@
+.log-status {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 14px;
+  font-size: 12px; color: var(--muted);
+}
+.log-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.log-status[data-logstatus="live"] i {
+  background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);
+}
+.log-status .log-state { color: var(--text); font-weight: 600; }
+.log-status .hint { margin-left: auto; }
+
+.log-rows { list-style: none; margin: 0; padding: 0; height: 340px; overflow-y: auto; }
+.log-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px;
+  padding: 6px 14px 6px 11px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  font-size: 12px; line-height: 1.45;
+}
+.log-row:last-child { border-bottom: none; }
+.log-row time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log-what { min-width: 0; overflow-wrap: anywhere; }
+.log-repo { font-weight: 600; margin-right: 6px; }
+.log-actor { color: var(--muted); margin-right: 6px; }
+.log-what a { color: var(--text); text-decoration: none; }
+.log-what a:hover { color: var(--accent); text-decoration: underline; }
+
+.log-row.tone-good { border-left-color: var(--good); }
+.log-row.tone-bad { border-left-color: var(--bad); }
+.log-row.tone-warn { border-left-color: var(--warn); }
+.log-row.tone-run { border-left-color: var(--accent); }
+.log-row.tone-muted .log-what a,
+.log-row.tone-muted .log-what { color: var(--muted); }
+
+.log-row.fresh { animation: log-in 1.6s ease-out; }
+@keyframes log-in {
+  from { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  to { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .log-row.fresh { animation: none; } }
+
+.log-empty { padding: 32px 14px; text-align: center; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 720px) {
+  .log-status .hint { margin-left: 0; flex-basis: 100%; }
+  .log-rows { height: 280px; }
+}

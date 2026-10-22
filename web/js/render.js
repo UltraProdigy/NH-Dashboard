@@ -34,6 +34,7 @@ import { withOwner } from "./table.js";
 import { backFrom } from "./router.js";
 import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
+import { logsBody, syncLogs } from "./logs.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -840,7 +841,9 @@ function render() {
   if (!state.data) return;
 
   if (isDrill(state.page)) renderDrill(view);
+  else if (state.page === "logs") view.innerHTML = logsBody();
   else view.innerHTML = pageBody();
+  syncLogs(state.page === "logs");
 
   // After the view, never before: the popup is positioned against a button
   // that only exists once the cards have been written out.
