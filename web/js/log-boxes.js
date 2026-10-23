@@ -5,14 +5,14 @@
  */
 
 export const BOXES = [
-  { id: "security", label: "Security" },
+  { id: "repo", label: "Repo settings" },
   { id: "ci", label: "CI & deploys", note: "Only runs on each repo's default branch. PR builds are left out." },
   { id: "pulls", label: "Pull requests" },
   { id: "reviews", label: "Reviews & PR comments" },
   { id: "issues", label: "Issues" },
   { id: "pushes", label: "Pushes & branches" },
   { id: "releases", label: "Releases & packages" },
-  { id: "repo", label: "Repo settings" },
+  { id: "security", label: "Security" },
   { id: "org", label: "Org & people" },
   { id: "community", label: "Community", note: "Also anything the App receives that has no box of its own." },
 ];

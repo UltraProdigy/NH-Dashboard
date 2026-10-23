@@ -1877,14 +1877,14 @@ it when you leave.
 
 | Box | Events |
 |---|---|
-| Security | `dependabot_alert`, `code_scanning_alert`, `security_and_analysis`, `deploy_key`, `personal_access_token_request`, `org_block` |
+| Repo settings | `repository`, `label`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset` on one repo, `public`, `custom_property_values` |
 | CI & deploys | `workflow_run` (default branch only), `workflow_dispatch`, `deployment` |
 | Pull requests | `pull_request` |
 | Reviews & PR comments | `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, and `issue_comment` on a PR |
 | Issues | `issues`, `issue_comment` on an issue, `milestone`, `sub_issues`, `issue_dependencies`, `issue_relates_to` |
 | Pushes & branches | `push`, `create`, `delete`, `commit_comment` |
 | Releases & packages | `release`, `registry_package` |
-| Repo settings | `repository`, `label`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset` on one repo, `public`, `custom_property_values` |
+| Security | `dependabot_alert`, `code_scanning_alert`, `security_and_analysis`, `deploy_key`, `personal_access_token_request`, `org_block` |
 | Org & people | `organization`, `member`, `membership`, `team`, `team_add`, `custom_property`, `repository_ruleset` org-wide, `installation`, `installation_repositories`, `installation_target` |
 | Community | `discussion`, `discussion_comment`, `gollum`, `star`, `watch`, `fork`, and anything not listed above |
 
