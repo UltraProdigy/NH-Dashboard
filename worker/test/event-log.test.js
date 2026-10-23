@@ -3,7 +3,8 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { EventLog, excludeRules, LOG_NAME, logDelivery, summarise } from "../src/event-log.js";
+import { checkRepoSettings, EventLog, excludeRules, LOG_NAME, logDelivery, summarise } from "../src/event-log.js";
+import { diffSnapshots, fetchRepoSettings, settingChanges } from "../src/repo-settings.js";
 import { BOXES, boxOf, DROPPED_EVENTS, KEEP_PER_BOX, monitors } from "../../web/js/log-boxes.js";
 
 let pass = 0, fail = 0;
@@ -239,6 +240,68 @@ console.log("\nthe Durable Object\n");
   const pinged = { sent: [], send(m) { this.sent.push(m); } };
   obj.webSocketMessage(pinged, "ping");
   check("a ping is answered", pinged.sent[0] === "pong");
+}
+
+
+console.log("\nrepo settings check\n");
+{
+  check("Repo settings comes first and Security is eighth", BOXES[0].id === "repo" && BOXES[7].id === "security", BOXES.map((b) => b.id).join(","));
+
+  const before = { squashMergeAllowed: true, rebaseMergeAllowed: false, hasWikiEnabled: true, squashMergeCommitMessage: "BLANK" };
+  const after = { squashMergeAllowed: false, rebaseMergeAllowed: true, hasWikiEnabled: true, squashMergeCommitMessage: "PR_BODY" };
+  check("switches read on and off, choices read in words",
+    JSON.stringify(settingChanges(before, after)) === JSON.stringify(["squash merging off", "rebase merging on", "squash commit message → PR description"]),
+    JSON.stringify(settingChanges(before, after)));
+  check("a field missing on either side is not a change", settingChanges({ forkingAllowed: true }, {}).length === 0);
+
+  const diff = diffSnapshots(
+    { A: { autoMergeAllowed: false }, B: { autoMergeAllowed: true } },
+    { A: { autoMergeAllowed: true }, B: { autoMergeAllowed: true }, C: { autoMergeAllowed: true } },
+    { at: AT, org: "GTNewHorizons" },
+  );
+  check("only a repo that changed gets a line, and a new repo doesn't", diff.length === 1 && diff[0].repo === "A");
+  check("the line goes to Repo settings and links to the repo's settings",
+    diff[0].box === "repo" && diff[0].text === "changed settings: auto-merge on" && diff[0].url === "https://github.com/GTNewHorizons/A/settings" && diff[0].via === "10-min check");
+
+  const pages = [
+    { organization: { repositories: { pageInfo: { hasNextPage: true, endCursor: "c1" }, nodes: [{ name: "A", forkingAllowed: true }] } } },
+    { organization: { repositories: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ name: "B", forkingAllowed: false }] } } },
+  ];
+  const cursors = [];
+  const repos = await fetchRepoSettings("t", "GTNewHorizons", { query: async (token, q, vars) => (cursors.push(vars.after), pages.shift()) });
+  check("every page is read", JSON.stringify(Object.keys(repos)) === '["A","B"]' && JSON.stringify(cursors) === '[null,"c1"]');
+  let threw = false;
+  try { await fetchRepoSettings("t", "o", { maxPages: 1, query: async () => ({ organization: { repositories: { pageInfo: { hasNextPage: true, endCursor: "x" }, nodes: [] } } }) }); } catch { threw = true; }
+  check("a snapshot that can't be finished is never posted", threw);
+
+  const { obj, sockets } = fakeObject();
+  const watcher = { sent: [], send(m) { this.sent.push(m); } };
+  sockets.push(watcher);
+  const env = {
+    GITHUB_ORG: "GTNewHorizons",
+    NH_INGEST_EXCLUDE: "Dupes-*",
+    EVENT_LOG: { idFromName: (n) => n, get: () => ({ fetch: (url, init) => obj.fetch(new Request(url, init)) }) },
+  };
+  let snapshot = { "GT5-Unofficial": { squashMergeAllowed: true, deleteBranchOnMerge: false }, "Dupes-Exploits-GTNH": { squashMergeAllowed: true } };
+  const query = async () => ({ organization: { repositories: { pageInfo: { hasNextPage: false }, nodes: Object.entries(snapshot).map(([name, v]) => ({ name, ...v })) } } });
+
+  const first = await checkRepoSettings(env, { token: "t", query });
+  check("the first check only takes a baseline", first.baseline === true && first.changed === 0 && watcher.sent.length === 0, JSON.stringify(first));
+  const quiet = await checkRepoSettings(env, { token: "t", query });
+  check("nothing changed, nothing logged", quiet.changed === 0 && watcher.sent.length === 0);
+
+  snapshot = { "GT5-Unofficial": { squashMergeAllowed: false, deleteBranchOnMerge: true }, "Dupes-Exploits-GTNH": { squashMergeAllowed: false } };
+  const changed = await checkRepoSettings(env, { token: "t", query, now: new Date(AT) });
+  const line = watcher.sent.length ? JSON.parse(watcher.sent.at(-1)).event : null;
+  check("a change is logged and pushed to open pages", changed.changed === 1 && line?.text === "changed settings: squash merging off, auto-delete head branches on", JSON.stringify(changed));
+  check("an excluded repo is never checked", changed.repos === 1 && !watcher.sent.some((m) => m.includes("Dupes")));
+  check("the line is stored with the rest of Repo settings", obj.history().some((e) => e.box === "repo" && e.event === "repo_settings"));
+
+  const again = await checkRepoSettings(env, { token: "t", query });
+  check("the same change isn't logged twice", again.changed === 0);
+
+  check("without the binding it does nothing", (await checkRepoSettings({}, { token: "t", query })).skipped !== undefined);
+  check("without the App key it says so", /GH_APP/.test((await checkRepoSettings({ EVENT_LOG: env.EVENT_LOG })).skipped ?? ""));
 }
 
 console.log("\nthe webhook\n");

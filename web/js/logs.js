@@ -48,7 +48,8 @@ function rowHtml(e, fresh = false) {
   return `<li class="log-row${tone}${fresh ? " fresh" : ""}">
     <time datetime="${esc(e.at)}" title="${esc(new Date(e.at).toLocaleString())}">${esc(when(e.at))}</time>
     <span class="log-what">${e.repo ? `<span class="log-repo">${esc(e.repo)}</span>` : ""}${
-      e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
+      e.via ? `<span class="log-actor log-via" title="Found by the 10-minute settings check, not a webhook">${esc(e.via)}</span>`
+        : e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
   </li>`;
 }
 

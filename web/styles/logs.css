@@ -75,3 +75,4 @@
 @media (max-width: 480px) {
   .log-tip li { flex-direction: column; gap: 0; }
 }
+.log-via { font-style: italic; }

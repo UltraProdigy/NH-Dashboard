@@ -5,6 +5,8 @@
 
 import { compileRules, matchesAny, parseRepoList } from "../../src/shared/repo-rules.js";
 import { boxOf, DROPPED_EVENTS, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
+import { appReady, installationToken } from "./github.js";
+import { diffSnapshots, fetchRepoSettings } from "./repo-settings.js";
 
 export const LOG_NAME = "github-logs";
 
@@ -424,6 +426,22 @@ export async function logDelivery(env, event, payload, delivery) {
   return entry;
 }
 
+export async function checkRepoSettings(env, { token, query, now = new Date() } = {}) {
+  if (!env?.EVENT_LOG) return { skipped: "EVENT_LOG not bound" };
+  if (!token && !appReady(env)) return { skipped: "GH_APP_ID or GH_APP_PRIVATE_KEY not set" };
+  const org = env.GITHUB_ORG ?? "GTNewHorizons";
+  const repos = await fetchRepoSettings(token ?? (await installationToken(env)), org, query ? { query } : {});
+  const rules = excludeRules(env);
+  for (const name of Object.keys(repos)) if (rules.length && matchesAny(rules, name)) delete repos[name];
+  const stub = env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME));
+  const res = await stub.fetch("https://event-log/settings", {
+    method: "POST",
+    body: JSON.stringify({ at: now.toISOString(), org, repos }),
+  });
+  if (!res.ok) throw new Error(`event log ${res.status}`);
+  return res.json();
+}
+
 export class EventLog {
   constructor(ctx, env) {
     this.ctx = ctx;
@@ -431,6 +449,7 @@ export class EventLog {
     this.sql = ctx.storage.sql;
     this.sql.exec("CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, box TEXT NOT NULL, entry TEXT NOT NULL)");
     this.sql.exec("CREATE INDEX IF NOT EXISTS idx_events_box ON events (box, seq)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS repo_settings (name TEXT PRIMARY KEY, json TEXT NOT NULL)");
     if (typeof WebSocketRequestResponsePair === "function" && ctx.setWebSocketAutoResponse) {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     }
@@ -441,6 +460,10 @@ export class EventLog {
     if (url.pathname === "/record" && request.method === "POST") {
       this.record(await request.json());
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/settings" && request.method === "POST") {
+      const { at, org, repos } = await request.json();
+      return Response.json(this.compareSettings(repos ?? {}, { at, org }));
     }
     if ((request.headers.get("upgrade") ?? "").toLowerCase() === "websocket") {
       const pair = new WebSocketPair();
@@ -463,6 +486,27 @@ export class EventLog {
     for (const ws of this.ctx.getWebSockets()) {
       try { ws.send(message); } catch {}
     }
+  }
+
+  compareSettings(repos, { at, org }) {
+    const previous = Object.fromEntries(
+      this.sql.exec("SELECT name, json FROM repo_settings").toArray().map((row) => [row.name, JSON.parse(row.json)]),
+    );
+    const baseline = Object.keys(previous).length === 0;
+    const entries = baseline ? [] : diffSnapshots(previous, repos, { at, org });
+    for (const [name, settings] of Object.entries(repos)) {
+      const json = JSON.stringify(settings);
+      if (previous[name] && JSON.stringify(previous[name]) === json) continue;
+      this.sql.exec(
+        "INSERT INTO repo_settings (name, json) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET json = excluded.json",
+        name, json,
+      );
+    }
+    for (const name of Object.keys(previous)) {
+      if (!(name in repos)) this.sql.exec("DELETE FROM repo_settings WHERE name = ?", name);
+    }
+    for (const entry of entries) this.record(entry);
+    return { repos: Object.keys(repos).length, changed: entries.length, baseline };
   }
 
   history() {

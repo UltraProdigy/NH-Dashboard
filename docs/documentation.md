@@ -724,7 +724,8 @@ and says what it fixed, or that everything matched.
 Both cron steps are skipped, and say so in the log, until `GH_APP_PRIVATE_KEY`
 is set. Each cron step catches its own errors, so if GitHub is down the
 recompute still runs. The log lines are `{"cron":"redeliver",…}`,
-`{"cron":"verify",…}` and `{"cron":"recompute",…}`. In Workers Logs, search for
+`{"cron":"verify",…}`, `{"cron":"settings",…}` (the GitHub Logs settings check,
+see **GitHub Logs → Settings with no webhook**) and `{"cron":"recompute",…}`. In Workers Logs, search for
 `"cron":"verify"` with a non-empty `fixed` to see what the webhook missed.
 
 **Deploying it.** Order matters for the secret, not the code:
@@ -1877,7 +1878,7 @@ it when you leave.
 
 | Box | Events |
 |---|---|
-| Repo settings | `repository`, `label`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset` on one repo, `public`, `custom_property_values` |
+| Repo settings | `repository`, `label`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset` on one repo, `public`, `custom_property_values`, and the 10-minute settings check (below) |
 | CI & deploys | `workflow_run` (default branch only), `workflow_dispatch`, `deployment` |
 | Pull requests | `pull_request` |
 | Reviews & PR comments | `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, and `issue_comment` on a PR |
@@ -1919,6 +1920,40 @@ subscribed. They fire several times per job on every PR build.
 CI off the default branch is dropped before it is stored. It is roughly 85% of
 `workflow_run` traffic and is all PR builds. Excluded repos (`NH_INGEST_EXCLUDE`)
 are dropped too, for the same reason every panel drops them.
+
+### Settings with no webhook
+
+GitHub sends nothing when most of a repo's settings page changes: allowed merge
+types, auto-merge, auto-delete head branches, "always suggest updating
+branches", web commit sign-off, Issues/Wiki/Discussions/Projects/Sponsorships
+on or off, forking, template repo, and the default commit titles and messages.
+`repository` `edited` only fires for the description, homepage, topics and
+default branch. The rest only reach the org audit log, which this App can't read.
+
+So the cron reads them. `checkRepoSettings` in `worker/src/event-log.js` runs
+every tick, after the verify. It fetches those fields for every repo in one
+paginated GraphQL query (`worker/src/repo-settings.js`, four pages for ~350
+repos, four points of the hourly 5,000) and posts the snapshot to the
+`EventLog` object. The object compares it with the last one it kept in its
+own `repo_settings` table and writes a line to Repo settings for each repo that
+changed, for example "changed settings: squash merging off, auto-delete head
+branches on".
+
+- **Up to ten minutes late, and no "who".** The line shows *10-min check* where
+  the person would be, so it's clear it isn't a webhook.
+- **The first run only takes a baseline.** Nothing is logged until the second.
+- **A new repo** is added to the snapshot silently, since `repository` `created`
+  already logs it. A repo that disappears is dropped from the snapshot.
+- **Excluded repos are never fetched into it.**
+- **A snapshot that can't be finished is never posted**, so a GitHub hiccup
+  partway through can't make every repo look changed.
+- Archived, visibility and default branch are left out on purpose, because their
+  webhooks already log them instantly.
+
+To watch another setting, add the GraphQL field to `SETTINGS` in
+`repo-settings.js` with its label. The ⓘ list on Repo settings describes the
+check as one line (`repo_settings` in `web/js/log-boxes.js`). The cron's log
+line is `{"cron":"settings",…}`.
 
 ### Where it lives
 

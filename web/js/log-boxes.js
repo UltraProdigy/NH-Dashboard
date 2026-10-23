@@ -5,7 +5,11 @@
  */
 
 export const BOXES = [
-  { id: "repo", label: "Repo settings" },
+  {
+    id: "repo",
+    label: "Repo settings",
+    note: "Merge options, features and forking have no webhook, so they're checked every 10 minutes and don't say who changed them.",
+  },
   { id: "ci", label: "CI & deploys", note: "Only runs on each repo's default branch. PR builds are left out." },
   { id: "pulls", label: "Pull requests" },
   { id: "reviews", label: "Reviews & PR comments" },
@@ -56,6 +60,7 @@ const EVENT_BOX = {
   repository_ruleset: "repo",
   public: "repo",
   custom_property_values: "repo",
+  repo_settings: "repo",
   organization: "org",
   member: "org",
   membership: "org",
@@ -104,6 +109,7 @@ const EVENT_LABEL = {
   branch_protection_configuration: "Branch protection switched on or off",
   public: "Repos made public",
   custom_property_values: "Custom property values",
+  repo_settings: "Merge options, features, forking, commit defaults",
   organization: "Members invited, added or removed; org renamed",
   member: "Repo collaborators added, removed or changed",
   membership: "People added to or removed from teams",

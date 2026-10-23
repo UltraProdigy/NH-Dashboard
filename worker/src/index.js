@@ -23,7 +23,7 @@ import { INSTANT_EVENTS, markWritten, recompute, refreshInstant, TABLES } from "
 import { handleHealth, json } from "./reads.js";
 import { redeliverFailed } from "./github.js";
 import { verifyDreamPanel } from "./verify.js";
-import { EventLog, logDelivery } from "./event-log.js";
+import { checkRepoSettings, EventLog, logDelivery } from "./event-log.js";
 
 export { EventLog };
 
@@ -195,6 +195,7 @@ export async function runCron(env) {
   };
   await step("redeliver", () => redeliverFailed(env));
   await step("verify", () => verifyDreamPanel(env));
+  await step("settings", () => checkRepoSettings(env));
   await step("recompute", () => recompute(env));
 }
 
