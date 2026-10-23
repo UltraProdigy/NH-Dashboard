@@ -4,7 +4,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { EventLog, excludeRules, LOG_NAME, logDelivery, summarise } from "../src/event-log.js";
-import { BOXES, boxOf, DROPPED_EVENTS, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
+import { BOXES, boxOf, DROPPED_EVENTS, KEEP_PER_BOX, monitors } from "../../web/js/log-boxes.js";
 
 let pass = 0, fail = 0;
 const check = (n, ok, d = "") => {
@@ -43,6 +43,16 @@ console.log("\nboxes\n");
   check("a repo ruleset is a repo setting", boxOf("repository_ruleset", { repository: REPO }) === "repo");
   check("an org-wide ruleset is an org change", boxOf("repository_ruleset", { organization: {} }) === "org");
   check("box ids are unique", ids.size === BOXES.length);
+
+  const listed = BOXES.flatMap((b) => monitors(b.id).map(([event, label]) => ({ box: b.id, event, label })));
+  const unlabeled = listed.filter((x) => !x.label || x.label === x.event);
+  check("every event in the info tooltips has a plain-English label", !unlabeled.length, unlabeled.map((x) => x.event).join(","));
+  const tipWrong = listed.filter((x) => !["issue_comment", "repository_ruleset"].includes(x.event) && boxOf(x.event, { repository: REPO }) !== x.box);
+  check("each tooltip lists exactly what its box receives", !tipWrong.length, tipWrong.map((x) => `${x.event} in ${x.box}`).join(","));
+  check("every planned event is in some tooltip", Object.keys(expected).every((e) => listed.some((x) => x.event === e)));
+  check("comments and rulesets are listed under both boxes they can land in",
+    monitors("reviews").some(([e]) => e === "issue_comment") && monitors("issues").some(([e]) => e === "issue_comment") &&
+    monitors("repo").some(([e]) => e === "repository_ruleset") && monitors("org").some(([e]) => e === "repository_ruleset"));
 }
 
 console.log("\nsummaries\n");

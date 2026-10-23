@@ -1896,6 +1896,13 @@ repository. A newly subscribed event needs no code to show up: it lands in
 Community until it's given a box, and gets a generic line until `DESCRIBE` in
 `worker/src/event-log.js` learns to word it.
 
+Each box has an ⓘ button in its header. Hovering, tapping or tabbing to it
+opens a list of exactly what that box receives: a plain-English line per event
+with the event's name beside it, plus a note where a filter applies. The list
+is built by `monitors()` from the same map `boxOf` reads, so it can't drift
+from what the box actually gets. It's drawn outside the card, like the Dream
+Panel's exclusion popup, because a card clips anything that overflows it.
+
 `sub_issues` and `issue_dependencies` arrive once for each side of the link, so
 only one side is shown (`sub_issue_*` and `blocked_by_*`).
 

@@ -1,6 +1,6 @@
 import { API } from "./live.js";
 import { esc } from "./format.js";
-import { BOXES, FALLBACK_BOX, KEEP_PER_BOX } from "./log-boxes.js";
+import { BOXES, FALLBACK_BOX, KEEP_PER_BOX, monitors } from "./log-boxes.js";
 
 const BOX_IDS = new Set(BOXES.map((b) => b.id));
 const STATUS = { connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…" };
@@ -16,6 +16,11 @@ let pingTimer = null;
 let status = "connecting";
 let loaded = false;
 let notify = () => {};
+let tipFor = null;
+let tipPinned = false;
+let tipWired = false;
+
+const INFO_ICON = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>`;
 
 const socketUrl = () => `${API || location.origin}/api/logs`.replace(/^http/, "ws");
 const RENAMED = { settings: "repo", other: "community" };
@@ -53,13 +58,15 @@ const emptyHtml = () =>
 function boxHtml(box) {
   const rows = feed.get(box.id);
   return `<section class="card logbox fresh-${tier()}" style="--span:6" data-logbox="${box.id}">
-    <header><h2>${esc(box.label)}</h2><span class="sub" data-logcount>${countText(rows.length)}</span></header>
+    <header><h2>${esc(box.label)}</h2><span class="sub" data-logcount>${countText(rows.length)}</span>
+      <button class="log-info" type="button" data-loginfo="${box.id}" aria-label="What ${esc(box.label)} shows" aria-expanded="false">${INFO_ICON}</button></header>
     <div class="body flush"><ol class="log-rows">${
       rows.length ? rows.map((e) => rowHtml(e)).join("") : emptyHtml()}</ol></div>
   </section>`;
 }
 
 export function logsBody() {
+  hideTip();
   return `<div class="log-status" data-logstatus="${status}"><i></i><span class="log-state">${STATUS[status]}</span>
     <span class="hint">Every delivery the GitHub App receives, as it arrives. CI is default branches only.</span></div>
   <div class="grid logs">${BOXES.map(boxHtml).join("")}</div>`;
@@ -165,7 +172,100 @@ function disconnect() {
   ws.close();
 }
 
+function tipHtml(box) {
+  const items = monitors(box.id)
+    .map(([event, label]) => `<li><span>${esc(label)}</span><code>${esc(event)}</code></li>`)
+    .join("");
+  return `<h3>${esc(box.label)} shows</h3><ul>${items}</ul>${box.note ? `<p class="note">${esc(box.note)}</p>` : ""}`;
+}
+
+function tipLayer() {
+  let tip = document.getElementById("logTip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "logTip";
+    tip.className = "log-tip";
+    tip.setAttribute("role", "tooltip");
+    tip.hidden = true;
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function placeTip(button, tip) {
+  const r = button.getBoundingClientRect();
+  const edge = 8;
+  const gap = 6;
+  const { offsetWidth: w, offsetHeight: h } = tip;
+  const left = Math.max(edge, Math.min(r.right - w, window.innerWidth - w - edge));
+  const below = r.bottom + gap;
+  const top = below + h > window.innerHeight - edge && r.top - gap - h > edge ? r.top - gap - h : below;
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function showTip(button, pinned) {
+  const box = BOXES.find((b) => b.id === button.dataset.loginfo);
+  if (!box) return;
+  if (tipFor && tipFor !== button) tipFor.setAttribute("aria-expanded", "false");
+  const tip = tipLayer();
+  tip.innerHTML = tipHtml(box);
+  tip.hidden = false;
+  tipFor = button;
+  tipPinned = pinned;
+  button.setAttribute("aria-expanded", "true");
+  button.setAttribute("aria-describedby", "logTip");
+  placeTip(button, tip);
+}
+
+function hideTip() {
+  const tip = typeof document === "undefined" ? null : document.getElementById("logTip");
+  if (tip) tip.hidden = true;
+  if (tipFor) {
+    tipFor.setAttribute("aria-expanded", "false");
+    tipFor.removeAttribute("aria-describedby");
+  }
+  tipFor = null;
+  tipPinned = false;
+}
+
+function wireTips() {
+  if (tipWired) return;
+  tipWired = true;
+  document.addEventListener("mouseover", (e) => {
+    const b = e.target.closest?.("[data-loginfo]");
+    if (b && !tipPinned) showTip(b, false);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const b = e.target.closest?.("[data-loginfo]");
+    if (b && b === tipFor && !tipPinned && !b.contains(e.relatedTarget)) hideTip();
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest?.("[data-loginfo]");
+    if (b) {
+      if (b === tipFor && tipPinned) hideTip();
+      else showTip(b, true);
+      return;
+    }
+    if (tipFor && !e.target.closest?.("#logTip")) hideTip();
+  });
+  document.addEventListener("focusin", (e) => {
+    const b = e.target.closest?.("[data-loginfo]");
+    if (b && !tipPinned) showTip(b, false);
+  });
+  document.addEventListener("focusout", (e) => {
+    if (e.target === tipFor && !tipPinned) hideTip();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tipFor) hideTip();
+  });
+  window.addEventListener("resize", () => tipFor && placeTip(tipFor, tipLayer()));
+  window.addEventListener("scroll", () => tipFor && placeTip(tipFor, tipLayer()), { passive: true });
+}
+
 export function syncLogs(active, onChange = () => {}) {
+  if (active) wireTips();
+  else hideTip();
   wanted = active;
   notify = active ? onChange : () => {};
   if (active) connect();
