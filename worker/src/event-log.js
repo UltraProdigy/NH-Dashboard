@@ -4,7 +4,7 @@
  */
 
 import { compileRules, matchesAny, parseRepoList } from "../../src/shared/repo-rules.js";
-import { boxOf, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
+import { boxOf, DROPPED_EVENTS, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
 
 export const LOG_NAME = "github-logs";
 
@@ -37,6 +37,46 @@ const CONCLUSION_TEXT = {
   neutral: "finished",
   stale: "went stale",
 };
+
+const ALERT_VERB = {
+  created: "new",
+  auto_reopened: "auto-reopened",
+  auto_dismissed: "auto-dismissed",
+  appeared_in_branch: "new branch for",
+  closed_by_user: "closed",
+  reopened_by_user: "reopened",
+  assignees_changed: "reassigned",
+  updated_assignment: "reassigned",
+};
+const ALERT_OPEN = new Set(["created", "reopened", "reintroduced", "auto_reopened", "reopened_by_user", "appeared_in_branch"]);
+const alertTone = (action) => (ALERT_OPEN.has(action) ? "bad" : action === "fixed" ? "good" : "muted");
+const alertVerb = (action) => ALERT_VERB[action] ?? words(action);
+const repoPage = (payload, tail) => (payload.repository?.html_url ? `${payload.repository.html_url}${tail}` : null);
+const shownValue = (value) => [].concat(value).join(", ");
+
+function customPropertyValues(p) {
+  const before = new Map((p.old_property_values ?? []).map((v) => [v.property_name, v.value]));
+  const parts = (p.new_property_values ?? [])
+    .filter((v) => JSON.stringify(v.value ?? null) !== JSON.stringify(before.get(v.property_name) ?? null))
+    .map((v) => (v.value == null || v.value === "" ? `cleared ${v.property_name}` : `${v.property_name} = ${shownValue(v.value)}`));
+  return {
+    text: parts.length ? `set custom properties: ${clip(parts.join("; "), 140)}` : "changed custom properties",
+    url: repoPage(p, "/settings/custom-properties"),
+  };
+}
+
+function securityAndAnalysis(p) {
+  const before = p.changes?.from?.security_and_analysis ?? {};
+  const now = p.repository?.security_and_analysis ?? {};
+  const parts = Object.keys(before)
+    .filter((k) => now[k]?.status && before[k]?.status !== now[k].status)
+    .map((k) => `${words(k)} ${now[k].status}`);
+  return {
+    text: parts.length ? `changed security settings: ${parts.join(", ")}` : "changed security settings",
+    url: repoPage(p, "/settings/security_analysis"),
+    tone: parts.some((x) => x.endsWith("disabled")) ? "warn" : null,
+  };
+}
 
 function itemVerb(action, payload) {
   switch (action) {
@@ -214,6 +254,7 @@ const DESCRIBE = {
   membership: (p) => ({
     text: `${words(p.action)} ${p.member?.login ?? "?"} ${p.action === "removed" ? "from" : "to"} team ${p.team?.name ?? "?"}`,
     url: p.team?.html_url ?? orgUrl(p, "/teams"),
+    tone: p.action === "removed" ? "warn" : null,
   }),
   team: (p) => ({
     text: `${words(p.action)} team ${p.team?.name ?? "?"}${p.action === "edited" ? changed(p.changes) : ""}`,
@@ -231,7 +272,111 @@ const DESCRIBE = {
   },
   public: (p) => ({ text: "made the repository public", url: p.repository?.html_url, tone: "warn" }),
   deploy_key: (p) => ({ text: `${words(p.action)} deploy key ${quoted(p.key?.title)}`, url: settingsUrl(p, "/keys"), tone: "warn" }),
-  custom_property_values: (p) => ({ text: "changed custom properties", url: settingsUrl(p, "/custom-properties") }),
+  custom_property_values: customPropertyValues,
+  custom_property: (p) => ({
+    text: `${words(p.action)} custom property ${quoted(p.definition?.property_name)}`,
+    url: orgUrl(p, "/settings/custom-properties"),
+    tone: p.action === "deleted" ? "warn" : null,
+  }),
+  installation_target: (p) => ({
+    text: `renamed the account the App is installed on${p.changes?.login?.from ? ` (was ${p.changes.login.from})` : ""}`,
+    url: null,
+    tone: "warn",
+  }),
+  dependabot_alert: (p) => {
+    const al = p.alert ?? {};
+    const pkg = al.dependency?.package?.name ?? al.security_vulnerability?.package?.name;
+    const sev = al.security_advisory?.severity ?? al.security_vulnerability?.severity;
+    const summary = al.security_advisory?.summary ? `: ${clip(al.security_advisory.summary, 100)}` : "";
+    return {
+      text: `${alertVerb(p.action)} Dependabot alert #${al.number ?? "?"}${sev ? ` (${sev})` : ""}${pkg ? ` in ${pkg}` : ""}${summary}`,
+      url: al.html_url,
+      tone: alertTone(p.action),
+    };
+  },
+  code_scanning_alert: (p) => {
+    const al = p.alert ?? {};
+    const sev = al.rule?.security_severity_level ?? al.rule?.severity;
+    const rule = al.rule?.description ? `: ${clip(al.rule.description, 100)}` : "";
+    return {
+      text: `${alertVerb(p.action)} code scanning alert #${al.number ?? "?"}${sev ? ` (${sev})` : ""}${rule}`,
+      url: al.html_url,
+      tone: alertTone(p.action),
+    };
+  },
+  security_and_analysis: securityAndAnalysis,
+  personal_access_token_request: (p) => {
+    const who = p.personal_access_token_request?.owner?.login ?? "someone";
+    return {
+      text: p.action === "created"
+        ? "requested a fine-grained token for org repos"
+        : `${words(p.action)} ${who}'s fine-grained token request`,
+      url: orgUrl(p, "/settings/personal-access-token-requests"),
+      tone: p.action === "approved" ? "warn" : null,
+    };
+  },
+  org_block: (p) => ({
+    text: p.action === "blocked" ? `blocked ${p.blocked_user?.login ?? "a user"} from the org` : `unblocked ${p.blocked_user?.login ?? "a user"}`,
+    url: orgUrl(p, "/settings/blocked_users"),
+    tone: "warn",
+  }),
+  workflow_dispatch: (p) => ({
+    text: `ran ${clip(String(p.workflow ?? "a workflow").split("/").pop(), 60)} by hand on ${refName(p.ref)}`,
+    url: repoPage(p, "/actions"),
+  }),
+  deployment: (p) => ({
+    text: `deployed ${refName(p.deployment?.ref) || "?"} to ${p.deployment?.environment ?? "an environment"}`,
+    url: repoPage(p, "/deployments"),
+  }),
+  milestone: (p) => ({
+    text: `${words(p.action)} milestone ${quoted(p.milestone?.title)}`,
+    url: p.milestone?.html_url ?? repoPage(p, "/milestones"),
+    tone: p.action === "deleted" ? "muted" : null,
+  }),
+  sub_issues: (p) => {
+    if (!String(p.action).startsWith("sub_issue_")) return null;
+    const added = p.action === "sub_issue_added";
+    return {
+      text: `${added ? "added" : "removed"} #${p.sub_issue?.number ?? "?"} ${added ? "as a sub-issue of" : "from"} #${p.parent_issue?.number ?? "?"}: ${clip(p.parent_issue?.title)}`,
+      url: p.parent_issue?.html_url,
+    };
+  },
+  issue_dependencies: (p) => {
+    if (!String(p.action).startsWith("blocked_by_")) return null;
+    const other = p.blocking_issue_repo?.name && p.blocking_issue_repo.name !== p.repository?.name ? p.blocking_issue_repo.name : "";
+    const blocker = `${other}#${p.blocking_issue?.number ?? "?"}`;
+    return {
+      text: p.action === "blocked_by_added"
+        ? `marked #${p.blocked_issue?.number ?? "?"} as blocked by ${blocker}`
+        : `unmarked #${p.blocked_issue?.number ?? "?"} as blocked by ${blocker}`,
+      url: p.blocked_issue?.html_url,
+    };
+  },
+  issue_relates_to: (p) => {
+    const removed = p.action === "relates_to_removed";
+    return {
+      text: `${removed ? "unlinked" : "linked"} #${p.issue?.number ?? "?"} ${removed ? "from" : "to"} #${p.related_issue?.number ?? "?"}`,
+      url: p.issue?.html_url,
+    };
+  },
+  commit_comment: (p) => ({
+    text: `${p.action === "created" || !p.action ? "commented on" : `${words(p.action)} a comment on`} commit ${String(p.comment?.commit_id ?? "").slice(0, 7)}`,
+    url: p.comment?.html_url,
+  }),
+  registry_package: (p) => {
+    const pkg = p.registry_package ?? {};
+    const version = pkg.package_version?.version ? ` ${pkg.package_version.version}` : "";
+    return { text: `${words(p.action)} package ${pkg.name ?? "?"}${version}`, url: pkg.html_url, tone: p.action === "published" ? "good" : null };
+  },
+  gollum: (p) => {
+    const pages = p.pages ?? [];
+    const first = pages[0] ?? {};
+    const more = pages.length > 1 ? ` and ${plural(pages.length - 1, "more page")}` : "";
+    return { text: `${first.action ?? "edited"} wiki page ${quoted(first.title ?? first.page_name)}${more}`, url: first.html_url };
+  },
+  star: (p) => ({ text: p.action === "deleted" ? "unstarred the repository" : "starred the repository", url: p.repository?.html_url, tone: p.action === "deleted" ? "muted" : null }),
+  watch: (p) => ({ text: "started watching the repository", url: p.repository?.html_url }),
+  fork: (p) => ({ text: `forked the repository to ${p.forkee?.full_name ?? "?"}`, url: p.forkee?.html_url }),
   installation: (p) => ({ text: `${words(p.action)} the dashboard's GitHub App installation`, url: null, tone: "warn" }),
   installation_repositories: (p) => {
     const added = (p.repositories_added ?? []).length;
@@ -245,7 +390,7 @@ const fallback = (event, payload) => ({ text: `${words(event)}${payload.action ?
 
 /** Excluded repos are dropped here for the same reason every panel drops them. */
 export function summarise(event, payload, { delivery = null, at = new Date().toISOString(), rules = [] } = {}) {
-  if (event === "ping" || !payload || typeof payload !== "object") return null;
+  if (event === "ping" || DROPPED_EVENTS.has(event) || !payload || typeof payload !== "object") return null;
   const repo = payload.repository?.name ?? null;
   if (repo && rules.length && matchesAny(rules, repo)) return null;
 
@@ -256,7 +401,7 @@ export function summarise(event, payload, { delivery = null, at = new Date().toI
   return {
     id: delivery || `${event}-${at}-${Math.random().toString(36).slice(2, 8)}`,
     at,
-    box: boxOf(event),
+    box: boxOf(event, payload),
     event,
     action: payload.action ?? null,
     repo,

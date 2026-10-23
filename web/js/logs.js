@@ -1,6 +1,6 @@
 import { API } from "./live.js";
 import { esc } from "./format.js";
-import { BOXES, KEEP_PER_BOX } from "./log-boxes.js";
+import { BOXES, FALLBACK_BOX, KEEP_PER_BOX } from "./log-boxes.js";
 
 const BOX_IDS = new Set(BOXES.map((b) => b.id));
 const STATUS = { connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…" };
@@ -18,7 +18,11 @@ let loaded = false;
 let notify = () => {};
 
 const socketUrl = () => `${API || location.origin}/api/logs`.replace(/^http/, "ws");
-const boxFor = (entry) => (BOX_IDS.has(entry.box) ? entry.box : "other");
+const RENAMED = { settings: "repo", other: "community" };
+const boxFor = (entry) => {
+  const box = RENAMED[entry.box] ?? entry.box;
+  return BOX_IDS.has(box) ? box : FALLBACK_BOX;
+};
 const tier = () => (status === "reconnecting" ? "down" : "instant");
 const countText = (n) => (n >= KEEP_PER_BOX ? `latest ${KEEP_PER_BOX}` : String(n));
 
