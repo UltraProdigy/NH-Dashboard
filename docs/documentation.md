@@ -1877,25 +1877,37 @@ it when you leave.
 
 | Box | Events |
 |---|---|
-| CI on default branches | `workflow_run` where `head_branch` is the repo's default branch |
+| Security | `dependabot_alert`, `code_scanning_alert`, `security_and_analysis`, `deploy_key`, `personal_access_token_request`, `org_block` |
+| CI & deploys | `workflow_run` (default branch only), `workflow_dispatch`, `deployment` |
 | Pull requests | `pull_request` |
-| Reviews | `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread` |
-| Issues & comments | `issues`, `issue_comment`, `discussion`, `discussion_comment` |
-| Pushes & branches | `push`, `create`, `delete` |
-| Releases | `release` |
-| Repository & org settings | `repository`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset`, `label`, `member`, `membership`, `organization`, `team`, `team_add`, `public`, `deploy_key`, `custom_property_values`, `installation`, `installation_repositories` |
-| Other | anything not listed above |
+| Reviews & PR comments | `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, and `issue_comment` on a PR |
+| Issues | `issues`, `issue_comment` on an issue, `milestone`, `sub_issues`, `issue_dependencies`, `issue_relates_to` |
+| Pushes & branches | `push`, `create`, `delete`, `commit_comment` |
+| Releases & packages | `release`, `registry_package` |
+| Repo settings | `repository`, `label`, `branch_protection_rule`, `branch_protection_configuration`, `repository_ruleset` on one repo, `public`, `custom_property_values` |
+| Org & people | `organization`, `member`, `membership`, `team`, `team_add`, `custom_property`, `repository_ruleset` org-wide, `installation`, `installation_repositories`, `installation_target` |
+| Community | `discussion`, `discussion_comment`, `gollum`, `star`, `watch`, `fork`, and anything not listed above |
 
-The mapping is `web/js/log-boxes.js`, shared by the page and the webhook Worker
-so they can't disagree. A newly subscribed event needs no code to show up: it
-lands in Other until it's given a box there, and gets a generic line until
-`DESCRIBE` in `worker/src/event-log.js` learns to word it.
+The mapping is `boxOf` in `web/js/log-boxes.js`, shared by the page and the
+webhook Worker so they can't disagree. Two events are routed by their payload
+rather than their name: a comment goes with reviews when it's on a PR and with
+issues when it's on an issue, and a ruleset goes to Org & people when it has no
+repository. A newly subscribed event needs no code to show up: it lands in
+Community until it's given a box, and gets a generic line until `DESCRIBE` in
+`worker/src/event-log.js` learns to word it.
 
-Every box carries the green `instant` ring and counts toward the top bar's
-instant tally, since each line lands the moment GitHub delivers it. If the
-socket drops, the boxes turn red and count as `down` until it reconnects, the
-same way a panel whose API didn't answer does. The tally's "ago" is the newest
-line on the page.
+`sub_issues` and `issue_dependencies` arrive once for each side of the link, so
+only one side is shown (`sub_issue_*` and `blocked_by_*`).
+
+Edge colours: red for failed builds and new or reopened alerts; green for
+merges, approvals, passing builds, releases and fixed alerts; amber for risky
+changes, such as protection or a ruleset removed, a repo made public, a deploy
+key or collaborator changed, a security feature disabled, someone removed from
+the org or a team, a token request approved or a user blocked.
+
+`check_run`, `check_suite`, `status`, `workflow_job` and `merge_group` are
+dropped before anything is stored (`DROPPED_EVENTS`), in case one is ever
+subscribed. They fire several times per job on every PR build.
 
 CI off the default branch is dropped before it is stored. It is roughly 85% of
 `workflow_run` traffic and is all PR builds. Excluded repos (`NH_INGEST_EXCLUDE`)
@@ -1927,7 +1939,7 @@ for members, but the server check is the one that matters.
 About 1,800 deliveries a day reach the object after the CI filter, so around
 55k Durable Object requests a month against the 1M included in Workers Paid.
 Each costs a few rows written in the object's own SQLite, against 50M included.
-Opening the page reads at most 1,600 rows. None of it touches D1.
+Opening the page reads at most 2,000 rows. None of it touches D1.
 
 ### Deploying
 
@@ -1941,11 +1953,14 @@ creates the class; never edit or remove `v1`, only add new tags after it.
 What the boxes can show depends on what the App is subscribed to, under the
 App's settings → Permissions & events → Subscribe to events. A greyed-out event
 needs a permission the App doesn't have yet, and adding a permission has to be
-approved by an org owner before deliveries start.
+approved by an org owner before deliveries start. The full list of permissions
+and events, and the ones left off on purpose, is in the "GitHub Logs Plan"
+project doc.
 
-Don't subscribe to `workflow_job`, `check_run`, `check_suite` or `status` for
-this page. GitHub can't filter them by branch, so every PR build would arrive
-three times per job, and the page would drop them anyway.
+Two read permissions are deliberately not granted: **Secret scanning alerts**,
+which can read the leaked secret values themselves, and **Repository security
+advisories**, which can read privately reported vulnerabilities before they're
+fixed. Anything the App can read, its private key can read, so these stay off.
 
 ### Testing
 
