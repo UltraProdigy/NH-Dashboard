@@ -1,6 +1,6 @@
 import { GRANS, isDrill, state } from "./state.js";
 import { controlHtml } from "./module-helpers.js";
-import { age, agoText, avatar, daysSince, esc, fmt } from "./format.js";
+import { age, agoText, avatar, daysSince, esc, fmt, safeUrl } from "./format.js";
 import {
   A,
   I,
@@ -426,6 +426,11 @@ function renderToolbar() {
       title="Look up every PR and release on these cards on GitHub and fix any the dashboard has wrong">${
       state.verify.busy ? "Checking GitHub…" : "Verify against GitHub"}</button>`);
     if (state.verify.note) bits.push(`<span class="minlabel" id="verifyNote">${esc(state.verify.note)}</span>`);
+    bits.push(`<button class="ghost" id="dailyBtn"${state.daily.busy ? " disabled" : ""}
+      title="Run DreamAssemblerXXL's Daily modpack build now, after asking first">${
+      state.daily.busy === "checking" ? "Checking builds…" : state.daily.busy === "releasing" ? "Releasing…" : "Release new daily"}</button>`);
+    if (state.daily.note) bits.push(`<span class="minlabel" id="dailyNote">${esc(state.daily.note)}${
+      state.daily.link ? ` <a href="${safeUrl(state.daily.link)}" target="_blank" rel="noopener">View on GitHub</a>` : ""}</span>`);
   }
 
   if (wanted.has("minActivity"))

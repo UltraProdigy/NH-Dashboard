@@ -176,6 +176,17 @@ for (const name of ADMIN_PANELS) {
   check("the verify is POST only", v3.status === 405, v3.status);
   const v4 = await call("/api/verify", { sub: "admin-user", method: "POST", headers: { origin: "https://nh-dashboard-app.gtnh.workers.dev" } });
   check("without the App key the verify says so rather than failing", v4.status === 200 && /not set/.test(v4.body?.skipped), JSON.stringify(v4.body));
+  const origin = { origin: "https://nh-dashboard-app.gtnh.workers.dev" };
+  const d1 = await call("/api/daily", { sub: "member-user" });
+  check("a member can't see the daily status", d1.status === 403, d1.status);
+  const d2 = await call("/api/daily", { sub: "member-user", method: "POST", headers: origin });
+  check("a member can't release a daily", d2.status === 403, d2.status);
+  const d3 = await call("/api/daily", { sub: "admin-user", method: "POST", headers: { origin: "https://evil.example" } });
+  check("a release from another origin is refused", d3.status === 403, d3.status);
+  const d4 = await call("/api/daily", { sub: "admin-user", method: "POST", headers: origin });
+  check("without Org-Manager's key the release says so", d4.status === 503 && /not set/.test(d4.body?.error), JSON.stringify(d4.body));
+  const d5 = await call("/api/daily", { sub: "admin-user" });
+  check("an admin can read the daily status", d5.status === 200 && d5.body?.ready === false, JSON.stringify(d5.body));
   const r3 = await call("/api/panel/analytics", { sub: "admin-user", method: "POST" });
   check("reads are GET only", r3.status === 405, r3.status);
 }

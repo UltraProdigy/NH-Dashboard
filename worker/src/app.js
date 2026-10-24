@@ -8,14 +8,16 @@
  * hold no data.
  *
  * Members see every page except Admin Resources. The data only those pages use
- * (ADMIN_PANELS), the manual recompute and the Dream Panel verify are refused to anyone who isn't on
- * the admin team, whatever the page shows.
+ * (ADMIN_PANELS), the manual recompute, the Dream Panel verify and the daily
+ * release are refused to anyone who isn't on the admin team, whatever the page
+ * shows.
  */
 
 import { verifyAccess } from "./access.js";
 import { roleFor } from "./roles.js";
 import { recompute } from "./recompute.js";
 import { verifyDreamPanel } from "./verify.js";
+import { dailyStatus, releaseDaily } from "./daily-release.js";
 import {
   handleDashboard,
   handleFacets,
@@ -61,6 +63,17 @@ async function route(request, env, ctx, url, who) {
       console.error(JSON.stringify({ at: "verify", error: String(err) }));
       return json({ error: "verify failed", detail: String(err) }, 502);
     }
+  }
+
+  if (path === "/api/daily") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (request.method === "GET") return json(await dailyStatus(env));
+    if (request.method !== "POST") return json({ error: "GET or POST only" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
+    const { status, body } = await releaseDaily(env, by, { force: url.searchParams.get("force") === "1", dryRun });
+    return json(body, status);
   }
 
   if (request.method !== "GET") return json({ error: "GET only" }, 405);

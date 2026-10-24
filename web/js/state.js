@@ -56,6 +56,7 @@ const state = {
   minActivity: 3,
   role: null,
   verify: { busy: false, note: "" },
+  daily: { busy: null, note: "", link: null },
   // Module id -> { key, dir }. Per module rather than per page because a group
   // tab stacks several sortable tables that share column keys — see table.js.
   sort: {},

@@ -88,7 +88,8 @@ granted, and nothing reads them — they can be dropped from the request.
 NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
 second App, `Org-Manager` (App ID `5299242`), so the key that can start a
 release isn't the same key that serves every page load, and either one can be
-revoked without touching the other. Label-sync is meant to move onto it later.
+revoked without touching the other. Today that is only releasing a daily (see
+**Dream Panel → Releasing a daily**). Label-sync is meant to move onto it later.
 
 It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
 `github.js` and sharing the JWT signing and token exchange with it, but with
@@ -219,7 +220,7 @@ belongs to both: the webhook Worker's cron uses it to redeliver failed
 deliveries and verify the Dream Panel, and the app Worker uses it for the
 Verify button. It must be the PKCS#8 file (`nh-dashbot-pk8.pem`), pasted whole.
 `GH_APP_ID` is public and lives in both `wrangler` files. `ORG_MANAGER_PRIVATE_KEY` belongs to
-`nh-dashboard-app` only. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
+`nh-dashboard-app` only, for the Release new daily button. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
 `nh-dashboard-app` too, or search and the drilldowns will show excluded repos
 that the cached panels hide. Set secrets with `wrangler secret put NAME` (add
 `-c wrangler.app.toml` for the app) or in the Cloudflare dashboard; they
@@ -810,6 +811,45 @@ list, and closed beside it in the same cell is the difference between a busy
 tracker somebody is on top of and one nobody has looked at — 40 open against 900
 closed and 40 against 3 are not the same repo. That's what `note` on `hbars` is
 for: a fact worth carrying that isn't what the bar is measuring.
+
+### Releasing a daily
+
+Next to Verify, admins get **Release new daily**. It runs
+DreamAssemblerXXL's `daily-modpack-build.yml` on `master`, the same as pressing
+"Run workflow" on GitHub, through `POST /api/daily` on the app Worker.
+
+Pressing it first asks the Worker for `GET /api/daily`: the five newest runs of
+that workflow (read as NH-Dashbot), and the last five releases pressed from the
+dashboard. That fills the confirm dialog. If a build is already queued or
+running, the dialog says which one and who started it, and the button becomes
+**Release another anyway**. Cancel is focused by default, and Escape closes it.
+
+The dispatch itself is made as Org-Manager, so GitHub shows the run as started
+by `org-manager[bot]`. Who actually pressed it is kept in `meta` under
+`daily_release_log`, as JSON holding the newest twenty presses (email, time,
+and the run it went alongside, if any), and written to Workers Logs as
+`{"at":"daily-release",…}`. Keeping it in `meta` means no migration.
+
+The Worker refuses, whatever the page shows:
+
+- anyone not on the admin team, and a POST from another origin
+- a second release within two minutes of the last one, even when forced,
+  because a fresh dispatch takes a few seconds to appear in the runs list and
+  two admins pressing together would otherwise both see nothing running
+- a release while a build is running, unless the dialog's "anyway" button sent
+  `?force=1`
+
+If GitHub refuses the dispatch, the toolbar says what to check (usually
+Org-Manager's Actions permission not being accepted yet, or the repo missing
+from its installation) and nothing is logged.
+
+Under `wrangler dev` with `DEV_ROLE`, the release is a dry run: it goes through
+every check and writes a log entry marked as a dry run, but sends nothing to
+GitHub, and a dry run doesn't start the two-minute wait.
+
+`worker/test/daily.test.js` (`npm run test:daily`, in the deploy gate) covers
+the cooldown, the running-build check, which App makes which call, and the
+log. The route guards are in `app.test.js`.
 
 ### What counts as needing a release
 
