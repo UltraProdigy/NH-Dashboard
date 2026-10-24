@@ -66,9 +66,8 @@ function dialogHtml(p) {
   return `
     <h3>Release all?</h3>
     <p>Each ticked repo gets a new release, with GitHub's generated notes, tagged on its
-      default branch at the commit shown. Where the repo has the release-tags workflow, that
-      then builds the jar, redoes the release with it and publishes it. The releases are made
-      by Org-Manager, and your name is kept here.</p>
+      default branch at the commit shown. The releases are made by Org-Manager, and your
+      name is kept here.</p>
     <p class="daily-last">If a predicted tag is wrong, type the right one and tick
       <b>prediction was wrong</b> so it's learned. Leave it unticked for an intentional bump.</p>
     ${notes.join("")}
