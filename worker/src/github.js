@@ -29,10 +29,10 @@ function pemBody(pem) {
 
 export const appReady = (env) => Boolean(env.GH_APP_ID && env.GH_APP_PRIVATE_KEY);
 
-export async function appJwt(env, now = Date.now()) {
+export async function signJwt(appId, pem, now = Date.now()) {
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    pemBody(env.GH_APP_PRIVATE_KEY),
+    pemBody(pem),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],
@@ -41,7 +41,7 @@ export async function appJwt(env, now = Date.now()) {
   const iat = Math.floor(now / 1000) - 60;
   const head = b64url(encoder.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
   const body = b64url(
-    encoder.encode(JSON.stringify({ iat, exp: iat + 540, iss: String(env.GH_APP_ID) })),
+    encoder.encode(JSON.stringify({ iat, exp: iat + 540, iss: String(appId) })),
   );
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
@@ -50,6 +50,8 @@ export async function appJwt(env, now = Date.now()) {
   );
   return `${head}.${body}.${b64url(signature)}`;
 }
+
+export const appJwt = (env, now = Date.now()) => signJwt(env.GH_APP_ID, env.GH_APP_PRIVATE_KEY, now);
 
 export async function rest(path, token, { method = "GET", body } = {}) {
   const res = await fetch(path.startsWith("http") ? path : `${API}${path}`, {
@@ -70,16 +72,18 @@ export async function rest(path, token, { method = "GET", body } = {}) {
   return res;
 }
 
-export async function installationToken(env, now = Date.now()) {
-  if (cachedToken && cachedToken.expiresAt - now > 5 * 60_000) return cachedToken.token;
-  const jwt = await appJwt(env, now);
-  const org = env.GITHUB_ORG ?? "GTNewHorizons";
+export async function mintInstallationToken(jwt, org) {
   const install = await (await rest(`/orgs/${org}/installation`, jwt)).json();
   const minted = await (
     await rest(`/app/installations/${install.id}/access_tokens`, jwt, { method: "POST" })
   ).json();
-  cachedToken = { token: minted.token, expiresAt: Date.parse(minted.expires_at) };
-  return minted.token;
+  return { token: minted.token, expiresAt: Date.parse(minted.expires_at) };
+}
+
+export async function installationToken(env, now = Date.now()) {
+  if (cachedToken && cachedToken.expiresAt - now > 5 * 60_000) return cachedToken.token;
+  cachedToken = await mintInstallationToken(await appJwt(env, now), env.GITHUB_ORG ?? "GTNewHorizons");
+  return cachedToken.token;
 }
 
 export function forgetToken() {

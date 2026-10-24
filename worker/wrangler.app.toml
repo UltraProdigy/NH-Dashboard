@@ -29,9 +29,14 @@ script_name = "nh-dashboard"
 #
 # GH_APP_PRIVATE_KEY is the same PKCS#8 key the webhook Worker holds. The Verify
 # button on the Dream Panel needs it here too; without it the button reports so.
+#
+# ORG_MANAGER_PRIVATE_KEY is Org-Manager's PKCS#8 key, also a secret. The App does
+# everything that changes something in the org, starting with releasing a daily.
 [vars]
 GITHUB_ORG = "GTNewHorizons"
 # NH-Dashbot. Public: it is in the App's own URL. GH_APP_PRIVATE_KEY is the secret.
 GH_APP_ID = "4745300"
+# Org-Manager. Public, like GH_APP_ID.
+ORG_MANAGER_APP_ID = "5299242"
 ADMIN_TEAM = "admin"
 ACCESS_TEAM_DOMAIN = "nh-dashboard.cloudflareaccess.com"

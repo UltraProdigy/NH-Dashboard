@@ -83,6 +83,32 @@ traffic data, and it also carries branch protection, collaborator lists, and
 repo settings. `discussions` and `repository_projects` were requested but not
 granted, and nothing reads them — they can be dropped from the request.
 
+### Org-Manager, the App that changes things
+
+NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
+second App, `Org-Manager` (App ID `5299242`), so the key that can start a
+release isn't the same key that serves every page load, and either one can be
+revoked without touching the other. Label-sync is meant to move onto it later.
+
+It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
+`github.js` and sharing the JWT signing and token exchange with it, but with
+its own token cache. The installation ID is derived the same way.
+
+Setup, once:
+
+1. On the App's settings, give it repository **Actions: Read and write**, then
+   accept the change on the org's installation page. Make sure the repos it acts
+   on (DreamAssemblerXXL for now) are in its repository list.
+2. Generate a private key on the App's General page and convert it to PKCS#8,
+   as above: `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in
+   <downloaded>.pem -out org-manager-pk8.pem`.
+3. Set it as the `ORG_MANAGER_PRIVATE_KEY` secret on `nh-dashboard-app`, pasted
+   whole. `ORG_MANAGER_APP_ID` is public and sits in `wrangler.app.toml`.
+
+Actions write covers more than dispatching: it can also cancel, re-run and
+delete runs in every repo the App is installed on. The dashboard only ever
+dispatches the one workflow.
+
 ### Exclusions that apply everywhere
 
 `NH_INGEST_EXCLUDE` is a comma-separated list of repos that never enter the
@@ -192,7 +218,8 @@ things that have nothing to do with each other.
 belongs to both: the webhook Worker's cron uses it to redeliver failed
 deliveries and verify the Dream Panel, and the app Worker uses it for the
 Verify button. It must be the PKCS#8 file (`nh-dashbot-pk8.pem`), pasted whole.
-`GH_APP_ID` is public and lives in both `wrangler` files. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
+`GH_APP_ID` is public and lives in both `wrangler` files. `ORG_MANAGER_PRIVATE_KEY` belongs to
+`nh-dashboard-app` only. If `NH_INGEST_EXCLUDE` is set on `nh-dashboard`, set it on
 `nh-dashboard-app` too, or search and the drilldowns will show excluded repos
 that the cached panels hide. Set secrets with `wrangler secret put NAME` (add
 `-c wrangler.app.toml` for the app) or in the Cloudflare dashboard; they
