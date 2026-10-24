@@ -8,9 +8,9 @@
  * hold no data.
  *
  * Members see every page except Admin Resources. The data only those pages use
- * (ADMIN_PANELS), the manual recompute, the Dream Panel verify and the daily
- * release are refused to anyone who isn't on the admin team, whatever the page
- * shows.
+ * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
+ * release and Release All are refused to anyone who isn't on the admin team,
+ * whatever the page shows.
  */
 
 import { verifyAccess } from "./access.js";
@@ -18,6 +18,7 @@ import { roleFor } from "./roles.js";
 import { recompute } from "./recompute.js";
 import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
+import { releaseAll, releaseAllPreview } from "./release-all.js";
 import {
   handleDashboard,
   handleFacets,
@@ -73,6 +74,21 @@ async function route(request, env, ctx, url, who) {
     const by = who.identity.email ?? who.identity.sub ?? "unknown";
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     const { status, body } = await releaseDaily(env, by, { force: url.searchParams.get("force") === "1", dryRun });
+    return json(body, status);
+  }
+
+  if (path === "/api/release-all" || path === "/api/release-all/preview") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    const sent = await request.json().catch(() => null);
+    if (path.endsWith("/preview")) {
+      const { status, body } = await releaseAllPreview(env, sent?.repos);
+      return json(body, status);
+    }
+    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
+    const { status, body } = await releaseAll(env, by, sent?.items, { dryRun });
     return json(body, status);
   }
 

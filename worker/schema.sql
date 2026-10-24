@@ -379,6 +379,23 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   at                TEXT
 );
 
+-- Every tag the Dream Panel's Release All created, with what it predicted.
+-- Only rows with `wrong` ticked teach the predictor.
+CREATE TABLE IF NOT EXISTS release_tag_feedback (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo              TEXT NOT NULL,
+  previous_tag      TEXT,
+  predicted_tag     TEXT,
+  tag               TEXT NOT NULL,
+  sha               TEXT NOT NULL,
+  wrong             INTEGER NOT NULL DEFAULT 0,
+  released_by       TEXT NOT NULL,
+  released_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_wrong
+  ON release_tag_feedback (wrong, repo, released_at);
+
 -- Holds `version` (bumped by the recompute when an answer moved, polled by the
 -- browser), `wrote:<table>` (stamped by the webhook handlers with the time of
 -- each write, so the recompute rebuilds only the panels that read that table),

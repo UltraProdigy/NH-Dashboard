@@ -88,8 +88,9 @@ granted, and nothing reads them — they can be dropped from the request.
 NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
 second App, `Org-Manager` (App ID `5299242`), so the key that can start a
 release isn't the same key that serves every page load, and either one can be
-revoked without touching the other. Today that is only releasing a daily (see
-**Dream Panel → Releasing a daily**). Label-sync is meant to move onto it later.
+revoked without touching the other. Today that is releasing a daily and Release
+All (see **Dream Panel → Releasing a daily** and **Release All**). Label-sync is
+meant to move onto it later.
 
 It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
 `github.js` and sharing the JWT signing and token exchange with it, but with
@@ -97,9 +98,11 @@ its own token cache. The installation ID is derived the same way.
 
 Setup, once:
 
-1. On the App's settings, give it repository **Actions: Read and write**, then
-   accept the change on the org's installation page. Make sure the repos it acts
-   on (DreamAssemblerXXL for now) are in its repository list.
+1. On the App's settings, give it repository **Actions: Read and write** (for
+   the daily) and **Contents: Read and write** (for Release All's tags), then
+   accept the change on the org's installation page. Release All can tag any
+   repo on Needs a release, so the installation should cover all repositories.
+   If any repo has a tag ruleset, Org-Manager needs to be on its bypass list.
 2. Generate a private key on the App's General page and convert it to PKCS#8,
    as above: `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in
    <downloaded>.pem -out org-manager-pk8.pem`.
@@ -108,7 +111,8 @@ Setup, once:
 
 Actions write covers more than dispatching: it can also cancel, re-run and
 delete runs in every repo the App is installed on. The dashboard only ever
-dispatches the one workflow.
+dispatches the one workflow. Contents write likewise covers pushing to
+branches; the dashboard only ever creates tags.
 
 ### Exclusions that apply everywhere
 
@@ -850,6 +854,67 @@ GitHub, and a dry run doesn't start the two-minute wait.
 `worker/test/daily.test.js` (`npm run test:daily`, in the deploy gate) covers
 the cooldown, the running-build check, which App makes which call, and the
 log. The route guards are in `app.test.js`.
+
+### Release All
+
+Next to Release new daily, admins get **Release all**. It tags a new release on
+every repo the Needs a release card is showing, after the user checks each tag.
+
+Pressing it sends the card's repos, after that card's own repo exclusions, to
+`POST /api/release-all/preview`. The card's filter is the only way to keep a
+repo out for good; there is no separate list. For each repo the Worker reads
+from GitHub, as NH-Dashbot, in one GraphQL query per 20 repos:
+
+- the default branch and its HEAD commit
+- the ten newest releases and the hundred newest tags
+- whether `.github/workflows/release-tags.yml` calls GTNH-Actions-Workflows
+
+The dialog lists each repo with a checkbox, its last tag, the predicted new
+tag in an editable box, and the commit it will be tagged at. How the
+prediction is made, and what it learns, is in Calculations.md under
+**Predicted release tag**. Editing a tag shows a **prediction was wrong**
+checkbox. Tick it when the predictor got it wrong so it's learned; leave it
+unticked for an intentional major bump or custom tag. Repos with no release
+workflow start unticked, with a note saying why. A ticked repo with an empty
+or invalid tag disables the button.
+
+On confirm, `POST /api/release-all` creates each tag, as Org-Manager, with
+`POST /repos/{org}/{repo}/git/refs` at the commit the dialog showed rather than
+whatever HEAD is by then, so a PR merged while the dialog was open isn't
+released unseen. The tags are lightweight, matching what GitHub's release page
+and every recent GTNH tag use. That is all the dashboard does. Each repo's
+`release-tags.yml` runs on the tag push, builds the jar, writes the release
+notes with GitHub's generator (or `.changelogs/<tag>.md` if there is one),
+creates the release and publishes to Maven, Modrinth and CurseForge. A tag
+made by a GitHub App's token starts workflows, unlike one made with
+`GITHUB_TOKEN`.
+
+Each tag made is a row in `release_tag_feedback`: repo, previous tag, predicted
+tag, actual tag, commit, the wrong tick, who and when. It needs
+`migrations/006-release-tag-feedback.sql` run once. Until then tags are still
+made, the preview says nothing learned could be read, and the feedback write
+is logged to Workers Logs as failed. Who pressed it is also kept in `meta` as
+`release_all_log` (the newest twenty runs) and in Workers Logs as
+`{"at":"release-all",…}`.
+
+The Worker refuses, whatever the page shows:
+
+- anyone not on the admin team, a POST from another origin, and anything but
+  POST
+- more than 150 repos, the same repo twice, a tag that isn't a plain tag name,
+  or a commit that isn't a full 40-character SHA
+- a second Release All within two minutes of the last one
+
+A tag GitHub refuses doesn't stop the rest. The toolbar says how many were
+tagged and a second dialog lists the failures, each with what to check: the
+tag already existing, Org-Manager missing Contents write or the repo, or a
+ruleset. Under `wrangler dev` with `DEV_ROLE` it's a dry run that tags nothing
+and teaches nothing.
+
+`worker/test/release-all.test.js` (`npm run test:release-all`, in the deploy
+gate) covers the predictor, learning, the preview, the tags and their pinned
+commits, partial failures, the cooldown and the dry run. The route guards are
+in `app.test.js`.
 
 ### What counts as needing a release
 

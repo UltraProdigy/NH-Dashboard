@@ -96,11 +96,11 @@ async function token(sub = "admin-user", claims = {}, key = good.privateKey) {
   return `${h}.${p}.${sig.toString("base64url")}`;
 }
 
-async function call(path, { sub, jwt, method = "GET", env = ENV, host = "nh-dashboard-app.gtnh.workers.dev", headers = {} } = {}) {
+async function call(path, { sub, jwt, method = "GET", env = ENV, host = "nh-dashboard-app.gtnh.workers.dev", headers = {}, body: sent } = {}) {
   const h = { ...headers };
   const t = jwt ?? (sub ? await token(sub) : null);
   if (t) h["cf-access-jwt-assertion"] = t;
-  const res = await handleApp(new Request(`https://${host}${path}`, { method, headers: h }), env, { waitUntil() {} }, { fetchImpl });
+  const res = await handleApp(new Request(`https://${host}${path}`, { method, headers: h, body: sent }), env, { waitUntil() {} }, { fetchImpl });
   const text = await res.text();
   let body = null;
   try { body = JSON.parse(text); } catch {}
@@ -187,6 +187,22 @@ for (const name of ADMIN_PANELS) {
   check("without Org-Manager's key the release says so", d4.status === 503 && /not set/.test(d4.body?.error), JSON.stringify(d4.body));
   const d5 = await call("/api/daily", { sub: "admin-user" });
   check("an admin can read the daily status", d5.status === 200 && d5.body?.ready === false, JSON.stringify(d5.body));
+  const repos = JSON.stringify({ repos: ["GTNHLib"] });
+  const item = JSON.stringify({ items: [{ repo: "GTNHLib", tag: "0.11.55", sha: "a".repeat(40) }] });
+  const a1 = await call("/api/release-all/preview", { sub: "member-user", method: "POST", headers: origin, body: repos });
+  check("a member can't preview Release All", a1.status === 403, a1.status);
+  const a2 = await call("/api/release-all", { sub: "member-user", method: "POST", headers: origin, body: item });
+  check("a member can't run Release All", a2.status === 403, a2.status);
+  const a3 = await call("/api/release-all", { sub: "admin-user", method: "POST", headers: { origin: "https://evil.example" }, body: item });
+  check("Release All from another origin is refused", a3.status === 403, a3.status);
+  const a4 = await call("/api/release-all", { sub: "admin-user" });
+  check("Release All is POST only", a4.status === 405, a4.status);
+  const a5 = await call("/api/release-all/preview", { sub: "admin-user", method: "POST", headers: origin, body: repos });
+  check("without NH-Dashbot's key the preview says so", a5.status === 503 && /not set/.test(a5.body?.error), JSON.stringify(a5.body));
+  const a6 = await call("/api/release-all", { sub: "admin-user", method: "POST", headers: origin, body: item });
+  check("without Org-Manager's key Release All says so", a6.status === 503 && /not set/.test(a6.body?.error), JSON.stringify(a6.body));
+  const a7 = await call("/api/release-all", { sub: "admin-user", method: "POST", headers: origin, body: JSON.stringify({ items: [{ repo: "GTNHLib", tag: "../x", sha: "nope" }] }) });
+  check("a malformed tag or SHA is a 400", a7.status === 400, a7.status);
   const r3 = await call("/api/panel/analytics", { sub: "admin-user", method: "POST" });
   check("reads are GET only", r3.status === 405, r3.status);
 }

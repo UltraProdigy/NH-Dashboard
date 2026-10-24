@@ -1205,6 +1205,62 @@ rows, so the `compare` failure case cannot happen. Non-draft =
 `draft = 0 AND published_at IS NOT NULL`; prereleases count. Step 4 loses
 accuracy — see *Pull-request association*.
 
+### Predicted release tag
+
+On screen: *Release all* dialog, *New tag*, *learned*, *Predictions kept as-is*
+
+`worker/src/release-tags.js`, used by `worker/src/release-all.js`.
+
+**Last tag** is the newest non-draft release by `createdAt` whose tag has a
+number in it. If no release qualifies, it is the newest tag by commit date.
+Releases come first because every tag here becomes a release, and a release's
+creation time is the only real "created" date (lightweight tags have none).
+Tags with no digits at all, such as `latest`, are skipped.
+
+**Prediction.** A trailing `-pre` is dropped, then the tag is split into
+numbers and the text between them. The last number goes up by one and
+everything else is kept: zero padding, prefixes and suffixes.
+
+```
+2.7.5         → 2.7.6
+2.7.5-pre     → 2.7.6
+5.09.54.243   → 5.09.54.244
+1.1.71-GTNH   → 1.1.72-GTNH
+rv3-beta-1091-GTNH → rv3-beta-1092-GTNH
+```
+
+If the prediction is already a tag in the repo (out of the newest 100), it
+counts up again, up to 20 times, and the dialog names what it skipped. That
+covers a tag whose build failed and so never made a release.
+
+**Learning.** Every tag Release All makes is a row in `release_tag_feedback`.
+Only rows where the admin ticked *prediction was wrong* are learned from. An
+edit left unticked is taken as an intentional bump. For each repo, the newest
+ticked correction that can be learned from becomes a rule:
+
+```
+rule.fromEnd = which number went up, counted from the end (0 = last)
+learnable only if: same text between numbers, same count of numbers,
+  that number went up by exactly 1, every number after it became 0,
+  and the corrected tag isn't a -pre
+```
+
+So `1.4.47 → 1.5.0` teaches "bump the second-to-last number", and the next
+prediction from `1.5.0` is `1.6.0`. `1.4.47 → 1.4.49` or `→ 1.5.3` teach
+nothing (one-off jumps), and are kept for the record. A later ticked correction
+back to the default replaces the rule. Repos with a rule show **learned**.
+
+**Predictions kept as-is** = rows where `tag = predicted_tag`, over all rows.
+*marked wrong* = rows with `wrong = 1`.
+
+**Baseline**, measured 2026-10-24 over the 200 most recently pushed repos' last
+12 releases each: the default rule predicted 1,530 of 1,724 release-to-release
+steps (88.7%), not counting steps into a `-pre`, which are intentional. Most
+misses are repos that bump the minor number every time (Horizon-QA, TaskNH,
+neiaddons), which is what a single ticked correction fixes. A rule taken from
+the repo's own release history instead gained nothing on the same data, so
+nothing is inferred without a correction.
+
 ### Dep updates
 
 On screen: *Time since last update*
@@ -1518,6 +1574,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-10-24 | Predicted release tag | New, no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |
 | 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |
 | 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. |
 | 2026-09-08 | Org Search empty form | An empty form returns the fifty most recently updated records rather than no rows. See **Org Search**. |

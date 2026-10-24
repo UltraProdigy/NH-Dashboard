@@ -431,6 +431,10 @@ function renderToolbar() {
       state.daily.busy === "checking" ? "Checking builds…" : state.daily.busy === "releasing" ? "Releasing…" : "Release new daily"}</button>`);
     if (state.daily.note) bits.push(`<span class="minlabel" id="dailyNote">${esc(state.daily.note)}${
       state.daily.link ? ` <a href="${safeUrl(state.daily.link)}" target="_blank" rel="noopener">View on GitHub</a>` : ""}</span>`);
+    bits.push(`<button class="ghost" id="releaseAllBtn"${state.releaseAll.busy ? " disabled" : ""}
+      title="Tag a new release on every repo in Needs a release, after checking each tag">${
+      state.releaseAll.busy === "checking" ? "Predicting tags…" : state.releaseAll.busy === "releasing" ? "Tagging…" : "Release all"}</button>`);
+    if (state.releaseAll.note) bits.push(`<span class="minlabel" id="releaseAllNote">${esc(state.releaseAll.note)}</span>`);
   }
 
   if (wanted.has("minActivity"))

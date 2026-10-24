@@ -26,6 +26,7 @@ import { pageBySlug } from "./pages.js";
 import { tabTwin } from "./modules/index.js";
 import { API, checkNow } from "./live.js";
 import { openDaily } from "./daily.js";
+import { openReleaseAll } from "./release-all.js";
 import {
   addOpponent,
   clearOpponents,
@@ -422,6 +423,7 @@ document.getElementById("toolbar").addEventListener("click", e => {
   if (e.target.closest("#backBtn")) return goBack();
   if (e.target.closest("#verifyBtn")) return runVerify();
   if (e.target.closest("#dailyBtn")) return openDaily();
+  if (e.target.closest("#releaseAllBtn")) return openReleaseAll();
 
   const opt = e.target.closest(".combo-opt[data-pick]");
   if (opt) return drillTo(state.page, opt.dataset.pick);

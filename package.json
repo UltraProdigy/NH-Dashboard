@@ -45,6 +45,7 @@
     "test:backfill-prs": "node --experimental-sqlite worker/test/backfill-prs.test.js",
     "test:verify": "node --experimental-sqlite worker/test/verify.test.js",
     "test:daily": "node --experimental-sqlite worker/test/daily.test.js",
+    "test:release-all": "node --experimental-sqlite worker/test/release-all.test.js",
     "test:rows-read": "node worker/test/rows-read.test.js"
   },
   "engines": {

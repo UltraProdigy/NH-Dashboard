@@ -218,3 +218,44 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
   .daily-actions { flex-wrap: wrap; }
   .daily-link { flex-basis: 100%; }
 }
+
+/* ---------- dream panel: release all ---------- */
+.release-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.ra-scroll {
+  max-height: min(52vh, 520px); overflow: auto; margin: 4px 0 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.ra-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ra-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--panel);
+  text-align: left; font-weight: 600; color: var(--muted);
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+}
+.ra-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ra-table tr:last-child td { border-bottom: 0; }
+.ra-table td:first-child, .ra-table th:first-child { width: 22px; padding-right: 0; }
+.ra-off td:not(:first-child) { opacity: .5; }
+.ra-note { color: var(--warn); font-size: 11.5px; margin-top: 3px; max-width: 280px; }
+.ra-tag {
+  width: 176px; padding: 4px 7px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ra-tag:focus { outline: none; border-color: var(--accent); }
+.ra-tag.ra-invalid { border-color: var(--bad); }
+.ra-learned { cursor: help; }
+.ra-last { display: none; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+.ra-wrong { display: flex; align-items: center; gap: 5px; margin-top: 5px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.ra-wrong[hidden] { display: none; }
+.ra-count { margin-right: auto; }
+.ra-results { margin: 0 0 8px; padding-left: 18px; }
+.ra-results li { margin-bottom: 4px; }
+@media (max-width: 620px) {
+  .ra-table th:last-child, .ra-table td:last-child,
+  .ra-table th:nth-child(3), .ra-table td:nth-child(3) { display: none; }
+  .ra-scroll { max-height: 46vh; }
+  .ra-last { display: block; }
+  .ra-tag { width: 100%; min-width: 120px; }
+  .release-dialog .daily-actions { flex-wrap: wrap; }
+  .release-dialog .ra-count { flex-basis: 100%; }
+}
