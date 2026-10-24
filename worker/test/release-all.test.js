@@ -32,6 +32,9 @@ check("pads a zero-padded last number", predictTag("1.07"), "1.08");
 check("keeps a suffix", predictTag("1.1.71-GTNH"), "1.1.72-GTNH");
 check("bumps the last number when words come first", predictTag("rv3-beta-1091-GTNH"), "rv3-beta-1092-GTNH");
 check("a -pre after a suffix", predictTag("1.1.71-GTNH-pre"), "1.1.72-GTNH");
+check("leaves a Minecraft version alone", predictTag("2.3.92-1.7.10"), "2.3.93-1.7.10");
+check("wherever it sits", predictTag("1.9.2-GTNH-1.7.10-Edition"), "1.9.3-GTNH-1.7.10-Edition");
+check("but still counts a version that only looks like it", predictTag("21.7.10"), "21.7.11");
 check("gives up on a tag with no number", predictTag("latest"), null);
 check("follows a learned minor bump", predictTag("1.4.47", { fromEnd: 1, step: 1 }), "1.5.0");
 check("falls back when a rule doesn't fit", predictTag("1.2", { fromEnd: 5, step: 1 }), "1.3");
@@ -56,6 +59,7 @@ check("an odd jump teaches nothing", learnRule("1.4.47", "1.5.3"), null);
 check("a -pre teaches nothing", learnRule("1.4.47", "1.5.0-pre"), null);
 check("a format change teaches nothing", learnRule("1.4", "1.4.1"), null);
 check("a suffix change teaches nothing", learnRule("1.4.47", "1.5.0-GTNH"), null);
+check("a bump before a Minecraft version", learnRule("2.3.92-1.7.10", "2.4.0-1.7.10"), { fromEnd: 1, step: 1 });
 check("a bump under a suffix", learnRule("1.1.71-GTNH", "1.2.0-GTNH"), { fromEnd: 1, step: 1 });
 check(
   "the newest learnable correction wins",

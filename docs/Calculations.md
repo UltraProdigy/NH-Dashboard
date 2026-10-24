@@ -60,6 +60,7 @@ the seed.
 
 | id | Label | Days |
 |---|---|---|
+| 2026-10-24 | Predicted release tag | A standalone `1.7.10` is treated as the Minecraft version and never bumped, so `2.3.92-1.7.10` predicts `2.3.93-1.7.10` rather than `2.3.92-1.7.11`. |
 | `all` | All time | — |
 | `m1` | 1 month | 30 |
 | `m3` | 3 months | 90 |
@@ -1219,7 +1220,9 @@ Tags with no digits at all, such as `latest`, are skipped.
 
 **Prediction.** A trailing `-pre` is dropped, then the tag is split into
 numbers and the text between them. The last number goes up by one and
-everything else is kept: zero padding, prefixes and suffixes.
+everything else is kept: zero padding, prefixes and suffixes. `1.7.10` on its
+own (not part of a longer number) is the Minecraft version, not the mod's, so
+it counts as text and is never bumped.
 
 ```
 2.7.5         → 2.7.6
@@ -1227,6 +1230,7 @@ everything else is kept: zero padding, prefixes and suffixes.
 5.09.54.243   → 5.09.54.244
 1.1.71-GTNH   → 1.1.72-GTNH
 rv3-beta-1091-GTNH → rv3-beta-1092-GTNH
+2.3.92-1.7.10 → 2.3.93-1.7.10
 ```
 
 If the prediction is already a tag in the repo (out of the newest 100), it
@@ -1268,8 +1272,8 @@ back to the default replaces the rule. Repos with a rule show **learned**.
 *marked wrong* = rows with `wrong = 1`.
 
 **Baseline**, measured 2026-10-24 over the 200 most recently pushed repos' last
-12 releases each: the default rule predicted 1,530 of 1,724 release-to-release
-steps (88.7%), not counting steps into a `-pre`, which are intentional. Most
+12 releases each: the default rule predicted 1,537 of 1,722 release-to-release
+steps (89.3%), not counting steps into a `-pre`, which are intentional. Most
 misses are repos that bump the minor number every time (Horizon-QA, TaskNH,
 neiaddons), which is what a single ticked correction fixes. A rule taken from
 the repo's own release history instead gained nothing on the same data, so

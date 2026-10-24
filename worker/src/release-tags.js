@@ -1,4 +1,6 @@
 const PRE = /-pre$/i;
+const MINECRAFT = "1.7.10";
+const MINECRAFT_OR_NUMBER = /((?<![\d.])1\.7\.10(?![\d.])|\d+)/;
 
 export const DEFAULT_RULE = { fromEnd: 0, step: 1 };
 
@@ -25,7 +27,11 @@ export function parseTag(tag) {
   const raw = String(tag ?? "").trim();
   if (!raw || /\s/.test(raw)) return null;
   const pre = PRE.test(raw);
-  const pieces = raw.replace(PRE, "").split(/(\d+)/);
+  const pieces = [""];
+  raw.replace(PRE, "").split(MINECRAFT_OR_NUMBER).forEach((tok, i) => {
+    if (i % 2 === 1 && tok !== MINECRAFT) pieces.push(tok, "");
+    else pieces[pieces.length - 1] += tok;
+  });
   const parts = pieces.filter((_, i) => i % 2 === 1);
   if (!parts.length) return null;
   return { pieces, parts, pre };
