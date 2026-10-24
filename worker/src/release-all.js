@@ -10,7 +10,6 @@ const MAX_REPOS = 150;
 const MAX_SKIPS = 20;
 const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 const SHA = /^[0-9a-f]{40}$/;
-const CALLER = "GTNH-Actions-Workflows/.github/workflows/release-tags.yml";
 
 const orgOf = (env) => env.GITHUB_ORG ?? "GTNewHorizons";
 
@@ -65,8 +64,7 @@ const FIELDS = `
   name
   defaultBranchRef { name target { oid } }
   releases(first: 10, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { tagName isDraft } }
-  refs(refPrefix: "refs/tags/", first: 100, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) { nodes { name } }
-  caller: object(expression: "HEAD:.github/workflows/release-tags.yml") { ... on Blob { text } }`;
+  refs(refPrefix: "refs/tags/", first: 100, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) { nodes { name } }`;
 
 async function lookUp(token, org, names) {
   const query = `query($org: String!) {${names
@@ -87,7 +85,6 @@ function lastTagOf(repo) {
 function plan(name, repo, learned) {
   if (!repo) return { repo: name, problem: "GitHub doesn't know this repo, or NH-Dashbot can't see it", notes: [] };
   const sha = repo.defaultBranchRef?.target?.oid ?? null;
-  const workflow = Boolean(repo.caller?.text?.includes(CALLER));
   const lastTag = lastTagOf(repo);
   const rule = ruleFrom(learned.get(repo.name) ?? []);
   const taken = new Set(repo.refs.nodes.map((t) => t.name));
@@ -100,7 +97,6 @@ function plan(name, repo, learned) {
   }
 
   const notes = [];
-  if (!workflow) notes.push("No release-tags workflow, so this gets a release with notes but no jar");
   if (!lastTag) notes.push("No earlier version tag to count up from. Type the tag in");
   if (skipped.length) notes.push(`Skipped ${skipped.join(", ")}: already tagged`);
 
@@ -115,7 +111,6 @@ function plan(name, repo, learned) {
     predicted,
     learned: rule && !isDefaultRule(rule) ? rule : null,
     skipped,
-    workflow,
   };
 }
 

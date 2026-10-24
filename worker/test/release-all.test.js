@@ -88,14 +88,12 @@ const env = {
   ORG_MANAGER_PRIVATE_KEY: PEM,
 };
 
-const CALLER = "jobs:\n  release-tags:\n    uses: GTNewHorizons/GTNH-Actions-Workflows/.github/workflows/release-tags.yml@master\n";
 const sha = (c) => c.repeat(40);
-const repo = (name, { releases = [], tags = [], caller = CALLER, head = sha("a") } = {}) => ({
+const repo = (name, { releases = [], tags = [], head = sha("a") } = {}) => ({
   name,
   defaultBranchRef: { name: "master", target: { oid: head } },
   releases: { nodes: releases.map((tagName) => ({ tagName, isDraft: false })) },
   refs: { nodes: tags.map((n) => ({ name: n })) },
-  caller: caller ? { text: caller } : null,
 });
 
 let github = {};
@@ -148,7 +146,7 @@ github = {
   StructureLib: repo("StructureLib", { releases: ["latest", "1.4.47"], tags: ["latest", "1.4.47"] }),
   Navigator: repo("Navigator", { releases: ["1.2.0-pre"], tags: ["1.2.0-pre"] }),
   Failed: repo("Failed", { releases: ["2.0.3"], tags: ["2.0.4", "2.0.3"] }),
-  NoWorkflow: repo("NoWorkflow", { releases: ["1.0.0"], tags: ["1.0.0"], caller: null }),
+  NoWorkflow: repo("NoWorkflow", { releases: ["1.0.0"], tags: ["1.0.0"] }),
 };
 calls = [];
 {
@@ -157,11 +155,11 @@ calls = [];
   check("answers 200", out.status, 200);
   check("reads GitHub as NH-Dashbot", calls, ["graphql ghs_dashbot"]);
   check("drops names that aren't repo names", out.body.repos.length, 6);
+  check("an ordinary repo has no notes", by.GTNHLib.notes, []);
   check("predicts from the newest release", [by.GTNHLib.lastTag, by.GTNHLib.predicted, by.GTNHLib.sha], ["0.11.54", "0.11.55", sha("a")]);
   check("skips a release that isn't a version", [by.StructureLib.lastTag, by.StructureLib.predicted], ["1.4.47", "1.4.48"]);
   check("counts up from a -pre", [by.Navigator.predicted, by.Navigator.lastWasPre], ["1.2.1", true]);
   check("steps past a tag that already exists", [by.Failed.predicted, by.Failed.skipped], ["2.0.5", ["2.0.4"]]);
-  check("flags a repo with no release workflow", [by.NoWorkflow.workflow, by.NoWorkflow.notes.length], [false, 1]);
   check("flags a repo GitHub doesn't know", Boolean(by.Gone.problem), true);
   check("no stats yet", out.body.stats, { total: 0, matched: 0, wrong: 0 });
 }

@@ -868,15 +868,13 @@ from GitHub, as NH-Dashbot, in one GraphQL query per 20 repos:
 
 - the default branch and its HEAD commit
 - the ten newest releases and the hundred newest tags
-- whether `.github/workflows/release-tags.yml` calls GTNH-Actions-Workflows
 
 The dialog lists each repo with a checkbox, its last tag, the predicted new
 tag in an editable box, and the commit it will be tagged at. How the
 prediction is made, and what it learns, is in Calculations.md under
 **Predicted release tag**. Editing a tag shows a **prediction was wrong**
 checkbox. Tick it when the predictor got it wrong so it's learned; leave it
-unticked for an intentional major bump or custom tag. Repos with no release
-workflow get a note saying the release will have no jar. A ticked repo with an
+unticked for an intentional major bump or custom tag. A ticked repo with an
 empty or invalid tag disables the button.
 
 On confirm, `POST /api/release-all` creates a release in each repo, as
