@@ -897,9 +897,14 @@ Each release made is a row in `release_tag_feedback`: repo, previous tag, predic
 tag, actual tag, commit, the wrong tick, who and when. It needs
 `migrations/006-release-tag-feedback.sql` run once. Until then tags are still
 made, the preview says nothing learned could be read, and the feedback write
-is logged to Workers Logs as failed. Who pressed it is also kept in `meta` as
-`release_all_log` (the newest twenty runs) and in Workers Logs as
-`{"at":"release-all",…}`.
+is logged to Workers Logs as failed.
+
+Each run posts one line to **Releases & packages** on the GitHub Logs page,
+with who pressed it, the first eight repos and their tags, and how many failed.
+The releases themselves show up there too, from their webhooks, as made by
+Org-Manager. The dialog doesn't keep a history of its own. `meta` holds only
+the last run, as `release_all_log`, for the two-minute wait, and Workers Logs
+gets `{"at":"release-all",…}` with every repo's result.
 
 The Worker refuses, whatever the page shows:
 

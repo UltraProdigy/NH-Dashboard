@@ -1,5 +1,6 @@
 import { appReady, installationToken, rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
+import { LOG_NAME } from "./event-log.js";
 import {
   DATED_REPOS,
   isDatedTag,
@@ -12,7 +13,8 @@ import {
 } from "./release-tags.js";
 
 const LOG_KEY = "release_all_log";
-const LOG_SIZE = 20;
+const LOG_SIZE = 1;
+const LOG_REPOS = 8;
 const COOLDOWN_MS = 2 * 60_000;
 const CHUNK = 20;
 const MAX_REPOS = 150;
@@ -172,7 +174,6 @@ export async function releaseAllPreview(env, repoNames, { now = Date.now() } = {
     return { status: 502, body: { error: `Couldn't read the repos from GitHub: ${String(err).slice(0, 200)}` } };
   }
 
-  const log = await readLog(env.DB);
   return {
     status: 200,
     body: {
@@ -180,7 +181,6 @@ export async function releaseAllPreview(env, repoNames, { now = Date.now() } = {
       repos: names.map((name, i) => plan(name, found[i], learned, now)),
       stats,
       storeError,
-      log: log.slice(0, 5),
     },
   };
 }
@@ -218,6 +218,35 @@ function explain(err) {
 }
 
 const tagUrl = (org, repo, tag) => `https://github.com/${org}/${repo}/releases/tag/${encodeURIComponent(tag)}`;
+
+export function logLine(entry, results) {
+  const done = results.filter((r) => r.ok);
+  const failed = results.length - done.length;
+  const named = done.slice(0, LOG_REPOS).map((r) => `${r.repo} ${r.tag}`).join(", ");
+  const more = done.length > LOG_REPOS ? ` and ${done.length - LOG_REPOS} more` : "";
+  const text = done.length
+    ? `ran Release all: ${named}${more}${failed ? ` (${failed} failed)` : ""}`
+    : `ran Release all, and all ${failed} failed`;
+  return {
+    id: `release-all-${entry.at}`,
+    at: entry.at,
+    box: "releases",
+    event: "release_all",
+    action: null,
+    repo: null,
+    actor: entry.by,
+    text,
+    url: null,
+    tone: failed ? "warn" : "good",
+  };
+}
+
+async function postToLogs(env, entry, results) {
+  if (!env.EVENT_LOG) return;
+  const stub = env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME));
+  const res = await stub.fetch("https://event-log/record", { method: "POST", body: JSON.stringify(logLine(entry, results)) });
+  if (!res.ok) throw new Error(`event log ${res.status}`);
+}
 
 export async function releaseAll(env, by, rawItems, { dryRun = false, now = Date.now() } = {}) {
   const items = cleanItems(rawItems);
@@ -285,6 +314,9 @@ export async function releaseAll(env, by, rawItems, { dryRun = false, now = Date
     ...(dryRun ? { dryRun: true } : {}),
   };
   if (made.length || dryRun) await writeLog(env.DB, [entry, ...log]);
+  if (!dryRun) await postToLogs(env, entry, results).catch((err) =>
+    console.error(JSON.stringify({ at: "release-all", error: `GitHub Logs line not posted: ${err}` })),
+  );
   console.log(JSON.stringify({ at: "release-all", ...entry, results }));
   return { status: made.length ? 200 : 502, body: { ok: made.length > 0, entry, results } };
 }

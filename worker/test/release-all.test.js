@@ -95,8 +95,13 @@ const pair = await crypto.subtle.generateKey(
 const der = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
 const PEM = `-----BEGIN PRIVATE KEY-----\n${der.match(/.{1,64}/g).join("\n")}\n-----END PRIVATE KEY-----\n`;
 
+const logged = [];
 const env = {
   DB: db,
+  EVENT_LOG: {
+    idFromName: (name) => name,
+    get: () => ({ fetch: async (_url, init) => (logged.push(JSON.parse(init.body)), new Response(null, { status: 204 })) }),
+  },
   GITHUB_ORG: "GTNewHorizons",
   GH_APP_ID: "4745300",
   GH_APP_PRIVATE_KEY: PEM,
@@ -214,7 +219,12 @@ calls = [];
     [["GTNHLib", "0.11.55", 0], ["StructureLib", "1.5.0", 1], ["Navigator", "2.0.0", 0]],
   );
   check("links each release", out.body.results[0].url, "https://github.com/GTNewHorizons/GTNHLib/releases/tag/0.11.55");
-  check("logs who pressed it", log()[0], { at: "2026-10-24T12:00:00.000Z", by: "admin@example.com", created: 3, failed: 0 });
+  check("keeps the last run for the cooldown", log(), [{ at: "2026-10-24T12:00:00.000Z", by: "admin@example.com", created: 3, failed: 0 }]);
+  check(
+    "posts one line to Releases & packages in GitHub Logs",
+    [logged.at(-1).box, logged.at(-1).actor, logged.at(-1).text, logged.at(-1).tone],
+    ["releases", "admin@example.com", "ran Release all: GTNHLib 0.11.55, StructureLib 1.5.0, Navigator 2.0.0", "good"],
+  );
 }
 
 console.log("\nthe cooldown");
@@ -250,6 +260,7 @@ calls = [];
   check("explains a missing permission", /Contents: Read and write/.test(by.NoWorkflow.error), true);
   check("keeps feedback only for the release that was made", feedback().length, 4);
   check("logs the failures", [log()[0].created, log()[0].failed], [1, 2]);
+  check("and says so in GitHub Logs", [logged.at(-1).text, logged.at(-1).tone], ["ran Release all: GTNHLib 0.11.56 (2 failed)", "warn"]);
 }
 refStatus = {};
 
@@ -272,6 +283,7 @@ calls = [];
   check("answers 200 marked dry", [out.status, out.body.entry.dryRun], [200, true]);
   check("sends nothing to GitHub", calls, []);
   check("teaches nothing", feedback().length, before);
+  check("and posts nothing to GitHub Logs", logged.at(-1).text.includes("0.11.57"), false);
   const next = await releaseAll(env, "admin@example.com", [{ repo: "GTNHLib", tag: "0.11.57", sha: sha("a") }], { now: T0 + 2 * 3_600_000 + 1000 });
   check("and doesn't start the cooldown", next.status, 200);
 }

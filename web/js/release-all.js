@@ -57,11 +57,6 @@ function dialogHtml(p) {
   const notes = [];
   if (!p.ready) notes.push(`<p class="daily-warn">Org-Manager isn't set up on this Worker yet, so this can't run.</p>`);
   if (p.storeError) notes.push(`<p class="daily-warn">${esc(p.storeError)}</p>`);
-  const log = p.log?.length
-    ? `<div class="daily-log"><div class="minlabel">Released from here</div><ul>${p.log.map(e =>
-        `<li>${esc(e.by)} · ${esc(new Date(e.at).toLocaleString())} · ${e.created} released${
-          e.failed ? `, ${e.failed} failed` : ""}${e.dryRun ? " · dry run" : ""}</li>`).join("")}</ul></div>`
-    : "";
 
   return `
     <h3>Release all?</h3>
@@ -78,7 +73,6 @@ function dialogHtml(p) {
         <tbody>${p.repos.map(rowHtml).join("")}</tbody>
       </table>
     </div>
-    ${log}
     <div class="daily-actions">
       <span class="ra-count minlabel" data-count></span>
       <button type="button" class="ghost" data-ra="cancel" autofocus>Cancel</button>
