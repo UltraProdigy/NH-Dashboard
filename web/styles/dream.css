@@ -237,7 +237,7 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 .ra-off td:not(:first-child) { opacity: .5; }
 .ra-note { color: var(--warn); font-size: 11.5px; margin-top: 3px; max-width: 280px; }
 .ra-tag {
-  width: 176px; padding: 4px 7px; border-radius: 6px;
+  width: 30ch; max-width: 100%; padding: 4px 7px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text);
   font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
