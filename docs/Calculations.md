@@ -1233,6 +1233,20 @@ If the prediction is already a tag in the repo (out of the newest 100), it
 counts up again, up to 20 times, and the dialog names what it skipped. That
 covers a tag whose build failed and so never made a release.
 
+**Dated repos.** GT-New-Horizons-Modpack and Questbook-Releases are tagged by
+date, not by counting up, and are hardcoded as `DATED_REPOS`. The last tag is
+the newest release whose tag ends in a date (so `2.9.0-RC-2` is skipped), and
+everything before that date is kept:
+
+```
+2.9.0-nightly-2026-10-21  → 2.9.0-nightly-<today>
+today's already tagged    → 2.9.0-nightly-<today>-02, then -03, …
+```
+
+"Today" is the UTC date when the dialog opens. The same-day number is one past
+the highest already tagged for that date, padded to two digits, as the
+existing tags are. Nothing is learned for these repos.
+
 **Learning.** Every release Release All makes is a row in `release_tag_feedback`.
 Only rows where the admin ticked *prediction was wrong* are learned from. An
 edit left unticked is taken as an intentional bump. For each repo, the newest
@@ -1574,7 +1588,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
-| 2026-10-24 | Predicted release tag | New, no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |
+| 2026-10-24 | Predicted release tag | New, with GT-New-Horizons-Modpack and Questbook-Releases dated instead of counted. Otherwise no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |
 | 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |
 | 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. |
 | 2026-09-08 | Org Search empty form | An empty form returns the fifty most recently updated records rather than no rows. See **Org Search**. |

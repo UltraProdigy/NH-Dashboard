@@ -2,6 +2,25 @@ const PRE = /-pre$/i;
 
 export const DEFAULT_RULE = { fromEnd: 0, step: 1 };
 
+export const DATED_REPOS = new Set(["GT-New-Horizons-Modpack", "Questbook-Releases"]);
+
+const DATED = /^(.*?)(\d{4}-\d{2}-\d{2})(?:-(\d+))?$/;
+
+export const isDatedTag = (tag) => DATED.test(String(tag ?? ""));
+
+export function predictDatedTag(lastTag, taken, now = Date.now()) {
+  const m = DATED.exec(String(lastTag ?? ""));
+  if (!m) return null;
+  const base = m[1] + new Date(now).toISOString().slice(0, 10);
+  if (!taken.has(base)) return base;
+  let n = 1;
+  for (const t of taken) {
+    const same = DATED.exec(t);
+    if (same && same[1] + same[2] === base && same[3]) n = Math.max(n, Number(same[3]));
+  }
+  return `${base}-${String(n + 1).padStart(2, "0")}`;
+}
+
 export function parseTag(tag) {
   const raw = String(tag ?? "").trim();
   if (!raw || /\s/.test(raw)) return null;

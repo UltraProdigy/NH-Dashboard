@@ -8,7 +8,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { releaseAll, releaseAllPreview } from "../src/release-all.js";
-import { learnRule, predictTag, ruleFrom } from "../src/release-tags.js";
+import { learnRule, predictDatedTag, predictTag, ruleFrom } from "../src/release-tags.js";
 import { forgetToken } from "../src/github.js";
 import { forgetOrgManagerToken } from "../src/org-manager.js";
 
@@ -35,6 +35,18 @@ check("a -pre after a suffix", predictTag("1.1.71-GTNH-pre"), "1.1.72-GTNH");
 check("gives up on a tag with no number", predictTag("latest"), null);
 check("follows a learned minor bump", predictTag("1.4.47", { fromEnd: 1, step: 1 }), "1.5.0");
 check("falls back when a rule doesn't fit", predictTag("1.2", { fromEnd: 5, step: 1 }), "1.3");
+
+console.log("\nthe dated modpack tags");
+{
+  const now = Date.parse("2026-10-24T15:00:00Z");
+  const last = "2.9.0-nightly-2026-10-21";
+  check("today's date after the last tag's prefix", predictDatedTag(last, new Set([last]), now), "2.9.0-nightly-2026-10-24");
+  const today = new Set(["2.9.0-nightly-2026-10-24"]);
+  check("a second release today is -02", predictDatedTag("2.9.0-nightly-2026-10-24", today, now), "2.9.0-nightly-2026-10-24-02");
+  today.add("2.9.0-nightly-2026-10-24-02");
+  check("a third is -03", predictDatedTag("2.9.0-nightly-2026-10-24-02", today, now), "2.9.0-nightly-2026-10-24-03");
+  check("a tag with no date gives up", predictDatedTag("2.9.0-RC-2", today, now), null);
+}
 
 console.log("\nlearning from a correction");
 check("a minor bump", learnRule("1.4.47", "1.5.0"), { fromEnd: 1, step: 1 });
@@ -147,14 +159,20 @@ github = {
   Navigator: repo("Navigator", { releases: ["1.2.0-pre"], tags: ["1.2.0-pre"] }),
   Failed: repo("Failed", { releases: ["2.0.3"], tags: ["2.0.4", "2.0.3"] }),
   NoWorkflow: repo("NoWorkflow", { releases: ["1.0.0"], tags: ["1.0.0"] }),
+  "GT-New-Horizons-Modpack": repo("GT-New-Horizons-Modpack", {
+    releases: ["2.9.0-nightly-2026-10-24", "2.9.0-RC-2", "2.9.0-nightly-2026-10-21"],
+    tags: ["2.9.0-nightly-2026-10-24", "2.9.0-RC-2", "2.9.0-nightly-2026-10-21"],
+  }),
 };
 calls = [];
 {
-  const out = await releaseAllPreview(env, ["GTNHLib", "StructureLib", "Navigator", "Failed", "NoWorkflow", "Gone", "bad name!"]);
+  const out = await releaseAllPreview(env, ["GTNHLib", "StructureLib", "Navigator", "Failed", "NoWorkflow", "GT-New-Horizons-Modpack", "Gone", "bad name!"], { now: Date.parse("2026-10-24T15:00:00Z") });
   const by = Object.fromEntries(out.body.repos.map((r) => [r.repo, r]));
   check("answers 200", out.status, 200);
   check("reads GitHub as NH-Dashbot", calls, ["graphql ghs_dashbot"]);
-  check("drops names that aren't repo names", out.body.repos.length, 6);
+  check("drops names that aren't repo names", out.body.repos.length, 7);
+  const pack = by["GT-New-Horizons-Modpack"];
+  check("dates the modpack, skipping an RC", [pack.lastTag, pack.predicted, pack.learned], ["2.9.0-nightly-2026-10-24", "2.9.0-nightly-2026-10-24-02", null]);
   check("an ordinary repo has no notes", by.GTNHLib.notes, []);
   check("predicts from the newest release", [by.GTNHLib.lastTag, by.GTNHLib.predicted, by.GTNHLib.sha], ["0.11.54", "0.11.55", sha("a")]);
   check("skips a release that isn't a version", [by.StructureLib.lastTag, by.StructureLib.predicted], ["1.4.47", "1.4.48"]);

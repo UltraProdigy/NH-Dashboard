@@ -871,7 +871,8 @@ from GitHub, as NH-Dashbot, in one GraphQL query per 20 repos:
 
 The dialog lists each repo with a checkbox, its last tag, the predicted new
 tag in an editable box, and the commit it will be tagged at. How the
-prediction is made, and what it learns, is in Calculations.md under
+prediction is made, what it learns, and the two repos tagged by date
+(GT-New-Horizons-Modpack and Questbook-Releases) are in Calculations.md under
 **Predicted release tag**. Editing a tag shows a **prediction was wrong**
 checkbox. Tick it when the predictor got it wrong so it's learned; leave it
 unticked for an intentional major bump or custom tag. A ticked repo with an

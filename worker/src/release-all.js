@@ -1,6 +1,15 @@
 import { appReady, installationToken, rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
-import { isDefaultRule, parseTag, predictTag, ruleFrom, validTagName } from "./release-tags.js";
+import {
+  DATED_REPOS,
+  isDatedTag,
+  isDefaultRule,
+  parseTag,
+  predictDatedTag,
+  predictTag,
+  ruleFrom,
+  validTagName,
+} from "./release-tags.js";
 
 const LOG_KEY = "release_all_log";
 const LOG_SIZE = 20;
@@ -76,16 +85,34 @@ async function lookUp(token, org, names) {
   return names.map((_, i) => out.data[`r${i}`] ?? null);
 }
 
-function lastTagOf(repo) {
-  const released = repo.releases.nodes.find((r) => !r.isDraft && parseTag(r.tagName));
+function lastTagOf(repo, fits) {
+  const released = repo.releases.nodes.find((r) => !r.isDraft && fits(r.tagName));
   if (released) return released.tagName;
-  return repo.refs.nodes.find((t) => parseTag(t.name))?.name ?? null;
+  return repo.refs.nodes.find((t) => fits(t.name))?.name ?? null;
 }
 
-function plan(name, repo, learned) {
+function planDated(repo, sha, now) {
+  const lastTag = lastTagOf(repo, isDatedTag);
+  const taken = new Set(repo.refs.nodes.map((t) => t.name));
+  return {
+    repo: repo.name,
+    defaultBranch: repo.defaultBranchRef?.name ?? null,
+    sha,
+    problem: sha ? null : "The repo has no default branch",
+    notes: lastTag ? [] : ["No earlier dated tag to copy. Type the tag in"],
+    lastTag,
+    lastWasPre: false,
+    predicted: predictDatedTag(lastTag, taken, now),
+    learned: null,
+    skipped: [],
+  };
+}
+
+function plan(name, repo, learned, now) {
   if (!repo) return { repo: name, problem: "GitHub doesn't know this repo, or NH-Dashbot can't see it", notes: [] };
   const sha = repo.defaultBranchRef?.target?.oid ?? null;
-  const lastTag = lastTagOf(repo);
+  if (DATED_REPOS.has(repo.name)) return planDated(repo, sha, now);
+  const lastTag = lastTagOf(repo, parseTag);
   const rule = ruleFrom(learned.get(repo.name) ?? []);
   const taken = new Set(repo.refs.nodes.map((t) => t.name));
 
@@ -120,7 +147,7 @@ export function cleanRepos(list) {
   return names.length && names.length <= MAX_REPOS ? names : null;
 }
 
-export async function releaseAllPreview(env, repoNames) {
+export async function releaseAllPreview(env, repoNames, { now = Date.now() } = {}) {
   const names = cleanRepos(repoNames);
   if (!names) return { status: 400, body: { error: `send 1 to ${MAX_REPOS} repo names` } };
   if (!appReady(env)) return { status: 503, body: { error: "GH_APP_ID or GH_APP_PRIVATE_KEY not set" } };
@@ -150,7 +177,7 @@ export async function releaseAllPreview(env, repoNames) {
     status: 200,
     body: {
       ready: orgManagerReady(env),
-      repos: names.map((name, i) => plan(name, found[i], learned)),
+      repos: names.map((name, i) => plan(name, found[i], learned, now)),
       stats,
       storeError,
       log: log.slice(0, 5),
