@@ -99,7 +99,7 @@ its own token cache. The installation ID is derived the same way.
 Setup, once:
 
 1. On the App's settings, give it repository **Actions: Read and write** (for
-   the daily) and **Contents: Read and write** (for Release All's tags), then
+   the daily) and **Contents: Read and write** (for Release All's releases), then
    accept the change on the org's installation page. Release All can tag any
    repo on Needs a release, so the installation should cover all repositories.
    If any repo has a tag ruleset, Org-Manager needs to be on its bypass list.
@@ -112,7 +112,7 @@ Setup, once:
 Actions write covers more than dispatching: it can also cancel, re-run and
 delete runs in every repo the App is installed on. The dashboard only ever
 dispatches the one workflow. Contents write likewise covers pushing to
-branches; the dashboard only ever creates tags.
+branches; the dashboard only ever creates releases.
 
 ### Exclusions that apply everywhere
 
@@ -857,8 +857,9 @@ log. The route guards are in `app.test.js`.
 
 ### Release All
 
-Next to Release new daily, admins get **Release all**. It tags a new release on
-every repo the Needs a release card is showing, after the user checks each tag.
+Next to Release new daily, admins get **Release all**. It makes a new release
+on every repo the Needs a release card is showing, after the user checks each
+tag.
 
 Pressing it sends the card's repos, after that card's own repo exclusions, to
 `POST /api/release-all/preview`. The card's filter is the only way to keep a
@@ -875,21 +876,25 @@ prediction is made, and what it learns, is in Calculations.md under
 **Predicted release tag**. Editing a tag shows a **prediction was wrong**
 checkbox. Tick it when the predictor got it wrong so it's learned; leave it
 unticked for an intentional major bump or custom tag. Repos with no release
-workflow start unticked, with a note saying why. A ticked repo with an empty
-or invalid tag disables the button.
+workflow get a note saying the release will have no jar. A ticked repo with an
+empty or invalid tag disables the button.
 
-On confirm, `POST /api/release-all` creates each tag, as Org-Manager, with
-`POST /repos/{org}/{repo}/git/refs` at the commit the dialog showed rather than
-whatever HEAD is by then, so a PR merged while the dialog was open isn't
-released unseen. The tags are lightweight, matching what GitHub's release page
-and every recent GTNH tag use. That is all the dashboard does. Each repo's
-`release-tags.yml` runs on the tag push, builds the jar, writes the release
-notes with GitHub's generator (or `.changelogs/<tag>.md` if there is one),
-creates the release and publishes to Maven, Modrinth and CurseForge. A tag
-made by a GitHub App's token starts workflows, unlike one made with
-`GITHUB_TOKEN`.
+On confirm, `POST /api/release-all` creates a release in each repo, as
+Org-Manager, with `POST /repos/{org}/{repo}/releases`: `tag_name` is the tag,
+`target_commitish` the commit the dialog showed rather than whatever HEAD is by
+then (so a PR merged while the dialog was open isn't released unseen), `name`
+the tag, and `generate_release_notes` on. GitHub creates the lightweight tag
+with it, the same as publishing a release from the website.
 
-Each tag made is a row in `release_tag_feedback`: repo, previous tag, predicted
+That covers both kinds of repo. One without the workflow just has its release,
+with GitHub's notes. One with `release-tags.yml` also gets the tag push, and
+the workflow builds the jar, deletes the release the dashboard made (its
+"Delete old release if it already exists" step), recreates it with the jar and
+its own notes (GitHub's generator again, or `.changelogs/<tag>.md` if there is
+one) and publishes to Maven, Modrinth and CurseForge. A tag made by a GitHub
+App's token starts workflows, unlike one made with `GITHUB_TOKEN`.
+
+Each release made is a row in `release_tag_feedback`: repo, previous tag, predicted
 tag, actual tag, commit, the wrong tick, who and when. It needs
 `migrations/006-release-tag-feedback.sql` run once. Until then tags are still
 made, the preview says nothing learned could be read, and the feedback write
@@ -905,15 +910,15 @@ The Worker refuses, whatever the page shows:
   or a commit that isn't a full 40-character SHA
 - a second Release All within two minutes of the last one
 
-A tag GitHub refuses doesn't stop the rest. The toolbar says how many were
-tagged and a second dialog lists the failures, each with what to check: the
+A release GitHub refuses doesn't stop the rest. The toolbar says how many were
+released and a second dialog lists the failures, each with what to check: the
 tag already existing, Org-Manager missing Contents write or the repo, or a
-ruleset. Under `wrangler dev` with `DEV_ROLE` it's a dry run that tags nothing
-and teaches nothing.
+ruleset. Under `wrangler dev` with `DEV_ROLE` it's a dry run that releases
+nothing and teaches nothing.
 
 `worker/test/release-all.test.js` (`npm run test:release-all`, in the deploy
-gate) covers the predictor, learning, the preview, the tags and their pinned
-commits, partial failures, the cooldown and the dry run. The route guards are
+gate) covers the predictor, learning, the preview, the releases and their
+pinned commits, partial failures, the cooldown and the dry run. The route guards are
 in `app.test.js`.
 
 ### What counts as needing a release

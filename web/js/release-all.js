@@ -29,7 +29,7 @@ async function post(path, payload) {
 function rowHtml(r, i) {
   const repoUrl = `https://github.com/GTNewHorizons/${encodeURIComponent(r.repo)}`;
   const usable = !r.problem && r.sha;
-  const on = usable && r.workflow && Boolean(r.predicted);
+  const on = usable && Boolean(r.predicted);
   const notes = [r.problem, ...(r.notes ?? [])].filter(Boolean);
   return `
     <tr data-row="${i}" class="${on ? "" : "ra-off"}">
@@ -59,15 +59,16 @@ function dialogHtml(p) {
   if (p.storeError) notes.push(`<p class="daily-warn">${esc(p.storeError)}</p>`);
   const log = p.log?.length
     ? `<div class="daily-log"><div class="minlabel">Released from here</div><ul>${p.log.map(e =>
-        `<li>${esc(e.by)} · ${esc(new Date(e.at).toLocaleString())} · ${e.created} tagged${
+        `<li>${esc(e.by)} · ${esc(new Date(e.at).toLocaleString())} · ${e.created} released${
           e.failed ? `, ${e.failed} failed` : ""}${e.dryRun ? " · dry run" : ""}</li>`).join("")}</ul></div>`
     : "";
 
   return `
     <h3>Release all?</h3>
-    <p>Each ticked repo gets the new tag on its default branch, at the commit shown. Its
-      release-tags workflow then builds it, writes the release notes and publishes it.
-      The tags are made by Org-Manager, and your name is kept here.</p>
+    <p>Each ticked repo gets a new release, with GitHub's generated notes, tagged on its
+      default branch at the commit shown. Where the repo has the release-tags workflow, that
+      then builds the jar, redoes the release with it and publishes it. The releases are made
+      by Org-Manager, and your name is kept here.</p>
     <p class="daily-last">If a predicted tag is wrong, type the right one and tick
       <b>prediction was wrong</b> so it's learned. Leave it unticked for an intentional bump.</p>
     ${notes.join("")}
@@ -158,7 +159,7 @@ function showResults(results) {
   const dialog = document.createElement("dialog");
   dialog.className = "daily-dialog";
   dialog.innerHTML = `
-    <h3>${results.length - failed.length} tagged, ${failed.length} failed</h3>
+    <h3>${results.length - failed.length} released, ${failed.length} failed</h3>
     <ul class="ra-results">${failed.map(r =>
       `<li><b>${esc(r.repo)}</b> ${esc(r.tag)}: ${esc(r.error ?? "failed")}</li>`).join("")}</ul>
     <div class="daily-actions"><span class="ra-count"></span>
@@ -192,8 +193,8 @@ async function release(items) {
     const { ok, status, body } = await post("/api/release-all", { items });
     if (!body.results) return finish(`Release All failed: ${body.error ?? status}`);
     const made = body.results.filter(r => r.ok).length;
-    if (body.entry?.dryRun) return finish(`Dry run: ${made} tags checked, nothing was sent to GitHub from localhost`);
-    finish(`Tagged ${made} ${made === 1 ? "repo" : "repos"}. Their releases build over the next few minutes`);
+    if (body.entry?.dryRun) return finish(`Dry run: ${made} releases checked, nothing was sent to GitHub from localhost`);
+    finish(`Released ${made} ${made === 1 ? "repo" : "repos"}. Workflow builds follow over the next few minutes`);
     if (!ok || made < body.results.length) showResults(body.results);
   } catch {
     finish("Release All failed: the dashboard couldn't be reached");

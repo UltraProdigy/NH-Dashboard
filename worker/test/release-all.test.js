@@ -128,12 +128,14 @@ globalThis.fetch = async (url, init = {}) => {
     }
     return Response.json({ data });
   }
-  const ref = path.match(/^\/repos\/GTNewHorizons\/([^/]+)\/git\/refs$/);
+  const ref = path.match(/^\/repos\/GTNewHorizons\/([^/]+)\/releases$/);
   if (ref && method === "POST") {
     calls.push(`POST ${ref[1]} ${token} ${init.body}`);
     const status = refStatus[ref[1]] ?? 201;
-    if (status === 422) return new Response('{"message":"Reference already exists"}', { status });
-    return new Response(status === 201 ? "{}" : "Resource not accessible by integration", { status });
+    if (status === 422) return new Response('{"message":"Validation Failed","errors":[{"resource":"Release","code":"already_exists","field":"tag_name"}]}', { status });
+    if (status !== 201) return new Response("Resource not accessible by integration", { status });
+    const tag = JSON.parse(init.body).tag_name;
+    return Response.json({ html_url: `https://github.com/GTNewHorizons/${ref[1]}/releases/tag/${tag}` }, { status });
   }
   return new Response("not stubbed", { status: 404 });
 };
@@ -178,12 +180,12 @@ calls = [];
   ], { now: T0 });
   check("answers 200", out.status, 200);
   check(
-    "creates each tag at its pinned commit, as Org-Manager",
+    "creates each release at its pinned commit with generated notes, as Org-Manager",
     calls,
     [
-      `POST GTNHLib ghs_org_manager {"ref":"refs/tags/0.11.55","sha":"${sha("a")}"}`,
-      `POST StructureLib ghs_org_manager {"ref":"refs/tags/1.5.0","sha":"${sha("b")}"}`,
-      `POST Navigator ghs_org_manager {"ref":"refs/tags/2.0.0","sha":"${sha("c")}"}`,
+      `POST GTNHLib ghs_org_manager {"tag_name":"0.11.55","target_commitish":"${sha("a")}","name":"0.11.55","generate_release_notes":true}`,
+      `POST StructureLib ghs_org_manager {"tag_name":"1.5.0","target_commitish":"${sha("b")}","name":"1.5.0","generate_release_notes":true}`,
+      `POST Navigator ghs_org_manager {"tag_name":"2.0.0","target_commitish":"${sha("c")}","name":"2.0.0","generate_release_notes":true}`,
     ],
   );
   check(
@@ -191,6 +193,7 @@ calls = [];
     feedback().map((r) => [r.repo, r.tag, r.wrong]),
     [["GTNHLib", "0.11.55", 0], ["StructureLib", "1.5.0", 1], ["Navigator", "2.0.0", 0]],
   );
+  check("links each release", out.body.results[0].url, "https://github.com/GTNewHorizons/GTNHLib/releases/tag/0.11.55");
   check("logs who pressed it", log()[0], { at: "2026-10-24T12:00:00.000Z", by: "admin@example.com", created: 3, failed: 0 });
 }
 
@@ -212,7 +215,7 @@ github.StructureLib = repo("StructureLib", { releases: ["1.5.0"], tags: ["1.5.0"
   check("the stats count what was kept", out.body.stats, { total: 3, matched: 1, wrong: 1 });
 }
 
-console.log("\nGitHub refusing some tags");
+console.log("\nGitHub refusing some releases");
 refStatus = { Failed: 422, NoWorkflow: 403 };
 calls = [];
 {
@@ -223,9 +226,9 @@ calls = [];
   ], { now: T0 + 10 * 60_000 });
   const by = Object.fromEntries(out.body.results.map((r) => [r.repo, r]));
   check("still answers 200 for the one that worked", [out.status, by.GTNHLib.ok], [200, true]);
-  check("explains an existing tag", by.Failed.error, "that tag already exists");
+  check("explains an existing tag", by.Failed.error, "that tag or release already exists");
   check("explains a missing permission", /Contents: Read and write/.test(by.NoWorkflow.error), true);
-  check("keeps feedback only for the tag that was made", feedback().length, 4);
+  check("keeps feedback only for the release that was made", feedback().length, 4);
   check("logs the failures", [log()[0].created, log()[0].failed], [1, 2]);
 }
 refStatus = {};

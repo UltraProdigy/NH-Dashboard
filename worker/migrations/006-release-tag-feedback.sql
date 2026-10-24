@@ -1,4 +1,4 @@
--- Every tag the Dream Panel's Release All created, with what it predicted.
+-- Every release the Dream Panel's Release All created, with what it predicted.
 --
 --   cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/006-release-tag-feedback.sql
 --

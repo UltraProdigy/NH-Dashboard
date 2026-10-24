@@ -100,7 +100,7 @@ function plan(name, repo, learned) {
   }
 
   const notes = [];
-  if (!workflow) notes.push("No release-tags.yml calling GTNH-Actions-Workflows was found, so a tag may not build a release");
+  if (!workflow) notes.push("No release-tags workflow, so this gets a release with notes but no jar");
   if (!lastTag) notes.push("No earlier version tag to count up from. Type the tag in");
   if (skipped.length) notes.push(`Skipped ${skipped.join(", ")}: already tagged`);
 
@@ -188,10 +188,10 @@ function cleanItems(items) {
 function explain(err) {
   const t = String(err);
   if (/installation -> 404/.test(t)) return "Org-Manager isn't installed on the org";
-  if (/-> 422 .*already exists/i.test(t)) return "that tag already exists";
-  if (/git\/refs -> 40[34]/.test(t))
-    return "Org-Manager can't create tags here. Check it has Contents: Read and write, accepted on the installation, and that the repo is in its list";
-  if (/git\/refs -> 422/.test(t)) return `GitHub refused the tag: ${t.split(" -> 422 ")[1] ?? t}`;
+  if (/releases -> 422 .*already_exists/i.test(t)) return "that tag or release already exists";
+  if (/releases -> 40[34]/.test(t))
+    return "Org-Manager can't create releases here. Check it has Contents: Read and write, accepted on the installation, and that the repo is in its list";
+  if (/releases -> 422/.test(t)) return `GitHub refused the release: ${t.split(" -> 422 ")[1] ?? t}`;
   return t;
 }
 
@@ -228,11 +228,12 @@ export async function releaseAll(env, by, rawItems, { dryRun = false, now = Date
       continue;
     }
     try {
-      await rest(`/repos/${org}/${it.repo}/git/refs`, token, {
+      const res = await rest(`/repos/${org}/${it.repo}/releases`, token, {
         method: "POST",
-        body: { ref: `refs/tags/${it.tag}`, sha: it.sha },
+        body: { tag_name: it.tag, target_commitish: it.sha, name: it.tag, generate_release_notes: true },
       });
-      results.push({ repo: it.repo, tag: it.tag, ok: true, url: tagUrl(org, it.repo, it.tag) });
+      const made = await res.json().catch(() => ({}));
+      results.push({ repo: it.repo, tag: it.tag, ok: true, url: made.html_url ?? tagUrl(org, it.repo, it.tag) });
     } catch (err) {
       results.push({ repo: it.repo, tag: it.tag, ok: false, error: explain(err) });
     }

@@ -1233,7 +1233,7 @@ If the prediction is already a tag in the repo (out of the newest 100), it
 counts up again, up to 20 times, and the dialog names what it skipped. That
 covers a tag whose build failed and so never made a release.
 
-**Learning.** Every tag Release All makes is a row in `release_tag_feedback`.
+**Learning.** Every release Release All makes is a row in `release_tag_feedback`.
 Only rows where the admin ticked *prediction was wrong* are learned from. An
 edit left unticked is taken as an intentional bump. For each repo, the newest
 ticked correction that can be learned from becomes a rule:

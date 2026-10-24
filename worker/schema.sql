@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   at                TEXT
 );
 
--- Every tag the Dream Panel's Release All created, with what it predicted.
+-- Every release the Dream Panel's Release All created, with what it predicted.
 -- Only rows with `wrong` ticked teach the predictor.
 CREATE TABLE IF NOT EXISTS release_tag_feedback (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
