@@ -227,7 +227,7 @@ const DREAM_EXCL_KINDS = {
  */
 const DREAM_EXCL_DEFAULT = {
   approvedUnmerged: {
-    repos: ["Angelica", "Galaxia", "UtilitiesInExcess", "Horizon-QA", "lwjgl3ify"],
+    repos: ["Angelica", "Galaxia", "UtilitiesInExcess", "Horizon-QA", "lwjgl3ify", "supernova"],
     labels: ["⚠️ AUTHOR MERGE ONLY"],
   },
   changesRequested: { repos: [], labels: [] },
@@ -237,7 +237,7 @@ const DREAM_EXCL_DEFAULT = {
       "UtilitiesInExcess", "MergeMasterXXL-TestRepo", "GTNH-Web-Map",
       "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MergePreMaster",
       "BugTorch", "TinkersGregworks", "GTNH-Translations", "GTNHIssueHelper",
-      "CubicChunks1710",
+      "CubicChunks1710", "supernova",
     ],
     labels: [],
   },
