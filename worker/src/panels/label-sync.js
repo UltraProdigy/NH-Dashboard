@@ -66,28 +66,29 @@ export async function labelSync(db) {
       repo: repo.name,
       read: !!existing,
       skip,
-      labels: existing ? existing.length : 0,
       custom,
       actions: planned?.actions ?? [],
     });
 
     for (const l of repo.archived ? [] : custom) {
       const key = normalizeName(l.name);
-      if (!inventory.has(key)) inventory.set(key, { names: new Map(), variants: new Map(), repos: [] });
+      if (!inventory.has(key)) inventory.set(key, { names: new Map(), variants: new Map(), repos: new Set() });
       const entry = inventory.get(key);
-      entry.repos.push(repo.name);
+      entry.repos.add(repo.name);
       entry.names.set(l.name, (entry.names.get(l.name) ?? 0) + 1);
       const v = `${l.color}\0${l.description}`;
-      if (!entry.variants.has(v)) entry.variants.set(v, { color: l.color, description: l.description, repos: [] });
-      entry.variants.get(v).repos.push(repo.name);
+      if (!entry.variants.has(v)) entry.variants.set(v, { color: l.color, description: l.description, repos: new Set() });
+      entry.variants.get(v).repos.add(repo.name);
     }
   }
 
   const unmanaged = [...inventory.values()]
     .map((e) => ({
       name: [...e.names].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
-      repos: e.repos,
-      variants: [...e.variants.values()].sort((a, b) => b.repos.length - a.repos.length),
+      repos: [...e.repos],
+      variants: [...e.variants.values()]
+        .map((v) => ({ ...v, repos: [...v.repos] }))
+        .sort((a, b) => b.repos.length - a.repos.length),
     }))
     .sort((a, b) => b.repos.length - a.repos.length || a.name.localeCompare(b.name));
 

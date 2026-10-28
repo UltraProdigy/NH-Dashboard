@@ -60,6 +60,7 @@ function store() {
   rl.run("Label-Sync-GTNH", "Bug", "d73a4a", "Something is broken");
   rl.run("Secret", "wip", "123456", "");
   rl.run("Ghost", "wip", "ededed", "");
+  rl.run("Ghost", "WIP ", "ededed", "");
   return db;
 }
 
@@ -89,7 +90,8 @@ check("an excluded repo never appears", !repo("Secret") && !JSON.stringify(data)
 
 console.log("\nunmanaged inventory");
 const wip = data.unmanaged.find((u) => u.name.toLowerCase() === "wip");
-check("names group across case", wip?.repos.length === 3, JSON.stringify(wip?.repos));
+check("names group across case, each repo once", wip?.repos.length === 3, JSON.stringify(wip?.repos));
+check("and each variant lists a repo once", wip?.variants[0]?.repos.length === 3, JSON.stringify(wip?.variants));
 check("the most common spelling is shown", wip?.name === "wip", wip?.name);
 check("busiest name first", data.unmanaged[0] === wip);
 check("one variant when colours agree", wip?.variants.length === 1, JSON.stringify(wip?.variants));
