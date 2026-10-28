@@ -77,13 +77,23 @@ function load() {
 const get = (db, key) =>
   db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.value;
 
-const touch = (db, table) =>
+// A stamp in the same millisecond as a rebuild's computed_at counts as a write
+// after it, so each touch lands strictly between the rebuilds either side.
+const nextMs = () => {
+  const start = Date.now();
+  while (Date.now() === start);
+  return Date.now();
+};
+
+const touch = (db, table) => {
   db
     .prepare(
       `INSERT INTO meta (key, value) VALUES (?, ?)
        ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
     )
-    .run(`wrote:${table}`, new Date().toISOString());
+    .run(`wrote:${table}`, new Date(nextMs()).toISOString());
+  nextMs();
+};
 
 const stamps = (db) =>
   new Map(
