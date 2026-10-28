@@ -265,7 +265,7 @@ const days = (from, to) =>
  * busiest-first is the order that puts what you meant near the top before you
  * have typed anything.
  */
-async function facets(db) {
+async function facetRows(db) {
   const union = (col) => `
     SELECT ${col} AS v FROM issues
      UNION ALL
@@ -282,22 +282,44 @@ async function facets(db) {
     // json_each expands the array column into one row per label. The rewrite in
     // scope.js fires on `FROM issues` and leaves `FROM json_each(...)` alone —
     // `_` is a word character, so `issues_fts` would not have matched either.
-    db.prepare(counted(`
-      SELECT value AS v FROM issues, json_each(labels)
+    db.prepare(`
+      SELECT repo, value AS label, 'issues' AS kind, state = 'OPEN' AS is_open, COUNT(*) AS n
+        FROM issues, json_each(labels)
+       GROUP BY repo, value, is_open
        UNION ALL
-      SELECT value AS v FROM pull_requests, json_each(labels)`)).all(),
+      SELECT repo, value AS label, 'prs' AS kind, state = 'OPEN' AND merged_at IS NULL AS is_open, COUNT(*) AS n
+        FROM pull_requests, json_each(labels)
+       GROUP BY repo, value, is_open`).all(),
   ]);
 
   const rows = (r) => r.results.map((x) => ({ name: x.name, n: x.n }));
 
+  const totals = new Map();
+  const labelUsage = {};
+  for (const r of labels.results) {
+    if (r.label == null || r.label === "") continue;
+    totals.set(r.label, (totals.get(r.label) ?? 0) + r.n);
+    const counts = ((labelUsage[r.repo] ??= {})[r.label] ??= { issues: [0, 0], prs: [0, 0] })[r.kind];
+    counts[1] += r.n;
+    if (r.is_open) counts[0] += r.n;
+  }
+  const binary = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
   return {
-    repos: rows(repos),
-    // Names only past this point would be smaller, but the count is what the
-    // picker shows and recomputing it here would mean a fourth query.
-    authors: rows(authors),
-    labels: rows(labels),
+    facets: {
+      repos: rows(repos),
+      // Names only past this point would be smaller, but the count is what the
+      // picker shows and recomputing it here would mean a fourth query.
+      authors: rows(authors),
+      labels: [...totals]
+        .map(([name, n]) => ({ name, n }))
+        .sort((a, b) => b.n - a.n || binary(a.name, b.name)),
+    },
+    labelUsage,
   };
 }
+
+const facets = async (db) => (await facetRows(db)).facets;
 
 /**
  * Colours for the labels on this page of results, as `repo -> name -> hex`.
@@ -437,4 +459,4 @@ export async function search(db, opts, now = Date.now()) {
   };
 }
 
-export { facets };
+export { facetRows, facets };

@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { tmpdir } from "node:os";
 
-import { facets, parseSearch, search } from "../src/search.js";
+import { facetRows, facets, parseSearch, search } from "../src/search.js";
 import { scopedDb } from "../src/scope.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -310,6 +310,30 @@ async function main() {
 
   const scopedFacets = await facets(scoped);
   check("an excluded repo is not offered", !scopedFacets.repos.some((r) => r.name === secret));
+
+  console.log("\nlabel usage");
+  const { labelUsage } = await facetRows(open);
+  const summed = new Map();
+  for (const labels of Object.values(labelUsage)) {
+    for (const [name, u] of Object.entries(labels)) {
+      summed.set(name, (summed.get(name) ?? 0) + u.issues[1] + u.prs[1]);
+    }
+  }
+  check("per-repo totals add up to the picker's counts", f.labels.every((l) => summed.get(l.name) === l.n));
+  const openPr = db.prepare(
+    `SELECT repo, value AS label, COUNT(*) AS n FROM pull_requests, json_each(labels)
+      WHERE state = 'OPEN' AND merged_at IS NULL GROUP BY repo, value ORDER BY n DESC LIMIT 1`).get();
+  if (openPr)
+    check(`open pull requests are counted per repo (${openPr.repo} ${openPr.label})`,
+          labelUsage[openPr.repo]?.[openPr.label]?.prs[0] === openPr.n);
+  const openIssue = db.prepare(
+    `SELECT repo, value AS label, COUNT(*) AS n FROM issues, json_each(labels)
+      WHERE state = 'OPEN' GROUP BY repo, value ORDER BY n DESC LIMIT 1`).get();
+  if (openIssue)
+    check(`open issues are counted per repo (${openIssue.repo} ${openIssue.label})`,
+          labelUsage[openIssue.repo]?.[openIssue.label]?.issues[0] === openIssue.n);
+  const scopedUsage = (await facetRows(scoped)).labelUsage;
+  check("an excluded repo has no usage", !(secret in scopedUsage));
 
   console.log("\nlabel colours");
   // Nested by repo because the same name is a different colour in different

@@ -241,6 +241,7 @@ const EMPTY = {
   depUpdates: [],
   byLabel: {},
   labelSync: { managed: [], checks: {}, repos: [], unmanaged: [] },
+  labelUsage: {},
   ciHealth: { repos: {}, org: null },
   contributors: { windows: [], rows: [] },
   analytics: { windows: [], totals: {}, series: { week: [], month: [] } },

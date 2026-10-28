@@ -29,7 +29,7 @@ import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
 import { drilldown } from "./panels/drilldown.js";
 import { repos } from "./panels/repos.js";
-import { facets } from "./search.js";
+import { facetRows } from "./search.js";
 import { scopedDb } from "./scope.js";
 
 /**
@@ -103,8 +103,20 @@ const PANELS = {
   issues: { fn: issues, reads: ["issues"], hourly: true },
   drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"], hourly: true },
   repos: { fn: repos, reads: ["pull_requests", "reviews", "issues"], hourly: true },
-  facets: { fn: facets, reads: ["pull_requests", "issues"], hourly: true },
+  // One pass over every label on every row answers both the search pickers and
+  // the Labels page's usage counts, so it writes both cache rows.
+  facets: {
+    fn: facetRows,
+    reads: ["pull_requests", "issues"],
+    hourly: true,
+    writes: ["facets", "labelUsage"],
+  },
 };
+
+const rowsOf = (name) => PANELS[name]?.writes ?? [name];
+
+const ownerOf = (row) =>
+  row in PANELS ? row : Object.keys(PANELS).find((name) => PANELS[name].writes?.includes(row));
 
 export const TABLES = [
   "repos",
@@ -217,9 +229,9 @@ export const INSTANT_EVENTS = new Set(
 export const refreshTier = (name) =>
   name in INSTANT
     ? "instant"
-    : PANELS[name]?.hourly
+    : PANELS[ownerOf(name)]?.hourly
       ? "hourly"
-      : name in PANELS
+      : ownerOf(name)
         ? "cron"
         : "build";
 
@@ -381,29 +393,33 @@ export async function recompute(env, { force = false } = {}) {
   for (const name of due) {
     const started = Date.now();
     try {
-      const data = await PANELS[name].fn(db, now);
-      const json = JSON.stringify(data);
+      const result = await PANELS[name].fn(db, now);
       const ms = Date.now() - started;
 
-      const prev = await env.DB.prepare(
-        "SELECT json FROM panel_cache WHERE name = ?",
-      )
-        .bind(name)
-        .first();
-      if (!sameAnswer(prev?.json, data, json)) changed = true;
+      for (const row of rowsOf(name)) {
+        const data = PANELS[name].writes ? result[row] : result;
+        const json = JSON.stringify(data);
 
-      await env.DB.prepare(
-        `INSERT INTO panel_cache (name, json, computed_at, ms)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET
-           json = excluded.json,
-           computed_at = excluded.computed_at,
-           ms = excluded.ms`,
-      )
-        .bind(name, json, at, ms)
-        .run();
+        const prev = await env.DB.prepare(
+          "SELECT json FROM panel_cache WHERE name = ?",
+        )
+          .bind(row)
+          .first();
+        if (!sameAnswer(prev?.json, data, json)) changed = true;
 
-      built[name] = { bytes: json.length, ms };
+        await env.DB.prepare(
+          `INSERT INTO panel_cache (name, json, computed_at, ms)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(name) DO UPDATE SET
+             json = excluded.json,
+             computed_at = excluded.computed_at,
+             ms = excluded.ms`,
+        )
+          .bind(row, json, at, ms)
+          .run();
+
+        built[row] = { bytes: json.length, ms };
+      }
     } catch (err) {
       // The previous cached copy stays served and keeps its old `computed_at`,
       // so the next tick sees it as due and tries again.
@@ -426,7 +442,7 @@ export async function recompute(env, { force = false } = {}) {
 
   // Every panel not listed in `behind` is current as of `checked_at`. The page
   // reads both from `/api/version` to say when each card last refreshed.
-  const behind = [...held, ...Object.keys(failed).filter((name) => name in PANELS)];
+  const behind = [...held, ...Object.keys(failed).filter((name) => name in PANELS)].flatMap(rowsOf);
   await env.DB.prepare(
     `INSERT INTO meta (key, value) VALUES ('checked_at', ?), ('behind', ?)
      ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
