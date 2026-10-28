@@ -19,7 +19,7 @@ const panel = id => state.data?.panels?.[id];
  * card reads `issues` — so the page is the answer, and listing thirty modules
  * individually would be thirty chances to forget one.
  *
- * The two drilldown pages read `drilldown`, which between them is 22 of the 53
+ * The two drilldown pages read `drilldown`, which between them is 22 of the 65
  * cards — the largest thing one name in this map decides, and the reason
  * `"drilldown"` was the last panel let into `LIVE_PANELS`.
  */

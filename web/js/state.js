@@ -35,7 +35,7 @@ const state = {
   // sidebar: the landing page is a decision about what somebody should read
   // first, and tying it to sidebar order would make reordering the nav a
   // change of default without anyone saying so.
-  page: "dream",
+  page: "overview",
   // A module id, or "@<group>" for a tab holding several cards. Null = the
   // page's overview grid.
   tab: null,

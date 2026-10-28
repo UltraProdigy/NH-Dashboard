@@ -105,7 +105,7 @@ state.checkedAt = null;
    index plus one payload per subject, and either half can fall through to the
    23 MB build file on its own — so a green index over a build-file subject is
    a card that would read a confident blue about data the API never served.
-   22 of the 53 cards at once, which is the largest wrong thing the four
+   22 of the 65 cards at once, which is the largest wrong thing the four
    colours exist to prevent.
    ========================================================================== */
 
@@ -254,7 +254,7 @@ check("an outage moves only the cards that read the failed panel",
    The two mis-tinted cards were found by reading the source, and they had been
    wrong since `ciHealth` was registered. Nothing here would have caught them:
    every assertion above names a panel or a page, and the cards that go wrong
-   are exactly the ones nobody thought to name. So these walk all 53.
+   are exactly the ones nobody thought to name. So these walk all 65.
    ========================================================================== */
 
 const { MODULES } = await import("../web/js/modules/index.js");

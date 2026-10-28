@@ -30,6 +30,12 @@ function repoRows() {
 const repoOrg = () => repoPanel()?.org ?? null;
 const repoOrgWindow = () => repoOrg()?.byWindow?.[state.window] ?? null;
 
+/** Repos on the dormant or silent rung: nothing in three months or more. */
+const quietRepos = (org = repoOrg()) =>
+  (org?.byLifecycle ?? [])
+    .filter((b) => b.id === "dormant" || b.id === "silent")
+    .reduce((n, b) => n + b.count, 0);
+
 /** Lifecycle rungs with their counts, in order, with a tone for each. */
 const LIFECYCLE_TONE = {
   active: "var(--good)",
@@ -38,4 +44,4 @@ const LIFECYCLE_TONE = {
   silent: "var(--bad)",
 };
 
-export { LIFECYCLE_TONE, repoOrg, repoOrgWindow, repoPanel, repoRows };
+export { LIFECYCLE_TONE, quietRepos, repoOrg, repoOrgWindow, repoPanel, repoRows };

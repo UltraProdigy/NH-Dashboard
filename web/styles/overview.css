@@ -1,0 +1,10 @@
+/* Drawn above the grid rather than inside a card, so it has no .body padding
+   and no container of its own to size against. */
+.ov-links { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+.ov-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ov-row .minlabel { min-width: 42px; }
+
+a.expand { text-decoration: none; }
+a.expand:hover { text-decoration: none; }
+
+.kpi .v .namelink { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }

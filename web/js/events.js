@@ -164,6 +164,16 @@ document.getElementById("view").addEventListener("click", e => {
   const clear = e.target.closest("button[data-vsclear]");
   if (clear) { clearOpponents(); return render(); }
 
+  const pageLink = e.target.closest("a[data-pagelink]");
+  if (pageLink && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+    const [seg, tab] = (routeOf(pageLink.getAttribute("href")) ?? "").split("/");
+    const page = pageBySlug(seg);
+    if (page) {
+      e.preventDefault();
+      return go(page.id, tab ?? null);
+    }
+  }
+
   // Contributor names are real anchors to /contributor/<login>, so the browser
   // handles middle-click and cmd-click natively. Plain clicks are intercepted
   // only so they route through go(), which clears the sort and filter the way

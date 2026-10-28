@@ -35,6 +35,7 @@ import { backFrom } from "./router.js";
 import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
+import { overviewLead } from "./modules/overview.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -563,7 +564,8 @@ function pageBody() {
 
   if (state.tab === null) {
     const ids = page.modules.filter(id => !emptyReason(id));
-    return `<div class="grid">${ids.map(card).join("")}</div>`;
+    const lead = page.id === "overview" ? overviewLead() : "";
+    return `${lead}<div class="grid">${ids.map(card).join("")}</div>`;
   }
 
   const ids = liveMembers(page.id, state.tab);

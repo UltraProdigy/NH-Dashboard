@@ -501,7 +501,7 @@ rows, and they are harmless.
 It arrives in two pieces — an index once per session and one payload per subject
 — and either half can fall through to the build file on its own. So a green
 index over a build-file subject would be a confident blue about data the API
-never served, across 22 of the 53 cards at once. `drillOnBuild` in
+never served, across 22 of the 65 cards at once. `drillOnBuild` in
 `web/js/data.js` reads both halves, and either one on the file makes the card
 red.
 
@@ -1205,6 +1205,74 @@ than quietly plotting a shorter span than the control promised.
 
 Review latency at daily granularity is mostly gaps by design: a point only
 appears once a bucket has more than three merges, and most days don't.
+
+## Org Overview
+
+The landing page, and the first page a member sees. It answers "is the org
+alright" in five cards, then hands off to the page that owns each number.
+Nothing on it is a chart, a table or a tab.
+
+**No panel of its own.** Every figure comes from `analytics`, `issues`, `repos`,
+`contributors` or `ciHealth`, all of which are in `LIVE_PANELS` and fetched on
+every load anyway, so the page costs zero extra D1 reads: no `PANELS` entry, no
+parity test, no `BUDGET` line. It also introduces **no new calculation** — every
+tile is a figure another card already renders, read through the same helper, so
+`Calculations.md` has nothing to add. If a tile ever needs arithmetic of its
+own, it belongs on the page that owns that number instead.
+
+**One card per panel.** `ciHealth` is on the cron tier and the other four are
+hourly, so a card mixing them would wear one ring over two tiers and stay a
+confident purple through a `ciHealth` outage. Each card declares `reads`, and
+`PAGE_PANEL` deliberately has no `overview` entry.
+
+| Card | Span | Reads | Tiles | Hands off to |
+|---|---|---|---|---|
+| Pull requests | 6 | `analytics` | PRs opened, merge rate, median time to merge, open backlog | PR Analytics |
+| Issues | 6 | `issues` | Issues opened, backlog moved, median first response, open now | Issue Analytics |
+| Repos | 4 | `repos` | Repos, active in this period, quiet 3 months or more, stale open PRs | Repo Activity |
+| People | 4 | `contributors` | Known contributors, new faces, gone quiet, top author | Contributor Activity |
+| CI | 4 | `ciHealth` | Pass rate, runs per month, hours per month, average run | PR Analytics ▸ Actions load |
+
+The 4-wide cards carry four tiles rather than three. `mobile.css` pins any KPI
+strip in a card under 420px to two columns, and a span-4 card on a 1440px
+laptop is about 376px, so three tiles drew 2+1 with an empty cell. Four tile as
+2×2 there and 4-across on a wide monitor.
+
+A few tiles are worth knowing about:
+
+- **Backlog moved** carries no delta, for the reason Issue Analytics' Pulse
+  gives: it is signed, and a percentage change against a period that closed more
+  than it opened comes out backwards.
+- **People has no active-contributor count.** `activeAuthors` is on the PR card
+  two columns away, counted differently, and two numbers a reader would try to
+  reconcile and can't is worse than one fewer tile.
+- **New faces reads the page's period**, not New Faces' own `newFacesWindow`, so
+  it can differ from the card on Contributor Activity. The tile names its period.
+  The rule is `newFaces()` in `contributor-data.js`, which both cards call.
+- **Top author** is the first row of `rankedBy("prs")`, the same ranking Most PRs
+  opened draws, so the two cannot name different people.
+
+Every card is `tab: false`, so the tab bar hides itself — five tabs would have
+been worse copies of four other pages. In place of **See all →**, each header
+carries a `→` link through `controlsHtml()`, marked `data-pagelink` so a plain
+click routes through `go()` and keeps the period. The CI card links to Actions
+load because CI Health is still locked. Four cards take `controls: ["window"]`,
+writing the shared `state.window`; the CI card has nothing with a time axis and
+takes none.
+
+### The quick-links bar
+
+Links to GitHub, drawn above the grid by `overviewLead()` in
+`modules/overview.js` through one branch in `pageBody()`. It is **not a module**:
+it reads no panel, so as a card it could claim no freshness tier honestly, and
+`test/freshness.test.js` would rightly refuse it. GitHub Logs' status line is
+the precedent.
+
+Members get eight chips — Organization, Repositories, Open PRs, Awaiting my
+review, Open issues, Modpack tracker, People, Teams — with the org name taken
+from `state.data.org`. Admins get a second row of four (Org settings, Installed
+apps, Rulesets, Audit log), gated on `isAdmin(state.role)`, because every one of
+them 404s for a member. Refresh data is not here; it is in the sidebar footer.
 
 ## Contributor activity
 
@@ -3171,7 +3239,7 @@ Thirteen pages, in three sidebar sections:
 | Section | Pages |
 |---|---|
 | **Admin Resources** | Dream Panel, Labels *(stub)*, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs |
-| **Org Analytics** | Org Overview *(stub)*, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity *(stub)* |
+| **Org Analytics** | Org Overview, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity |
 | **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
 
 The split is what you *do* with a page, not where its data comes from. Admin
@@ -3280,15 +3348,18 @@ quietly grows an entry every few weeks tells them nothing until it does.
 
 ### The landing page
 
-A bare URL lands on **Dream Panel**, set by `state.page` in `state.js` rather
+A bare URL lands on **Org Overview**, set by `state.page` in `state.js` rather
 than taken from the top of the sidebar. What somebody should read first is a
 separate decision from what sits first in the nav, and deriving one from the
 other would make reordering the sidebar a change of default that nobody
 announced.
 
-Dream Panel is the landing page only until Org Overview is built. It used to
-point at Org Overview ahead of time, but that meant every visit opened on the
-under-construction card. Switching back is the one line in `state.js`.
+Dream Panel was the landing page until Org Overview was built; pointing at it
+ahead of time had meant every visit opened on the under-construction card. It
+matters for members too: `restrictToMembers()` removes Admin Resources, and
+`main.js` used to fall through to the first page with any modules, which was
+Issue Analytics by nothing but array order. Org Overview is in Org Analytics,
+so a member now lands on it directly.
 
 ## Tabs and groups
 

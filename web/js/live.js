@@ -76,7 +76,7 @@ export function setRole(role) {
  * `drilldown` is not in the list above.
  *
  * It is in `LIVE_PANELS` in every sense that matters: `PAGE_PANEL` tints 22 of
- * the 53 cards from it, `freshness` reads its `refresh` header, and a failure
+ * the 65 cards from it, `freshness` reads its `refresh` header, and a failure
  * turns those cards red. It is only kept out of the eager list because nothing
  * should fetch it until somebody opens a drilldown. Membership here *is* the
  * promotion, and it was made last — after the payloads render, never before,

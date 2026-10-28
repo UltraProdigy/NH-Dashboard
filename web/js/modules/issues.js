@@ -38,16 +38,10 @@ import {
   windowLabel,
   windowPhrase,
 } from "../data.js";
+import { netClass, signed } from "../module-helpers.js";
 
 const missing = () =>
   `<div class="error">Issue analytics needs the local issue store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
-
-/** Backlog movement reads as a direction, not a magnitude. */
-const signed = (n) =>
-  n == null ? "—" : n > 0 ? `+${fmt(n)}` : n < 0 ? `−${fmt(Math.abs(n))}` : "0";
-
-/** Growing backlog is bad news, shrinking is good — the opposite of a count. */
-const netClass = (n) => (n == null || n === 0 ? "" : n > 0 ? "down" : "up");
 
 const issueUrl = (r) =>
   `https://github.com/${state.data.org}/${encodeURIComponent(r.repo)}/issues/${r.number}`;

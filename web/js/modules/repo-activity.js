@@ -3,7 +3,7 @@ import { age, dur, esc, fmt, pctFmt, repoHref, repoLink } from "../format.js";
 import { hbars, kpi } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { panel, windowPhrase } from "../data.js";
-import { LIFECYCLE_TONE, repoOrg, repoOrgWindow, repoPanel, repoRows } from "../repo-activity-data.js";
+import { LIFECYCLE_TONE, quietRepos, repoOrg, repoOrgWindow, repoPanel, repoRows } from "../repo-activity-data.js";
 
 /**
  * Why a card has nothing to draw.
@@ -46,9 +46,7 @@ export const repoActivityModules = {
       const org = repoOrg();
       const w = repoOrgWindow();
       if (!org || !w) return missing();
-      const quiet = org.byLifecycle
-        .filter((b) => b.id === "dormant" || b.id === "silent")
-        .reduce((n, b) => n + b.count, 0);
+      const quiet = quietRepos(org);
       const conc = w.concentration;
       return `<div class="kpis">
         ${kpi("Repos", fmt(org.repos), "with any PR or issue")}

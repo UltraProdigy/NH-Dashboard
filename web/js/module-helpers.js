@@ -185,6 +185,13 @@ function releaseFor(repo) {
   return p?.ok ? p.data.find(r => r.repo === repo) ?? null : null;
 }
 
+/** Backlog movement reads as a direction, not a magnitude. */
+const signed = (n) =>
+  n == null ? "—" : n > 0 ? `+${fmt(n)}` : n < 0 ? `−${fmt(Math.abs(n))}` : "0";
+
+/** Growing backlog is bad news, shrinking is good — the opposite of a count. */
+const netClass = (n) => (n == null || n === 0 ? "" : n > 0 ? "down" : "up");
+
 const missingIngest = () =>
   `<div class="error">Analytics needs the local PR store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
 
@@ -201,6 +208,8 @@ export {
   draftOrder,
   draftPill,
   missingIngest,
+  netClass,
   releaseFor,
+  signed,
   sizeNotice,
 };

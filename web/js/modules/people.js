@@ -4,7 +4,7 @@ import { hbars } from "../charts.js";
 import { applyFilter, renderTable, sortRows } from "../table.js";
 import { activeWindow, panel, windowDays, windowPhrase } from "../data.js";
 import { cardWindow } from "../module-helpers.js";
-import { contributorAll, contributorColumns, contributorRows } from "../contributor-data.js";
+import { contributorColumns, contributorRows, goneQuiet, newFaces, rankedBy } from "../contributor-data.js";
 
 export const peopleModules = {
   /* ---------------- Contributor Activity ---------------- */
@@ -35,9 +35,7 @@ export const peopleModules = {
     controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
-      const rows = contributorRows()
-        .map(r => ({ login: r.login, count: r[state.window].prs }))
-        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      const rows = rankedBy("prs");
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count,
         href: contribHref, internal: true, icon: r => avatar(r.login, 16),
@@ -50,9 +48,7 @@ export const peopleModules = {
     controls: ["window"],
     sub: () => `${windowPhrase()}`,
     render(expanded) {
-      const rows = contributorRows()
-        .map(r => ({ login: r.login, count: r[state.window].approvals }))
-        .filter(r => r.count).sort((a, b) => b.count - a.count);
+      const rows = rankedBy("approvals");
       return hbars(rows.slice(0, expanded ? 25 : 7), {
         label: r => r.login, value: r => r.count, color: "var(--purple)",
         href: contribHref, internal: true, icon: r => avatar(r.login, 16),
@@ -73,9 +69,7 @@ export const peopleModules = {
       ? "first PR ever"
       : `first PR in the ${windowPhrase("newcomers")}`,
     render(expanded) {
-      const days = windowDays("newcomers");
-      const rows = contributorAll()
-        .filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days))
+      const rows = newFaces(windowDays("newcomers"))
         .sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
       const cols = [
         { key: "login", label: "Contributor", render: r => contribLink(r.login) },
@@ -91,8 +85,7 @@ export const peopleModules = {
     page: "people", label: "Gone quiet", span: 6, flush: true, controls: ["filter"],
     sub: () => "regulars with no activity in 6 months",
     render(expanded) {
-      const rows = contributorAll()
-        .filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180)
+      const rows = goneQuiet()
         .sort((a, b) => (b.all.prs + b.all.approvals) - (a.all.prs + a.all.approvals));
       const cols = [
         { key: "login", label: "Contributor", render: r => contribLink(r.login) },

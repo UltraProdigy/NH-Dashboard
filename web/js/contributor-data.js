@@ -17,11 +17,24 @@ import { panel, windowDays } from "./data.js";
 
 const contributorAll = () => panel("contributors")?.ok ? (panel("contributors").data.rows ?? []) : [];
 
+/** First PR inside the last `days`, or ever when `days` is null. */
+const newFaces = (days) =>
+  contributorAll().filter(r => r.firstSeen && (days == null || daysSince(r.firstSeen) <= days));
+
+/** Regulars — 20 or more PRs and approvals, lifetime — with nothing in 180 days. */
+const goneQuiet = () =>
+  contributorAll().filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180);
+
 /** Filtered against the *selected* window, not all-time. */
 function contributorRows() {
   const w = state.window;
   return contributorAll().filter(r => r[w] && r[w].prs + r[w].approvals >= state.minActivity);
 }
+
+/** Contributors ranked by one of the selected window's counts, zeros dropped. */
+const rankedBy = (key) => contributorRows()
+  .map(r => ({ login: r.login, count: r[state.window][key] }))
+  .filter(r => r.count).sort((a, b) => b.count - a.count);
 
 function contributorColumns() {
   const w = state.window;
@@ -84,4 +97,4 @@ function volumeTable(s) {
     renderTable([...s].reverse(), cols);
 }
 
-export { contributorAll, contributorColumns, contributorRows, volumeTable };
+export { contributorAll, contributorColumns, contributorRows, goneQuiet, newFaces, rankedBy, volumeTable };
