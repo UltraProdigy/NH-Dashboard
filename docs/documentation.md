@@ -291,7 +291,8 @@ What each role gets:
 `ADMIN_PANELS` in `web/js/roles.js` is the one list both sides read: the
 Worker refuses those panels to members, and the page leaves them out of the
 poll. They're the three only the Dream Panel uses (`approvedUnmerged`,
-`changesRequested`, `depUpdates`). `needsRelease` and `byLabel` also feed
+`changesRequested`, `depUpdates`) and the Labels page's two (`labelSync`,
+`labelUsage`). `needsRelease` and `byLabel` also feed
 member pages, so they stay open to everyone. Hiding a page in the sidebar is
 only for display. What actually protects a panel is the Worker refusing it.
 
@@ -462,11 +463,12 @@ rebuilds a panel only when one of those was stamped after the panel's own
 | needsRelease, depUpdates | repos, commits, releases, pull_requests |
 | ciHealth | repos, workflow_runs |
 | byLabel | labels, pull_requests |
-| facets | pull_requests, issues |
+| labelSync | labels, repo_labels |
+| facets, which also writes labelUsage | pull_requests, issues |
 
-A tick that only saw CI runs rebuilds `ciHealth` (~80k rows) instead of all
-twelve panels (~12M). A `label` delivery writes `repo_labels`, which no panel
-reads, so it rebuilds nothing.
+A tick that only saw CI runs rebuilds `ciHealth` (~80k rows) instead of every
+panel (~12M). A `label` delivery writes `repo_labels`, which only `labelSync`
+reads, so it rebuilds that and nothing else.
 
 A few rules sit on top of that:
 
@@ -566,6 +568,7 @@ each query reports, and fails when any of these goes over its budget:
 | A clean cron tick | 17 | 100 |
 | The instant refresh for a `pull_request` delivery | ~2.8k | 5k |
 | `/api/search/facets` once the cache is built | 1 | 10 |
+| A `labelSync` rebuild | ~7k expected (all of `repo_labels`) | 10k |
 
 The five most expensive queries are printed under each result, so a failure
 names what regressed. The budgets live in `BUDGET` at the top of
@@ -1142,6 +1145,73 @@ The columns are `repeat(auto-fit, minmax(240px, 1fr))` rather than a count
 pinned to how many labels are up. The card is full width in both views, but the
 sidebar collapses under both, so how many columns fit isn't something the label
 count can predict.
+
+## Labels
+
+The Labels page under Admin Resources compares every repo's labels with the
+managed set from Label-Sync-GTNH and lists the labels nobody manages. It is
+read-only for now: nothing on it writes to GitHub. Members never reach it, and
+the Worker refuses both of its panels to anyone who isn't an admin.
+
+| Card | What it shows |
+|---|---|
+| Managed labels | The managed set as chips in the config's colours, each with open and total PRs and issues across the org. The tab adds the description, the colour, and how many repos are missing each label or have it wrong |
+| Sync status | One row per repo: managed labels missing, and managed labels with the wrong colour, description or case. The tab expands each row into what the nightly run would do, in words. Filter by repo with the toolbar box, or tick "only repos with drift". Archived repos, the source repo and repos whose labels haven't been read are greyed and say why |
+| Repo labels | Every label in one repo, managed or custom, with its status and usage. The repo drilldown has a **Labels →** button, for admins, that opens this card on that repo |
+| Unmanaged labels | Every label name that isn't managed, grouped across repos: how many repos use it, whether its colour differs between them, and whether anything carries it. The tab lists where each colour is used |
+
+### Where the data comes from
+
+| Panel | Built from | Rebuilt |
+|---|---|---|
+| `labelSync` | `labels` (the managed set), `repo_labels` (every repo's labels) and `repos` (which repos exist and which are archived), about 7k rows | On the cron, when `labels` or `repo_labels` is stamped, and otherwise once it's an hour old |
+| `labelUsage` | The `facets` pass's label query, which already reads every label on every PR and issue | Hourly, with `facets` |
+
+`repos` is read but deliberately not in `labelSync`'s `reads`. Nearly every
+delivery stamps it, so listing it would rebuild the panel every tick for a list
+that rarely changes. A new or archived repo shows up at the next hourly rebuild
+instead.
+
+`labelUsage` costs no extra scan. The `facets` label query groups by repo,
+label, issue or PR, and open or not, and the search pickers' org-wide list is
+summed from those rows in JavaScript. One panel function writing two cache rows
+is what `writes` in `PANELS` is for. Both rows share `facets`' `computed_at`,
+tier and `behind` entry. Measured on local D1, the query reads the same rows it
+did before (33,950 before, 33,924 after, on the same data).
+
+### The planner
+
+`src/shared/label-sync/plan.js` is a pure copy of what Label-Sync's
+`syncRepository` decides, with no `fetch`, no `node:` imports and no D1, so the
+Worker and Node can both import it. `planRepository` takes a repo's labels, the
+label set for that repo, the deleted and GitHub-default lists, the replacements
+and the two flags. It returns the ordered actions (`create`, `update`, `rename`,
+`migrate`, `delete`), each with a reason, plus the managed labels that are
+already right. The definitions are in **Label metrics** in
+[Calculations.md](Calculations.md).
+
+`npm run test:label-plan` checks every branch against a table of cases. When a
+Label-Sync checkout sits beside this repo (or `LABEL_SYNC_DIR` points at one),
+it also runs the real `scripts/sync-labels.mjs` in dry-run mode against the same
+cases, with `fetch` mocked, and compares its `+`, `~` and `-` lines with the
+planner's. Without a checkout that half skips, which is how it runs in the
+deploy gate. Run it after pulling a Label-Sync change to `syncRepository`.
+
+### What isn't in D1 yet
+
+Only `labels.jsonc` is in D1, through `npm run backfill:labels`. The planner is
+therefore given empty lists for `deleted-labels.jsonc`,
+`github-default-labels.jsonc` and `automaticSync.labelReplacements`, and the
+repository-filter blacklist isn't applied. So:
+
+- Sync status counts managed labels only, and says so. A repo with a deleted
+  label or an exact GitHub default still present reads as in sync.
+- Those labels show as custom on Repo labels and in the unmanaged inventory.
+- A blacklisted repo is listed as though the sync covers it.
+
+The panel's `checks` field records which of those inputs it had. The page adds
+the extra Sync status columns when they're true, so loading the rest of the
+config needs no page change.
 
 ## One period control per page
 
@@ -2327,6 +2397,10 @@ first tick), the route runs the live query instead. It is still its own route
 rather than something `/api/search` returns on every keystroke. A value the list has never
 heard of still searches, so typing beats the list when the list is wrong.
 
+The label scan groups by repo, PR or issue, and open or not, rather than by name
+alone. The picker's list is summed from those rows, and the same rows become the
+Labels page's `labelUsage`. See **Labels**.
+
 ### Label palettes
 
 Issues and pull requests store label **names** — the arrays stay JSON on the
@@ -3343,7 +3417,7 @@ pages to sit behind.
 
 They are in the nav now rather than appearing when they work, because the
 sidebar is the map of what this dashboard is going to be. Somebody who can see
-that Labels is coming stops wondering whether they missed it — a nav that
+that CI Health is coming stops wondering whether they missed it — a nav that
 quietly grows an entry every few weeks tells them nothing until it does.
 
 ### The landing page

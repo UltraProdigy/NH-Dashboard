@@ -23,6 +23,7 @@ Each entry names its source file. Entries use this shape where it applies:
 [Drilldown metrics](#drilldown-metrics) ·
 [CI health metrics](#ci-health-metrics) ·
 [Repository state panels](#repository-state-panels) ·
+[Label metrics](#label-metrics) ·
 [Browser-side calculations](#browser-side-calculations) ·
 [Org Search](#org-search) ·
 [Known biases and blind spots](#known-biases-and-blind-spots) ·
@@ -1351,6 +1352,98 @@ each.
 
 ---
 
+## Label metrics
+
+On screen: *Managed labels*, *Sync status*, *Repo labels*, *Unmanaged labels*
+(the Labels page)
+
+`src/shared/label-sync/plan.js` (the planner), `worker/src/panels/label-sync.js`
+(`labelSync`), and `facetRows` in `worker/src/search.js` (`labelUsage`).
+
+### What the nightly run does to a repo
+
+GTNH's `automaticSync` runs with `deleteMissing: false` and
+`deleteGithubDefaultLabels: true`. In Label-Sync's `syncRepository`:
+
+| Label in the repo | Nightly run |
+|---|---|
+| A custom label (not managed, not deleted, not an exact GitHub default) | Never touched |
+| A managed label missing | Created |
+| A managed label with a different colour or description | Changed back to the config |
+| A label named in `deleted-labels.jsonc` | Deleted. There's no flag for this; it always runs |
+| An exact GitHub default (name, colour and description all match) | Deleted, because `deleteGithubDefaultLabels` is on |
+
+### Drift
+
+| Field | Meaning |
+|---|---|
+| **Shows** | What Org-Label-Sync would change in a repo if it ran now |
+| **Numerator** | The actions `planRepository` returns for the repo's `repo_labels` rows, planned against the whole managed set in `labels` |
+| **Denominator** | none; "N of M repos would change tonight" puts the repos with at least one action over the repos that have been read and aren't skipped |
+| **Excluded** | Archived repos and Label-Sync-GTNH itself, which the sync skips. Repos with no `repo_labels` rows, shown as "not read yet" rather than as missing everything. Repos in `NH_INGEST_EXCLUDE` |
+| **Empty case** | No managed labels in D1 means nothing is planned, and the page says to run the backfill |
+
+Matching follows Label-Sync exactly: names are compared after trimming and
+lowercasing, colours after stripping `#` and lowercasing, and a missing
+description is `""`.
+
+| Column | Counted when |
+|---|---|
+| Missing | A managed label has no label of the same name in the repo |
+| Wrong colour, description or case | A label of that name exists but its colour, its description or the exact case of its name differs. A case-only difference is an update, because the sync PATCHes it |
+
+Custom labels are never drift. The dashboard always plans with
+`deleteMissing: false`, as GTNH runs.
+
+**Not counted yet.** Deleted labels still present, exact GitHub defaults,
+`labelReplacements` and the repository-filter blacklist all need config that
+isn't in D1, so the planner is given empty lists for them and the card says
+"managed labels only". The planner handles all of them, and the columns appear
+once `checks` in the panel says the inputs are there.
+
+### Label usage
+
+| Field | Meaning |
+|---|---|
+| **Shows** | How many pull requests and issues carry a label, open and in total |
+| **Numerator** | Every (row, label) pair in `pull_requests.labels` and `issues.labels`, grouped by repo, exact label name, PR or issue, and open or not |
+| **Denominator** | none; counts |
+| **Excluded** | Repos in `NH_INGEST_EXCLUDE`. Bots are not excluded: a label isn't a person |
+| **Empty case** | 0 |
+
+- **Open** is `state = 'OPEN'` for an issue, and `state = 'OPEN' AND merged_at
+  IS NULL` for a pull request, the same predicate as *By label*. Drafts count.
+- **Total** is every state, including merged and closed.
+- **Org-wide** figures on *Managed labels* are the sum over every repo.
+- The page joins a repo's label to its usage by trimmed, lowercased name, so a
+  label whose case differs from the rows that carry it still finds them.
+- Built by the hourly `facets` pass, so it can lag by up to an hour.
+- A stored pull request carries at most 10 labels (`labels(first: 10)`), and the
+  GraphQL issue walk samples 15. A row with more labels than that can be missing
+  from a label's count.
+
+### Unused
+
+A label in a repo is **unused** when no pull request or issue in that repo, open
+or closed, carries it, using the counts above.
+
+On *Unmanaged labels*, **PRs and issues** is the sum over the repos that have
+the name, the **unused** pill shows when that sum is 0, and **Unused in** is how
+many of those repos have it unused.
+
+### Unmanaged inventory
+
+- Every label in a repo that doesn't match a managed name.
+- Names are grouped by trimmed, lowercased name, and each repo counts once.
+- The spelling shown is the most common one across repos, with ties going
+  alphabetical.
+- **Variants** are the distinct (colour, description) pairs. **Colours** counts
+  distinct colours only.
+- Archived repos are left out, since nothing can be changed in them.
+- Sorted by how many repos use the name, then by name.
+
+---
+
 ## Browser-side calculations
 
 Derived in the browser, so these can drift from the payload.
@@ -1592,6 +1685,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-10-28 | Label drift, usage and unused | New, for the Labels page. No existing figure moves. Drift is what Label-Sync's `syncRepository` would do, worked out by the shared planner, and counts managed labels only until the rest of the config is in D1. Usage counts (repo, label) pairs, open and total, from the hourly facets pass. See **Label metrics**. |
 | 2026-10-24 | Predicted release tag | New, with GT-New-Horizons-Modpack and Questbook-Releases dated instead of counted. Otherwise no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |
 | 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |
 | 2026-09-08 | Label chip colours | Chips take their colour from `repo_labels`, keyed on `(repo, name)` because one name is coloured differently in different repos; the managed `labels` set is the fallback and an unknown name stays uncoloured. No figure moves. |
