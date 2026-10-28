@@ -1,0 +1,23 @@
+/* ---------- Labels page ---------- */
+.lb-chips { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.lb-chip { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lb-chip .label { align-self: flex-start; font-size: 12px; }
+.lb-chip .sub { font-size: 11px; }
+
+.lb-swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+  border: 1px solid var(--border); vertical-align: -1px; margin-right: 4px;
+}
+td code { font-size: 11px; color: var(--muted); }
+
+.lb-dim { opacity: 0.55; }
+.lb-warn { color: var(--warn); }
+
+.lb-actions summary { cursor: pointer; color: var(--accent); font-size: 12px; white-space: nowrap; }
+.lb-actions ul { margin: 6px 0 2px; padding-left: 18px; }
+.lb-actions li { margin: 3px 0; line-height: 1.6; }
+
+.lb-toggle { cursor: pointer; white-space: nowrap; }
+.lb-toggle input { margin: 0; }
+
+.subject [data-labelsfor] + .ghost { margin-left: 8px; }

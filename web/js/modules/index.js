@@ -7,6 +7,7 @@ import { analyticsModules } from "./analytics.js";
 import { dreamModules } from "./dream.js";
 import { findModules } from "./find.js";
 import { issueModules } from "./issues.js";
+import { labelModules } from "./labels.js";
 import { overviewModules } from "./overview.js";
 import { peopleModules } from "./people.js";
 import { contributorModules } from "./contributor.js";
@@ -26,6 +27,7 @@ const MODULES = {
   ...dreamModules,
   ...findModules,
   ...issueModules,
+  ...labelModules,
   ...overviewModules,
   ...peopleModules,
   ...contributorModules,

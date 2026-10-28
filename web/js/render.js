@@ -36,6 +36,7 @@ import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
 import { overviewLead } from "./modules/overview.js";
+import { labelCount, labelModules } from "./modules/labels.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -50,6 +51,7 @@ function moduleCount(id) {
     // underneath it is worse than no badge.
     return m.panelId === "byLabel" ? byLabelCount() : panelRows(m.panelId).length;
   }
+  if (id in labelModules) return labelCount(id);
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
   if (id === "iTriage") return I()?.triage?.open ?? null;
@@ -730,6 +732,7 @@ function renderDrill(view) {
       <span class="dates">${bits.join(" · ")}</span>
     </div>
     ${badges}
+    ${!what && isAdmin(state.role) ? `<button class="ghost" data-labelsfor="${esc(state.subject)}">Labels →</button>` : ""}
     <a class="ghost" href="${subjectUrl(state.subject)}" target="_blank" rel="noopener">View on GitHub ↗</a>
   </div>`;
 

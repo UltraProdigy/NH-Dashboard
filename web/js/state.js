@@ -86,6 +86,10 @@ const state = {
   issueLabelRepos: [],
   issueLabel: null,
 
+  // ---- Labels ----
+  labelRepo: null,
+  labelDriftOnly: false,
+
   // ---- drilldown ----
   // Its own window, independent of the analytics/people one. Looking at a
   // single subject you almost always want their whole history first and then

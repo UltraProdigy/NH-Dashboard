@@ -118,6 +118,12 @@ document.getElementById("view").addEventListener("click", e => {
      close-on-outside-click handler would otherwise see this same click *after*
      render() has torn the button out of the DOM, and decide it landed outside
      the popup it just opened. */
+  const lf = e.target.closest("button[data-labelsfor]");
+  if (lf) {
+    state.labelRepo = lf.dataset.labelsfor;
+    return go("labels", "lbRepo");
+  }
+
   const eb = e.target.closest("button[data-exclbtn]");
   if (eb) {
     e.stopPropagation();
@@ -374,6 +380,14 @@ document.getElementById("view").addEventListener("change", e => {
   }
   if (e.target.id === "issueLabelPick") {
     state.issueLabel = e.target.value;
+    return render();
+  }
+  if (e.target.id === "labelRepoPick") {
+    state.labelRepo = e.target.value;
+    return render();
+  }
+  if (e.target.matches("input[data-labeldrift]")) {
+    state.labelDriftOnly = e.target.checked;
     return render();
   }
 });
