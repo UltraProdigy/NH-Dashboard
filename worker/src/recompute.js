@@ -23,6 +23,7 @@ import {
   changesRequested,
 } from "./panels/review-state.js";
 import { byLabel } from "./panels/by-label.js";
+import { labelSync } from "./panels/label-sync.js";
 import { depUpdates, needsRelease } from "./panels/releases.js";
 import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
@@ -97,6 +98,7 @@ const PANELS = {
   needsRelease: { fn: needsRelease, reads: ["repos", "commits", "releases", "pull_requests"] },
   depUpdates: { fn: depUpdates, reads: ["repos", "commits", "releases", "pull_requests"] },
   byLabel: { fn: byLabel, reads: ["labels", "pull_requests"] },
+  labelSync: { fn: labelSync, reads: ["labels", "repo_labels"] },
   ciHealth: { fn: ciHealth, reads: ["repos", "workflow_runs"] },
   issues: { fn: issues, reads: ["issues"], hourly: true },
   drilldown: { fn: drilldown, reads: ["pull_requests", "reviews", "issues"], hourly: true },

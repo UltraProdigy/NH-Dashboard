@@ -126,7 +126,7 @@ async function main() {
   const run = await recompute(env);
   check("contributors was built", !!run.built?.contributors);
   check("analytics was built", !!run.built?.analytics);
-  check("every panel was built", Object.keys(run.built ?? {}).length === 12,
+  check("every panel was built", Object.keys(run.built ?? {}).length === 13,
         Object.keys(run.built ?? {}).join());
   check("nothing failed", Object.keys(run.failed ?? {}).length === 0, JSON.stringify(run.failed));
   for (const [name, r] of Object.entries(run.built ?? {})) {
@@ -150,7 +150,7 @@ async function main() {
 
   console.log("\nforce rebuilds a clean database");
   const forced = await recompute(env, { force: true });
-  check("force ignores the stamps", !forced.skipped && Object.keys(forced.built).length === 12);
+  check("force ignores the stamps", !forced.skipped && Object.keys(forced.built).length === 13);
   check("version bumped again", get(db, "version") === "2", get(db, "version"));
 
   console.log("\na write rebuilds only the panels that read that table");
@@ -166,12 +166,14 @@ async function main() {
 
   touch(db, "labels");
   const labels = await recompute(env);
-  check("a label rebuilds the three panels that colour by it",
-        sameSet(Object.keys(labels.built), ["approvedUnmerged", "changesRequested", "byLabel"]),
+  check("a label rebuilds the panels that colour by it and the labels page",
+        sameSet(Object.keys(labels.built), ["approvedUnmerged", "changesRequested", "byLabel", "labelSync"]),
         Object.keys(labels.built).join());
 
   touch(db, "repo_labels");
-  check("a table no panel reads rebuilds nothing", (await recompute(env)).skipped === "clean");
+  const palettes = await recompute(env);
+  check("a repo's labels rebuild only the labels page", sameSet(Object.keys(palettes.built), ["labelSync"]),
+        Object.keys(palettes.built).join());
 
   console.log("\nthe heavy panels wait out the hour");
   touch(db, "issues");
@@ -349,7 +351,7 @@ async function main() {
         HEAVY.every((name) => refreshTier(name) === "hourly"),
         HEAVY.map(refreshTier).join());
   check("the rest are cron",
-        ["depUpdates", "byLabel", "ciHealth"].every((name) => refreshTier(name) === "cron"));
+        ["depUpdates", "byLabel", "ciHealth", "labelSync"].every((name) => refreshTier(name) === "cron"));
   check("an unknown panel is build", refreshTier("nosuch") === "build");
 
   db.close();

@@ -240,6 +240,7 @@ const EMPTY = {
   needsRelease: [],
   depUpdates: [],
   byLabel: {},
+  labelSync: { managed: [], checks: {}, repos: [], unmanaged: [] },
   ciHealth: { repos: {}, org: null },
   contributors: { windows: [], rows: [] },
   analytics: { windows: [], totals: {}, series: { week: [], month: [] } },

@@ -65,6 +65,7 @@ jobs:
           npm run test:handlers
           npm run test:event-log
           npm run test:label-plan
+          npm run test:label-sync
           npm run test:app
           npm run test:csp
           npm run test:recompute

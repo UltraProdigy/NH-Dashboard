@@ -25,6 +25,7 @@ const BUDGET = {
   cleanTick: 100,
   instantPullRequest: 5_000,
   facets: 10,
+  labelSync: 10_000,
 };
 
 let pass = 0;
@@ -130,6 +131,12 @@ async function main() {
     const res = await handleFacets(env);
     await res.text();
     check(`/api/search/facets (${res.status})`, db.take().rows, BUDGET.facets);
+
+    const { labelSync } = await import("../src/panels/label-sync.js");
+    await labelSync(db);
+    const labels = db.take();
+    check("a labelSync rebuild", labels.rows, BUDGET.labelSync);
+    showTop(labels.top);
   } finally {
     await proxy.dispose();
     rmSync(dir, { recursive: true, force: true });
