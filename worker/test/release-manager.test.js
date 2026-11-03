@@ -166,6 +166,8 @@ let github = {};
 let calls = [];
 let refStatus = {};
 let propsStatus = 200;
+let graphqlMax = Infinity;
+const slow = new Set();
 
 const issuer = (auth) => {
   try { return JSON.parse(Buffer.from(auth.replace("Bearer ", "").split(".")[1], "base64url")).iss; } catch { return null; }
@@ -205,8 +207,10 @@ globalThis.fetch = async (url, init = {}) => {
       const nodes = r.refs.nodes.filter((n) => !variables.q || n.name.includes(variables.q)).slice(0, variables.n);
       return Response.json({ data: { repository: { ...r, refs: { pageInfo: { hasNextPage: false, endCursor: null }, nodes } } } });
     }
+    const asked = [...query.matchAll(/(r\d+): repository\(owner: \$org, name: "([^"]+)"\)/g)];
+    if (asked.length > graphqlMax || asked.some(([, , name]) => slow.has(name))) return new Response("error code: 502", { status: 502 });
     const data = {};
-    for (const [, alias, name] of query.matchAll(/(r\d+): repository\(owner: \$org, name: "([^"]+)"\)/g)) {
+    for (const [, alias, name] of asked) {
       const r = github[name];
       if (!r) { data[alias] = null; continue; }
       const b = variables[`b${alias.slice(1)}`];
@@ -299,6 +303,17 @@ calls = [];
   const by = Object.fromEntries(out.body.repos.map((r) => [r.repo, r]));
   check("targets another branch", [by.GTNHLib.branch, by.GTNHLib.sha, by.GTNHLib.customBranch, by.GTNHLib.unchanged], ["dev", sha("9"), true, false]);
   check("and says when a repo doesn't have it", [by.Navigator.problem, by.Navigator.sha], ["No dev branch", null]);
+}
+{
+  graphqlMax = 3;
+  slow.add("Navigator");
+  calls = [];
+  const out = await releasePreview(env, ["GTNHLib", "StructureLib", "Navigator", "Failed", "NoWorkflow", "GT-New-Horizons-Modpack"]);
+  const by = Object.fromEntries(out.body.repos.map((r) => [r.repo, r]));
+  check("when GitHub times out, splits the batch and carries on", [out.status, by.GTNHLib.predicted, by.Failed.predicted, by["GT-New-Horizons-Modpack"].dated], [200, "0.11.55", "2.0.5", true]);
+  check("and flags only the repo GitHub never answered for", [/didn't answer/.test(by.Navigator.problem), out.body.repos.filter((r) => r.problem).length], [true, 1]);
+  graphqlMax = Infinity;
+  slow.clear();
 }
 for (const [name, list] of [["an empty list", []], ["a bad branch", [{ repo: "GTNHLib", branch: "../x" }]]]) {
   const out = await releasePreview(env, list);

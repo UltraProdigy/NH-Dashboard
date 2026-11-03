@@ -17,7 +17,7 @@ import {
 const LOCK_KEY = "release_manager_run";
 const LOCK_MS = 3 * 60_000;
 const LOG_REPOS = 8;
-const CHUNK = 20;
+const CHUNK = 10;
 const MAX_PREVIEW = 100;
 const MAX_BATCH = 25;
 const MAX_TAG_PAGES = 10;
@@ -131,9 +131,7 @@ const FIELDS = `
   isArchived
   defaultBranchRef { name target { oid } }
   releases(first: 10, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { tagName isDraft tagCommit { oid } } }
-  refs(refPrefix: "refs/tags/", first: 100, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) {
-    nodes { name target { oid ... on Tag { target { oid } } } }
-  }`;
+  refs(refPrefix: "refs/tags/", first: 100, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) { nodes { name } }`;
 
 async function lookUp(token, org, rows) {
   const vars = { org };
@@ -154,20 +152,33 @@ async function lookUp(token, org, rows) {
   return rows.map((_, i) => out.data[`r${i}`] ?? null);
 }
 
-async function lookUpAll(env, rows) {
-  const token = await installationToken(env);
-  const found = [];
-  for (let i = 0; i < rows.length; i += CHUNK) found.push(...(await lookUp(token, orgOf(env), rows.slice(i, i + CHUNK))));
-  return found;
+async function lookUpSplitting(token, org, rows) {
+  try {
+    return await lookUp(token, org, rows);
+  } catch (err) {
+    if (rows.length === 1) return [{ failed: `GitHub didn't answer for this repo (${short(err, 120)})` }];
+    const half = Math.ceil(rows.length / 2);
+    return [...(await lookUpSplitting(token, org, rows.slice(0, half))), ...(await lookUpSplitting(token, org, rows.slice(half)))];
+  }
 }
 
-const tagSha = (node) => node?.target?.target?.oid ?? node?.target?.oid ?? null;
+async function lookUpAll(env, rows) {
+  const token = await installationToken(env);
+  const org = orgOf(env);
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += CHUNK) chunks.push(rows.slice(i, i + CHUNK));
+  const found = [];
+  for (let i = 0; i < chunks.length; i += 3) {
+    for (const part of await Promise.all(chunks.slice(i, i + 3).map((c) => lookUpSplitting(token, org, c)))) found.push(...part);
+  }
+  return found;
+}
 
 function lastOf(repo, fits) {
   const released = repo.releases.nodes.find((r) => !r.isDraft && fits(r.tagName));
   if (released) return { tag: released.tagName, sha: released.tagCommit?.oid ?? null };
   const ref = repo.refs.nodes.find((t) => fits(t.name));
-  return ref ? { tag: ref.name, sha: tagSha(ref) } : { tag: null, sha: null };
+  return ref ? { tag: ref.name, sha: null } : { tag: null, sha: null };
 }
 
 export function lastTagOf(repo) {
@@ -176,6 +187,7 @@ export function lastTagOf(repo) {
 
 function plan(row, repo, learned, now) {
   if (!repo) return { repo: row.repo, problem: "GitHub doesn't know this repo, or NH-Dashbot can't see it", notes: [] };
+  if (repo.failed) return { repo: row.repo, problem: repo.failed, notes: [] };
   if (repo.isArchived) return { repo: repo.name, problem: "Archived, so it can't be released", notes: [] };
   const dated = DATED_REPOS.has(repo.name);
   const last = lastOf(repo, dated ? isDatedTag : parseTag);
@@ -406,8 +418,8 @@ async function recheck(env, items, now) {
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     const repo = found[i];
-    if (!repo) {
-      out.set(it.repo, "GitHub doesn't know this repo any more");
+    if (!repo || repo.failed) {
+      out.set(it.repo, repo?.failed ? `Couldn't check it again before releasing: ${repo.failed}` : "GitHub doesn't know this repo any more");
       continue;
     }
     const taken = new Set([...repo.refs.nodes.map((t) => t.name), ...repo.releases.nodes.map((r) => r.tagName)]);

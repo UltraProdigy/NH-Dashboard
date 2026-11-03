@@ -1139,17 +1139,23 @@ actions below run on every ticked repo.
 
 **Preview** sends the ticked repos to `POST /api/releases/preview`, 50 at a
 time. For each one the Worker reads, as NH-Dashbot, in one GraphQL query per
-20 repos:
+10 repos, three queries at a time:
 
 - the default branch and its HEAD commit, or the HEAD of the branch asked for
 - the ten newest releases with their commits
-- the hundred newest tags with their commits
+- the names of the hundred newest tags
+
+Asking for each tag's commit as well made a 20-repo query too heavy for GitHub,
+which answered 502. If a query still fails, it's split in half and retried
+down to single repos. Only a repo GitHub never answers for gets a row saying
+so, and the rest of the preview carries on.
 
 From that it returns:
 
 - the last tag, as Calculations.md's **Predicted release tag** defines it
 - whether the target commit is the same as the last release's (no commits
-  since)
+  since). This needs the last tag to come from a release, since tag commits
+  aren't read.
 - any rule learned for the repo
 - every tag name already taken
 
