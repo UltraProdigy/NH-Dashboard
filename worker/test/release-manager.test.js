@@ -350,10 +350,15 @@ calls = [];
   const out = await releaseRun(env, "admin@example.com", {
     run: "run-aaaaaaaa", last: true, items: [
       { repo: "Navigator", tag: "2.0.0", sha: sha("c"), previous: "1.2.0-pre", predicted: "1.2.1", bump: "major" },
-      { repo: "NoWorkflow", tag: "1.0.1-freeze", sha: sha("e"), previous: "1.0.0", predicted: "1.0.1", bump: "pattern", wrong: true },
+      { repo: "NoWorkflow", tag: "1.0.1-freeze", sha: sha("e"), previous: "1.0.0", predicted: "1.0.1", bump: "pattern", wrong: true, notLatest: true },
     ],
   }, { now: T0 + 30_000, pace: 0 });
   check("the same run carries on", out.status, 200);
+  check(
+    "only a not-latest release asks GitHub not to make it the latest",
+    calls.filter((c) => c.startsWith("POST")).map((c) => JSON.parse(c.split(" ").slice(3).join(" ")).make_latest ?? null),
+    [null, "false"],
+  );
   check(
     "keeps every release, with how its tag was chosen, and only a predicted one as wrong",
     feedback().map((r) => [r.repo, r.tag, r.wrong, r.bump]),

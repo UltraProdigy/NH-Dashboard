@@ -29,7 +29,7 @@ let progress = "";
 let note = "";
 let nodeId = 0;
 
-const all = { bump: "predicted", pattern: "", pre: false, branch: "" };
+const all = { bump: "predicted", pattern: "", pre: false, notLatest: false, branch: "" };
 let rows = [];
 let previewMeta = null;
 let releaseResults = null;
@@ -253,6 +253,7 @@ function releaseRowHtml(r, i) {
     <td>
       <input type="text" class="ra-tag${c.invalid && r.include && ok ? " ra-invalid" : ""}" data-x-tag value="${esc(c.tag)}" spellcheck="false" autocomplete="off" aria-label="New tag for ${esc(d.repo)}"${ok ? "" : " disabled"}>${learned}
       <label class="rl-pre"><input type="checkbox" data-x-pre${r.pre ? " checked" : ""}${ok ? "" : " disabled"}> pre</label>
+      <label class="rl-pre" title="Don't mark this release as the repo's latest"><input type="checkbox" data-x-notlatest${r.notLatest ? " checked" : ""}${ok ? "" : " disabled"}> not latest</label>
       <label class="ra-wrong"${r.bump === "predicted" && !r.pattern && c.changed ? "" : " hidden"}><input type="checkbox" data-x-wrong${r.wrong ? " checked" : ""}> prediction was wrong</label>
     </td>
     <td class="rl-target">${target}</td>
@@ -304,11 +305,13 @@ function releaseWork() {
     <label class="rl-field grow"><span class="sub">Tag pattern</span><input type="text" class="rl-input" data-a-pattern value="${esc(all.pattern)}" placeholder="blank = the bump, or e.g. {next} or 2.8.0-freeze" spellcheck="false" autocomplete="off"></label>
     <label class="rl-field"><span class="sub">Branch</span><input type="text" class="rl-input" data-a-branch value="${esc(all.branch)}" placeholder="default branch" spellcheck="false" autocomplete="off"></label>
     <label class="rl-check"><input type="checkbox" data-a-pre${all.pre ? " checked" : ""}> Pre-release (adds -pre)</label>
+    <label class="rl-check" title="Make the releases without marking them as each repo's latest"><input type="checkbox" data-a-notlatest${all.notLatest ? " checked" : ""}> Not latest</label>
     <button type="button" class="ghost" data-a-preview${busy || !n ? " disabled" : ""}>${busy === "previewing" ? esc(progress) : rows.length ? `Preview ${plural(n, "repo")} again` : `Preview ${plural(n, "repo")}`}</button>
   </div>
   <p class="hint rl-gap">Patch, Minor, Major and Super bump the last, second-to-last, third-to-last and fourth-to-last number of the version.
     A pattern can use <code>{next}</code> (the bump), <code>{last}</code>, <code>{date}</code> and <code>{repo}</code>. Changing these resets every row; a row can then be changed on its own.
-    Pre-release adds <code>-pre</code> to the tag, which the release workflow treats as a pre-release.</p>`;
+    Pre-release adds <code>-pre</code> to the tag, which the release workflow treats as a pre-release.
+    Not latest makes the release without marking it as the repo's latest, which only holds on repos whose release workflow keeps it.</p>`;
 
   if (!rows.length) return `${controls}${note ? `<p class="daily-warn">${esc(note)}</p>` : ""}`;
 
@@ -530,6 +533,7 @@ function freshRow(data, keep) {
     bump: data.dated ? "predicted" : keep?.bump ?? all.bump,
     pattern: all.pattern,
     pre: keep?.pre ?? all.pre,
+    notLatest: keep?.notLatest ?? all.notLatest,
     edit: null,
     wrong: false,
     include: true,
@@ -691,6 +695,7 @@ async function runReleases(picked) {
         predicted: c.predicted,
         bump: r.pattern && r.edit == null ? "pattern" : r.bump,
         wrong: r.bump === "predicted" && !r.pattern && c.changed && r.wrong,
+        notLatest: r.notLatest,
       },
       onDone: (res) => { r.done = res.ok ? { ok: true, tag: res.tag, url: res.url ?? `${repoUrl(r.data.repo)}/releases/tag/${encodeURIComponent(res.tag)}` } : { ok: false, error: res.error }; },
     };
@@ -804,6 +809,7 @@ function onChange(e) {
   }
   if (t.matches("[data-a-bump]")) { all.bump = t.value; for (const r of rows) { if (!r.data.dated) r.bump = all.bump; r.edit = null; } return paintWork(); }
   if (t.matches("[data-a-pre]")) { all.pre = t.checked; for (const r of rows) { r.pre = all.pre; r.edit = null; } return paintWork(); }
+  if (t.matches("[data-a-notlatest]")) { all.notLatest = t.checked; for (const r of rows) r.notLatest = all.notLatest; return paintWork(); }
   if (t.matches("[data-a-pattern]")) { all.pattern = t.value; for (const r of rows) { r.pattern = all.pattern; r.edit = null; } return paintWork(); }
   if (t.matches("[data-a-branch]")) { all.branch = t.value.trim(); return rows.length ? preview() : undefined; }
   const tr = t.closest("tr[data-row]");
@@ -814,6 +820,7 @@ function onChange(e) {
     else if (t.matches("[data-x-bump]")) { r.bump = t.value; r.edit = null; }
     else if (t.matches("[data-x-pre]")) { r.pre = t.checked; r.edit = null; }
     else if (t.matches("[data-x-wrong]")) { r.wrong = t.checked; return; }
+    else if (t.matches("[data-x-notlatest]")) { r.notLatest = t.checked; return; }
     else if (t.matches("[data-x-branch]")) return previewOne(i, t.value.trim());
     else return;
     return paintRow(i);

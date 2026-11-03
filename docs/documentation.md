@@ -1177,10 +1177,20 @@ Above the table, these apply to every row:
 - **Branch.** The branch to tag, for every repo. Blank means each repo's
   default branch. Changing it previews again.
 - **Pre-release.** Adds `-pre` to the tag.
+- **Not latest.** Makes the release with `make_latest: "false"`, so it doesn't
+  become the repo's Latest release. This is for one-off custom tags.
 
 Changing any of these resets that setting on every row. Each row can then be
-changed on its own: its bump, the pre box, the tag typed in by hand, and its
-branch (which re-reads just that repo).
+changed on its own: its bump, the pre and not-latest boxes, the tag typed in by
+hand, and its branch (which re-reads just that repo).
+
+**Not latest only holds where nothing replaces the release.** `release-tags.yml`
+deletes the dashboard's release and recreates it with `gh release create`, with
+no `--latest` flag. GitHub's default for a newly created release that isn't a
+draft or pre-release is to make it Latest, whatever the tag, so the custom
+build becomes Latest anyway. On a repo without the workflow
+it holds. For workflow repos, the workflow would need to keep the old release's
+Latest status when it recreates it.
 
 **Pre-release is the `-pre` suffix, not GitHub's pre-release flag.** The org's
 `release-tags.yml` workflow reads `-pre` from the tag name. It then skips
@@ -1298,7 +1308,7 @@ All under `/api/releases/`, admin only:
 |---|---|
 | `GET repos` | the repo list and custom properties |
 | `POST preview` | `{ repos: [{ repo, branch }] }`, up to 100 |
-| `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong }] }`, up to 25 |
+| `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong, notLatest }] }`, up to 25 |
 | `POST delete-preview` | `{ repos, pattern }` or `{ repos, latest: true }`, up to 100 |
 | `POST delete` | `{ run, last, pattern, items: [{ repo, tag, releaseId, release, deleteTag }] }`, up to 25 |
 

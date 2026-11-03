@@ -292,6 +292,7 @@ function cleanReleaseItem(it) {
     predicted: text(it.predicted),
     bump,
     wrong: bump === "predicted" && Boolean(it.wrong) && it.tag !== it.predicted,
+    notLatest: Boolean(it.notLatest),
   };
 }
 
@@ -486,7 +487,13 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
     try {
       const res = await rest(`/repos/${org}/${it.repo}/releases`, token, {
         method: "POST",
-        body: { tag_name: it.tag, target_commitish: it.sha, name: it.tag, generate_release_notes: true },
+        body: {
+          tag_name: it.tag,
+          target_commitish: it.sha,
+          name: it.tag,
+          generate_release_notes: true,
+          ...(it.notLatest ? { make_latest: "false" } : {}),
+        },
       });
       const made = await res.json().catch(() => ({}));
       results.push({ repo: it.repo, tag: it.tag, ok: true, url: made.html_url ?? `https://github.com/${org}/${it.repo}/releases/tag/${encodeURIComponent(it.tag)}` });
