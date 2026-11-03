@@ -4,6 +4,7 @@ import { pageBySlug, pageSlug } from "./pages.js";
 import { closeCombo, render } from "./render.js";
 import { resolveTab, tabSlug } from "./modules/index.js";
 import { findQuery, readFindQuery } from "./find-data.js";
+import { permQuery, readPermQuery } from "./permissions.js";
 
 /* ==========================================================================
    Routing — the path is the state, so a link is shareable and a reload lands
@@ -68,7 +69,7 @@ function urlFor(page, tab, subject) {
     else if (tab) seg.push(NO_SUBJECT);
   }
   if (tab) seg.push(tabSlug(page, tab));
-  return BASE + seg.join("/") + (page === "find" ? findQuery() : "");
+  return BASE + seg.join("/") + (page === "find" ? findQuery() : page === "permissions" ? permQuery() : "");
 }
 
 /**
@@ -123,6 +124,7 @@ function readRoute() {
   // URL built from this state — so the query has to be in the state by then or
   // every load of a search link would rewrite it away.
   if (state.page === "find") readFindQuery(location.search);
+  if (state.page === "permissions") readPermQuery(location.search);
 
   // Canonicalised rather than left alone, which covers the bare root landing on
   // a page, a relayed link still wearing its `?route=`, and a URL naming a tab

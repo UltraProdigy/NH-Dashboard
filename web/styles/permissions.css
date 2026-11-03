@@ -53,3 +53,70 @@
   .perm-status { margin-left: 0; flex-basis: 100%; }
   .perm-facts { gap: 12px 20px; }
 }
+
+.perm-search { position: relative; flex: 1 1 320px; max-width: 460px; }
+.perm-search input {
+  width: 100%; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); font: inherit; font-size: 13px;
+}
+.perm-search input:focus { outline: none; border-color: var(--accent); }
+.perm-results {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+  margin: 0; padding: 4px 0; list-style: none;
+  max-height: 420px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .3);
+}
+.perm-opt { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; min-width: 0; }
+.perm-opt > .sub { margin-left: auto; font-size: 11.5px; white-space: nowrap; }
+.perm-opt[aria-selected="true"], .perm-opt:hover { background: var(--panel); }
+.perm-opt .pill { min-width: 44px; text-align: center; }
+.perm-opt-note { padding: 6px 10px; font-size: 12px; }
+
+.perm-link {
+  padding: 0; border: none; background: none; font: inherit; color: inherit;
+  cursor: pointer; text-align: left;
+}
+.perm-link:hover .perm-team, .perm-link:hover .repo, .perm-link:hover .namelink span:last-child { color: var(--accent); text-decoration: underline; }
+.perm-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.perm-link .repo { color: var(--muted); }
+
+.perm-panel {
+  position: fixed; z-index: 40; top: 0; right: 0; bottom: 0;
+  width: min(560px, 100vw);
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: -10px 0 30px rgb(0 0 0 / .35);
+}
+.perm-pbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.perm-pbar .ghost {
+  padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.perm-pbar .ghost:hover { background: var(--panel-2); }
+.perm-pbody { flex: 1; overflow-y: auto; padding: 16px; }
+.perm-phead { display: flex; align-items: center; gap: 12px; }
+.perm-phead h2 { margin: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.perm-phead h2:focus { outline: none; }
+.perm-plinks { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 10px 0 4px; font-size: 12.5px; }
+.perm-pnote { margin: 12px 0 0; }
+.perm-sec { margin-top: 20px; }
+.perm-sec h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.perm-sec h3 .sub { font-weight: 400; }
+.perm-ptable { font-size: 12.5px; }
+.perm-ptable th { cursor: default; position: static; background: none; padding: 6px 8px; }
+.perm-ptable td { padding: 6px 8px; }
+.perm-src { line-height: 1.7; }
+.perm-plist { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; }
+.perm-family { margin-top: 12px; }
+.perm-none { margin: 0; font-size: 12.5px; }
+
+@media (min-width: 1800px) {
+  .perm.has-panel { padding-right: 560px; }
+}
