@@ -24,7 +24,7 @@ import { handleHealth, json } from "./reads.js";
 import { redeliverFailed } from "./github.js";
 import { verifyDreamPanel } from "./verify.js";
 import { checkRepoSettings, EventLog, logDelivery } from "./event-log.js";
-import { checkPermissions, Permissions } from "./permissions.js";
+import { checkPermissions, PERMISSION_EVENTS, Permissions, recordPermissionDelivery } from "./permissions.js";
 
 export { EventLog, Permissions };
 
@@ -115,6 +115,14 @@ async function handleWebhook(request, env, ctx) {
     ctx.waitUntil(
       logDelivery(env, event, payload, delivery).catch((err) =>
         console.error(JSON.stringify({ at: "eventLog", delivery, error: String(err) })),
+      ),
+    );
+  }
+
+  if (ctx && env.PERMISSIONS && PERMISSION_EVENTS.has(event)) {
+    ctx.waitUntil(
+      recordPermissionDelivery(env, event, payload, delivery).catch((err) =>
+        console.error(JSON.stringify({ at: "permissions", delivery, error: String(err) })),
       ),
     );
   }

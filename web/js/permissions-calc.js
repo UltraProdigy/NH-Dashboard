@@ -25,3 +25,16 @@ export function levelOf(value) {
 }
 
 export const higher = (a, b) => (rank(b) > rank(a) ? b : a);
+
+export function directTeamRepos(teams) {
+  const out = {};
+  for (const team of Object.values(teams ?? {})) {
+    const parent = team.parent != null ? teams[team.parent] : null;
+    out[team.id] = {};
+    for (const [repo, level] of Object.entries(team.repos ?? {})) {
+      const inherited = parent && repo in (parent.repos ?? {}) && rank(parent.repos[repo]) >= rank(level);
+      if (!inherited) out[team.id][repo] = level;
+    }
+  }
+  return out;
+}

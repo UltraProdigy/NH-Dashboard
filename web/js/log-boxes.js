@@ -17,7 +17,11 @@ export const BOXES = [
   { id: "pushes", label: "Pushes & branches" },
   { id: "releases", label: "Releases & packages" },
   { id: "security", label: "Security" },
-  { id: "org", label: "Org & people" },
+  {
+    id: "org",
+    label: "Org & people",
+    note: "Owner changes, the base permission and team maintainer roles have no webhook, so they're found by the 10-minute check and don't say who changed them.",
+  },
   { id: "community", label: "Community", note: "Also anything the App receives that has no box of its own." },
 ];
 
@@ -66,6 +70,7 @@ const EVENT_BOX = {
   membership: "org",
   team: "org",
   team_add: "org",
+  permissions: "org",
   custom_property: "org",
   installation: "org",
   installation_repositories: "org",
@@ -115,6 +120,7 @@ const EVENT_LABEL = {
   membership: "People added to or removed from teams",
   team: "Teams created, edited or deleted",
   team_add: "Teams given access to a repo",
+  permissions: "Access changes with no webhook: owners, base permission, team roles",
   custom_property: "Custom property definitions",
   installation: "The App installed, suspended or removed",
   installation_repositories: "Repos added to or removed from the App",

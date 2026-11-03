@@ -458,7 +458,8 @@ export class EventLog {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/record" && request.method === "POST") {
-      this.record(await request.json());
+      const sent = await request.json();
+      for (const entry of [].concat(sent)) this.record(entry);
       return new Response(null, { status: 204 });
     }
     if (url.pathname === "/settings" && request.method === "POST") {
