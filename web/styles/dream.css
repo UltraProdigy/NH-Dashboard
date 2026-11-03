@@ -219,8 +219,7 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
   .daily-link { flex-basis: 100%; }
 }
 
-/* ---------- dream panel: release all ---------- */
-.release-dialog { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+/* ---------- releases & tags: the preview tables ---------- */
 .ra-scroll {
   max-height: min(52vh, 520px); overflow: auto; margin: 4px 0 12px;
   border: 1px solid var(--border); border-radius: 8px;
@@ -256,6 +255,4 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
   .ra-scroll { max-height: 46vh; }
   .ra-last { display: block; }
   .ra-tag { width: 100%; min-width: 120px; }
-  .release-dialog .daily-actions { flex-wrap: wrap; }
-  .release-dialog .ra-count { flex-basis: 100%; }
 }

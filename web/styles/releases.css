@@ -1,0 +1,81 @@
+.rl-card > header { gap: 10px; }
+.rl-card > header .seg, .rl-refresh { margin-left: auto; }
+.ghost.mini { padding: 3px 8px; font-size: 11px; }
+.ghost[disabled] { opacity: .5; cursor: default; }
+.ghost[disabled]:hover { border-color: var(--border); }
+
+.rl-input, .rl select, .rl-dialog .rl-input {
+  padding: 5px 8px; font-size: 12px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.rl-input:focus, .rl select:focus { outline: none; border-color: var(--accent); }
+.rl-input[disabled], .rl select[disabled] { opacity: .5; }
+.rl-gap { margin: 8px 0 12px; }
+.rl-bad { color: var(--bad); }
+
+.rl-pickbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.rl-search { flex: 1 1 240px; max-width: 360px; }
+
+.rl-filter { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.rl-group { display: flex; flex-direction: column; gap: 6px; }
+.rl-group.nested { padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.rl-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rl-gitems { display: flex; flex-direction: column; gap: 6px; padding-left: 14px; border-left: 2px solid var(--border); }
+.rl-cond { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rl-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rl-chip { display: inline-flex; cursor: pointer; }
+.rl-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.rl-chip span {
+  padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 11.5px; color: var(--muted);
+}
+.rl-chip input:checked + span { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.rl-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rl-x {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+}
+.rl-x:hover { color: var(--bad); background: var(--panel-2); }
+
+.rl-count { margin-bottom: 6px; }
+.rl-repos {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 2px 14px;
+  max-height: 300px; overflow-y: auto;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.rl-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; min-width: 0; padding: 1px 0; }
+.rl-repo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-repo input { margin: 0; flex: none; }
+
+.rl-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 10px; }
+.rl-field { display: flex; flex-direction: column; gap: 3px; }
+.rl-field.grow, .rl-controls .grow { flex: 1 1 220px; }
+.rl-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; cursor: pointer; padding-bottom: 5px; white-space: nowrap; }
+.rl-check input { margin: 0; }
+.rl-controls > .rl-input { align-self: center; }
+.rl .hint { color: var(--muted); font-size: 12px; }
+.rl code { font-size: 11.5px; padding: 0 4px; border-radius: 4px; background: var(--panel-2); }
+
+.rl-scroll { max-height: 60vh; }
+.rl-table select { padding: 3px 6px; font-size: 12px; }
+.rl-table .ra-tag { min-width: 150px; }
+.rl-pre { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.rl-branch { width: 110px; padding: 3px 6px; }
+.rl-target { white-space: nowrap; }
+.ra-note:empty { display: none; }
+.rl-done { margin-top: 4px; font-size: 11.5px; color: var(--good); }
+.rl-results { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.rl-results p { margin: 0 0 8px; }
+.rl-none { margin: 4px 0 10px; }
+.rl-none summary { cursor: pointer; }
+.rl-none p { margin: 6px 0 0; }
+
+.daily-go.rl-danger { background: var(--bad); border-color: var(--bad); }
+.rl-dialog .rl-field { margin: 4px 0 6px; }
+.rl-dialog .rl-input { width: 140px; }
+
+@media (max-width: 720px) {
+  .rl-card > header { flex-wrap: wrap; }
+  .rl-table th:nth-child(3), .rl-table td:nth-child(3) { display: none; }
+  .rl-branch { width: 84px; }
+}

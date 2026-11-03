@@ -36,6 +36,7 @@ import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
 import { permissionsBody, syncPermissions } from "./permissions.js";
+import { releasesBody, syncReleases } from "./releases.js";
 import { overviewLead } from "./modules/overview.js";
 import { labelCount, labelModules } from "./modules/labels.js";
 
@@ -435,10 +436,8 @@ function renderToolbar() {
       state.daily.busy === "checking" ? "Checking builds…" : state.daily.busy === "releasing" ? "Releasing…" : "Release new daily"}</button>`);
     if (state.daily.note) bits.push(`<span class="minlabel" id="dailyNote">${esc(state.daily.note)}${
       state.daily.link ? ` <a href="${safeUrl(state.daily.link)}" target="_blank" rel="noopener">View on GitHub</a>` : ""}</span>`);
-    bits.push(`<button class="ghost" id="releaseAllBtn"${state.releaseAll.busy ? " disabled" : ""}
-      title="Make a new release on every repo in Needs a release, after checking each tag">${
-      state.releaseAll.busy === "checking" ? "Predicting tags…" : state.releaseAll.busy === "releasing" ? "Releasing…" : "Release all"}</button>`);
-    if (state.releaseAll.note) bits.push(`<span class="minlabel" id="releaseAllNote">${esc(state.releaseAll.note)}</span>`);
+    bits.push(`<button class="ghost" id="releaseAllBtn"
+      title="Open Releases & Tags with every repo in Needs a release ticked, and preview their tags">Release all</button>`);
   }
 
   if (wanted.has("minActivity"))
@@ -859,9 +858,11 @@ function render() {
   if (isDrill(state.page)) renderDrill(view);
   else if (state.page === "logs") view.innerHTML = logsBody();
   else if (state.page === "permissions") view.innerHTML = permissionsBody();
+  else if (state.page === "releases") view.innerHTML = releasesBody();
   else view.innerHTML = pageBody();
   syncLogs(state.page === "logs", renderMeta);
   syncPermissions(state.page === "permissions");
+  syncReleases(state.page === "releases");
 
   // After the view, never before: the popup is positioned against a button
   // that only exists once the cards have been written out.
