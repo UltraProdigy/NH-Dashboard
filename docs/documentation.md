@@ -2150,7 +2150,7 @@ still renders while a rebuild is pending.
 
 ## GitHub Logs
 
-The last page under Admin Resources. One line for every webhook delivery the
+Under Admin Resources. One line for every webhook delivery the
 App receives, sorted into boxes by kind, and pushed to the page the moment it
 lands. No polling: the page holds a WebSocket open while you're on it and closes
 it when you leave.
@@ -2294,6 +2294,138 @@ the page live, run them as one from `worker/`:
 `wrangler dev -c wrangler.app.toml -c wrangler.toml --var DEV_ROLE:admin`. Only
 the app is reachable that way, so send test deliveries to a webhook-only session
 first. They're stored locally and show up as the page's history.
+
+## Permissions
+
+Under Admin Resources, after GitHub Logs. Who has access to what across the
+org: owners and the base permission, every team with its members and repos,
+every repo's teams and direct collaborators, and everyone's effective level on
+every repo with where it comes from. Admin-only like GitHub Logs: missing from
+the sidebar for members and refused by the server for them regardless.
+
+It's **read-only** for now. Edits go through Org-Manager, which needs write
+permissions an org owner hasn't approved yet. The plan, with everything still to
+build, is the "Permission Management Plan" project doc.
+
+### The page
+
+From the top:
+
+- **Search** over people, teams and repos. Arrow keys and Enter pick a result.
+- **Show archived repos.** Off by default, and remembered per browser. It applies
+  to every box, panel and the search, which says when archived repos matched
+  but are hidden. Recent changes is a log and isn't filtered.
+- **Org level**: owners, the base permission, and counts of members, outside
+  collaborators, teams and repos.
+- **Repo admins & maintainers**, **Direct grants & outside collaborators**,
+  **Teams overview**, **Problems & pending** and **Recent changes**. What each
+  counts is in Calculations.md under **Permissions**.
+
+Every name on the page opens a **detail panel** for that person, team or repo,
+and names inside a panel open theirs, with a back button. The open panel is in
+the address (`?person=`, `?team=` with the slug, `?repo=` with the name) the
+same way Org Search keeps its filters there, so a panel can be linked to. Esc or
+✕ closes it.
+
+The page fetches `/api/permissions` when you open it and every minute while it's
+open and visible. A full render keeps the search box's text and caret and the
+open panel.
+
+### Where the data comes from
+
+**A snapshot, every 10 minutes.** `checkPermissions` in
+`worker/src/permissions.js` runs as the cron's last step, after the recompute,
+so its read never delays the cards. With NH-Dashbot it reads
+(`worker/src/permissions-read.js`):
+
+| What | How |
+|---|---|
+| Members and owners | GraphQL `membersWithRole` |
+| Pending org invites | REST `GET /orgs/{org}/invitations` |
+| Base permission | REST `GET /orgs/{org}`, `default_repository_permission` |
+| Teams: slug, name, privacy, parent, members with role, repos with level | GraphQL `teams`, with follow-up pages for a team past 100 members or repos |
+| Repos: visibility, archived, direct collaborators with level | GraphQL `repositories` with `collaborators(affiliation: DIRECT)` |
+
+That's about 18 calls and half a minute, nearly all of it waiting on GitHub,
+and a handful of GraphQL points from the hourly allowance. Two things about what
+GitHub sends back:
+
+- **A team's repos already include what it inherits from its parent.** So does
+  `GET /orgs/{org}/teams/{slug}/repos`. Only `GET /repos/{owner}/{repo}/teams`
+  lists direct team grants, and that's one call per repo. The snapshot keeps
+  GitHub's list and works out which grants are the team's own.
+- **A collaborator edge's `permission` is their overall level**, not their
+  direct grant. The direct grant is the `roleName` of the edge's Repository
+  `permissionSources`. Their `permission` field is no use either: it only knows
+  read, write and admin, so maintain comes back as write.
+
+**Pending repo invites** are one REST call per repo, too many for one tick. Each
+tick reads the few repos checked longest ago (the repo count over 144, rounded
+up), so every repo comes round about once a day. A repo that fails is skipped
+and tried again next tick. The Problems & pending box says how many have been
+read so far.
+
+**Stored** in the `Permissions` Durable Object, one instance named
+`permissions`, one row per org, team and repo in its own SQLite. A tick only
+rewrites the rows that moved. Not D1, for the same reasons as the event log:
+nothing here may stamp a table or spend the rows-read budget.
+
+- **The first read is a silent baseline.**
+- **A read that fails partway is never stored**, and the object refuses one
+  with no members or no repos, so a GitHub hiccup can't make everything look
+  removed.
+- **Excluded repos (`NH_INGEST_EXCLUDE`) are included.** Access is an org
+  security question, and a hidden repo is exactly where an unexpected admin
+  matters. They're still left out of GitHub Logs.
+
+**Webhooks in between.** `member`, `membership`, `team`, `team_add`,
+`organization` and `repository` deliveries patch the snapshot as they arrive
+(`applyDelivery`), handed to the object through `ctx.waitUntil` like the event
+log, so a slow object never fails a delivery.
+
+- A patch stamps the rows it touched. A 10-minute read that started before the
+  stamp leaves those rows alone, so a delivery landing mid-read isn't undone.
+- Where a payload doesn't say a level or a role (a team membership, `team_add`
+  without permissions), it's stored as **unknown** and shown as `?` until the
+  next read fills it in.
+
+**Recent changes** keeps the newest 200 lines in the same object. Permission
+deliveries add their GitHub Logs line there too. Each read is also diffed
+against the last, and anything no webhook reported (owner promotions, the base
+permission, team maintainer roles, a missed delivery) is logged with *10-min
+check* as the actor. Those lines also go to GitHub Logs → Org & people, except
+for excluded repos. Unknown becoming known is never a change, which is how a
+change a webhook already logged isn't logged again. What the diff counts is in
+Calculations.md.
+
+The cron's log line is `{"cron":"permissions",…}` with the counts, how many
+lines it logged, and any repo invite reads that failed.
+
+### The API
+
+`GET /api/permissions` returns the snapshot, the repo invites, Recent changes
+and a `viewer` block. It refuses anyone not on the admin team (403), and says
+so (503) if the binding is missing.
+
+**Who's an org owner isn't settled yet.** The Access identity carries GitHub
+orgs and teams, but owners aren't a team. Until the dashboard can tell,
+`viewer.ownerEdits` is false for everyone, owners included, and the page says so
+on the Org level card.
+
+### Deploying
+
+The `Permissions` class lives in the webhook Worker and is created by the `v2`
+migration in `wrangler.toml`. The app Worker binds it by `script_name`, so the
+webhook Worker has to deploy first, which `worker.yml` already does. Nothing new
+needs a secret: the reads use NH-Dashbot's existing `GH_APP_PRIVATE_KEY`. The
+first snapshot lands on the first tick after the deploy.
+
+### Testing
+
+`npm run test:permissions` covers the reader against a fake GitHub, the object
+against a SQLite shim, the diff, every webhook patch, the mid-read race, the
+repo invite rotation and the effective-access calculation. `npm run test:app`
+covers the route's refusals.
 
 ## Org Search
 
