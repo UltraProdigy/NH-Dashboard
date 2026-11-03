@@ -379,8 +379,8 @@ CREATE TABLE IF NOT EXISTS ingest_state (
   at                TEXT
 );
 
--- Every release the Dream Panel's Release All created, with what it predicted.
--- Only rows with `wrong` ticked teach the predictor.
+-- Every release the Releases & Tags page created, with what it predicted.
+-- Only `predicted` rows with `wrong` ticked teach the predictor.
 CREATE TABLE IF NOT EXISTS release_tag_feedback (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   repo              TEXT NOT NULL,
@@ -389,6 +389,7 @@ CREATE TABLE IF NOT EXISTS release_tag_feedback (
   tag               TEXT NOT NULL,
   sha               TEXT NOT NULL,
   wrong             INTEGER NOT NULL DEFAULT 0,
+  bump              TEXT NOT NULL DEFAULT 'predicted',
   released_by       TEXT NOT NULL,
   released_at       TEXT NOT NULL
 );

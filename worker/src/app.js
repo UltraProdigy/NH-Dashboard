@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release and Release All are refused to anyone who isn't on the admin team,
+ * release and Releases & Tags are refused to anyone who isn't on the admin team,
  * whatever the page shows.
  */
 
@@ -18,7 +18,7 @@ import { roleFor } from "./roles.js";
 import { recompute } from "./recompute.js";
 import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
-import { releaseAll, releaseAllPreview } from "./release-all.js";
+import { deletePreview, deleteRun, releasePreview, releaseRun, repoList } from "./release-manager.js";
 import {
   handleDashboard,
   handleFacets,
@@ -84,18 +84,27 @@ async function route(request, env, ctx, url, who) {
     return json(body, status);
   }
 
-  if (path === "/api/release-all" || path === "/api/release-all/preview") {
+  if (path.startsWith("/api/releases/")) {
     if (!admin) return json({ error: "admin only" }, 403);
+    if (path === "/api/releases/repos") {
+      if (request.method !== "GET") return json({ error: "GET only" }, 405);
+      const { status, body } = await repoList(env);
+      return json(body, status);
+    }
+    const actions = {
+      "/api/releases/preview": (sent) => releasePreview(env, sent?.repos),
+      "/api/releases/run": (sent, by, dryRun) => releaseRun(env, by, sent, { dryRun }),
+      "/api/releases/delete-preview": (sent) => deletePreview(env, sent),
+      "/api/releases/delete": (sent, by, dryRun) => deleteRun(env, by, sent, { dryRun }),
+    };
+    const action = actions[path];
+    if (!action) return json({ error: "not found" }, 404);
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
     const sent = await request.json().catch(() => null);
-    if (path.endsWith("/preview")) {
-      const { status, body } = await releaseAllPreview(env, sent?.repos);
-      return json(body, status);
-    }
     const by = who.identity.email ?? who.identity.sub ?? "unknown";
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
-    const { status, body } = await releaseAll(env, by, sent?.items, { dryRun });
+    const { status, body } = await action(sent, by, dryRun);
     return json(body, status);
   }
 
