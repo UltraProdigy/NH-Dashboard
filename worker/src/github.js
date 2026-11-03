@@ -97,7 +97,7 @@ export async function graphql(token, query, variables = {}) {
   return out.data;
 }
 
-function nextPage(link) {
+export function nextPage(link) {
   const next = link?.split(",").find((part) => part.includes('rel="next"'));
   return next?.match(/<([^>]+)>/)?.[1] ?? null;
 }

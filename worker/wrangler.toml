@@ -16,9 +16,17 @@ enabled = true
 name = "EVENT_LOG"
 class_name = "EventLog"
 
+[[durable_objects.bindings]]
+name = "PERMISSIONS"
+class_name = "Permissions"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["EventLog"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Permissions"]
 
 # The recompute. Ten minutes is a debounce, not a poll: the job returns
 # immediately when `dirty` is 0, so a quiet stretch costs one read per tick.
