@@ -9,7 +9,10 @@ import {
 } from "../src/permissions.js";
 import { boxOf, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
 import { fetchPermissions, fetchRepoInvites, getAll } from "../src/permissions-read.js";
-import { directTeamRepos, higher, levelOf, rank } from "../../web/js/permissions-calc.js";
+import {
+  accessOn, adminRows, directRows, directTeamRepos, higher, indexSnapshot, levelOf, personAccess, problems, rank,
+  repoAccess, repoTeams, teamAncestors, teamRows,
+} from "../../web/js/permissions-calc.js";
 
 let pass = 0, fail = 0;
 const check = (n, ok, d = "") => {
@@ -517,6 +520,94 @@ console.log("\nthe webhook\n");
   await hit("star", "del-2");
   await Promise.all(pending);
   check("a delivery that isn't about access doesn't", sent.length === 1);
+}
+
+console.log("\neffective access\n");
+{
+  const snap = richSnapshot();
+  snap.org.members.owner2 = "owner";
+  snap.teams[11].repos[3] = "triage";
+  snap.repos[3] = { id: 3, name: "Old-Mod", visibility: "public", archived: true, collaborators: { dave: "admin" } };
+  snap.repos[1].collaborators.dave = "read";
+  snap.repos[1].collaborators.outsider = "maintain";
+  const idx = indexSnapshot(snap);
+  const on = (login, repo) => accessOn(snap, idx, login, String(repo));
+
+  const owner = on("alice", 2);
+  check("an owner is admin everywhere, from being an owner", owner.level === "admin" && owner.sources.length === 1 && owner.sources[0].kind === "owner");
+  const bob = on("bob", 1);
+  check("a team member gets the team's level, sourced to the team", bob.level === "write" && bob.sources[0].kind === "team" && bob.sources[0].team === 10 && bob.sources[0].from === null);
+  const dave = on("dave", 1);
+  check("the highest source wins, and every source is kept", dave.level === "write" && dave.sources.map((s) => s.kind).join(",") === "team,direct", JSON.stringify(dave));
+  check("access a child team gets from its parent says where it comes from", dave.sources[0].team === 11 && dave.sources[0].from === 10);
+  const daveSecret = on("dave", 2);
+  check("a child team's own higher grant is its own", daveSecret.level === "admin" && daveSecret.sources[0].from === null);
+  check("a direct grant above the team's wins", on("dave", 3).level === "admin");
+  check("someone with no source has no access", on("carol", 3) === null && on("nobody", 1) === null);
+  check("an outside collaborator gets only their grant", on("outsider", 1).level === "maintain" && on("outsider", 1).sources.length === 1);
+
+  snap.org.base = "read";
+  const based = indexSnapshot(snap);
+  const carol = accessOn(snap, based, "carol", "3");
+  check("the base permission reaches every member on every repo", carol.level === "read" && carol.sources[0].kind === "base");
+  check("but not outside collaborators", !accessOn(snap, based, "outsider", "1").sources.some((s) => s.kind === "base"));
+  snap.org.base = "none";
+
+  const list = personAccess(snap, idx, "dave");
+  check("a person's repos leave archived ones out by default", list.length === 2 && list[0].level === "admin" && list[0].repo === 2, JSON.stringify(list.map((a) => [a.repo, a.level])));
+  check("and include them when asked", personAccess(snap, idx, "dave", { archived: true }).length === 3);
+  check("an owner reaches every repo", personAccess(snap, idx, "alice", { archived: true }).length === 3);
+
+  const people = repoAccess(snap, idx, "1");
+  check("a repo lists everyone who can reach it, highest first", people[0].level === "admin" && people.some((p) => p.login === "outsider" && p.outside) && people.some((p) => p.login === "bob"), people.map((p) => `${p.login}:${p.level}`).join(","));
+  const teams = repoTeams(snap, idx, "1");
+  check("a repo lists its teams, with inherited ones marked", teams.length === 2 && teams.find((t) => t.team === 11).from === 10 && teams.find((t) => t.team === 10).from === null);
+  check("team ancestors are nearest first and survive a loop", teamAncestors(snap.teams, 11).map((t) => t.id).join() === "10" &&
+    teamAncestors({ 1: { id: 1, parent: 2 }, 2: { id: 2, parent: 1 } }, 1).length === 1);
+}
+
+console.log("\nthe boxes\n");
+{
+  const snap = richSnapshot();
+  snap.org.members.owner2 = "owner";
+  snap.teams[10].repos[1] = "admin";
+  snap.repos[1].collaborators.erin = "admin";
+  snap.repos[2].collaborators.bob = "maintain";
+  snap.repos[2].collaborators.outsider = "write";
+  snap.repos[3] = { id: 3, name: "Old-Mod", visibility: "public", archived: true, collaborators: { erin: "admin" } };
+  snap.teams[12] = { id: 12, slug: "empty", name: "Empty", parent: null, members: {}, repos: {} };
+  snap.repoInvites = { 1: { checkedAt: AT, invites: [{ login: "inv", level: "write", at: AT, by: "alice" }] }, 3: { checkedAt: AT, invites: [{ login: "old" }] } };
+  snap.org.invites = [{ login: "newbie" }];
+  const idx = indexSnapshot(snap);
+
+  const admins = adminRows(snap, idx);
+  const who = admins.map((r) => `${r.kind === "team" ? `team:${r.team}` : r.login}:${r.level}:${r.repos.length}`);
+  check("teams with admin or maintain get a row per level", who.includes("team:10:admin:1") && who.includes("team:11:admin:1"), who.join(" "));
+  check("owners are left out", !admins.some((r) => r.login === "alice" || r.login === "owner2"));
+  check("someone who only gets admin from a team is counted on the team's row", !admins.some((r) => r.login === "carol"));
+  check("a direct admin or maintain grant gets its own row", who.includes("erin:admin:1") && who.includes("bob:maintain:1"));
+  check("archived repos are left out unless asked", adminRows(snap, idx, { archived: true }).find((r) => r.login === "erin").repos.length === 2);
+  check("a team row says how many members it has", admins.find((r) => r.team === 10).members === 2);
+  check("rows go admin before maintain", admins.findIndex((r) => r.level === "maintain") > admins.findIndex((r) => r.level === "admin"));
+
+  const direct = directRows(snap);
+  const firstInside = direct.findIndex((r) => !r.outside);
+  check("direct grants list outside collaborators first", direct.slice(0, firstInside).map((r) => r.login).join() === "erin,outsider" && !direct.find((r) => r.login === "bob").outside, direct.map((r) => `${r.login}:${r.outside}`).join());
+  check("each person's grants are highest first", direct.find((r) => r.login === "erin").grants.length === 1 && directRows(snap, { archived: true }).find((r) => r.login === "erin").grants.length === 2);
+
+  const rows = teamRows(snap);
+  check("teams are listed with children under their parent", rows.map((r) => `${r.team}@${r.depth}`).join(",") === "10@0,11@1,12@0", rows.map((r) => `${r.team}@${r.depth}`).join(","));
+  const dev = rows[0];
+  check("a team row counts members, maintainers and repos at each level", dev.members === 2 && dev.maintainers === 1 && dev.levels.admin === 1 && dev.levels.write === 1 && dev.repos === 2);
+
+  const p = problems(snap, idx);
+  check("pending invites are listed, leaving archived repos' out", p.orgInvites.length === 1 && p.repoInvites.length === 1 && p.repoInvites[0].repo === "1");
+  check("empty teams and teams with no repos are listed", p.emptyTeams.join() === "12" && p.teamsWithoutRepos.join() === "12");
+  check("a repo nobody but owners can admin or maintain is listed", p.unowned.length === 0);
+  delete snap.repos[2].collaborators.bob;
+  snap.teams[11].repos[2] = "write";
+  check("and turns up once its last admin or maintainer goes", problems(snap, indexSnapshot(snap)).unowned.join() === "2");
+  check("invite coverage is how many repos have been checked", p.invitesChecked.checked === 2 && p.invitesChecked.total === 3, JSON.stringify(p.invitesChecked));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

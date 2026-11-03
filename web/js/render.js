@@ -35,6 +35,7 @@ import { backFrom } from "./router.js";
 import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
+import { permissionsBody, syncPermissions } from "./permissions.js";
 import { overviewLead } from "./modules/overview.js";
 import { labelCount, labelModules } from "./modules/labels.js";
 
@@ -857,8 +858,10 @@ function render() {
 
   if (isDrill(state.page)) renderDrill(view);
   else if (state.page === "logs") view.innerHTML = logsBody();
+  else if (state.page === "permissions") view.innerHTML = permissionsBody();
   else view.innerHTML = pageBody();
   syncLogs(state.page === "logs", renderMeta);
+  syncPermissions(state.page === "permissions");
 
   // After the view, never before: the popup is positioned against a button
   // that only exists once the cards have been written out.

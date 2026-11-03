@@ -1632,6 +1632,84 @@ Included; the one place bots are not excluded from anything.
 
 ---
 
+## Permissions
+
+On screen: every box and panel on the Permissions page.
+
+`web/js/permissions-calc.js`, shared by the page and both Workers. The inputs are
+the snapshot `worker/src/permissions-read.js` reads every 10 minutes, kept current
+between reads by webhooks.
+
+### Levels
+
+From lowest to highest: **read**, **triage**, **write**, **maintain**, **admin**.
+GraphQL's `READ`…`ADMIN`, REST's `pull`/`push` and a REST `permissions` object
+(the highest flag that's true) all map onto it. A custom role name that isn't one
+of the five falls back to the base permission GitHub reports beside it.
+
+A level can be **unknown** for a few minutes: a webhook that adds someone to a
+team or a repo without saying the role or level stores it as unknown, and the
+next read fills it in. Unknown counts as having access, ranks below read, and
+shows as `?`.
+
+### Direct grants
+
+| Grant | Where it comes from |
+|---|---|
+| A person's direct grant on a repo | The highest `roleName` among the Repository entries of the collaborator edge's `permissionSources` (`affiliation: DIRECT`). Not the edge's own `permission`, which is their overall level, and not the sources' `permission`, which only has read, write and admin and reports maintain as write |
+| A team's level on a repo | As GitHub lists it on the team, which already includes what the team inherits from its parent |
+| A team's **own** grant | A listed repo counts as inherited, not the team's own, when the parent team lists the same repo at the same level or higher. A child team given exactly its parent's level directly can't be told apart from inheriting it, and either way removing it wouldn't change anything |
+
+### Effective access
+
+A person's level on a repo is the highest of these sources, and every source is
+kept so the page can show where it comes from:
+
+| Source | Applies when |
+|---|---|
+| Org owner | They're an owner. Admin on every repo, and can't be lowered from a repo |
+| Base permission | They're an org member and the org's base permission isn't `none`. Outside collaborators don't get it |
+| Team | They're a direct member of a team that lists the repo, at the team's listed level. If the team inherits it, the source names the team it comes from |
+| Direct | They have a direct grant on the repo |
+
+A person with no source has no access, whatever the repo's visibility. Everyone
+can read a public repo, but the page doesn't count that as access.
+
+Checked against GitHub on 2026-11-02: on 14 repos, public and private and with
+and without direct grants, the overall level GitHub reports for every
+collaborator (`affiliation: ALL`) matched this calculation for all 2,239 pairs.
+
+### Boxes
+
+| Box | Rows |
+|---|---|
+| Repo admins & maintainers | A row per team per level (admin, maintain) with the repos it lists at that level, and a row per person per level for the repos where a direct grant or the base permission gives them that level. Owners are left out, and so is anyone who only gets admin or maintain through a team, since the team's row covers them |
+| Direct grants & outside collaborators | Everyone with at least one direct grant, outside collaborators first. **Outside** means not an org member |
+| Teams overview | Every team, each child under its parent. Repos are counted at the team's listed level, so a child team counts what it inherits |
+| Problems & pending | Pending org invites. Pending repo invites, from the per-repo read, each repo about once a day. Teams with no members. Teams with no repos. Repos where no team lists admin or maintain and nobody has it directly, so only owners can administer them (none when the base permission is maintain or admin) |
+| Recent changes | The newest 200 changes, from webhooks and the 10-minute diff, newest first |
+
+**Archived repos** are left out of every box and panel unless *Show archived
+repos* is ticked. Recent changes is a log of what happened and isn't filtered.
+
+### The 10-minute diff
+
+Each read is compared with the one before it. The first read is a silent
+baseline. A change is logged when:
+
+| Change | Logged when |
+|---|---|
+| Base permission | It differs and neither side is unknown |
+| Owner or member | Someone's role, or whether they're in the org, differs |
+| Team | Created, deleted, renamed or moved to another parent. A new team is one line, not one per member and repo |
+| Team member | Added, removed, or their role changed with neither side unknown |
+| Team repo | The team's **own** grant was added, removed or changed. A child team following its parent logs nothing |
+| Repo | Visibility or archived changed. A repo that's new to the read logs nothing |
+| Collaborator | Added, removed, or their level changed with neither side unknown |
+
+A row a webhook patched after the read started is kept as patched and not
+diffed, so a change landing mid-read isn't logged as being undone.
+
 ## Known biases and blind spots
 
 **Toward flattery**
@@ -1685,6 +1763,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-02 | Effective access and the Permissions boxes | New, for the Permissions page. No existing figure moves. A person's level on a repo is the highest of owner, base permission, their teams (including what a team inherits from its parent) and a direct grant. Direct grants come from `permissionSources` by `roleName`. See **Permissions**. |
 | 2026-10-28 | Label drift, usage and unused | New, for the Labels page. No existing figure moves. Drift is what Label-Sync's `syncRepository` would do, worked out by the shared planner, and counts managed labels only until the rest of the config is in D1. Usage counts (repo, label) pairs, open and total, from the hourly facets pass. See **Label metrics**. |
 | 2026-10-24 | Predicted release tag | New, with GT-New-Horizons-Modpack and Questbook-Releases dated instead of counted. Otherwise no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |
 | 2026-09-09 | Repo activity panel | New panel, no existing figure moves. Lifecycle rungs at 30/90/365 days idle; stale open PR at 180 days; concentration over the top 5 repos. Closed PRs dated by `closedAt` here while the drilldown still uses `updatedAt` — a known divergence. See **Repo activity metrics**. |

@@ -1,0 +1,55 @@
+.perm-bar {
+  display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+.perm-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.perm-toggle input { margin: 0; }
+.perm-status { margin-left: auto; }
+
+.perm-card .perm-scroll { max-height: 420px; }
+.perm-card td { font-size: 12.5px; }
+.perm-repos .repo { font-size: 11.5px; }
+.perm-levels { white-space: nowrap; }
+.perm-team { font-weight: 600; }
+.perm-ext { margin-left: auto; font-size: 12px; }
+
+.perm-facts { display: flex; flex-wrap: wrap; gap: 14px 32px; }
+.perm-fact { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.perm-fact strong { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.perm-fact .sub { font-size: 11.5px; }
+.perm-owners { flex-basis: 100%; }
+.perm-people { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.perm-note { margin: 12px 0 0; }
+
+.pill.lv { font-variant-numeric: tabular-nums; }
+.pill.lv-admin { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.pill.lv-maintain { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--border)); }
+.pill.lv-write { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.pill.lv-triage { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.pill.lv-read { color: var(--muted); }
+.pill.lv-unknown { color: var(--muted); border-style: dashed; }
+
+.perm-problems { display: flex; flex-direction: column; }
+.perm-problem { border-bottom: 1px solid var(--border); }
+.perm-problem:last-child { border-bottom: none; }
+.perm-problem summary {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 14px; cursor: pointer; font-size: 12.5px; list-style: none;
+}
+.perm-problem summary::-webkit-details-marker { display: none; }
+.perm-problem summary::before { content: "▸"; color: var(--muted); margin-right: 6px; }
+.perm-problem[open] summary::before { content: "▾"; }
+.perm-problem summary span:first-child { margin-right: auto; }
+.perm-problem[data-none] summary { cursor: default; color: var(--muted); }
+.perm-problem[data-none] summary::before { visibility: hidden; }
+.perm-problem-body { padding: 0 14px 10px 30px; max-height: 260px; overflow-y: auto; font-size: 12.5px; }
+.perm-problem-body ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.perm-cols { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+
+.perm-changes { height: auto; max-height: 420px; }
+
+@media (max-width: 720px) {
+  .perm-status { margin-left: 0; flex-basis: 100%; }
+  .perm-facts { gap: 12px 20px; }
+}
