@@ -1209,9 +1209,10 @@ accuracy — see *Pull-request association*.
 
 ### Predicted release tag
 
-On screen: *Release all* dialog, *New tag*, *learned*, *Predictions kept as-is*
+On screen: *Releases & Tags*, *New tag*, *Bump*, *learned*, *Predictions kept as-is*
 
-`worker/src/release-tags.js`, used by `worker/src/release-all.js`.
+`web/js/release-tags.js`, used by `worker/src/release-manager.js` and by the
+page itself (`web/js/releases.js`), so the browser and the Worker can't disagree.
 
 **Last tag** is the newest non-draft release by `createdAt` whose tag has a
 number in it. If no release qualifies, it is the newest tag by commit date.
@@ -1269,8 +1270,80 @@ prediction from `1.5.0` is `1.6.0`. `1.4.47 → 1.4.49` or `→ 1.5.3` teach
 nothing (one-off jumps), and are kept for the record. A later ticked correction
 back to the default replaces the rule. Repos with a rule show **learned**.
 
-**Predictions kept as-is** = rows where `tag = predicted_tag`, over all rows.
-*marked wrong* = rows with `wrong = 1`.
+**Predictions kept as-is** = rows where `tag = predicted_tag`, over rows where
+`bump = 'predicted'`. *marked wrong* = rows with `wrong = 1`, which only a
+predicted row can have. Rows from before the `bump` column count as predicted,
+since Release All only ever predicted.
+
+### Chosen bumps
+
+On screen: *Releases & Tags*, *Bump*: Patch, Minor, Major, Super
+
+`bumpTag` in `web/js/release-tags.js`. *Predicted* is everything above. The
+others bump one number of the version, counted from the end:
+
+| Bump | Number bumped |
+|---|---|
+| Patch | last |
+| Minor | second-to-last |
+| Major | third-to-last |
+| Super | fourth-to-last |
+
+Every number after the bumped one becomes 0. Zero padding is kept where the
+number has it (`09` → `10`, `09` → `00`), the same as the predictor. An explicit
+*Patch* always bumps the last number, even on a repo that has learned another
+rule.
+
+**The version** is the first run of dot-joined numbers in the tag, after a
+trailing `-pre` is dropped. Two kinds of number are text and are never part of
+it:
+- `1.7.10` on its own, which is the Minecraft version, as in the predictor.
+- A number glued to a letter, as in `rv3`. The one exception is a lone `v` at
+  the start of the tag or after `-`, `_` or `/`, so `v2.3` is a version.
+
+Text before and after the version is kept. A pre-release marker right after the
+version (`-RC-2`, `-beta35`, `-alpha-1`, `-pre3`, `-b4`) is dropped, because it
+belongs to the old version, and the row says so.
+
+**Fallback.** If the version has fewer numbers than the bump needs, the
+leftmost number is bumped instead, and the row says which bump that was.
+
+```
+                  Patch            Minor            Major            Super
+5.09.54.243       5.09.54.244      5.09.55.0        5.10.0.0         6.00.0.0
+1.1.71-GTNH       1.1.72-GTNH      1.2.0-GTNH       2.0.0-GTNH       2.0.0-GTNH*
+2.3.92-1.7.10     2.3.93-1.7.10    2.4.0-1.7.10     3.0.0-1.7.10     3.0.0-1.7.10*
+rv3-beta-1091     rv3-beta-1092    rv3-beta-1092*   rv3-beta-1092*   rv3-beta-1092*
+v2.3              v2.4             v3.0             v3.0*            v3.0*
+2.9.0-RC-2        2.9.1            2.10.0           3.0.0            3.0.0*
+1.0.0-beta35      1.0.1            1.1.0            2.0.0            2.0.0*
+```
+`*` = the version is too short, so the leftmost number was bumped.
+
+A tag with no version number at all falls back to the predictor's
+last-number bump. Dated repos ignore the bump. As with the predictor, a bumped
+tag that's already taken (in the newest 100 tags and 10 releases) is stepped
+past by bumping the same number again, up to 20 times.
+
+**Pre-release** adds `-pre` to whatever tag comes out, unless it already ends in
+`-pre`, and the taken check is on the tag with `-pre` added.
+
+**Patterns.** A tag pattern is filled in per repo:
+
+| Token | Value |
+|---|---|
+| `{next}` | the row's bump, after stepping past taken tags |
+| `{last}` | the last tag |
+| `{date}` | today, UTC, `YYYY-MM-DD` |
+| `{repo}` | the repo name |
+
+A filled pattern that's already taken, or isn't a valid tag name, makes the row
+invalid instead of counting up.
+
+**What's recorded.** `release_tag_feedback.bump` is `predicted`, `patch`,
+`minor`, `major`, `super`, or `pattern` for a pattern-made tag. Only predicted
+rows can be ticked *prediction was wrong*, so chosen bumps and patterns never
+teach a rule.
 
 **Baseline**, measured 2026-10-24 over the 200 most recently pushed repos' last
 12 releases each: the default rule predicted 1,537 of 1,722 release-to-release
@@ -1763,6 +1836,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-03 | Predicted release tag, chosen bumps | Patch, Minor, Major and Super bumps added, counted from the end of the version, with fallback to the leftmost number, a `-pre` option and tag patterns. *Predictions kept as-is* now counts predicted rows only (`bump = 'predicted'`); older rows all count, so today's figure doesn't move. The predictor itself is unchanged. See **Chosen bumps**. |
 | 2026-11-02 | Effective access and the Permissions boxes | New, for the Permissions page. No existing figure moves. A person's level on a repo is the highest of owner, base permission, their teams (including what a team inherits from its parent) and a direct grant. Direct grants come from `permissionSources` by `roleName`. See **Permissions**. |
 | 2026-10-28 | Label drift, usage and unused | New, for the Labels page. No existing figure moves. Drift is what Label-Sync's `syncRepository` would do, worked out by the shared planner, and counts managed labels only until the rest of the config is in D1. Usage counts (repo, label) pairs, open and total, from the hourly facets pass. See **Label metrics**. |
 | 2026-10-24 | Predicted release tag | New, with GT-New-Horizons-Modpack and Questbook-Releases dated instead of counted. Otherwise no existing figure moves. The last number of the newest release's tag goes up by one, a trailing `-pre` is dropped, an existing tag is stepped past, and a ticked correction teaches a per-repo rule. See **Predicted release tag**. |

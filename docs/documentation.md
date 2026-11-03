@@ -8,8 +8,8 @@ Zero dependencies — Node 20.6+ and its built-in `fetch`. There is no install s
 
 **Hosted:** <https://nh-dashboard-app.gtnh.workers.dev>. It's behind a GitHub
 login: anyone in the GTNewHorizons org can sign in, and members of the `admin`
-team also see the Admin Resources pages (Dream Panel, Labels, CI Health,
-Rulesets). Logins last a month per browser. Every panel refreshes itself from
+team also see the Admin Resources pages (Dream Panel, Releases & Tags, Labels,
+CI Health, Rulesets, GitHub Logs, Permissions). Logins last a month per browser. Every panel refreshes itself from
 D1, within seconds, ten minutes or an hour depending on its tier. How the login
 works, and how to set it up again, is under [Login and roles](#login-and-roles).
 
@@ -83,14 +83,18 @@ traffic data, and it also carries branch protection, collaborator lists, and
 repo settings. `discussions` and `repository_projects` were requested but not
 granted, and nothing reads them — they can be dropped from the request.
 
+Organization **Custom properties: Read** is for the Releases & Tags page's
+property filter. Without it the page still works, says the permission is
+missing, and offers no filter.
+
 ### Org-Manager, the App that changes things
 
 NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
 second App, `Org-Manager` (App ID `5299242`), so the key that can start a
 release isn't the same key that serves every page load, and either one can be
-revoked without touching the other. Today that is releasing a daily and Release
-All (see **Dream Panel → Releasing a daily** and **Release All**). Label-sync is
-meant to move onto it later.
+revoked without touching the other. Today that is releasing a daily and the
+Releases & Tags page (see **Dream Panel → Releasing a daily** and **Releases &
+Tags**). Label-sync is meant to move onto it later.
 
 It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
 `github.js` and sharing the JWT signing and token exchange with it, but with
@@ -99,10 +103,11 @@ its own token cache. The installation ID is derived the same way.
 Setup, once:
 
 1. On the App's settings, give it repository **Actions: Read and write** (for
-   the daily) and **Contents: Read and write** (for Release All's releases), then
-   accept the change on the org's installation page. Release All can tag any
-   repo on Needs a release, so the installation should cover all repositories.
-   If any repo has a tag ruleset, Org-Manager needs to be on its bypass list.
+   the daily) and **Contents: Read and write** (for making and deleting releases
+   and tags on Releases & Tags), then accept the change on the org's installation
+   page. Releases & Tags can act on any repo, so the installation should cover
+   all repositories. If any repo has a tag ruleset, Org-Manager needs to be on
+   its bypass list, or releases there fail and its tags can't be deleted.
 2. Generate a private key on the App's General page and convert it to PKCS#8,
    as above: `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in
    <downloaded>.pem -out org-manager-pk8.pem`.
@@ -858,75 +863,12 @@ GitHub, and a dry run doesn't start the two-minute wait.
 the cooldown, the running-build check, which App makes which call, and the
 log. The route guards are in `app.test.js`.
 
-### Release All
+### Release all
 
-Next to Release new daily, admins get **Release all**. It makes a new release
-on every repo the Needs a release card is showing, after the user checks each
-tag.
-
-Pressing it sends the card's repos, after that card's own repo exclusions, to
-`POST /api/release-all/preview`. The card's filter is the only way to keep a
-repo out for good; there is no separate list. For each repo the Worker reads
-from GitHub, as NH-Dashbot, in one GraphQL query per 20 repos:
-
-- the default branch and its HEAD commit
-- the ten newest releases and the hundred newest tags
-
-The dialog lists each repo with a checkbox, its last tag, the predicted new
-tag in an editable box, and the commit it will be tagged at. How the
-prediction is made, what it learns, and the two repos tagged by date
-(GT-New-Horizons-Modpack and Questbook-Releases) are in Calculations.md under
-**Predicted release tag**. Editing a tag shows a **prediction was wrong**
-checkbox. Tick it when the predictor got it wrong so it's learned; leave it
-unticked for an intentional major bump or custom tag. A ticked repo with an
-empty or invalid tag disables the button.
-
-On confirm, `POST /api/release-all` creates a release in each repo, as
-Org-Manager, with `POST /repos/{org}/{repo}/releases`: `tag_name` is the tag,
-`target_commitish` the commit the dialog showed rather than whatever HEAD is by
-then (so a PR merged while the dialog was open isn't released unseen), `name`
-the tag, and `generate_release_notes` on. GitHub creates the lightweight tag
-with it, the same as publishing a release from the website.
-
-That covers both kinds of repo. One without the workflow just has its release,
-with GitHub's notes. One with `release-tags.yml` also gets the tag push, and
-the workflow builds the jar, deletes the release the dashboard made (its
-"Delete old release if it already exists" step), recreates it with the jar and
-its own notes (GitHub's generator again, or `.changelogs/<tag>.md` if there is
-one) and publishes to Maven, Modrinth and CurseForge. A tag made by a GitHub
-App's token starts workflows, unlike one made with `GITHUB_TOKEN`.
-
-Each release made is a row in `release_tag_feedback`: repo, previous tag, predicted
-tag, actual tag, commit, the wrong tick, who and when. It needs
-`migrations/006-release-tag-feedback.sql` run once. Until then tags are still
-made, the preview says nothing learned could be read, and the feedback write
-is logged to Workers Logs as failed.
-
-Each run posts one line to **Releases & packages** on the GitHub Logs page,
-with who pressed it, the first eight repos and their tags, and how many failed.
-The releases themselves show up there too, from their webhooks, as made by
-Org-Manager. The dialog doesn't keep a history of its own. `meta` holds only
-the last run, as `release_all_log`, for the two-minute wait, and Workers Logs
-gets `{"at":"release-all",…}` with every repo's result.
-
-The Worker refuses, whatever the page shows:
-
-- anyone not on the admin team, a POST from another origin, and anything but
-  POST
-- more than 150 repos, the same repo twice, a tag that isn't a plain tag name,
-  or a commit that isn't a full 40-character SHA
-- a second Release All within two minutes of the last one
-
-A release GitHub refuses doesn't stop the rest. The toolbar says how many were
-released and a second dialog lists the failures, each with what to check: the
-tag already existing, Org-Manager missing Contents write or the repo, or a
-ruleset. Under `wrangler dev` with `DEV_ROLE` it's a dry run that releases
-nothing and teaches nothing.
-
-`worker/test/release-all.test.js` (`npm run test:release-all`, in the deploy
-gate) covers the predictor, learning, the preview, the releases and their
-pinned commits, partial failures, the cooldown and the dry run. The route guards are
-in `app.test.js`.
+Next to Release new daily, admins get **Release all**. It opens the Releases &
+Tags page with every repo on the Needs a release card ticked, after that card's
+own repo exclusions, and starts the preview. Everything after that is the
+page's; see **Releases & Tags**.
 
 ### What counts as needing a release
 
@@ -1145,6 +1087,258 @@ The columns are `repeat(auto-fit, minmax(240px, 1fr))` rather than a count
 pinned to how many labels are up. The card is full width in both views, but the
 sidebar collapses under both, so how many columns fit isn't something the label
 count can predict.
+
+## Releases & Tags
+
+Under Admin Resources, after the Dream Panel. Makes releases on any set of repos
+on demand, and deletes releases and tags in bulk. It replaced the Dream Panel's
+Release All dialog, which is now a button that opens this page with the Needs a
+release repos ticked. Admin-only: missing from the sidebar for members, and
+every `/api/releases/` route refuses them.
+
+The page is two cards: **Repos**, to choose what to act on, and a second card
+that either makes releases or deletes them.
+
+### Choosing repos
+
+`GET /api/releases/repos` lists every repo in the org, with each one's custom
+property values and the org's property definitions. It reads GitHub as
+NH-Dashbot each time the page opens (again if it's been open five minutes, and
+on **Refresh**), so a property changed on GitHub shows up on the next open:
+
+- `GET /orgs/{org}/repos`, 100 a page, for the names, default branches and
+  which are archived
+- `GET /orgs/{org}/properties/schema` for each property's name, type and
+  allowed values
+- `GET /orgs/{org}/properties/values`, 100 a page, for every repo's values
+
+None of it touches D1. Archived repos are left out, since GitHub won't release
+or delete in them, and the card says how many.
+
+The list can be searched by name, and narrowed by a filter on custom
+properties. The filter is a tree:
+
+- A **group** has an AND / OR switch and holds conditions and other groups,
+  which are the brackets, up to three levels deep.
+- A **condition** is a property and one of *is any of*, *is none of*, *is set*
+  or *is not set*. Select, multi-select and true/false properties show their
+  values as chips. Text and URL properties take a comma-separated list.
+- A multi-select property matches *is any of* if any of its values is ticked.
+- An empty group, or a condition with no property or no values, is ignored
+  rather than matching nothing.
+
+The filter runs in the browser and is remembered per browser.
+
+**Ticking is separate from the filter.** The filter only decides what's shown.
+**Tick all shown** adds what's shown to the ticked set, and **Needs a release**
+ticks the Dream Panel card's repos. A ticked repo stays ticked when the filter
+changes, and the count says how many ticked repos the filter is hiding. The
+actions below run on every ticked repo.
+
+### Making releases
+
+**Preview** sends the ticked repos to `POST /api/releases/preview`, 50 at a
+time. For each one the Worker reads, as NH-Dashbot, in one GraphQL query per
+20 repos:
+
+- the default branch and its HEAD commit, or the HEAD of the branch asked for
+- the ten newest releases with their commits
+- the hundred newest tags with their commits
+
+From that it returns:
+
+- the last tag, as Calculations.md's **Predicted release tag** defines it
+- whether the target commit is the same as the last release's (no commits
+  since)
+- any rule learned for the repo
+- every tag name already taken
+
+The predicted tag and the bumps are then worked out in the browser, by the same
+`web/js/release-tags.js` the Worker uses, so changing a bump or a pattern needs
+no second request.
+
+Above the table, these apply to every row:
+
+- **Bump.** *Predicted* is the predictor as before, including learned rules.
+  *Patch*, *Minor*, *Major* and *Super* bump the last, second-to-last,
+  third-to-last and fourth-to-last number of the version. How the version is
+  found in an odd tag, and what happens when a tag has too few numbers, is in
+  Calculations.md.
+- **Tag pattern.** A tag for every repo at once. It can be literal
+  (`2.8.0-freeze`) or use `{next}` (the row's bump), `{last}`, `{date}` (UTC,
+  `YYYY-MM-DD`) and `{repo}`. A pattern that comes out as a tag the repo
+  already has marks that row invalid instead of counting up.
+- **Branch.** The branch to tag, for every repo. Blank means each repo's
+  default branch. Changing it previews again.
+- **Pre-release.** Adds `-pre` to the tag.
+
+Changing any of these resets that setting on every row. Each row can then be
+changed on its own: its bump, the pre box, the tag typed in by hand, and its
+branch (which re-reads just that repo).
+
+**Pre-release is the `-pre` suffix, not GitHub's pre-release flag.** The org's
+`release-tags.yml` workflow reads `-pre` from the tag name. It then skips
+Modrinth and CurseForge, and it deliberately never sets GitHub's flag, because
+DreamAssemblerXXL breaks on releases flagged that way. The workflow also deletes
+the dashboard's release and recreates its own, so a flag set here would be lost
+anyway.
+
+**Warnings that don't block a row:**
+- "No commits since `<last tag>`": the target commit is the last release's.
+  A deliberate re-tag with a custom pattern is the reason these are allowed.
+- A bump that fell back to a lower number, or dropped an `-RC-2`-style marker.
+- More than 20 repos at once: the confirm step says how many workflow builds
+  that starts.
+
+**These block a row:** no target commit (for example "No `dev` branch", with the
+branch box there to clear it), and a missing, invalid or already-taken tag.
+
+A repo tagged by date (GT-New-Horizons-Modpack and Questbook-Releases) always
+uses its dated prediction or a pattern. Its bump box is greyed out.
+
+**Running.** **Release** asks first. It then sends the ticked rows to
+`POST /api/releases/run` in batches of 10. Inside a batch the Worker creates
+each release as Org-Manager, a second apart to stay under GitHub's secondary
+limits on content-creating requests. Each release is made with
+`POST /repos/{org}/{repo}/releases`:
+
+- `tag_name`: the tag
+- `target_commitish`: the commit the preview showed, rather than whatever HEAD
+  is by then
+- `name`: the tag
+- `generate_release_notes`: on
+
+Each row then shows **Released** with a link, or why it failed. A summary and
+the list of failures go under the table.
+
+What a release sets off in a repo is the same as it was for Release All. A repo
+without the workflow just has its release, with GitHub's notes. One with
+`release-tags.yml` also gets the tag push. The workflow builds the jar, deletes
+the release the dashboard made (its "Delete old release if it already exists"
+step), recreates it with the jar and its own notes, and publishes. A tag made by
+a GitHub App's token starts workflows, unlike one made with `GITHUB_TOKEN`.
+
+**Two runs can't collide.** This replaced Release All's two-minute cooldown with
+two checks:
+
+1. **One run at a time.** A run holds a lock row, `release_manager_run` in
+   `meta`, from its first batch to its last. It's claimed with a conditional
+   upsert, so two batches can't both take it. A run from anyone else is refused
+   with who holds it. A lock left behind by a closed tab frees itself three
+   minutes after its last batch.
+2. **A recheck on each repo.** Just before creating releases, the Worker reads
+   each repo again. If its last tag isn't the one the preview saw, that repo is
+   refused with what was released, by whom and how long ago ("`0.11.55` was
+   released 40s ago by … since the preview. Open the preview again"). The rest
+   of the batch still goes. This is what stops a second run from bumping
+   everything twice, without a timer.
+
+**Learning.** Every release made is a row in `release_tag_feedback`, as before,
+plus `bump` (`predicted`, `patch`, `minor`, `major`, `super` or `pattern`).
+*prediction was wrong* only shows on a *Predicted* row whose tag was typed over.
+Only those rows teach the predictor, and *Predictions kept as-is* counts
+predicted rows only.
+
+### Deleting releases and tags
+
+Choose **Tags matching** a pattern, or **Each repo's latest release**, then
+**Find matches**. The ticked repos go to `POST /api/releases/delete-preview`,
+20 at a time. Each repo is read as NH-Dashbot, six at once.
+
+A pattern is a glob: `*` matches anything and `?` matches one character. The
+Worker pages through the repo's tags using the pattern's literal prefix as
+GraphQL's `query` filter, up to 1,000 tags, then applies the glob itself. It
+also reads the hundred newest releases, drafts included.
+
+Each match is a row: repo, tag, whether it has a release (draft, pre-release or
+normal) and a tag, its date, and what will happen to it. Every match starts
+ticked. Two options apply to all of them:
+- **Delete the release** (on)
+- **Also delete the tag** (on)
+
+A draft release has no tag, so only the release goes. A tag with no release can
+only go as a tag. A repo with more than 100 releases shows older matches as
+"release?", and the Worker looks the release up by tag when deleting.
+
+**Delete** needs the number of matches typed in to confirm. The matches go to
+`POST /api/releases/delete` in batches of 10, as Org-Manager, a second apart:
+- `DELETE /repos/{org}/{repo}/releases/{id}`, then
+- `DELETE /repos/{org}/{repo}/git/refs/tags/{tag}`
+
+A tag that's already gone counts as done. A ruleset that protects the tag is
+explained as such. Deleting only the tag of a published release turns that
+release back into a draft on GitHub, and the page says so. The `release`
+webhook's `deleted` action removes the row from `releases`, so Needs a release
+moves on its own. `release_tag_feedback` is left alone, since it's history.
+
+Deletes share the release lock: only one run of either kind at a time.
+
+### Logging
+
+Each run posts one line to **Releases & packages** on the GitHub Logs page,
+from its last batch, with who pressed it:
+- For releases: the first eight repos and their tags, and how many failed.
+- For deletes: how many releases and tags were deleted, with the pattern.
+
+The releases and deletes also show up there from their own webhooks, as made by
+Org-Manager. Workers Logs gets `{"at":"release-manager",…}` for every batch,
+with each repo's result.
+
+### The API
+
+All under `/api/releases/`, admin only:
+
+| Route | |
+|---|---|
+| `GET repos` | the repo list and custom properties |
+| `POST preview` | `{ repos: [{ repo, branch }] }`, up to 100 |
+| `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong }] }`, up to 25 |
+| `POST delete-preview` | `{ repos, pattern }` or `{ repos, latest: true }`, up to 100 |
+| `POST delete` | `{ run, last, pattern, items: [{ repo, tag, releaseId, release, deleteTag }] }`, up to 25 |
+
+The POST routes also refuse another origin. `run` and `delete` refuse:
+- a run id that isn't 8 to 64 letters, digits and dashes
+- a tag that isn't a plain tag name
+- a commit that isn't a full 40-character SHA
+- the same repo twice in a batch
+- a delete item that deletes nothing
+
+A branch has to be a plain branch name. Under `wrangler dev` with `DEV_ROLE`,
+`run` and `delete` are dry runs that change nothing, teach nothing and take no
+lock.
+
+### Deploying
+
+Run the migration before deploying the Worker, because the preview's stats and
+the feedback write both read the new column:
+
+```bash
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/007-release-bump.sql
+```
+
+Without it, the preview says past releases couldn't be read (so nothing learned
+is applied), and the feedback write is logged as failed. Releases are still
+made.
+
+NH-Dashbot needs organization **Custom properties: Read** for the filter.
+Org-Manager needs **Contents: Read and write** on every repo, which Release All
+already needed.
+
+### Testing
+
+`worker/test/release-manager.test.js` (`npm run test:release-manager`, in the
+deploy gate) covers:
+- the predictor and the chosen bumps on odd tags, with their fallbacks
+- planning a row with patterns and pre-release
+- globs
+- the repo list and a missing property permission
+- the preview, including branches
+- releasing across batches, the lock and the recheck
+- learning only from predicted rows
+- partial failures and the dry run
+- finding matches and deleting, including protected and already-gone tags
+
+The route guards are in `app.test.js`.
 
 ## Labels
 
