@@ -23,6 +23,11 @@ name = "EVENT_LOG"
 class_name = "EventLog"
 script_name = "nh-dashboard"
 
+[[durable_objects.bindings]]
+name = "PERMISSIONS"
+class_name = "Permissions"
+script_name = "nh-dashboard"
+
 # ACCESS_AUD is the Access application's AUD tag. Set it as a secret in the
 # Cloudflare dashboard (or `wrangler secret put ACCESS_AUD -c wrangler.app.toml`)
 # so it survives deploys. Until it is set, every /api/ request is refused.

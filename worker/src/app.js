@@ -30,8 +30,15 @@ import {
 } from "./reads.js";
 import { ADMIN_PANELS, isAdmin } from "../../web/js/roles.js";
 import { LOG_NAME } from "./event-log.js";
+import { PERMISSIONS_NAME } from "./permissions.js";
 
 const LOCAL = new Set(["localhost", "127.0.0.1"]);
+
+// Owners aren't a team, so the Access identity can't say who is one yet.
+// Until that's settled every owner-only edit is off, for owners too.
+export function orgOwnerCheck() {
+  return { owner: null, ownerEdits: false, ownerCheck: "not settled" };
+}
 
 async function authenticate(request, env, ctx, url, opts) {
   if (env.DEV_ROLE && LOCAL.has(url.hostname)) {
@@ -109,6 +116,14 @@ async function route(request, env, ctx, url, who) {
     if (!devOrigin && request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
     if (!env.EVENT_LOG) return json({ error: "event log not bound" }, 503);
     return env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME)).fetch(request);
+  }
+  if (path === "/api/permissions") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (!env.PERMISSIONS) return json({ error: "permissions not bound" }, 503);
+    const res = await env.PERMISSIONS.get(env.PERMISSIONS.idFromName(PERMISSIONS_NAME)).fetch("https://permissions/snapshot");
+    if (!res.ok) return json({ error: "permissions unavailable" }, 502);
+    const snapshot = await res.json();
+    return json({ ...snapshot, viewer: { email: who.identity.email ?? null, ...orgOwnerCheck(who, snapshot) } });
   }
   if (path === "/api/dashboard") return handleDashboard(env, who.role);
   if (path === "/api/version") return handleVersion(env);

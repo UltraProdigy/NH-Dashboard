@@ -232,6 +232,34 @@ console.log("\nGitHub Logs\n");
   check("without the binding it says so", unbound.status === 503, unbound.status);
 }
 
+console.log("\nPermissions\n");
+{
+  const asked = [];
+  const withPerms = {
+    ...ENV,
+    PERMISSIONS: {
+      idFromName: (n) => `id:${n}`,
+      get: (id) => ({ fetch: async (url) => (asked.push({ id, path: new URL(url).pathname }), Response.json({ readAt: "2026-11-02T20:00:00Z", org: { base: "none", members: { alice: "owner" } }, teams: {}, repos: {}, repoInvites: {}, changes: [] })) }),
+    },
+  };
+  const none = await call("/api/permissions", { env: withPerms });
+  check("the permissions need a login", none.status === 401, none.status);
+  const m = await call("/api/permissions", { sub: "member-user", env: withPerms });
+  check("a member is refused the permissions", m.status === 403 && asked.length === 0, m.status);
+  const a = await call("/api/permissions", { sub: "admin-user", env: withPerms });
+  check("an admin gets the snapshot from the one named object",
+    a.status === 200 && a.body?.org?.members?.alice === "owner" && asked.length === 1 && asked[0].id === "id:permissions" && asked[0].path === "/snapshot", a.status);
+  check("with who's asking and owner-only edits off until the owner check is settled",
+    a.body?.viewer?.email === "admin-user@example.com" && a.body.viewer.owner === null && a.body.viewer.ownerEdits === false);
+  check("the permissions are never sent with CORS headers", noCors(a));
+  const post = await call("/api/permissions", { sub: "admin-user", env: withPerms, method: "POST" });
+  check("the permissions are GET only for now", post.status === 405, post.status);
+  const unbound = await call("/api/permissions", { sub: "admin-user" });
+  check("without the binding it says so", unbound.status === 503, unbound.status);
+  const broken = await call("/api/permissions", { sub: "admin-user", env: { ...withPerms, PERMISSIONS: { idFromName: (n) => n, get: () => ({ fetch: async () => new Response("", { status: 500 }) }) } } });
+  check("an object that fails is a 502, not its body", broken.status === 502, broken.status);
+}
+
 console.log("\ndashboard\n");
 {
   const a = await call("/api/dashboard", { sub: "admin-user" });
