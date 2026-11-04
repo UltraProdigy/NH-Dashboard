@@ -1209,10 +1209,11 @@ accuracy — see *Pull-request association*.
 
 ### Predicted release tag
 
-On screen: *Releases & Tags*, *New tag*, *Bump*, *learned*, *Predictions kept as-is*
+On screen: *Release all* dialog, *Releases & Tags*, *New tag*, *Bump*, *learned*, *Predictions kept as-is*
 
 `web/js/release-tags.js`, used by `worker/src/release-manager.js` and by the
-page itself (`web/js/releases.js`), so the browser and the Worker can't disagree.
+page itself (`web/js/releases.js`), so the browser and the Worker can't
+disagree. The Release all dialog shows the Worker's prediction as it comes.
 
 **Last tag** is the newest non-draft release by `createdAt` whose tag has a
 number in it. If no release qualifies, it is the newest tag by commit date.

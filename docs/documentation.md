@@ -865,10 +865,23 @@ log. The route guards are in `app.test.js`.
 
 ### Release all
 
-Next to Release new daily, admins get **Release all**. It opens the Releases &
-Tags page with every repo on the Needs a release card ticked, after that card's
-own repo exclusions, and starts the preview. Everything after that is the
-page's; see **Releases & Tags**.
+Next to Release new daily, admins get **Release all**. It's the quick way to
+release everything on the Needs a release card, after that card's own repo
+exclusions. The full set of options lives on the **Releases & Tags** page.
+
+Pressing it previews those repos through `POST /api/releases/preview`, the same
+preview the page uses. A dialog then lists each repo with a checkbox, its last
+tag, the predicted tag in an editable box, and the commit it will be tagged at.
+Editing a tag shows **prediction was wrong**, the same as on the page.
+
+**Release** sends the ticked repos to `POST /api/releases/run` in batches of
+25, as predicted releases, with the same lock, recheck, learning and GitHub
+Logs line as the page. The toolbar says how many were released, and a second
+dialog lists any failures.
+
+**More options** closes the dialog and opens Releases & Tags with the same repos
+ticked and previewed, for a bump, pattern, branch, pre-release or not-latest
+release.
 
 ### What counts as needing a release
 
@@ -1091,10 +1104,10 @@ count can predict.
 ## Releases & Tags
 
 Under Admin Resources, after the Dream Panel. Makes releases on any set of repos
-on demand, and deletes releases and tags in bulk. It replaced the Dream Panel's
-Release All dialog, which is now a button that opens this page with the Needs a
-release repos ticked. Admin-only: missing from the sidebar for members, and
-every `/api/releases/` route refuses them.
+on demand, and deletes releases and tags in bulk. The Dream Panel's **Release
+all** dialog stays as the quick version for the Needs a release card, and uses
+the same routes. Admin-only: missing from the sidebar for members, and every
+`/api/releases/` route refuses them.
 
 The page is two cards: **Repos**, to choose what to act on, and a second card
 that either makes releases or deletes them.
