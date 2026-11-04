@@ -374,6 +374,7 @@ export function releasesBody() {
 function redraw() {
   const root = document.querySelector("[data-rl]");
   if (root) root.innerHTML = pickerCard() + snapshotsCard() + workCard();
+  syncAllBoxes();
 }
 
 function paintList() {
@@ -385,6 +386,7 @@ function paintList() {
 function paintWork() {
   const el = document.querySelector("[data-rl-work]");
   if (el) el.innerHTML = mode === "release" ? releaseWork() : deleteWork();
+  syncAllBoxes();
 }
 
 function syncWorkCount() {
@@ -400,11 +402,25 @@ function syncWorkCount() {
   }
 }
 
+function syncBox(box, items) {
+  if (!box) return;
+  const on = items.filter((x) => x.include).length;
+  box.checked = items.length > 0 && on === items.length;
+  box.indeterminate = on > 0 && on < items.length;
+  box.disabled = !items.length || Boolean(busy);
+}
+
+function syncAllBoxes() {
+  syncBox(document.querySelector("[data-x-all]"), rows.filter(usable));
+  syncBox(document.querySelector("[data-m-all]"), (found ?? []).flatMap((r) => r.matches).filter((m) => !m.done));
+}
+
 function paintFoot() {
   const r = document.querySelector("[data-x-foot]");
   if (r) r.innerHTML = releaseFooter();
   const d = document.querySelector("[data-d-foot]");
   if (d) d.innerHTML = deleteFooter();
+  syncAllBoxes();
 }
 
 function paintRow(i) {
