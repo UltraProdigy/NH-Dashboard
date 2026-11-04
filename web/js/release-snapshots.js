@@ -19,12 +19,14 @@ let busy = false;
 let note = "";
 let noteBad = false;
 let historyOpen = false;
+let modal = null;
 
 export function initSnapshots(c) {
   ctx = c;
 }
 
 export const findSnapshot = (name) => (snaps ?? []).find((s) => s.name === name) ?? null;
+export const snapshotCount = () => snaps?.length ?? null;
 const current = () => findSnapshot(pick);
 const who = (by) => esc(String(by ?? "someone").split("@")[0]);
 const repoUrl = (name) => `https://github.com/${ORG}/${encodeURIComponent(name)}`;
@@ -172,13 +174,34 @@ function statusHtml() {
   return snaps.length ? ctx.plural(snaps.length, "snapshot") : "";
 }
 
-export function snapshotsCard() {
-  return `<section class="card rl-card" style="--span:12" data-sn>
-    <header><h2>Snapshots</h2><span class="sub" data-sn-status>${statusHtml()}</span>
-      <button type="button" class="ghost mini rl-refresh" data-s-refresh${loading ? " disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button></header>
-    <div class="body" data-sn-body>${bodyHtml()}</div>
-  </section>`;
+export function openSnapshots() {
+  if (modal) return;
+  const d = document.createElement("dialog");
+  d.className = "daily-dialog rl-dialog sn-modal";
+  d.setAttribute("aria-label", "Snapshots");
+  d.innerHTML = `<div class="rl sn-wrap" data-sn>
+    <header class="sn-head"><h3>Snapshots</h3><span class="sub" data-sn-status>${statusHtml()}</span>
+      <button type="button" class="ghost mini" data-s-refresh${loading ? " disabled" : ""}>${loading ? "Reading…" : "Refresh"}</button>
+      <button type="button" class="ghost mini" data-s-close>Close</button></header>
+    <div class="sn-body" data-sn-body>${bodyHtml()}</div>
+  </div>`;
+  d.addEventListener("mousedown", (e) => {
+    if (e.target !== d) return;
+    const r = d.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+  });
+  d.addEventListener("close", () => {
+    d.remove();
+    modal = null;
+    ctx?.onChange?.();
+  });
+  document.body.appendChild(d);
+  modal = d;
+  d.showModal();
+  loadSnapshots({ ifNeeded: true });
 }
+
+const closeSnapshots = () => modal?.close();
 
 function paint() {
   const body = document.querySelector("[data-sn-body]");
@@ -272,7 +295,8 @@ export function saveFromPreview(previewRows, branch) {
     const exists = Boolean(findSnapshot(name));
     const mode = exists ? d.querySelector("[data-dlg-mode]:checked").value : "new";
     pick = name;
-    await send("/api/releases/snapshot-save", { name, branch: readBranch(d), repos, mode, kind: "save" }, (b) => savedNote(b.saved));
+    const ok = await send("/api/releases/snapshot-save", { name, branch: readBranch(d), repos, mode, kind: "save" }, (b) => savedNote(b.saved));
+    if (ok) openSnapshots();
   });
   nameAndMode(d, repos, "go");
 }
@@ -422,7 +446,14 @@ export function takeNewer(name, repo, tag, was) {
 export function snapClick(t) {
   if (!t.closest("[data-sn]")) return false;
   if (t.closest("[data-s-refresh]")) loadSnapshots();
-  else if (t.closest("[data-s-load]")) { const s = current(); if (s) ctx.onLoad(s); }
+  else if (t.closest("[data-s-close]")) closeSnapshots();
+  else if (t.closest("[data-s-load]")) {
+    const s = current();
+    if (s) {
+      closeSnapshots();
+      ctx.onLoad(s);
+    }
+  }
   else if (t.closest("[data-s-export]")) { const s = current(); if (s) exportSnapshot(s); }
   else if (t.closest("[data-s-delete]")) confirmDelete();
   else if (t.closest("[data-s-save]")) saveEdits();

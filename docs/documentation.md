@@ -1109,8 +1109,11 @@ all** dialog stays as the quick version for the Needs a release card, and uses
 the same routes. Admin-only: missing from the sidebar for members, and every
 `/api/releases/` route refuses them.
 
-The page is three cards: **Repos**, to choose what to act on, **Snapshots**, the
-saved release lines, and a last card that either makes releases or deletes them.
+The page is two cards: **Repos**, to choose what to act on, and a second card
+that either makes releases or deletes them. The **Snapshots** button on the
+Repos card opens the saved release lines in a window over the page. It shows
+how many there are, and closes with Close, Escape, a click outside it, or
+**Load into Make releases**.
 
 ### Choosing repos
 
@@ -1343,7 +1346,7 @@ like any other release.
 **Making one.** Tick the repos, set **Branch** to the release branch, preview,
 then press **Save as snapshot**. The dialog takes a name (the branch's last
 part by default) and the branch. It stores each row's last tag, which is the
-newest tag on that branch. Rows with a problem (such as no such branch) or no tag are left
+newest tag on that branch, then opens the Snapshots window on the new snapshot. Rows with a problem (such as no such branch) or no tag are left
 out, and the dialog says how many. Rows whose line can't be told apart from
 master's (one number like `rv3-beta-1091`, or dated) are saved with a warning.
 Saving under a name that exists offers **Merge into it** or **Replace it**.
@@ -1351,7 +1354,7 @@ Saving under a name that exists offers **Merge into it** or **Replace it**.
 Do it before the Minor bumps if you can, though reading the branch means it's
 still right afterwards.
 
-**Releasing from one.** Pick it in the Snapshots card and press **Load into Make
+**Releasing from one.** Open **Snapshots**, pick it and press **Load into Make
 releases**. That ticks its repos, sets Branch to the snapshot's branch, and
 previews. Bump, Pre-release and Not latest stay as they are, so set them first
 (for 2.9.x, Patch and Not latest). A banner says the rows count from the
@@ -1376,7 +1379,7 @@ master look just released. If master hasn't moved past the line yet, the row
 says a Minor bump keeps the two apart. The exact rule is **Snapshot lines** in
 Calculations.md.
 
-**Editing.** The card shows each repo's tag (editable), the tag it was saved
+**Editing.** The Snapshots window shows each repo's tag (editable), the tag it was saved
 with, and when it last changed and by whom, plus the snapshot's branch. Tick
 **remove** to drop a repo. **Save changes** sends the edits, checked against
 the tags the page read. If someone else changed one in the meantime, nothing is
@@ -1509,7 +1512,7 @@ cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/010
 The preview's stats and the feedback write both read 007's column. Without it,
 the preview says past releases couldn't be read (so nothing learned is
 applied), and the feedback write is logged as failed. Without 008, the
-Snapshots card says to run it, and previews, releases and the Needs a release
+Snapshots window says to run it, and previews, releases and the Needs a release
 card carry on without snapshots. 009 only drops unused columns, so it can run
 before or after the deploy. Without 010, released rows say rebuilds aren't
 tracked yet, and the webhook Worker logs the skipped update without failing the

@@ -92,3 +92,11 @@
 .sn-table td:first-child { min-width: 190px; }
 .sn-table td:first-child > a { white-space: nowrap; }
 .sn-table .ra-tag { min-width: 150px; }
+
+.daily-dialog.sn-modal { width: min(980px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; overflow: hidden; }
+.sn-wrap { display: flex; flex-direction: column; max-height: calc(100vh - 48px); }
+.sn-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.sn-head h3 { margin: 0; }
+.sn-head [data-s-refresh] { margin-left: auto; }
+.sn-body { padding: 14px 18px 18px; overflow-y: auto; }
+.sn-modal .rl-input.sn-branch { width: 220px; }

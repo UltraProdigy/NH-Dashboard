@@ -4,7 +4,7 @@ import { panelRows } from "./dream.js";
 import { BUMPS, DATED_REPOS, planTag, tagProblem } from "./release-tags.js";
 import { propertyFilter, valuesOf } from "./property-filter.js";
 import { loadRepoList, repoList, repoListError, repoListStale } from "./repo-list.js";
-import { findSnapshot, initSnapshots, loadSnapshots, saveFromPreview, snapChange, snapClick, snapInput, snapshotsCard, takeNewer } from "./release-snapshots.js";
+import { findSnapshot, initSnapshots, loadSnapshots, openSnapshots, saveFromPreview, snapChange, snapClick, snapInput, snapshotCount, takeNewer } from "./release-snapshots.js";
 
 const PREVIEW_CHUNK = 50;
 const DELETE_CHUNK = 20;
@@ -93,6 +93,11 @@ function repoListHtml() {
     <div class="rl-repos">${items || `<div class="empty">No repo matches.</div>`}</div>`;
 }
 
+function snapshotsLabel() {
+  const n = snapshotCount();
+  return n ? `Snapshots (${n})` : "Snapshots";
+}
+
 function pickerCard() {
   const status = list ? `${plural(list.repos.length, "repo")}${list.archived ? `, ${list.archived} archived left out` : ""} · read ${esc(ago(list.readAt))}` : "";
   let body;
@@ -105,6 +110,7 @@ function pickerCard() {
         <button type="button" class="ghost" data-r-preset="needs"${needs.length ? "" : " disabled"} title="Tick every repo on the Dream Panel's Needs a release card">Needs a release (${needs.length})</button>
         <button type="button" class="ghost" data-r-preset="shown">Tick all shown</button>
         <button type="button" class="ghost" data-r-preset="none">Untick all</button>
+        <button type="button" class="ghost rl-snapbtn" data-r-snapshots title="Saved release lines: save, load, edit, revert, import and export">${snapshotsLabel()}</button>
       </div>
       ${filter.html()}
       <div data-rl-list>${repoListHtml()}</div>`;
@@ -462,12 +468,12 @@ function workCard() {
 /* ---- painting ---- */
 
 export function releasesBody() {
-  return `<div class="grid rl" data-rl>${pickerCard()}${snapshotsCard()}${workCard()}</div>`;
+  return `<div class="grid rl" data-rl>${pickerCard()}${workCard()}</div>`;
 }
 
 function redraw() {
   const root = document.querySelector("[data-rl]");
-  if (root) root.innerHTML = pickerCard() + snapshotsCard() + workCard();
+  if (root) root.innerHTML = pickerCard() + workCard();
   syncAllBoxes();
 }
 
@@ -815,9 +821,10 @@ async function runDeletes(items) {
 const inPage = (e) => e.target.closest?.("[data-rl]");
 
 function onClick(e) {
-  if (!inPage(e)) return;
   const t = e.target;
-  if (snapClick(t)) return;
+  if (t.closest && snapClick(t)) return;
+  if (!inPage(e)) return;
+  if (t.closest("[data-r-snapshots]")) return openSnapshots();
   if (t.closest("[data-x-unsnap]")) return stopUsing();
   if (t.closest("[data-a-savesnap]")) {
     return saveFromPreview(rows.map((r) => ({ repo: r.data.repo, tag: r.data.lastTag, problem: r.data.problem })), all.branch.trim());
@@ -850,9 +857,9 @@ function onClick(e) {
 }
 
 function onChange(e) {
-  if (!inPage(e)) return;
   const t = e.target;
-  if (snapChange(t)) return;
+  if (t.closest && snapChange(t)) return;
+  if (!inPage(e)) return;
   if (t.matches("[data-r-tick]")) {
     if (t.checked) ticked.add(t.value);
     else ticked.delete(t.value);
@@ -899,9 +906,9 @@ function onChange(e) {
 }
 
 function onInput(e) {
-  if (!inPage(e)) return;
   const t = e.target;
-  if (snapInput(t)) return;
+  if (t.closest && snapInput(t)) return;
+  if (!inPage(e)) return;
   if (t.matches("[data-r-search]")) { search = t.value; return paintList(); }
   if (t.matches("[data-d-pattern]")) { del.pattern = t.value; return syncWorkCount(); }
   if (t.matches("[data-x-tag]")) {
@@ -962,4 +969,8 @@ initSnapshots({
   plural,
   onLoad: useSnapshot,
   onDeleted: (name) => { if (using === name) stopUsing(); },
+  onChange: () => {
+    const b = document.querySelector("[data-r-snapshots]");
+    if (b) b.textContent = snapshotsLabel();
+  },
 });
