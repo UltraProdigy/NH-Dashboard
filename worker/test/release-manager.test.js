@@ -157,12 +157,13 @@ const env = {
 };
 
 const sha = (c) => c.repeat(40);
-const repo = (name, { releases = [], tags = [], head = sha("a"), branches = {}, history = {}, archived = false } = {}) => ({
+const repo = (name, { releases = [], tags = [], head = sha("a"), branches = {}, history = {}, prs = [], archived = false } = {}) => ({
   name,
   isArchived: archived,
   defaultBranchRef: { name: "master", target: { oid: head } },
   branches,
   history,
+  prs: new Set(prs),
   releases: {
     totalCount: releases.length,
     nodes: releases.map((r) => {
@@ -189,6 +190,7 @@ let refStatus = {};
 let propsStatus = 200;
 let graphqlMax = Infinity;
 const slow = new Set();
+const prFail = new Set();
 
 const issuer = (auth) => {
   try { return JSON.parse(Buffer.from(auth.replace("Bearer ", "").split(".")[1], "base64url")).iss; } catch { return null; }
@@ -222,6 +224,15 @@ globalThis.fetch = async (url, init = {}) => {
   if (path === "/graphql") {
     const { query, variables } = JSON.parse(init.body);
     calls.push(`graphql ${token}`);
+    if (query.includes("associatedPullRequests")) {
+      const r = github[variables.name];
+      calls.push(`prs ${variables.name} ${variables.branch} ${variables.n}`);
+      if (prFail.has(variables.name)) return Response.json({ errors: [{ message: "Something went wrong" }] });
+      const list = r?.history[variables.branch.replace("refs/heads/", "")];
+      if (!list) return Response.json({ data: { repository: { ref: null } } });
+      const nodes = list.slice(0, variables.n).map((oid) => ({ oid, associatedPullRequests: { totalCount: r.prs.has(oid) ? 1 : 0 } }));
+      return Response.json({ data: { repository: { ref: { target: { history: { nodes } } } } } });
+    }
     if (query.includes("$branch: String!")) {
       const r = github[variables.name];
       calls.push(`branch ${variables.name} ${variables.branch}${variables.tags ? " tags" : ""}${variables.history ? " history" : ""}`);
@@ -624,7 +635,7 @@ github.GT5U = repo("GT5U", {
   branches: { "release/2.9.x": sha("d"), master: sha("c") },
   history: { "release/2.9.x": [sha("d"), sha("1"), sha("2")] },
 });
-github.Weird = repo("Weird", { releases: ["rv3-beta-1091"], tags: ["rv3-beta-1091"], branches: { "release/2.9.x": sha("e") }, history: { "release/2.9.x": [sha("e")] } });
+github.Weird = repo("Weird", { releases: [{ tagName: "rv3-beta-1091", sha: sha("e") }], tags: [{ name: "rv3-beta-1091", sha: sha("e") }], branches: { "release/2.9.x": sha("e") }, history: { "release/2.9.x": [sha("e")] } });
 const branch29 = "release/2.9.x";
 {
   const out = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", branch: branch29, repos: [{ repo: "GT5U", tag: "5.09.54.233" }, { repo: "Weird", tag: "rv3-beta-1091" }] }, { now: T0 + 10 * 3_600_000 });
@@ -649,6 +660,36 @@ const branch29 = "release/2.9.x";
   const master = await releasePreview(env, [{ repo: "GT5U" }]);
   check("master still counts from its own last release", [master.body.repos[0].lastTag, master.body.repos[0].lastNote], ["5.09.55.0", null]);
 }
+console.log("\nneeding a release on a branch");
+calls = [];
+{
+  const out = await releasePreview(env, [{ repo: "GT5U", branch: "release/2.9.x", snapshot: "2.9.x" }, { repo: "Weird", branch: "release/2.9.x" }]);
+  const [g, w] = out.body.repos;
+  check("counts the commits on the branch since the tag", [g.since, g.branchCheck, g.needsRelease], [1, { since: 1, checked: 1, viaPr: 0 }, false]);
+  check("and a branch whose top is its tag doesn't need one", [w.since, w.needsRelease, calls.filter((c) => c.startsWith("prs"))], [0, false, ["prs GT5U refs/heads/release/2.9.x 1"]]);
+  github.GT5U.prs.add(sha("d"));
+  const again = await releasePreview(env, [{ repo: "GT5U", branch: "release/2.9.x", snapshot: "2.9.x" }]);
+  check("a commit through a pull request does", [again.body.repos[0].branchCheck.viaPr, again.body.repos[0].needsRelease], [1, true]);
+  github.GT5U.prs.delete(sha("d"));
+  const master = await releasePreview(env, [{ repo: "GT5U" }]);
+  check("the default branch isn't checked here", [master.body.repos[0].since, master.body.repos[0].needsRelease], [null, null]);
+  prFail.add("GT5U");
+  const failed = await releasePreview(env, [{ repo: "GT5U", branch: "release/2.9.x", snapshot: "2.9.x" }]);
+  check("a failed check leaves it undecided", [failed.status, failed.body.repos[0].needsRelease, /graphql: Something went wrong/.test(failed.body.repos[0].branchCheck.failed)], [200, null, true]);
+  prFail.clear();
+}
+{
+  github.Long = repo("Long", {
+    releases: [{ tagName: "1.0.0", sha: sha("1") }], tags: [{ name: "1.0.0", sha: sha("1") }],
+    branches: { "release/2.9.x": "a".repeat(40) },
+    history: { "release/2.9.x": [...filler(130, "b"), sha("1")] },
+  });
+  const out = await releasePreview(env, [{ repo: "Long", branch: "release/2.9.x" }]);
+  const l = out.body.repos[0];
+  check("past 100 commits with none through a pull request, it still needs one", [l.since, l.branchCheck, l.needsRelease], [130, { since: 130, checked: 100, viaPr: 0 }, true]);
+  delete github.Long;
+}
+
 calls = [];
 {
   const out = await releaseRun(env, "admin@example.com", {

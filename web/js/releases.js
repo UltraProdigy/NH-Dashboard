@@ -133,10 +133,29 @@ function rowNotes(r, c) {
   if (d.problem) out.push(`<span class="rl-bad">${esc(d.problem)}</span>`);
   if (d.lastNote) out.push(esc(d.lastNote));
   if (d.unchanged) out.push(`No commits since ${esc(d.lastTag)}`);
+  else if (d.branchCheck) out.push(branchCheckNote(d));
   if (d.snapshot?.newer && !r.done) out.push(`<button type="button" class="ghost mini" data-x-newer${busy ? " disabled" : ""}>Count from ${esc(d.snapshot.newer)}</button>`);
   for (const n of c.plan.notes) out.push(esc(n));
   if (c.invalid && usable(r)) out.push(`<span class="rl-bad">${esc(c.invalid)}</span>`);
   return out.join("<br>");
+}
+
+function branchCheckNote(d) {
+  const c = d.branchCheck;
+  if (c.failed) return `Couldn't check the commits since ${esc(d.lastTag)} (${esc(c.failed)}), so it's left ticked`;
+  const commits = plural(c.since, "commit");
+  if (c.viaPr) return `${commits} since ${esc(d.lastTag)}, ${c.viaPr === c.since ? (c.since === 1 ? "through a pull request" : "all through pull requests") : `${c.viaPr} through a pull request`}`;
+  if (c.since > c.checked) return `${commits} since ${esc(d.lastTag)}. None of the newest ${c.checked} came through a pull request, but that many still needs a release`;
+  return `${commits} since ${esc(d.lastTag)}, ${c.since === 1 ? "pushed directly" : "all pushed directly"}, so it doesn't need a release`;
+}
+
+function branchSummary() {
+  const checked = rows.filter((r) => r.data.needsRelease != null);
+  if (!checked.length) return "";
+  const need = checked.filter((r) => r.data.needsRelease).length;
+  const branches = [...new Set(checked.map((r) => r.data.branch))];
+  return `<p class="daily-last">On ${branches.map((b) => `<code>${esc(b)}</code>`).join(", ")}, ${need} of ${plural(checked.length, "repo")} ${need === 1 ? "needs" : "need"} a release:
+    commits since the last tag, at least one through a pull request, the same rule as the Needs a release card. The others start unticked.</p>`;
 }
 
 function releaseRowHtml(r, i) {
@@ -233,7 +252,7 @@ function releaseWork() {
   if (!previewMeta?.ready) warns.push(`<p class="daily-warn">Org-Manager isn't set up on this Worker yet, so nothing can be released.</p>`);
   if (previewMeta?.storeError) warns.push(`<p class="daily-warn">${esc(previewMeta.storeError)}</p>`);
   if (note) warns.push(`<p class="daily-warn">${esc(note)}</p>`);
-  return `${controls}${warns.join("")}${statsLine(previewMeta?.stats)}
+  return `${controls}${warns.join("")}${branchSummary()}${statsLine(previewMeta?.stats)}
     <p class="daily-last">If a predicted tag is wrong, type the right one and tick <b>prediction was wrong</b> so it's learned. Leave it unticked for an intentional bump.</p>
     <div class="ra-scroll rl-scroll">
       <table class="ra-table rl-table">
@@ -445,7 +464,7 @@ function freshRow(data, keep) {
     include: true,
     done: null,
   };
-  r.include = Boolean(usable(r) && !calc(r).invalid);
+  r.include = Boolean(usable(r) && !calc(r).invalid && data.needsRelease !== false);
   return r;
 }
 
@@ -550,6 +569,8 @@ function confirmRelease() {
   if (n > BUILD_WARN) bits.push(`<p class="daily-warn">This starts about ${n} workflow builds at once.</p>`);
   if (unchanged) bits.push(`<p class="daily-warn">${plural(unchanged, "repo has", "repos have")} no commits since their last release.</p>`);
   if (branches.size) bits.push(`<p>Tagged on ${[...branches].map((b) => `<code>${esc(b)}</code>`).join(", ")} where set, the default branch elsewhere.</p>`);
+  const latest = picked.filter((r) => r.data.customBranch && !r.notLatest).length;
+  if (latest) bits.push(`<p class="daily-warn">${plural(latest, "release is", "releases are")} on another branch without Not latest, so ${latest === 1 ? "it becomes its repo's" : "each becomes its repo's"} Latest release.</p>`);
   dialog(`<h3>Release ${plural(n, "repo")}?</h3>
     <p>Each one gets a new release with GitHub's generated notes, tagged at the commit shown, made by Org-Manager with your name kept here.</p>
     ${bits.join("")}

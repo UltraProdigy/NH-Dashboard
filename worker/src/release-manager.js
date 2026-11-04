@@ -2,6 +2,7 @@ import { appReady, installationToken, nextPage, rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
 import { LOG_NAME } from "./event-log.js";
 import { advanceSnapshots, SNAPSHOT_NAME, snapshotLines } from "./release-snapshots.js";
+import { RELEASE_COMMIT_THRESHOLD } from "../../src/config.js";
 import {
   BUMPS,
   compareVersions,
@@ -337,11 +338,59 @@ function plan(row, repo, learned, now, walked, lines) {
     snapshot: snap ? { name: snap.snapshot, tag: snap.tag, base: snap.base, newer: last.newer ?? null } : null,
     branchTag: walked && !walked.failed ? walked.tag ?? null : null,
     unchanged: Boolean(sha && last.sha && sha === last.sha),
+    since: walked?.tag && walked.tag === last.tag && Number.isInteger(walked.looked) ? walked.looked - 1 : null,
     learned: rule && !isDefaultRule(rule) ? rule : null,
     taken,
   };
   const guess = planTag(out, { now });
   return { ...out, predicted: guess.tag || null, notes: guess.notes };
+}
+
+const PR_QUERY = `query($org: String!, $name: String!, $branch: String!, $n: Int!) {
+  repository(owner: $org, name: $name) {
+    ref(qualifiedName: $branch) {
+      target { ... on Commit { history(first: $n) { nodes { oid associatedPullRequests(first: 1) { totalCount } } } } }
+    }
+  }
+}`;
+const PR_CHECK_MAX = 100;
+
+async function viaPullRequests(token, org, row) {
+  const n = Math.min(row.since, PR_CHECK_MAX);
+  const out = await rest("/graphql", token, {
+    method: "POST",
+    body: { query: PR_QUERY, variables: { org, name: row.repo, branch: `refs/heads/${row.branch}`, n } },
+  }).then((r) => r.json());
+  const nodes = out.data?.repository?.ref?.target?.history?.nodes;
+  if (!nodes) throw new Error(`graphql: ${out.errors?.[0]?.message ?? "no history"}`);
+  return { since: row.since, checked: nodes.length, viaPr: nodes.filter((c) => c.associatedPullRequests?.totalCount > 0).length };
+}
+
+function verdict(check) {
+  if (!check || check.failed) return null;
+  if (check.since < RELEASE_COMMIT_THRESHOLD) return false;
+  return check.viaPr > 0 || check.since > check.checked;
+}
+
+async function checkBranches(env, planned) {
+  const want = planned.filter((p) => !p.problem && p.customBranch && Number.isInteger(p.since));
+  for (const p of want) if (p.since === 0) p.branchCheck = { since: 0, checked: 0, viaPr: 0 };
+  const busy = want.filter((p) => p.since > 0);
+  if (busy.length) {
+    const token = await installationToken(env);
+    const org = orgOf(env);
+    for (let i = 0; i < busy.length; i += 3) {
+      await Promise.all(
+        busy.slice(i, i + 3).map((p) =>
+          viaPullRequests(token, org, p)
+            .then((c) => { p.branchCheck = c; })
+            .catch((err) => { p.branchCheck = { failed: short(err, 120) }; }),
+        ),
+      );
+    }
+  }
+  for (const p of planned) p.needsRelease = verdict(p.branchCheck);
+  return planned;
 }
 
 function cleanPreviewRows(list) {
@@ -382,11 +431,11 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
     snapshotError = `Snapshots couldn't be read, so no row counts from one (${short(err, 120)})`;
   }
 
-  let found;
-  let walked;
+  let planned;
   try {
-    found = await lookUpAll(env, rows);
-    walked = await walkBranches(env, rows, found);
+    const found = await lookUpAll(env, rows);
+    const walked = await walkBranches(env, rows, found);
+    planned = await checkBranches(env, rows.map((row, i) => plan(row, found[i], learned, now, walked.get(i), lines.get(row.repo))));
   } catch (err) {
     return { status: 502, body: { error: `Couldn't read the repos from GitHub: ${short(err)}` } };
   }
@@ -395,7 +444,7 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
     status: 200,
     body: {
       ready: orgManagerReady(env),
-      repos: rows.map((row, i) => plan(row, found[i], learned, now, walked.get(i), lines.get(row.repo))),
+      repos: planned,
       stats,
       storeError,
       snapshotError,
