@@ -397,6 +397,54 @@ CREATE TABLE IF NOT EXISTS release_tag_feedback (
 CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_wrong
   ON release_tag_feedback (wrong, repo, released_at);
 
+-- Release snapshots: a named list of repo -> tag that a release line is
+-- released from. `tag` moves forward with each release made from the snapshot;
+-- `base_tag` is the tag it was saved with. `series` is a glob for the line
+-- (5.09.54.* for Patch on 5.09.54.233), NULL when the line can't be told apart
+-- from master's. Every change is kept per repo so it can be reverted.
+CREATE TABLE IF NOT EXISTS release_snapshots (
+  name              TEXT PRIMARY KEY,
+  branch            TEXT,
+  bump              TEXT NOT NULL DEFAULT 'patch',
+  not_latest        INTEGER NOT NULL DEFAULT 1,
+  pre               INTEGER NOT NULL DEFAULT 0,
+  created_by        TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  updated_by        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS release_snapshot_tags (
+  snapshot          TEXT NOT NULL,
+  repo              TEXT NOT NULL,
+  tag               TEXT NOT NULL,
+  base_tag          TEXT NOT NULL,
+  series            TEXT,
+  since             TEXT NOT NULL,
+  updated_by        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (snapshot, repo)
+);
+
+CREATE INDEX IF NOT EXISTS idx_release_snapshot_tags_repo ON release_snapshot_tags (repo);
+
+CREATE TABLE IF NOT EXISTS release_snapshot_changes (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot          TEXT NOT NULL,
+  change            TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  repo              TEXT NOT NULL,
+  before_tag        TEXT,
+  after_tag         TEXT,
+  base_tag          TEXT,
+  since             TEXT,
+  reverts           TEXT,
+  changed_by        TEXT NOT NULL,
+  changed_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_release_snapshot_changes ON release_snapshot_changes (snapshot, change);
+
 -- Holds `version` (bumped by the recompute when an answer moved, polled by the
 -- browser), `wrote:<table>` (stamped by the webhook handlers with the time of
 -- each write, so the recompute rebuilds only the panels that read that table),

@@ -121,6 +121,27 @@ export function bumpTag(lastTag, bump) {
   };
 }
 
+export function seriesOf(tag, bump = "patch") {
+  if (isDatedTag(tag) || !validTagName(String(tag ?? "").trim())) return null;
+  const core = versionCore(tag);
+  if (!core) return null;
+  const at = core.parts.length - 1 - Math.max(0, POSITIONS.indexOf(bump));
+  if (at < 1) return null;
+  return `${core.raw.slice(0, core.start)}${core.parts.slice(0, at).join(".")}.*`;
+}
+
+export const inSeries = (series, tag) => Boolean(series && tag) && globToRegex(series).test(String(tag));
+
+export function compareVersions(a, b) {
+  const x = versionCore(a)?.parts ?? [];
+  const y = versionCore(b)?.parts ?? [];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = Number(x[i] ?? -1) - Number(y[i] ?? -1);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+}
+
 export const withPre = (tag) => (PRE.test(tag) ? tag : `${tag}-pre`);
 
 const TOKENS = /\{(next|last|date|repo)\}/g;

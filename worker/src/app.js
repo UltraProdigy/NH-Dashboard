@@ -19,6 +19,7 @@ import { recompute } from "./recompute.js";
 import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
 import { deletePreview, deleteRun, releasePreview, releaseRun, repoList } from "./release-manager.js";
+import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
 import {
   handleDashboard,
   handleFacets,
@@ -91,11 +92,20 @@ async function route(request, env, ctx, url, who) {
       const { status, body } = await repoList(env);
       return json(body, status);
     }
+    if (path === "/api/releases/snapshots") {
+      if (request.method !== "GET") return json({ error: "GET only" }, 405);
+      const { status, body } = await listSnapshots(env);
+      return json(body, status);
+    }
     const actions = {
       "/api/releases/preview": (sent) => releasePreview(env, sent?.repos),
       "/api/releases/run": (sent, by, dryRun) => releaseRun(env, by, sent, { dryRun }),
       "/api/releases/delete-preview": (sent) => deletePreview(env, sent),
       "/api/releases/delete": (sent, by, dryRun) => deleteRun(env, by, sent, { dryRun }),
+      "/api/releases/snapshot-save": (sent, by) => saveSnapshot(env, by, sent),
+      "/api/releases/snapshot-edit": (sent, by) => editSnapshot(env, by, sent),
+      "/api/releases/snapshot-revert": (sent, by) => revertChange(env, by, sent),
+      "/api/releases/snapshot-delete": (sent) => deleteSnapshot(env, sent),
     };
     const action = actions[path];
     if (!action) return json({ error: "not found" }, 404);

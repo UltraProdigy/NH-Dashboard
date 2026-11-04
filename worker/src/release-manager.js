@@ -1,11 +1,14 @@
 import { appReady, installationToken, nextPage, rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
 import { LOG_NAME } from "./event-log.js";
+import { advanceSnapshots, SNAPSHOT_NAME, snapshotLines } from "./release-snapshots.js";
 import {
   BUMPS,
+  compareVersions,
   DATED_REPOS,
   globPrefix,
   globToRegex,
+  inSeries,
   isDatedTag,
   isDefaultRule,
   parseTag,
@@ -267,9 +270,31 @@ async function walkBranches(env, rows, found) {
   return out;
 }
 
-function branchLast(repo, row, walked) {
-  const repoWide = lastOf(repo, fitsFor(repo.name));
-  if (!walked || walked.none) return { ...repoWide, note: null };
+function defaultLast(repo, lines) {
+  const fits = fitsFor(repo.name);
+  const plain = lastOf(repo, fits);
+  const owner = (t) => lines?.find((l) => l.series && t !== l.base && inSeries(l.series, t));
+  const line = plain.tag ? owner(plain.tag) : null;
+  if (!line) return { ...plain, note: null };
+  const other = lastOf(repo, (t) => fits(t) && !owner(t));
+  if (!other.tag) return { ...plain, note: `${plain.tag} is on the ${line.snapshot} snapshot's line, and no recent tag is outside it` };
+  if (other.tag !== line.base) return { ...other, note: null };
+  return { ...other, note: `Skipped ${plain.tag}, which is on the ${line.snapshot} snapshot's line, so this counts from ${other.tag}. A Minor bump keeps master and ${line.snapshot} apart` };
+}
+
+function snapshotLast(row, walked, snap) {
+  const w = walked?.tag ?? null;
+  if (walked?.failed) return { tag: snap.tag, sha: null, newer: null, note: `Couldn't read the tags on ${row.branch} (${walked.failed}), so the snapshot's ${snap.tag} is unchecked` };
+  if (!w || w === snap.tag) return { tag: snap.tag, sha: w ? walked.sha : null, newer: null, note: null };
+  if (inSeries(snap.series, w) && compareVersions(w, snap.tag) > 0) {
+    return { tag: snap.tag, sha: null, newer: w, note: `${row.branch} has ${w}, newer than the snapshot's ${snap.tag}` };
+  }
+  return { tag: snap.tag, sha: null, newer: null, note: `The newest tag on ${row.branch} is ${w}, not the snapshot's ${snap.tag}` };
+}
+
+function branchLast(repo, row, walked, lines) {
+  const repoWide = defaultLast(repo, lines);
+  if (!walked || walked.none) return repoWide;
   if (walked.tag) {
     const differs = walked.tag !== repoWide.tag;
     return { tag: walked.tag, sha: walked.sha, note: differs ? `Counting from ${walked.tag}, the newest tag on ${row.branch}` : null };
@@ -280,12 +305,14 @@ function branchLast(repo, row, walked) {
   return { ...repoWide, note: `No tag ${where}${from}` };
 }
 
-function plan(row, repo, learned, now, walked) {
+function plan(row, repo, learned, now, walked, lines) {
   if (!repo) return { repo: row.repo, problem: "GitHub doesn't know this repo, or NH-Dashbot can't see it", notes: [] };
   if (repo.failed) return { repo: row.repo, problem: repo.failed, notes: [] };
   if (repo.isArchived) return { repo: repo.name, problem: "Archived, so it can't be released", notes: [] };
   const dated = DATED_REPOS.has(repo.name);
-  const last = branchLast(repo, row, walked);
+  const snap = row.snapshot ? lines?.find((l) => l.snapshot === row.snapshot) ?? null : null;
+  const last = snap ? snapshotLast(row, walked, snap) : branchLast(repo, row, walked, lines);
+  if (row.snapshot && !snap) last.note = [`Not in the ${row.snapshot} snapshot, so this counts as usual`, last.note].filter(Boolean).join(". ");
   const branch = row.branch ?? null;
   const sha = branch ? repo.branch?.target?.oid ?? null : repo.defaultBranchRef?.target?.oid ?? null;
   const rule = dated ? null : ruleFrom(learned.get(repo.name) ?? []);
@@ -307,6 +334,8 @@ function plan(row, repo, learned, now, walked) {
     lastSha: last.sha,
     lastWasPre: Boolean(parseTag(last.tag)?.pre),
     lastNote: last.note,
+    snapshot: snap ? { name: snap.snapshot, tag: snap.tag, base: snap.base, newer: last.newer ?? null } : null,
+    branchTag: walked && !walked.failed ? walked.tag ?? null : null,
     unchanged: Boolean(sha && last.sha && sha === last.sha),
     learned: rule && !isDefaultRule(rule) ? rule : null,
     taken,
@@ -322,10 +351,12 @@ function cleanPreviewRows(list) {
   for (const it of list) {
     const repo = typeof it === "string" ? it : it?.repo;
     const branch = typeof it === "string" ? null : it?.branch || null;
+    const snapshot = typeof it === "string" ? null : it?.snapshot || null;
     if (typeof repo !== "string" || !REPO_NAME.test(repo) || seen.has(repo)) continue;
     if (branch !== null && (typeof branch !== "string" || !BRANCH.test(branch))) return null;
+    if (snapshot !== null && !SNAPSHOT_NAME.test(snapshot)) return null;
     seen.add(repo);
-    out.push({ repo, branch });
+    out.push({ repo, branch, snapshot });
   }
   return out.length ? out : null;
 }
@@ -343,6 +374,13 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
   } catch (err) {
     storeError = `Past releases couldn't be read, so nothing learned is applied (${short(err, 120)})`;
   }
+  let lines = new Map();
+  let snapshotError = null;
+  try {
+    lines = await snapshotLines(env.DB, rows.map((r) => r.repo));
+  } catch (err) {
+    snapshotError = `Snapshots couldn't be read, so no row counts from one (${short(err, 120)})`;
+  }
 
   let found;
   let walked;
@@ -357,9 +395,10 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
     status: 200,
     body: {
       ready: orgManagerReady(env),
-      repos: rows.map((row, i) => plan(row, found[i], learned, now, walked.get(i))),
+      repos: rows.map((row, i) => plan(row, found[i], learned, now, walked.get(i), lines.get(row.repo))),
       stats,
       storeError,
+      snapshotError,
     },
   };
 }
@@ -383,6 +422,7 @@ function cleanReleaseItem(it) {
   if (!it || !REPO_NAME.test(it.repo ?? "") || !validTagName(it.tag) || !SHA.test(it.sha ?? "")) return null;
   const bump = it.bump === "pattern" || BUMPS.includes(it.bump) ? it.bump : "predicted";
   if (it.branch != null && (typeof it.branch !== "string" || !BRANCH.test(it.branch))) return null;
+  if (it.snapshot != null && !SNAPSHOT_NAME.test(it.snapshot)) return null;
   return {
     repo: it.repo,
     branch: it.branch || null,
@@ -393,6 +433,8 @@ function cleanReleaseItem(it) {
     bump,
     wrong: bump === "predicted" && Boolean(it.wrong) && it.tag !== it.predicted,
     notLatest: Boolean(it.notLatest),
+    snapshot: it.snapshot || null,
+    observed: text(it.observed),
   };
 }
 
@@ -517,6 +559,7 @@ async function recheck(env, items, now) {
   const rows = items.map((it) => ({ repo: it.repo, branch: it.branch }));
   const found = await lookUpAll(env, rows);
   const walked = await walkBranches(env, rows, found);
+  const lines = await snapshotLines(env.DB, items.map((it) => it.repo)).catch(() => null);
   const out = new Map();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
@@ -535,7 +578,20 @@ async function recheck(env, items, now) {
       out.set(it.repo, "that tag or release already exists");
       continue;
     }
-    const lastNow = branchLast(repo, rows[i], seen).tag;
+    if (it.snapshot) {
+      const snap = lines?.get(it.repo)?.find((l) => l.snapshot === it.snapshot);
+      if (!lines) {
+        out.set(it.repo, `The ${it.snapshot} snapshot couldn't be read to check it again`);
+      } else if (!snap) {
+        out.set(it.repo, `It isn't in the ${it.snapshot} snapshot any more. Open the preview again`);
+      } else if (snap.tag !== it.previous) {
+        out.set(it.repo, `The ${it.snapshot} snapshot moved to ${snap.tag} since the preview. Open the preview again`);
+      } else if (seen && (seen.tag ?? null) !== (it.observed ?? null)) {
+        out.set(it.repo, `${seen.tag ?? "A tag"} was released on ${it.branch} since the preview. Open the preview again`);
+      }
+      continue;
+    }
+    const lastNow = branchLast(repo, rows[i], seen, lines?.get(it.repo)).tag;
     if (lastNow && lastNow !== it.previous) {
       const who = await whoReleased(env.DB, it.repo, lastNow);
       const when = who ? ` ${Math.max(1, Math.round((now - Date.parse(who.released_at)) / 1000))}s ago by ${who.released_by}` : "";
@@ -612,6 +668,15 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
   const at = new Date(now).toISOString();
   const made = body.items.filter((_, i) => results[i].ok);
   await saveFeedback(env, made, by, at);
+  const advanced = await advanceSnapshots(env.DB, made, by, at, body.run).catch((err) => {
+    console.error(JSON.stringify({ at: "release-manager", error: `snapshot not moved forward: ${err}` }));
+    return null;
+  });
+  body.items.forEach((it, i) => {
+    if (!it.snapshot || !results[i].ok) return;
+    results[i].snapshot = advanced?.has(`${it.snapshot}\n${it.repo}`) ? it.snapshot : null;
+    if (!results[i].snapshot) results[i].note = `The ${it.snapshot} snapshot wasn't moved forward. Set ${it.repo} to ${it.tag} on it by hand`;
+  });
   state.made += made.length;
   state.failed += results.length - made.length;
   state.done = [...state.done, ...made.map((it) => ({ repo: it.repo, tag: it.tag }))].slice(0, LOG_REPOS);

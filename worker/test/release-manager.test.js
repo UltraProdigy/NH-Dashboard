@@ -9,7 +9,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { deletePreview, deleteRun, releasePreview, releaseRun, repoList } from "../src/release-manager.js";
-import { bumpTag, globToRegex, learnRule, planTag, predictDatedTag, predictTag, ruleFrom } from "../../web/js/release-tags.js";
+import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "../src/release-snapshots.js";
+import { bumpTag, compareVersions, globToRegex, inSeries, learnRule, planTag, predictDatedTag, predictTag, ruleFrom, seriesOf } from "../../web/js/release-tags.js";
 import { forgetToken } from "../src/github.js";
 import { forgetOrgManagerToken } from "../src/org-manager.js";
 
@@ -103,6 +104,15 @@ console.log("\nplanning a row");
   const dated = { repo: "GT-New-Horizons-Modpack", dated: true, lastTag: "2.9.0-nightly-2026-10-21", taken: [] };
   check("a dated repo ignores the bump", planTag(dated, { bump: "major", now: Date.parse("2026-10-24T15:00:00Z") }).tag, "2.9.0-nightly-2026-10-24");
 }
+
+
+console.log("\na snapshot's series");
+check("drops the last number for Patch", seriesOf("5.09.54.233"), "5.09.54.*");
+check("keeps text before the version", [seriesOf("v2.3"), seriesOf("1.1.71-GTNH")], ["v2.*", "1.1.*"]);
+check("cuts further for a bigger bump", seriesOf("5.09.54.233", "minor"), "5.09.*");
+check("can't tell lines apart with one number, or by date", [seriesOf("rv3-beta-1091"), seriesOf("2.9.0-nightly-2026-10-21")], [null, null]);
+check("matches its own line only", ["5.09.54.234", "5.09.54.234-pre", "5.09.55.0", "5.09.540.1"].map((t) => inSeries("5.09.54.*", t)), [true, true, false, false]);
+check("compares versions by number", [compareVersions("5.09.55.0", "5.09.54.240"), compareVersions("1.1.9", "1.1.10"), compareVersions("2.0", "2.0")], [1, -1, 0]);
 
 console.log("\ntag patterns");
 check("* and ? match", ["2.8.0-pre", "2.8.0-pre2", "2.8.1-pre", "x2.8.0-pre"].filter((t) => globToRegex("2.8.?-pre*").test(t)), ["2.8.0-pre", "2.8.0-pre2", "2.8.1-pre"]);
@@ -603,6 +613,129 @@ refStatus = {};
 {
   const out = await deleteRun(env, "admin@example.com", { run: "run-jjjjjjjj", items: [{ repo: "GTNHLib", tag: "x", release: false, deleteTag: false }] }, { now: T0 + 8 * 3_600_000, pace: 0 });
   check("an item deleting nothing is a 400", out.status, 400);
+}
+
+console.log("\nsnapshots");
+const snapTags = (name = "2.9.x") => raw.prepare("SELECT repo, tag, base_tag, series FROM release_snapshot_tags WHERE snapshot = ? ORDER BY repo").all(name).map((r) => ({ ...r }));
+github.GT5U = repo("GT5U", {
+  releases: [{ tagName: "5.09.55.0", sha: sha("b") }, { tagName: "5.09.54.233", sha: sha("1") }],
+  tags: [{ name: "5.09.55.0", sha: sha("b") }, { name: "5.09.54.233", sha: sha("1") }, { name: "5.09.54.232", sha: sha("2") }],
+  head: sha("c"),
+  branches: { "release/2.9.x": sha("d"), master: sha("c") },
+  history: { "release/2.9.x": [sha("d"), sha("1"), sha("2")] },
+});
+github.Weird = repo("Weird", { releases: ["rv3-beta-1091"], tags: ["rv3-beta-1091"], branches: { "release/2.9.x": sha("e") }, history: { "release/2.9.x": [sha("e")] } });
+const settings = { branch: "release/2.9.x", bump: "patch", notLatest: true, pre: false };
+{
+  const out = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", settings, repos: [{ repo: "GT5U", tag: "5.09.54.233" }, { repo: "Weird", tag: "rv3-beta-1091" }] }, { now: T0 + 10 * 3_600_000 });
+  const snap = out.body.snapshots?.[0];
+  check("saves a snapshot", [out.status, snap?.name, snap?.branch, snap?.bump, snap?.notLatest], [200, "2.9.x", "release/2.9.x", "patch", true]);
+  check("with each repo's tag, base and series", snapTags(), [
+    { repo: "GT5U", tag: "5.09.54.233", base_tag: "5.09.54.233", series: "5.09.54.*" },
+    { repo: "Weird", tag: "rv3-beta-1091", base_tag: "rv3-beta-1091", series: null },
+  ]);
+  check("and records it as one change", snap.changes.map((c) => [c.kind, c.rows.length]), [["save", 2]]);
+  const again = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", settings, repos: [{ repo: "GT5U", tag: "5.09.54.233" }] });
+  check("won't save over one by accident", again.status, 409);
+  for (const [name, b] of [["a bad name", { name: "2.9 x", settings, repos: [{ repo: "GT5U", tag: "1.0" }] }], ["a bad tag", { name: "x", settings, repos: [{ repo: "GT5U", tag: "../x" }] }], ["no repos", { name: "x", settings, repos: [] }]]) {
+    check(`${name} is a 400`, (await saveSnapshot(env, "admin@example.com", b)).status, 400);
+  }
+}
+{
+  const out = await releasePreview(env, [{ repo: "GT5U", branch: "release/2.9.x", snapshot: "2.9.x" }]);
+  const g = out.body.repos[0];
+  check("a snapshot row counts from the snapshot's tag", [g.lastTag, g.lastSha, g.predicted, g.branchTag], ["5.09.54.233", sha("1"), "5.09.54.234", "5.09.54.233"]);
+  check("and says which snapshot", g.snapshot, { name: "2.9.x", tag: "5.09.54.233", base: "5.09.54.233", newer: null });
+  const master = await releasePreview(env, [{ repo: "GT5U" }]);
+  check("master still counts from its own last release", [master.body.repos[0].lastTag, master.body.repos[0].lastNote], ["5.09.55.0", null]);
+}
+calls = [];
+{
+  const out = await releaseRun(env, "admin@example.com", {
+    run: "run-snap0001", last: true, items: [
+      { repo: "GT5U", branch: "release/2.9.x", tag: "5.09.54.234", sha: sha("d"), previous: "5.09.54.233", predicted: "5.09.54.234", bump: "patch", notLatest: true, snapshot: "2.9.x", observed: "5.09.54.233" },
+    ],
+  }, { now: T0 + 11 * 3_600_000, pace: 0 });
+  check("releases from the snapshot, not as latest", [out.status, out.body.results[0].ok, calls.some((c) => c.startsWith("POST GT5U") && c.includes('"make_latest":"false"'))], [200, true, true]);
+  check("and moves the snapshot forward", [out.body.results[0].snapshot, snapTags()[0].tag, snapTags()[0].base_tag], ["2.9.x", "5.09.54.234", "5.09.54.233"]);
+  const list = await listSnapshots(env);
+  check("as one change named for the run", list.body.snapshots[0].changes[0], { change: "run-snap0001", kind: "release", by: "admin@example.com", at: new Date(T0 + 11 * 3_600_000).toISOString(), reverts: null, reverted: false, rows: [{ repo: "GT5U", before: "5.09.54.233", after: "5.09.54.234" }] });
+}
+github.GT5U.refs.nodes.unshift({ name: "5.09.54.234", target: { oid: sha("d") } });
+{
+  const master = await releasePreview(env, [{ repo: "GT5U" }]);
+  const m = master.body.repos[0];
+  check("master skips the snapshot's newer patch", [m.lastTag, m.predicted, m.lastNote], ["5.09.55.0", "5.09.55.1", null]);
+  const ok = await releaseRun(env, "admin@example.com", {
+    run: "run-snap0002", last: true, items: [{ repo: "GT5U", tag: "5.09.55.1", sha: sha("c"), previous: "5.09.55.0", predicted: "5.09.55.1", bump: "predicted" }],
+  }, { now: T0 + 12 * 3_600_000, pace: 0 });
+  check("and so does master's recheck", [ok.status, ok.body.results[0].ok], [200, true]);
+  const stale = await releaseRun(env, "admin@example.com", {
+    run: "run-snap0003", last: true, items: [
+      { repo: "GT5U", branch: "release/2.9.x", tag: "5.09.54.235", sha: sha("d"), previous: "5.09.54.233", bump: "patch", snapshot: "2.9.x", observed: "5.09.54.233" },
+    ],
+  }, { now: T0 + 13 * 3_600_000, pace: 0 });
+  check("refuses a snapshot row whose snapshot moved since the preview", [stale.status, stale.body.results[0].error], [502, "The 2.9.x snapshot moved to 5.09.54.234 since the preview. Open the preview again"]);
+}
+github.Unbumped = repo("Unbumped", { releases: [{ tagName: "1.1.72-GTNH", sha: sha("d") }, { tagName: "1.1.71-GTNH", sha: sha("1") }], tags: ["1.1.72-GTNH", "1.1.71-GTNH"] });
+raw.prepare("INSERT INTO release_snapshot_tags VALUES ('2.9.x', 'Unbumped', '1.1.72-GTNH', '1.1.71-GTNH', '1.1.*', '2026-10-24T00:00:00Z', 'admin', '2026-10-24T00:00:00Z')").run();
+{
+  const out = await releasePreview(env, [{ repo: "Unbumped" }]);
+  const u = out.body.repos[0];
+  check("master that never moved past the base says so", [u.lastTag, /^Skipped 1\.1\.72-GTNH, which is on the 2\.9\.x snapshot's line, so this counts from 1\.1\.71-GTNH\. A Minor bump/.test(u.lastNote)], ["1.1.71-GTNH", true]);
+}
+raw.prepare("DELETE FROM release_snapshot_tags WHERE repo = 'Unbumped'").run();
+{
+  const conflict = await editSnapshot(env, "admin@example.com", { name: "2.9.x", remove: [{ repo: "Weird", was: "rv3-beta-1090" }] });
+  check("an edit against a stale read is refused", [conflict.status, /Weird is rv3-beta-1091/.test(conflict.body.error)], [409, true]);
+  const out = await editSnapshot(env, "admin@example.com", { name: "2.9.x", remove: [{ repo: "Weird", was: "rv3-beta-1091" }] });
+  check("removes a repo", [out.status, snapTags().map((r) => r.repo)], [200, ["GT5U"]]);
+  const removal = out.body.snapshots[0].changes[0];
+  check("as a change of its own", [removal.kind, removal.rows], ["remove", [{ repo: "Weird", before: "rv3-beta-1091", after: null }]]);
+  const back = await revertChange(env, "admin@example.com", { name: "2.9.x", change: removal.change });
+  check("which a revert puts back", [back.status, back.body.reverted, snapTags().map((r) => [r.repo, r.tag, r.base_tag])], [200, 1, [["GT5U", "5.09.54.234", "5.09.54.233"], ["Weird", "rv3-beta-1091", "rv3-beta-1091"]]]);
+  const run = await revertChange(env, "admin@example.com", { name: "2.9.x", change: "run-snap0001" });
+  check("a release run can be reverted too", [run.status, snapTags()[0].tag], [200, "5.09.54.233"]);
+  check("but only once", (await revertChange(env, "admin@example.com", { name: "2.9.x", change: "run-snap0001" })).status, 409);
+  const list = await listSnapshots(env);
+  check("and the history says what was reverted", list.body.snapshots[0].changes.map((c) => [c.kind, c.reverted]), [["revert", false], ["revert", false], ["remove", true], ["release", true], ["save", false]]);
+}
+{
+  const out = await releasePreview(env, [{ repo: "GT5U", branch: "release/2.9.x", snapshot: "2.9.x" }]);
+  const g = out.body.repos[0];
+  check("a branch ahead of the snapshot offers its newer tag", [g.lastTag, g.snapshot.newer, g.lastNote], ["5.09.54.233", "5.09.54.234", "release/2.9.x has 5.09.54.234, newer than the snapshot's 5.09.54.233"]);
+  check("and skips the taken tag", g.predicted, "5.09.54.235");
+  const refresh = await editSnapshot(env, "admin@example.com", { name: "2.9.x", kind: "refresh", set: [{ repo: "GT5U", tag: "5.09.54.234", was: "5.09.54.233" }] });
+  check("which can be taken as the snapshot's tag", [refresh.status, snapTags()[0].tag, refresh.body.snapshots[0].changes[0].kind], [200, "5.09.54.234", "refresh"]);
+  const missing = await releasePreview(env, [{ repo: "Navigator", snapshot: "2.9.x" }]);
+  check("a repo not in the snapshot counts as usual and says so", /^Not in the 2\.9\.x snapshot/.test(missing.body.repos[0].lastNote ?? ""), true);
+}
+{
+  const out = await saveSnapshot(env, "admin@example.com", {
+    name: "2.9.x", mode: "replace", kind: "import", settings,
+    repos: [{ repo: "GT5U", tag: "5.09.54.234", base: "5.09.54.233" }, { repo: "Navigator", tag: "1.0.0" }],
+  }, { now: T0 + 14 * 3_600_000 });
+  check("an import replaces the list", [out.status, out.body.saved, snapTags().map((r) => r.repo)], [200, { name: "2.9.x", added: 1, changed: 0, removed: 1 }, ["GT5U", "Navigator"]]);
+  const merged = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", mode: "merge", kind: "import", settings, repos: [{ repo: "Weird", tag: "rv3-beta-1091" }] });
+  check("or merges into it", [merged.body.saved, snapTags().length], [{ name: "2.9.x", added: 1, changed: 0, removed: 0 }, 3]);
+  const minor = await editSnapshot(env, "admin@example.com", { name: "2.9.x", settings: { ...settings, bump: "minor" } });
+  check("a new bump redraws every series", [minor.status, snapTags()[0].series], [200, "5.09.*"]);
+}
+{
+  const bare = new DatabaseSync(":memory:");
+  bare.exec(readFileSync("worker/schema.sql", "utf8").replace(/CREATE TABLE IF NOT EXISTS release_snapshot[\s\S]*?\);/g, "").replace(/CREATE INDEX IF NOT EXISTS idx_release_snapshot[^;]*;/g, ""));
+  const bareDb = { prepare: (sql) => { let b = []; const api = { bind: (...a) => ((b = a), api), async run() { const r = bare.prepare(sql).run(...b); return { success: true, meta: { changes: r.changes } }; }, async first() { return bare.prepare(sql).get(...b) ?? null; }, async all() { return { results: bare.prepare(sql).all(...b) }; } }; return api; }, async batch(l) { for (const x of l) await x.run(); } };
+  const benv = { ...env, DB: bareDb };
+  const preview = await releasePreview(benv, [{ repo: "GT5U" }]);
+  check("before migration 008, a preview still works and says why", [preview.status, preview.body.repos[0].lastTag, /^Snapshots couldn't be read/.test(preview.body.snapshotError)], [200, "5.09.55.1", true]);
+  const run = await releaseRun(benv, "admin@example.com", { run: "run-nosnap01", last: true, items: [{ repo: "GT5U", tag: "5.09.55.2", sha: sha("c"), previous: "5.09.55.1", bump: "predicted" }] }, { now: T0 + 15 * 3_600_000, pace: 0 });
+  check("and so does a release", [run.status, run.body.results?.[0]?.ok], [200, true]);
+  check("and the card says to run it", (await listSnapshots(benv)).status, 503);
+}
+{
+  check("deleting needs the name typed", (await deleteSnapshot(env, { name: "2.9.x", confirm: "2.9" })).status, 400);
+  const out = await deleteSnapshot(env, { name: "2.9.x", confirm: "2.9.x" });
+  check("and takes everything with it", [out.status, out.body.snapshots, snapTags(), raw.prepare("SELECT COUNT(*) AS n FROM release_snapshot_changes").get().n], [200, [], [], 0]);
 }
 
 forgetToken();
