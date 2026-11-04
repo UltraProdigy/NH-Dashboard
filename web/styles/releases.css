@@ -9,6 +9,14 @@
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
 }
 .rl-input:focus, .rl select:focus { outline: none; border-color: var(--accent); }
+.rl select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 26px; min-width: 0; max-width: 100%;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
 .rl-input[disabled], .rl select[disabled] { opacity: .5; }
 .rl-gap { margin: 8px 0 12px; }
 .rl-bad { color: var(--bad); }
@@ -36,7 +44,7 @@
 .rl code { font-size: 11.5px; padding: 0 4px; border-radius: 4px; background: var(--panel-2); }
 
 .rl-scroll { max-height: 60vh; }
-.rl-table select { padding: 3px 6px; font-size: 12px; }
+.rl-table select { padding: 3px 24px 3px 6px; font-size: 12px; background-position: calc(100% - 13px) 50%, calc(100% - 8px) 50%; }
 .rl-table .ra-tag { min-width: 150px; }
 .rl-pre { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .rl-branch { width: 110px; padding: 3px 6px; }
