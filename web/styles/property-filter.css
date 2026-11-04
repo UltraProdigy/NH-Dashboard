@@ -1,0 +1,27 @@
+.pf-input {
+  padding: 5px 8px; font-size: 12px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.pf-input:focus { outline: none; border-color: var(--accent); }
+.pf-gap { margin: 8px 0 12px; }
+
+.pf-filter { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.pf-group { display: flex; flex-direction: column; gap: 6px; }
+.pf-group.nested { padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; }
+.pf-ghead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pf-gitems { display: flex; flex-direction: column; gap: 6px; padding-left: 14px; border-left: 2px solid var(--border); }
+.pf-cond { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pf-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.pf-chip { display: inline-flex; cursor: pointer; }
+.pf-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.pf-chip span {
+  padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 11.5px; color: var(--muted);
+}
+.pf-chip input:checked + span { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pf-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pf-x {
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+}
+.pf-x:hover { color: var(--bad); background: var(--panel-2); }

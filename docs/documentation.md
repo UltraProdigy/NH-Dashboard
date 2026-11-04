@@ -83,9 +83,9 @@ traffic data, and it also carries branch protection, collaborator lists, and
 repo settings. `discussions` and `repository_projects` were requested but not
 granted, and nothing reads them — they can be dropped from the request.
 
-Organization **Custom properties: Read** is for the Releases & Tags page's
-property filter. Without it the page still works, says the permission is
-missing, and offers no filter.
+Organization **Custom properties: Read** is for the property filters on
+Releases & Tags and on the Labels page's Sync status. Without it both pages
+still work, say the permission is missing, and offer no filter.
 
 ### Org-Manager, the App that changes things
 
@@ -1142,6 +1142,15 @@ properties. The filter is a tree:
 
 The filter runs in the browser and is remembered per browser.
 
+The builder is `web/js/property-filter.js` and the list loader is
+`web/js/repo-list.js`, both shared with the Labels page's **Sync status**
+filter. The two pages keep separate filters (`nh:rel-filter` and
+`nh:labels-filter`), but read the same copy of the list: whichever page reads
+it first, the other reuses it until it's five minutes old. **Refresh** here
+always reads it again. Until the list arrives, or if custom properties can't be
+read, the filter lets every repo through, so a saved filter never hides rows
+the page can't explain.
+
 **Ticking is separate from the filter.** The filter only decides what's shown.
 **Tick all shown** adds what's shown to the ticked set, and **Needs a release**
 ticks the Dream Panel card's repos. A ticked repo stays ticked when the filter
@@ -1393,7 +1402,7 @@ the Worker refuses both of its panels to anyone who isn't an admin.
 | Card | What it shows |
 |---|---|
 | Managed labels | The managed set as chips in the config's colours, each with open and total PRs and issues across the org. The tab adds the description, the colour, and how many repos are missing each label or have it wrong |
-| Sync status | One row per repo: managed labels missing, and managed labels with the wrong colour, description or case. The tab expands each row into what the nightly run would do, in words. Filter by repo with the toolbar box, or tick "only repos with drift". Archived repos, the source repo and repos whose labels haven't been read are greyed and say why |
+| Sync status | One row per repo: managed labels missing, and managed labels with the wrong colour, description or case. The tab expands each row into what the nightly run would do, in words. Filter by repo with the toolbar box, tick "only repos with drift", or build a custom property filter on the tab (the same builder as Releases & Tags, saved separately). The overview card applies the saved filter too, and both say how many repos it hides. Archived repos, the source repo and repos whose labels haven't been read are greyed and say why |
 | Repo labels | Every label in one repo, managed or custom, with its status and usage. The repo drilldown has a **Labels →** button, for admins, that opens this card on that repo |
 | Unmanaged labels | Every label name that isn't managed, grouped across repos: how many repos use it, whether its colour differs between them, and whether anything carries it. The tab lists where each colour is used |
 
@@ -1403,6 +1412,12 @@ the Worker refuses both of its panels to anyone who isn't an admin.
 |---|---|---|
 | `labelSync` | `labels` (the managed set), `repo_labels` (every repo's labels) and `repos` (which repos exist and which are archived), about 7k rows | On the cron, when `labels` or `repo_labels` is stamped, and otherwise once it's an hour old |
 | `labelUsage` | The `facets` pass's label query, which already reads every label on every PR and issue | Hourly, with `facets` |
+
+The Sync status property filter isn't a panel. It reads `GET /api/releases/repos`
+live from GitHub, the same list Releases & Tags uses (see **Choosing repos**),
+when the card is drawn and the shared copy is missing or five minutes old.
+Nothing about custom properties is stored in D1, so the `repo_properties` table
+the Labels plan once proposed isn't needed.
 
 `repos` is read but deliberately not in `labelSync`'s `reads`. Nearly every
 delivery stamps it, so listing it would rebuild the panel every tick for a list

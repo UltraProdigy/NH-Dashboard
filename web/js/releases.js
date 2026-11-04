@@ -2,9 +2,9 @@ import { API } from "./live.js";
 import { esc, safeUrl } from "./format.js";
 import { panelRows } from "./dream.js";
 import { BUMPS, DATED_REPOS, planTag, tagProblem } from "./release-tags.js";
+import { propertyFilter, valuesOf } from "./property-filter.js";
+import { loadRepoList, repoList, repoListError, repoListStale } from "./repo-list.js";
 
-const FILTER_KEY = "nh:rel-filter";
-const LIST_STALE_MS = 5 * 60_000;
 const PREVIEW_CHUNK = 50;
 const DELETE_CHUNK = 20;
 const RUN_BATCH = 10;
@@ -12,13 +12,11 @@ const BUILD_WARN = 20;
 const ORG = "GTNewHorizons";
 
 const BUMP_LABEL = { predicted: "Predicted", patch: "Patch", minor: "Minor", major: "Major", super: "Super" };
-const CMP_LABEL = { any: "is any of", none: "is none of", set: "is set", unset: "is not set" };
 const POSITION = ["last number", "second-to-last number", "third-to-last number"];
 
 let list = null;
 let listError = null;
 let listing = null;
-let listedAt = 0;
 let wired = false;
 let ticked = new Set();
 let search = "";
@@ -27,7 +25,6 @@ let pending = null;
 let busy = null;
 let progress = "";
 let note = "";
-let nodeId = 0;
 
 const all = { bump: "predicted", pattern: "", pre: false, notLatest: false, branch: "" };
 let rows = [];
@@ -38,60 +35,9 @@ const del = { by: "pattern", pattern: "", release: true, tag: true };
 let found = null;
 let deleteResults = null;
 
-const newId = () => `n${++nodeId}`;
-const blankFilter = () => ({ id: newId(), op: "and", items: [] });
+const filter = propertyFilter("nh:rel-filter", { live: true, onChange: () => paintList() });
 
-function loadFilter() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(FILTER_KEY) ?? "null");
-    if (saved?.items) return reId(saved);
-  } catch {}
-  return blankFilter();
-}
-
-function reId(node) {
-  if (node.items) return { id: newId(), op: node.op === "or" ? "or" : "and", items: node.items.map(reId) };
-  return { id: newId(), prop: node.prop ?? "", cmp: CMP_LABEL[node.cmp] ? node.cmp : "any", values: Array.isArray(node.values) ? node.values : [] };
-}
-
-let filter = loadFilter();
-
-function saveFilter() {
-  try { localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); } catch {}
-}
-
-function findNode(id, node = filter, parent = null) {
-  if (node.id === id) return { node, parent };
-  for (const child of node.items ?? []) {
-    const hit = findNode(id, child, node);
-    if (hit) return hit;
-  }
-  return null;
-}
-
-const valuesOf = (v) => (v == null || v === "" ? [] : Array.isArray(v) ? v.map(String) : [String(v)]);
-
-function passes(repo, node = filter) {
-  if (node.items) {
-    const live = node.items.filter(isLive);
-    if (!live.length) return true;
-    return node.op === "or" ? live.some((n) => passes(repo, n)) : live.every((n) => passes(repo, n));
-  }
-  const have = valuesOf(repo.properties?.[node.prop]);
-  if (node.cmp === "set") return have.length > 0;
-  if (node.cmp === "unset") return have.length === 0;
-  const hit = have.some((v) => node.values.includes(v));
-  return node.cmp === "none" ? !hit : hit;
-}
-
-function isLive(node) {
-  if (node.items) return node.items.some(isLive);
-  if (!node.prop) return false;
-  return node.cmp === "set" || node.cmp === "unset" || node.values.length > 0;
-}
-
-const schemaOf = (name) => list?.schema?.find((p) => p.name === name) ?? null;
-const shownRepos = () => (list?.repos ?? []).filter((r) => passes(r));
+const shownRepos = () => (list?.repos ?? []).filter((r) => filter.passes(r));
 const visibleRepos = () => shownRepos().filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()));
 const tickedRepos = () => (list?.repos ?? []).filter((r) => ticked.has(r.name)).map((r) => r.name);
 
@@ -122,51 +68,6 @@ const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? 
 const repoUrl = (name) => `https://github.com/${ORG}/${encodeURIComponent(name)}`;
 
 /* ---- the repo picker ---- */
-
-function condHtml(node) {
-  const props = list?.schema ?? [];
-  const p = schemaOf(node.prop);
-  const opts = [`<option value="">property…</option>`, ...props.map((s) =>
-    `<option value="${esc(s.name)}"${s.name === node.prop ? " selected" : ""}>${esc(s.name)}</option>`)].join("");
-  const cmps = Object.entries(CMP_LABEL).map(([k, v]) => `<option value="${k}"${k === node.cmp ? " selected" : ""}>${v}</option>`).join("");
-  let values = "";
-  if (node.prop && (node.cmp === "any" || node.cmp === "none")) {
-    const allowed = p?.allowed ?? (p?.type === "true_false" ? ["true", "false"] : null);
-    if (allowed?.length) {
-      values = `<span class="rl-chips">${allowed.map((v) => `<label class="rl-chip"><input type="checkbox" data-f-val value="${esc(v)}"${node.values.includes(v) ? " checked" : ""}><span>${esc(v)}</span></label>`).join("")}</span>`;
-    } else {
-      values = `<input type="text" class="rl-input" data-f-text value="${esc(node.values.join(", "))}" placeholder="value, value" spellcheck="false" aria-label="Values">`;
-    }
-  }
-  return `<div class="rl-cond" data-node="${node.id}">
-    <select data-f-prop aria-label="Property">${opts}</select>
-    <select data-f-cmp aria-label="Comparison">${cmps}</select>
-    ${values}
-    <button type="button" class="rl-x" data-f-remove title="Remove this condition" aria-label="Remove this condition">×</button>
-  </div>`;
-}
-
-function groupHtml(node, depth = 0) {
-  const op = `<span class="seg mini rl-op">${["and", "or"].map((o) =>
-    `<button type="button" data-f-op="${o}" aria-pressed="${node.op === o}">${o.toUpperCase()}</button>`).join("")}</span>`;
-  const kids = node.items.map((n) => (n.items ? groupHtml(n, depth + 1) : condHtml(n))).join("");
-  return `<div class="rl-group${depth ? " nested" : ""}" data-node="${node.id}">
-    <div class="rl-ghead">
-      ${node.items.length > 1 ? op : ""}
-      <button type="button" class="ghost mini" data-f-add="cond">+ condition</button>
-      ${depth < 2 ? `<button type="button" class="ghost mini" data-f-add="group">+ group</button>` : ""}
-      ${depth ? `<button type="button" class="rl-x" data-f-remove title="Remove this group" aria-label="Remove this group">×</button>` : ""}
-    </div>
-    ${kids ? `<div class="rl-gitems">${kids}</div>` : ""}
-  </div>`;
-}
-
-function filterHtml() {
-  if (!list) return "";
-  if (list.propertiesError) return `<p class="daily-warn rl-gap">${esc(list.propertiesError)}</p>`;
-  if (!list.schema.length) return `<p class="sub rl-gap">The org has no custom properties to filter by.</p>`;
-  return `<div class="rl-filter"><span class="sub">Filter by custom property</span>${groupHtml(filter)}</div>`;
-}
 
 function countHtml() {
   const shown = new Set(shownRepos().map((r) => r.name));
@@ -199,7 +100,7 @@ function pickerCard() {
         <button type="button" class="ghost" data-r-preset="shown">Tick all shown</button>
         <button type="button" class="ghost" data-r-preset="none">Untick all</button>
       </div>
-      <div data-rl-filter>${filterHtml()}</div>
+      ${filter.html()}
       <div data-rl-list>${repoListHtml()}</div>`;
   }
   return `<section class="card rl-card" style="--span:12">
@@ -450,12 +351,6 @@ function paintList() {
   syncWorkCount();
 }
 
-function paintFilter() {
-  const el = document.querySelector("[data-rl-filter]");
-  if (el) el.innerHTML = filterHtml();
-  paintList();
-}
-
 function paintWork() {
   const el = document.querySelector("[data-rl-work]");
   if (el) el.innerHTML = mode === "release" ? releaseWork() : deleteWork();
@@ -499,16 +394,16 @@ function liveRow(tr) {
 
 /* ---- loading ---- */
 
-async function loadList() {
+async function loadList({ force = false } = {}) {
   if (listing) return listing;
   listing = (async () => {
     await null;
     try {
-      const { ok, status, body } = await call("/api/releases/repos");
-      if (!ok) throw new Error(status === 403 ? "Only the admin team can use Releases & Tags." : `The repos couldn't be read: ${body.error ?? status}`);
-      list = body;
-      listedAt = Date.now();
-      listError = null;
+      if (force || repoListStale()) await loadRepoList();
+      list = repoList();
+      listError = repoListError();
+      filter.use(list);
+      if (!list) return;
       const names = new Set(list.repos.map((r) => r.name));
       ticked = new Set([...ticked].filter((n) => names.has(n)));
       if (pending) {
@@ -517,8 +412,6 @@ async function loadList() {
         listing = null;
         if (ticked.size) return preview();
       }
-    } catch (err) {
-      listError = err instanceof TypeError ? "The dashboard couldn't be reached." : err.message;
     } finally {
       listing = null;
       redraw();
@@ -750,33 +643,13 @@ const inPage = (e) => e.target.closest?.("[data-rl]");
 function onClick(e) {
   if (!inPage(e)) return;
   const t = e.target;
-  if (t.closest("[data-r-refresh]")) return loadList();
+  if (t.closest("[data-r-refresh]")) return loadList({ force: true });
   const preset = t.closest("[data-r-preset]")?.dataset.rPreset;
   if (preset) {
     if (preset === "needs") ticked = new Set(needsRelease().filter((n) => list.repos.some((r) => r.name === n)));
     else if (preset === "shown") for (const r of visibleRepos()) ticked.add(r.name);
     else ticked.clear();
     return paintList();
-  }
-  const add = t.closest("[data-f-add]");
-  if (add) {
-    const group = findNode(add.closest("[data-node]").dataset.node).node;
-    group.items.push(add.dataset.fAdd === "group" ? { id: newId(), op: "and", items: [{ id: newId(), prop: "", cmp: "any", values: [] }] } : { id: newId(), prop: "", cmp: "any", values: [] });
-    saveFilter();
-    return paintFilter();
-  }
-  const remove = t.closest("[data-f-remove]");
-  if (remove) {
-    const hit = findNode(remove.closest("[data-node]").dataset.node);
-    if (hit?.parent) hit.parent.items = hit.parent.items.filter((n) => n !== hit.node);
-    saveFilter();
-    return paintFilter();
-  }
-  const op = t.closest("[data-f-op]");
-  if (op) {
-    findNode(op.closest("[data-node]").dataset.node).node.op = op.dataset.fOp;
-    saveFilter();
-    return paintFilter();
   }
   const m = t.closest("[data-w-mode]")?.dataset.wMode;
   if (m && m !== mode && !busy) {
@@ -799,15 +672,6 @@ function onChange(e) {
     const count = document.querySelector("[data-rl-count]");
     if (count) count.outerHTML = countHtml();
     return syncWorkCount();
-  }
-  const node = t.closest("[data-node]");
-  if (node && (t.matches("[data-f-prop]") || t.matches("[data-f-cmp]") || t.matches("[data-f-val]"))) {
-    const n = findNode(node.dataset.node).node;
-    if (t.matches("[data-f-prop]")) { n.prop = t.value; n.values = []; }
-    else if (t.matches("[data-f-cmp]")) n.cmp = t.value;
-    else n.values = [...node.querySelectorAll("[data-f-val]:checked")].map((x) => x.value);
-    saveFilter();
-    return t.matches("[data-f-val]") ? paintList() : paintFilter();
   }
   if (t.matches("[data-a-bump]")) { all.bump = t.value; for (const r of rows) { if (!r.data.dated) r.bump = all.bump; r.edit = null; } return paintWork(); }
   if (t.matches("[data-a-pre]")) { all.pre = t.checked; for (const r of rows) { r.pre = all.pre; r.edit = null; } return paintWork(); }
@@ -845,11 +709,6 @@ function onInput(e) {
   if (!inPage(e)) return;
   const t = e.target;
   if (t.matches("[data-r-search]")) { search = t.value; return paintList(); }
-  if (t.matches("[data-f-text]")) {
-    findNode(t.closest("[data-node]").dataset.node).node.values = t.value.split(",").map((v) => v.trim()).filter(Boolean);
-    saveFilter();
-    return paintList();
-  }
   if (t.matches("[data-d-pattern]")) { del.pattern = t.value; return syncWorkCount(); }
   if (t.matches("[data-x-tag]")) {
     const tr = t.closest("tr[data-row]");
@@ -863,7 +722,7 @@ function onInput(e) {
 
 function onKey(e) {
   if (!inPage(e)) return;
-  if (e.key === "Enter" && e.target.matches("[data-x-tag], [data-x-branch], [data-a-pattern], [data-a-branch], [data-d-pattern], [data-f-text]")) {
+  if (e.key === "Enter" && e.target.matches("[data-x-tag], [data-x-branch], [data-a-pattern], [data-a-branch], [data-d-pattern]")) {
     e.preventDefault();
     e.target.blur();
   }
@@ -896,5 +755,5 @@ export function openReleasesFor(names) {
 export function syncReleases(on) {
   if (!on) return;
   wire();
-  if ((!list && !listing) || (list && !busy && Date.now() - listedAt > LIST_STALE_MS)) loadList();
+  if ((!list && !listing) || (list && !busy && repoListStale())) loadList();
 }

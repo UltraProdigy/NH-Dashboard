@@ -1,7 +1,9 @@
 import { esc, fmt, repoLink } from "../format.js";
 import { panel } from "../data.js";
-import { applyFilter, renderTable, sortRows } from "../table.js";
+import { applyFilter, renderTable, sortRows, withOwner } from "../table.js";
 import { state } from "../state.js";
+import { propertyFilter } from "../property-filter.js";
+import { loadRepoList, onRepoList, repoList, repoListDue, repoListError, repoListLoading, repoListStale } from "../repo-list.js";
 
 const sync = () => (panel("labelSync")?.ok ? panel("labelSync").data : null);
 const usage = () => (panel("labelUsage")?.ok ? panel("labelUsage").data : null);
@@ -117,9 +119,29 @@ const repoRows = () => {
 
 const driftRows = () => repoRows().filter((r) => r.drift > 0);
 
+const repoFilter = propertyFilter("nh:labels-filter", { onChange: () => paintSyncRows() });
+
+const propsIndexes = new WeakMap();
+
+function propsOf(repo) {
+  const list = repoList();
+  if (!list) return {};
+  if (!propsIndexes.has(list)) propsIndexes.set(list, new Map(list.repos.map((r) => [r.name, r.properties ?? {}])));
+  return propsIndexes.get(list).get(repo) ?? {};
+}
+
+function useRepoList() {
+  if (repoListStale() && repoListDue()) loadRepoList();
+  const waiting = repoListError() ?? (repoListLoading() || !repoList() ? "Reading the org's custom properties from GitHub…" : "");
+  repoFilter.use(repoList(), waiting);
+}
+
+const passesFilter = (r) => repoFilter.passes({ properties: propsOf(r.repo) });
+
 function syncStatusRows() {
   const rows = repoRows()
     .filter((r) => !state.labelDriftOnly || r.drift > 0)
+    .filter(passesFilter)
     .sort((a, b) => b.drift - a.drift || (a.skip ? 1 : 0) - (b.skip ? 1 : 0) || a.repo.localeCompare(b.repo));
   return applyFilter(rows);
 }
@@ -151,18 +173,37 @@ function syncCols(expanded) {
   return cols;
 }
 
+function syncRowsHtml(expanded) {
+  const cols = syncCols(expanded);
+  const rows = expanded ? sortRows(syncStatusRows(), cols) : syncStatusRows().filter((r) => r.drift > 0);
+  const hidden = repoFilter.active() ? repoRows().filter((r) => (!state.labelDriftOnly && expanded) || r.drift > 0).filter((r) => !passesFilter(r)).length : 0;
+  const note = hidden ? `<p class="sub lb-filtered">${fmt(hidden)} repo${hidden === 1 ? "" : "s"} hidden by the custom property filter${expanded ? "" : " (set on the Sync status tab)"}.</p>` : "";
+  if (!rows.length) {
+    const why = repoFilter.active() ? "No repos match the custom property filter."
+      : state.labelDriftOnly || !expanded ? "Every repo's managed labels match the managed set." : "No repos match the filter.";
+    return `${note}<div class="empty">${why}</div>`;
+  }
+  return note + renderTable(rows, cols, { sortable: expanded, limit: expanded ? null : 8 });
+}
+
 function syncStatusHtml(expanded) {
   const wait = notReady();
   if (wait) return wait;
-  const cols = syncCols(expanded);
-  const rows = expanded ? sortRows(syncStatusRows(), cols) : syncStatusRows().filter((r) => r.drift > 0);
-  if (!rows.length) {
-    return `<div class="empty">${state.labelDriftOnly || !expanded
-      ? "Every repo's managed labels match the managed set."
-      : "No repos match the filter."}</div>`;
-  }
-  return renderTable(rows, cols, { sortable: expanded, limit: expanded ? null : 8 });
+  useRepoList();
+  const rows = `<div data-lb-rows="${expanded ? 1 : 0}">${syncRowsHtml(expanded)}</div>`;
+  return expanded ? `<div class="lb-pf">${repoFilter.html()}</div>${rows}` : rows;
 }
+
+function paintSyncRows() {
+  for (const el of document.querySelectorAll("[data-lb-rows]")) el.innerHTML = withOwner("lbSync", () => syncRowsHtml(el.dataset.lbRows === "1"));
+}
+
+onRepoList(() => {
+  if (!document.querySelector("[data-lb-rows]")) return;
+  useRepoList();
+  for (const el of document.querySelectorAll(".lb-pf")) el.innerHTML = repoFilter.html();
+  paintSyncRows();
+});
 
 function syncSub() {
   const d = sync();
