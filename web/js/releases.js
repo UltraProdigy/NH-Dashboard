@@ -33,6 +33,8 @@ let previewMeta = null;
 let releaseResults = null;
 let using = null;
 let usingNote = "";
+let watch = null;
+let watchNote = "";
 
 const del = { by: "pattern", pattern: "", release: true, tag: true };
 let found = null;
@@ -158,6 +160,97 @@ function branchSummary() {
     commits since the last tag, at least one through a pull request, the same rule as the Needs a release card. The others start unticked.</p>`;
 }
 
+const FINAL = new Set(["rebuilt", "failed", "built", "unknown"]);
+const WATCH_EVERY = 15_000;
+const WATCH_FOR = 3 * 3_600_000;
+const WATCH_CHUNK = 300;
+
+function rebuildHtml(done) {
+  const s = done.status;
+  if (!s && !done.watched) return "";
+  const run = s?.buildUrl ? ` <a href="${safeUrl(s.buildUrl)}" target="_blank" rel="noopener">run</a>` : "";
+  const quiet = (t) => ` <span class="sub">· ${t}</span>`;
+  switch (s?.state ?? "waiting") {
+    case "waiting": return quiet("waiting for the release workflow");
+    case "rebuilding": return quiet("the workflow is rebuilding it");
+    case "rebuilt": return ` · re-released by the workflow ✓${run}`;
+    case "built": return quiet("build passed, the release wasn't replaced") + run;
+    case "quiet": return quiet("no rebuild seen yet");
+    case "failed": {
+      const what = s.rebuilt ? "re-released, but the build failed" : s.removed ? "the build failed and the release is gone" : "the build failed, and the dashboard's release is still there";
+      return ` · <span class="rl-bad">${what}</span>${run}`;
+    }
+    default: return "";
+  }
+}
+
+function rebuildSummary() {
+  const released = rows.filter((r) => r.done?.ok && r.done.watched);
+  if (!released.length) return "";
+  const n = (state) => released.filter((r) => (r.done.status?.state ?? "waiting") === state).length;
+  const bits = [
+    [n("rebuilt"), "re-released"],
+    [n("rebuilding"), "rebuilding"],
+    [n("waiting"), "waiting"],
+    [n("quiet"), "with no rebuild seen yet"],
+    [n("built"), "built without replacing the release"],
+    [n("failed"), "failed"],
+  ].filter(([k]) => k).map(([k, t]) => `${k} ${t}`);
+  const still = watch ? " Updating every 15 seconds." : "";
+  return `${bits.length ? `Release workflow: ${bits.join(", ")}.` : ""}${still}${watchNote ? ` ${esc(watchNote)}` : ""}`;
+}
+
+function stopWatch() {
+  if (watch) clearTimeout(watch.timer);
+  watch = null;
+}
+
+function startWatch() {
+  stopWatch();
+  watchNote = "";
+  for (const r of rows) if (r.done?.ok) r.done.watched = true;
+  watch = { until: Date.now() + WATCH_FOR, timer: setTimeout(checkRebuilds, 5000) };
+  paintRebuilds();
+}
+
+function paintRebuilds() {
+  rows.forEach((r, i) => { if (r.done?.watched) paintRow(i); });
+  const el = document.querySelector("[data-x-rebuilds]");
+  if (el) el.innerHTML = rebuildSummary();
+}
+
+async function checkRebuilds() {
+  if (!watch) return;
+  const mine = watch;
+  const pending = rows.filter((r) => r.done?.ok && !FINAL.has(r.done.status?.state));
+  if (!pending.length || Date.now() > watch.until) {
+    stopWatch();
+    return paintRebuilds();
+  }
+  if (!document.hidden) {
+    try {
+      for (let i = 0; i < pending.length; i += WATCH_CHUNK) {
+        const part = pending.slice(i, i + WATCH_CHUNK);
+        const { ok, body } = await call("/api/releases/status", { items: part.map((r) => ({ repo: r.data.repo, tag: r.done.tag })) });
+        if (watch !== mine) return;
+        if (!ok) throw new Error(body.error ?? "failed");
+        if (body.unavailable) {
+          watchNote = body.unavailable;
+          stopWatch();
+          return paintRebuilds();
+        }
+        body.statuses.forEach((st, k) => { part[k].done.status = st; });
+      }
+      watchNote = "";
+    } catch (err) {
+      watchNote = `Couldn't check the rebuilds (${err instanceof TypeError ? "the dashboard couldn't be reached" : err.message}), trying again`;
+    }
+  }
+  if (watch !== mine) return;
+  paintRebuilds();
+  watch.timer = setTimeout(checkRebuilds, WATCH_EVERY);
+}
+
 function releaseRowHtml(r, i) {
   const d = r.data;
   const c = calc(r);
@@ -168,10 +261,10 @@ function releaseRowHtml(r, i) {
   const learned = d.learned && r.bump === "predicted" && !r.pattern
     ? ` <span class="label ra-learned" title="Learned from an earlier correction: bumps the ${esc(POSITION[d.learned.fromEnd] ?? `number ${d.learned.fromEnd + 1} from the end`)}">learned</span>` : "";
   const done = r.done
-    ? `<div class="rl-done">${r.done.ok ? `Released <a href="${safeUrl(r.done.url)}" target="_blank" rel="noopener">${esc(r.done.tag)}</a>` : `<span class="rl-bad">${esc(r.done.error)}</span>`}</div>` : "";
+    ? `<div class="rl-done">${r.done.ok ? `Released <a href="${safeUrl(r.done.url)}" target="_blank" rel="noopener">${esc(r.done.tag)}</a>${rebuildHtml(r.done)}` : `<span class="rl-bad">${esc(r.done.error)}</span>`}</div>` : "";
   const target = `<input type="text" class="rl-input rl-branch" data-x-branch value="${esc(d.customBranch ? d.branch : "")}" placeholder="${esc(d.defaultBranch ?? "default")}" spellcheck="false" autocomplete="off" aria-label="Branch for ${esc(d.repo)}"${r.done ? " disabled" : ""}>${
     d.sha ? ` <a class="repo" href="${safeUrl(`${repoUrl(d.repo)}/commit/${d.sha}`)}" target="_blank" rel="noopener">${esc(d.sha.slice(0, 7))}</a>` : ""}`;
-  return `<tr data-row="${i}" class="${r.include && ok ? "" : "ra-off"}">
+  return `<tr data-row="${i}" class="${r.done || (r.include && ok) ? "" : "ra-off"}">
     <td><input type="checkbox" data-x-include aria-label="Release ${esc(d.repo)}"${r.include && ok ? " checked" : ""}${ok ? "" : " disabled"}></td>
     <td><a href="${safeUrl(repoUrl(d.repo))}" target="_blank" rel="noopener">${esc(d.repo)}</a><div class="ra-note" data-x-notes>${rowNotes(r, c)}</div>${done}</td>
     <td class="repo">${d.lastTag ? esc(d.lastTag) : "—"}${d.lastWasPre ? ' <span class="label">pre</span>' : ""}</td>
@@ -221,8 +314,9 @@ function resultsHtml(res, kind) {
   const snapLine = moved.length ? `<p>Moved ${plural(moved.length, "repo")} forward on the <b>${esc(moved[0].snapshot)}</b> snapshot.</p>` : "";
   const notes = res.results.filter((r) => r.ok && r.note);
   const noteLine = notes.length ? `<p class="daily-warn">${notes.map((r) => esc(r.note)).join("<br>")}</p>` : "";
+  const rebuilds = kind === "release" && !res.dryRun ? `<p class="daily-last" data-x-rebuilds>${rebuildSummary()}</p>` : "";
   return `<div class="rl-results">
-    <p><b>${esc(head)}</b></p>${stopped}${snapLine}${noteLine}
+    <p><b>${esc(head)}</b></p>${stopped}${snapLine}${noteLine}${rebuilds}
     ${failed.length ? `<ul class="ra-results">${failed.map((r) => `<li><b>${esc(r.repo)}</b> ${esc(r.tag)}: ${esc(r.error ?? "failed")}</li>`).join("")}</ul>` : ""}
   </div>`;
 }
@@ -490,6 +584,7 @@ async function preview() {
   busy = "previewing";
   note = "";
   releaseResults = null;
+  stopWatch();
   const branch = all.branch.trim() || null;
   const out = [];
   let meta = null;
@@ -653,6 +748,7 @@ async function runReleases(picked) {
   progress = "";
   redraw();
   if (out.results.some((x) => x.snapshot)) loadSnapshots();
+  if (!out.dryRun && out.results.some((x) => x.ok)) startWatch();
 }
 
 function useSnapshot(s) {
