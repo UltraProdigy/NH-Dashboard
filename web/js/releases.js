@@ -244,7 +244,7 @@ function releaseWork() {
   <p class="hint rl-gap">Patch, Minor, Major and Super bump the last, second-to-last, third-to-last and fourth-to-last number of the version.
     A pattern can use <code>{next}</code> (the bump), <code>{last}</code>, <code>{date}</code> and <code>{repo}</code>. Changing these resets every row; a row can then be changed on its own.
     Pre-release adds <code>-pre</code> to the tag, which the release workflow treats as a pre-release.
-    Not latest makes the release without marking it as the repo's latest, which only holds on repos whose release workflow keeps it.</p>`;
+    Not latest makes the release without marking it as the repo's latest.</p>`;
 
   if (!rows.length) return `${controls}${note ? `<p class="daily-warn">${esc(note)}</p>` : ""}`;
 

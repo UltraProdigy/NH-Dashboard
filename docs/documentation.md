@@ -1202,19 +1202,19 @@ Above the table, these apply to every row:
   **Branch tags** below).
 - **Pre-release.** Adds `-pre` to the tag.
 - **Not latest.** Makes the release with `make_latest: "false"`, so it doesn't
-  become the repo's Latest release. This is for one-off custom tags.
+  become the repo's Latest release. This is for release-branch patches and
+  one-off custom tags. If a release on another branch is left without it, the
+  confirm step warns that it will become Latest.
 
 Changing any of these resets that setting on every row. Each row can then be
 changed on its own: its bump, the pre and not-latest boxes, the tag typed in by
 hand, and its branch (which re-reads just that repo).
 
-**Not latest only holds where nothing replaces the release.** `release-tags.yml`
-deletes the dashboard's release and recreates it with `gh release create`, with
-no `--latest` flag. GitHub's default for a newly created release that isn't a
-draft or pre-release is to make it Latest, whatever the tag, so the custom
-build becomes Latest anyway. On a repo without the workflow
-it holds. For workflow repos, the workflow would need to keep the old release's
-Latest status when it recreates it.
+**Not latest survives the release workflow.** `release-tags.yml` deletes the
+dashboard's release and recreates it with the jar. GitHub makes any newly
+created release Latest by default, so before GTNH-Actions-Workflows#76 a
+not-latest release became Latest a few minutes later anyway. Since #76 the
+workflow keeps the old release's Latest status when it rebuilds it.
 
 **Pre-release is the `-pre` suffix, not GitHub's pre-release flag.** The org's
 `release-tags.yml` workflow reads `-pre` from the tag name. It then skips
@@ -1233,6 +1233,20 @@ on branches too. The row says "Counting from `<tag>`, the newest tag on
 found and the repo's last release is used. Tag commits are read one repo at a
 time because asking for them across a batch made GitHub answer 502. The tags
 read this way are also counted as taken.
+
+**Needs a release on a branch.** For a row on another branch whose last tag was
+found on that branch, the preview also decides whether it needs a release. It
+uses the same rule as the Dream Panel's Needs a release card: at least one
+commit since the tag, and at least one of them through a pull request, so a
+buildscript bump pushed straight to the branch doesn't count. Where there are
+new commits, one more query reads them, up to 100, with whether each has a
+pull request. The row says how many commits there are and how many came
+through a pull request. A summary above the table says how many need a
+release. Rows that don't need one start unticked, and can still be ticked.
+More than 100 commits with none of the newest 100 through a pull request
+counts as needing one. If the check fails, the row says so and stays ticked.
+The default branch isn't checked here, because the Needs a release card covers
+it.
 
 **Warnings that don't block a row:**
 - "No commits since `<last tag>`": the target commit is the last release's.
@@ -1295,16 +1309,17 @@ predicted rows only.
 
 ### Snapshots
 
-A snapshot is a named list of repo → tag for a release line, with the settings
-to release it. The first one is `2.9.x`: at 2.9.0, every repo got a
-`release/2.9.x` branch. Master moves on to 2.10 with a Minor bump, and 2.9.x
-gets Patch releases off the branch that aren't marked latest.
+A snapshot is a named list of repo → tag for a release line, plus the branch
+that line is released from. The first one is `2.9.x`: at 2.9.0, every repo got
+a `release/2.9.x` branch. Master moves on to 2.10 with a Minor bump, and 2.9.x
+gets Patch releases off the branch that aren't marked latest. The bump, Not
+latest and Pre-release aren't part of a snapshot. They're chosen each time,
+like any other release.
 
 **Making one.** Tick the repos, set **Branch** to the release branch, preview,
 then press **Save as snapshot**. The dialog takes a name (the branch's last
-part by default), the branch, the bump (Patch), **Not latest** (on) and
-**Pre-release** (off). It stores each row's last tag, which is the newest tag on
-that branch. Rows with a problem (such as no such branch) or no tag are left
+part by default) and the branch. It stores each row's last tag, which is the
+newest tag on that branch. Rows with a problem (such as no such branch) or no tag are left
 out, and the dialog says how many. Rows whose line can't be told apart from
 master's (one number like `rv3-beta-1091`, or dated) are saved with a warning.
 Saving under a name that exists offers **Merge into it** or **Replace it**.
@@ -1313,9 +1328,12 @@ Do it before the Minor bumps if you can, though reading the branch means it's
 still right afterwards.
 
 **Releasing from one.** Pick it in the Snapshots card and press **Load into Make
-releases**. That ticks its repos, sets Branch, Bump, Pre-release and Not latest
-from it, and previews. A banner says the rows count from the snapshot. Each row's
-last tag is the snapshot's tag:
+releases**. That ticks its repos, sets Branch to the snapshot's branch, and
+previews. Bump, Pre-release and Not latest stay as they are, so set them first
+(for 2.9.x, Patch and Not latest). A banner says the rows count from the
+snapshot. Each row's last tag is the snapshot's tag, and **Needs a release on a
+branch** (above) leaves unticked every repo with nothing to release, so each
+round releases only the repos that need it:
 - If the branch has a newer tag in the same line (released outside the
   dashboard), the row says so and offers **Count from `<tag>`**, which updates
   the snapshot.
@@ -1335,7 +1353,7 @@ says a Minor bump keeps the two apart. The exact rule is **Snapshot lines** in
 Calculations.md.
 
 **Editing.** The card shows each repo's tag (editable), the tag it was saved
-with, and when it last changed and by whom, plus the snapshot's settings. Tick
+with, and when it last changed and by whom, plus the snapshot's branch. Tick
 **remove** to drop a repo. **Save changes** sends the edits, checked against
 the tags the page read. If someone else changed one in the meantime, nothing is
 saved and the page says to reload.
@@ -1356,24 +1374,23 @@ tag on GitHub.
   "version": 1,
   "name": "2.9.x",
   "branch": "release/2.9.x",
-  "bump": "patch",
-  "notLatest": true,
-  "pre": false,
   "exportedAt": "2026-11-04T08:00:00.000Z",
   "repos": [{ "repo": "GT5-Unofficial", "tag": "5.09.54.234", "base": "5.09.54.233" }]
 }
 ```
 
 **Import** reads a file like that. `base` is optional, and defaults to `tag` for
-a repo new to the snapshot. Before anything is saved, a dialog shows the name
-and settings, both editable. For an existing name it offers merge or replace
+a repo new to the snapshot. `bump`, `notLatest` and `pre` in a file exported
+before they were dropped are ignored. Before anything is saved, a dialog shows
+the name and branch, both editable. For an existing name it offers merge or replace
 and counts what would be added, changed and removed.
 
 **Delete** needs the name typed. It removes the snapshot and its history, can't
 be reverted, and leaves GitHub alone. Export first if it might be wanted again.
 
-**Storage.** Three D1 tables, from migration 008:
-- `release_snapshots`: the name and settings
+**Storage.** Three D1 tables, from migration 008 (009 drops the bump, Not
+latest and Pre-release columns it first had):
+- `release_snapshots`: the name and branch
 - `release_snapshot_tags`: per repo, `tag`, `base_tag`, `series` and `since`
   (when the row was saved)
 - `release_snapshot_changes`: the history
@@ -1437,8 +1454,8 @@ All under `/api/releases/`, admin only:
 | `POST delete-preview` | `{ repos, pattern }` or `{ repos, latest: true }`, up to 100 |
 | `POST delete` | `{ run, last, pattern, items: [{ repo, tag, releaseId, release, deleteTag }] }`, up to 25 |
 | `GET snapshots` | every snapshot with its repos and last 15 changes |
-| `POST snapshot-save` | `{ name, settings: { branch, bump, notLatest, pre }, repos: [{ repo, tag, base }], mode: new \| merge \| replace, kind: save \| import }`, up to 1,000 repos |
-| `POST snapshot-edit` | `{ name, settings, set: [{ repo, tag, was }], remove: [{ repo, was }], kind: edit \| refresh }` |
+| `POST snapshot-save` | `{ name, branch, repos: [{ repo, tag, base }], mode: new \| merge \| replace, kind: save \| import }`, up to 1,000 repos |
+| `POST snapshot-edit` | `{ name, branch, set: [{ repo, tag, was }], remove: [{ repo, was }], kind: edit \| refresh }` |
 | `POST snapshot-revert` | `{ name, change }` |
 | `POST snapshot-delete` | `{ name, confirm }`, where `confirm` is the name again |
 
@@ -1455,19 +1472,20 @@ lock.
 
 ### Deploying
 
-Run the migrations before deploying the Worker. The preview's stats and the
-feedback write both read 007's column. Snapshots need 008:
+Run the migrations, in order, before deploying the Worker:
 
 ```bash
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/007-release-bump.sql
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/008-release-snapshots.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/009-snapshot-tags-only.sql
 ```
 
-Without 008, the Snapshots card says to run it. Previews, releases and the
-Needs a release card carry on as before, without snapshots.
-
-Without it, the preview says past releases couldn't be read (so nothing learned
-is applied), and the feedback write is logged as failed. Releases are still
+The preview's stats and the feedback write both read 007's column. Without it,
+the preview says past releases couldn't be read (so nothing learned is
+applied), and the feedback write is logged as failed. Without 008, the
+Snapshots card says to run it, and previews, releases and the Needs a release
+card carry on without snapshots. 009 only drops unused columns, so it can run
+before or after the deploy. In all three cases releases are still
 made.
 
 NH-Dashbot needs organization **Custom properties: Read** for the filter.
@@ -1490,6 +1508,8 @@ deploy gate) covers:
 - snapshots: series, saving, counting from one, moving it forward after a run,
   master skipping its line, the recheck, edits against a stale read, revert,
   import by merge and replace, and delete
+- needing a release on a branch: commits since the tag, through a pull request
+  or pushed directly, more than 100, and a failed check
 
 `releases.parity.test.js` covers Needs a release skipping a snapshot's line.
 The route guards are in `app.test.js`.

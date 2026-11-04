@@ -1355,6 +1355,36 @@ past by bumping the same number again, up to 20 times.
 **Pre-release** adds `-pre` to whatever tag comes out, unless it already ends in
 `-pre`, and the taken check is on the tag with `-pre` added.
 
+### Needs a release on a branch
+
+On screen: *Releases & Tags*, the row notes on another branch, and which rows
+start ticked
+
+`checkBranches` in `worker/src/release-manager.js`. Only for a row on a
+non-default branch whose last tag was found on that branch's history (see
+**Predicted release tag**). For a snapshot row, that means the branch's newest
+tag is the snapshot's tag.
+
+```
+since   = commits on the branch above the tagged commit
+          (its position walking back from the branch HEAD)
+checked = min(since, 100) newest of them, read with their pull requests
+viaPr   = commits among those with at least one associated pull request
+
+needs a release  =  since ≥ RELEASE_COMMIT_THRESHOLD (1)
+                    and (viaPr ≥ 1  or  since > checked)
+```
+
+This is the same rule as **Needs a release**, applied to the branch the row
+releases from. Being ahead isn't enough: direct pushes like buildscript bumps
+don't count. A commit counts as through a pull request if GitHub associates any
+pull request with it, merged into that branch or not. A cherry-pick pushed
+straight to the branch has no pull request of its own, so it counts as a direct
+push. Past 100 commits with none through a pull request, the range is long
+enough that it counts as needing a release. A failed read decides nothing and
+leaves the row ticked. Rows that don't need a release start unticked. The
+default branch isn't checked here.
+
 ### Snapshot lines
 
 On screen: *Releases & Tags*, *Snapshots*, *Counts from*, *Saved with*
@@ -1362,20 +1392,22 @@ On screen: *Releases & Tags*, *Snapshots*, *Counts from*, *Saved with*
 A snapshot keeps three things per repo: the **tag** the next release counts
 from, the **base tag** it was saved with, and its **series**.
 
-**Series** (`seriesOf` in `web/js/release-tags.js`) is the version cut at the
-snapshot's bump, as a glob. The text before the version is kept, and anything
-after the cut is `*`:
+**Series** (`seriesOf` in `web/js/release-tags.js`) is the version with its
+last number replaced by `*`, as a glob. The text before the version is kept, and
+anything after the cut is `*` too:
 
 ```
-                  Patch        Minor
-5.09.54.233       5.09.54.*    5.09.*
-1.1.71-GTNH       1.1.*        1.*
-v2.3              v2.*         —
-rv3-beta-1091     —            —
+5.09.54.233       5.09.54.*
+1.1.71-GTNH       1.1.*
+v2.3              v2.*
+rv3-beta-1091     —
 ```
 
-`—` is no series. That happens when the cut would leave no number before it
-(one number only, or too few for the bump), and for dated repos. With no series
+A snapshot doesn't choose a bump, so the series is always cut at the last
+number: a line is the tags that differ only in their patch.
+
+`—` is no series. That happens when the version has only one number, and for
+dated repos. With no series
 a repo's line can't be told apart from master's, so nothing below is skipped
 for it, and the page says so.
 
@@ -1913,6 +1945,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-04 | Needs a release on a branch, snapshot lines | New: rows on a non-default branch say whether they need a release, by the Needs a release rule applied to that branch, and start unticked when they don't. A snapshot's series is now always cut at the last number, since snapshots no longer choose a bump; every existing snapshot was saved with Patch, so no series moves. See **Needs a release on a branch** and **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag, Needs a release | Release snapshots added. A row loaded from a snapshot counts from the snapshot's tag. For repos in a snapshot, master's last tag and the Needs a release card skip releases on the snapshot's line (in its series, not its base tag). Repos in no snapshot don't move. See **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag | On a non-default branch, the last tag is the newest tag on that branch's history (500 commits, 300 tags), falling back to the repo-wide last tag. Default-branch rows don't move. See **Predicted release tag**. |
 | 2026-11-03 | Predicted release tag, chosen bumps | Patch, Minor, Major and Super bumps added, counted from the end of the version, with fallback to the leftmost number, a `-pre` option and tag patterns. *Predictions kept as-is* now counts predicted rows only (`bump = 'predicted'`); older rows all count, so today's figure doesn't move. The predictor itself is unchanged. See **Chosen bumps**. |
