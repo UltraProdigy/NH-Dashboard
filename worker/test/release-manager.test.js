@@ -8,7 +8,8 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { deletePreview, deleteRun, releasePreview, releaseRun, repoList } from "../src/release-manager.js";
+import { deletePreview, deleteRun, rebuildStatus, releasePreview, releaseRun, releaseStatus, repoList } from "../src/release-manager.js";
+import { handleEvent } from "../src/handlers.js";
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "../src/release-snapshots.js";
 import { bumpTag, compareVersions, globToRegex, inSeries, learnRule, planTag, predictDatedTag, predictTag, ruleFrom, seriesOf } from "../../web/js/release-tags.js";
 import { forgetToken } from "../src/github.js";
@@ -277,7 +278,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (status !== 201) return new Response("Resource not accessible by integration", { status });
     const tag = JSON.parse(init.body).tag_name;
     github[rel[1]]?.releases.nodes.unshift({ tagName: tag, isDraft: false, tagCommit: { oid: JSON.parse(init.body).target_commitish } });
-    return Response.json({ html_url: `https://github.com/GTNewHorizons/${rel[1]}/releases/tag/${tag}` }, { status });
+    return Response.json({ id: 7000 + calls.length, html_url: `https://github.com/GTNewHorizons/${rel[1]}/releases/tag/${tag}` }, { status });
   }
   const byTag = path.match(/^\/repos\/GTNewHorizons\/([^/]+)\/releases\/tags\/(.+)$/);
   if (byTag) {
@@ -777,6 +778,58 @@ raw.prepare("DELETE FROM release_snapshot_tags WHERE repo = 'Unbumped'").run();
   check("deleting needs the name typed", (await deleteSnapshot(env, { name: "2.9.x", confirm: "2.9" })).status, 400);
   const out = await deleteSnapshot(env, { name: "2.9.x", confirm: "2.9.x" });
   check("and takes everything with it", [out.status, out.body.snapshots, snapTags(), raw.prepare("SELECT COUNT(*) AS n FROM release_snapshot_changes").get().n], [200, [], [], 0]);
+}
+
+console.log("\nfollowing the workflow's rebuild");
+github.Rebuilt = repo("Rebuilt", { releases: [{ tagName: "1.0.0", sha: sha("1") }], tags: [{ name: "1.0.0", sha: sha("1") }], head: sha("2") });
+github.Broken = repo("Broken", { releases: [{ tagName: "2.0.0", sha: sha("1") }], tags: [{ name: "2.0.0", sha: sha("1") }], head: sha("2") });
+calls = [];
+{
+  const at = T0 + 20 * 3_600_000;
+  const out = await releaseRun(env, "admin@example.com", {
+    run: "run-rebuild1", last: true, items: [
+      { repo: "Rebuilt", tag: "1.0.1", sha: sha("2"), previous: "1.0.0", predicted: "1.0.1", bump: "predicted" },
+      { repo: "Broken", tag: "2.0.1", sha: sha("2"), previous: "2.0.0", predicted: "2.0.1", bump: "predicted" },
+    ],
+  }, { now: at, pace: 0 });
+  check("releases both", out.body.results.map((r) => r.ok), [true, true]);
+  const ids = raw.prepare("SELECT repo, release_id FROM release_tag_feedback WHERE repo IN ('Rebuilt', 'Broken') ORDER BY repo").all().map((r) => ({ ...r }));
+  check("and remembers each release's id", ids.every((r) => Number.isInteger(r.release_id)), true);
+  const id = Object.fromEntries(ids.map((r) => [r.repo, r.release_id]));
+  const items = [{ repo: "Rebuilt", tag: "1.0.1" }, { repo: "Broken", tag: "2.0.1" }];
+  const states = async (now) => (await releaseStatus(env, { items }, { now })).body.statuses.map((x) => x.state);
+  check("both wait for the workflow at first", await states(at + 60_000), ["waiting", "waiting"]);
+
+  const repoOf = (name) => ({ name, full_name: `GTNewHorizons/${name}`, private: false, default_branch: "master" });
+  const rel = (name, tag, relId, action) => ({ action, repository: repoOf(name), release: { id: relId, tag_name: tag, draft: false, prerelease: false, published_at: "2026-10-25T08:05:00Z", created_at: "2026-10-25T08:05:00Z" } });
+  const run = (name, tag, conclusion) => ({ action: "completed", repository: repoOf(name), workflow_run: { id: 990000 + conclusion.length, name: "Release tagged build", head_branch: tag, event: "push", conclusion, updated_at: "2026-10-25T08:06:00Z", html_url: `https://github.com/GTNewHorizons/${name}/actions/runs/1` } });
+
+  await handleEvent(db, "release", rel("Rebuilt", "1.0.1", id.Rebuilt, "published"));
+  check("the dashboard's own release webhook changes nothing", await states(at + 60_000), ["waiting", "waiting"]);
+  await handleEvent(db, "release", rel("Rebuilt", "1.0.1", id.Rebuilt, "deleted"));
+  await handleEvent(db, "release", rel("Broken", "2.0.1", id.Broken, "deleted"));
+  check("the workflow deleting it reads as rebuilding", await states(at + 120_000), ["rebuilding", "rebuilding"]);
+  await handleEvent(db, "release", rel("Rebuilt", "1.0.1", id.Rebuilt + 500, "published"));
+  await handleEvent(db, "workflow_run", run("Rebuilt", "1.0.1", "success"));
+  await handleEvent(db, "workflow_run", run("Broken", "2.0.1", "failure"));
+  const done = (await releaseStatus(env, { items }, { now: at + 300_000 })).body.statuses;
+  check("a release under the tag with another id is the rebuild", [done[0].state, done[0].rebuilt, done[0].conclusion], ["rebuilt", true, "success"]);
+  check("a failed build after the delete leaves the release missing", [done[1].state, done[1].removed, done[1].rebuilt, done[1].buildUrl], ["failed", true, false, "https://github.com/GTNewHorizons/Broken/actions/runs/1"]);
+  check("a release nobody rebuilds goes quiet after half an hour", rebuildStatus({ released_at: new Date(at).toISOString() }, at + 31 * 60_000).state, "quiet");
+  check("a build that passed without replacing the release says so", rebuildStatus({ released_at: new Date(at).toISOString(), build_conclusion: "success" }, at).state, "built");
+  check("a repo the dashboard didn't release is unknown", (await releaseStatus(env, { items: [{ repo: "Nobody", tag: "1.0.0" }] })).body.statuses[0].state, "unknown");
+  check("bad input is a 400", (await releaseStatus(env, { items: [{ repo: "../x", tag: "1" }] })).status, 400);
+}
+{
+  const bare = new DatabaseSync(":memory:");
+  bare.exec(readFileSync("worker/schema.sql", "utf8").replace(/,\n  release_id[\s\S]*?build_at          TEXT\n\);/, "\n);").replace(/CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_tag[^;]*;/, ""));
+  const bareDb = { prepare: (sql) => { let b = []; const api = { bind: (...a) => ((b = a), api), async run() { const r = bare.prepare(sql).run(...b); return { success: true, meta: { changes: r.changes } }; }, async first() { return bare.prepare(sql).get(...b) ?? null; }, async all() { return { results: bare.prepare(sql).all(...b) }; } }; return api; }, async batch(l) { for (const x of l) await x.run(); } };
+  const benv = { ...env, DB: bareDb };
+  const out = await releaseRun(benv, "admin@example.com", { run: "run-rebuild2", last: true, items: [{ repo: "Rebuilt", tag: "1.0.2", sha: sha("2"), previous: "1.0.1", bump: "patch" }] }, { now: T0 + 21 * 3_600_000, pace: 0 });
+  check("before migration 010 a release still teaches", [out.body.results[0].ok, bare.prepare("SELECT COUNT(*) AS n FROM release_tag_feedback").get().n], [true, 1]);
+  check("and the status says to run it", Boolean((await releaseStatus(benv, { items: [{ repo: "Rebuilt", tag: "1.0.2" }] })).body.unavailable), true);
+  const ok = await handleEvent(bareDb, "release", { action: "deleted", repository: { name: "Rebuilt", full_name: "GTNewHorizons/Rebuilt", private: false }, release: { id: 1, tag_name: "1.0.2" } });
+  check("and webhooks don't fail over it", ok.action, "deleted");
 }
 
 forgetToken();

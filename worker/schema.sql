@@ -380,7 +380,10 @@ CREATE TABLE IF NOT EXISTS ingest_state (
 );
 
 -- Every release the Releases & Tags page created, with what it predicted.
--- Only `predicted` rows with `wrong` ticked teach the predictor.
+-- Only `predicted` rows with `wrong` ticked teach the predictor. The last six
+-- columns follow the release workflow rebuilding it: the webhook Worker records
+-- when the dashboard's release (`release_id`) was deleted, when another release
+-- with the tag appeared, and how the tag's build ended.
 CREATE TABLE IF NOT EXISTS release_tag_feedback (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   repo              TEXT NOT NULL,
@@ -391,11 +394,20 @@ CREATE TABLE IF NOT EXISTS release_tag_feedback (
   wrong             INTEGER NOT NULL DEFAULT 0,
   bump              TEXT NOT NULL DEFAULT 'predicted',
   released_by       TEXT NOT NULL,
-  released_at       TEXT NOT NULL
+  released_at       TEXT NOT NULL,
+  release_id        INTEGER,
+  removed_at        TEXT,
+  rebuilt_at        TEXT,
+  build_conclusion  TEXT,
+  build_url         TEXT,
+  build_at          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_wrong
   ON release_tag_feedback (wrong, repo, released_at);
+
+CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_tag
+  ON release_tag_feedback (repo, tag);
 
 -- Release snapshots: a named list of repo -> tag that a release line is
 -- released from. `tag` moves forward with each release made from the snapshot;

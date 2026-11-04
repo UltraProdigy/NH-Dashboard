@@ -18,7 +18,7 @@ import { roleFor } from "./roles.js";
 import { recompute } from "./recompute.js";
 import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
-import { deletePreview, deleteRun, releasePreview, releaseRun, repoList } from "./release-manager.js";
+import { deletePreview, deleteRun, releasePreview, releaseRun, releaseStatus, repoList } from "./release-manager.js";
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
 import {
   handleDashboard,
@@ -100,6 +100,7 @@ async function route(request, env, ctx, url, who) {
     const actions = {
       "/api/releases/preview": (sent) => releasePreview(env, sent?.repos),
       "/api/releases/run": (sent, by, dryRun) => releaseRun(env, by, sent, { dryRun }),
+      "/api/releases/status": (sent) => releaseStatus(env, sent),
       "/api/releases/delete-preview": (sent) => deletePreview(env, sent),
       "/api/releases/delete": (sent, by, dryRun) => deleteRun(env, by, sent, { dryRun }),
       "/api/releases/snapshot-save": (sent, by) => saveSnapshot(env, by, sent),

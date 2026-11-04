@@ -336,6 +336,17 @@ async function onWorkflowRun(db, payload) {
 
   const branch = payload.repository?.default_branch;
   if (!branch || run.head_branch !== branch) {
+    if (run.event === "push" && run.head_branch) {
+      await quietly(
+        db
+          .prepare(
+            `UPDATE release_tag_feedback SET build_conclusion = ?3, build_url = ?4, build_at = ?5
+              WHERE repo = ?1 AND tag = ?2 AND release_id IS NOT NULL`,
+          )
+          .bind(repo, run.head_branch, run.conclusion ?? null, run.html_url ?? null, utcSeconds(run.updated_at))
+          .run(),
+      );
+    }
     return { skipped: "not the default branch", branch: run.head_branch };
   }
 
@@ -452,6 +463,37 @@ async function onPush(db, payload) {
 }
 
 /**
+ * The release workflow deletes the release Releases & Tags made and creates its
+ * own for the same tag, so a delete of the dashboard's release id, or a
+ * published release under the tag with another id, is that rebuild happening.
+ * Matching rows only: anything released elsewhere updates nothing.
+ */
+const quietly = (write) =>
+  write.catch((err) => console.error(JSON.stringify({ at: "release-rebuild", error: String(err).slice(0, 200) })));
+
+async function followRebuild(db, repo, action, release) {
+  if (!Number.isSafeInteger(release.id)) return;
+  if (action === "deleted") {
+    await db
+      .prepare(
+        `UPDATE release_tag_feedback SET removed_at = COALESCE(removed_at, ?4)
+          WHERE repo = ?1 AND tag = ?2 AND release_id = ?3`,
+      )
+      .bind(repo, release.tag_name, release.id, utcSeconds(new Date().toISOString()))
+      .run();
+    return;
+  }
+  if (release.draft) return;
+  await db
+    .prepare(
+      `UPDATE release_tag_feedback SET rebuilt_at = COALESCE(rebuilt_at, ?4)
+        WHERE repo = ?1 AND tag = ?2 AND release_id IS NOT NULL AND release_id <> ?3`,
+    )
+    .bind(repo, release.tag_name, release.id, utcSeconds(release.published_at ?? release.created_at ?? new Date().toISOString()))
+    .run();
+}
+
+/**
  * release — published, edited, deleted, prereleased, released.
  *
  * `published_at` is null on a draft, and the panel orders by it, so a draft
@@ -468,6 +510,8 @@ async function onRelease(db, payload) {
   const release = payload.release;
   const repo = payload.repository?.name;
   if (!release?.tag_name || !repo) return { skipped: "no release or repo" };
+
+  await quietly(followRebuild(db, repo, payload.action, release));
 
   if (payload.action === "deleted") {
     await db

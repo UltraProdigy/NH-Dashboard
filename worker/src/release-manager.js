@@ -652,17 +652,22 @@ async function recheck(env, items, now) {
 
 async function saveFeedback(env, made, by, at) {
   if (!made.length) return;
-  await env.DB.batch(
+  const rows = (withId) =>
     made.map((it) =>
       env.DB
         .prepare(
           `INSERT INTO release_tag_feedback
-             (repo, previous_tag, predicted_tag, tag, sha, wrong, bump, released_by, released_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (repo, previous_tag, predicted_tag, tag, sha, wrong, bump, released_by, released_at${withId ? ", release_id" : ""})
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?${withId ? ", ?" : ""})`,
         )
-        .bind(it.repo, it.previous, it.predicted, it.tag, it.sha, it.wrong ? 1 : 0, it.bump, by, at),
-    ),
-  ).catch((err) => console.error(JSON.stringify({ at: "release-manager", error: `feedback not saved: ${err}` })));
+        .bind(it.repo, it.previous, it.predicted, it.tag, it.sha, it.wrong ? 1 : 0, it.bump, by, at, ...(withId ? [it.releaseId] : [])),
+    );
+  await env.DB.batch(rows(true))
+    .catch((err) => {
+      if (!/no such column: release_id|has no column named release_id/i.test(String(err))) throw err;
+      return env.DB.batch(rows(false));
+    })
+    .catch((err) => console.error(JSON.stringify({ at: "release-manager", error: `feedback not saved: ${err}` })));
 }
 
 export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(), pace = PACE_MS } = {}) {
@@ -688,6 +693,7 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
   }
 
   const results = [];
+  const ids = [];
   let wrote = false;
   for (const it of body.items) {
     if (stale.has(it.repo)) {
@@ -708,6 +714,7 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
         },
       });
       const made = await res.json().catch(() => ({}));
+      ids[results.length] = Number.isSafeInteger(made.id) ? made.id : null;
       results.push({ repo: it.repo, tag: it.tag, ok: true, url: made.html_url ?? `https://github.com/${org}/${it.repo}/releases/tag/${encodeURIComponent(it.tag)}` });
     } catch (err) {
       results.push({ repo: it.repo, tag: it.tag, ok: false, error: explain(err) });
@@ -715,7 +722,7 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
   }
 
   const at = new Date(now).toISOString();
-  const made = body.items.filter((_, i) => results[i].ok);
+  const made = body.items.map((it, i) => ({ ...it, releaseId: ids[i] ?? null })).filter((_, i) => results[i].ok);
   await saveFeedback(env, made, by, at);
   const advanced = await advanceSnapshots(env.DB, made, by, at, body.run).catch((err) => {
     console.error(JSON.stringify({ at: "release-manager", error: `snapshot not moved forward: ${err}` }));
@@ -731,6 +738,55 @@ export async function releaseRun(env, by, raw, { dryRun = false, now = Date.now(
   state.done = [...state.done, ...made.map((it) => ({ repo: it.repo, tag: it.tag }))].slice(0, LOG_REPOS);
   await finishBatch(env, state, body, results, null, now);
   return { status: made.length ? 200 : 502, body: { ok: made.length > 0, results } };
+}
+
+const FAILED = new Set(["failure", "cancelled", "timed_out", "startup_failure", "action_required"]);
+const QUIET_MS = 30 * 60_000;
+const MAX_STATUS = 500;
+
+export function rebuildStatus(r, now = Date.now()) {
+  if (!r) return { state: "unknown" };
+  const out = {
+    rebuilt: Boolean(r.rebuilt_at),
+    removed: Boolean(r.removed_at),
+    conclusion: r.build_conclusion ?? null,
+    buildUrl: r.build_url ?? null,
+  };
+  if (out.conclusion && FAILED.has(out.conclusion)) return { state: "failed", ...out };
+  if (out.rebuilt) return { state: "rebuilt", ...out };
+  if (out.removed) return { state: "rebuilding", ...out };
+  if (out.conclusion) return { state: "built", ...out };
+  return { state: now - Date.parse(r.released_at) > QUIET_MS ? "quiet" : "waiting", ...out };
+}
+
+export async function releaseStatus(env, raw, { now = Date.now() } = {}) {
+  const items = Array.isArray(raw?.items) ? raw.items.filter((it) => REPO_NAME.test(it?.repo ?? "") && validTagName(it?.tag)) : [];
+  if (!items.length || items.length > MAX_STATUS) return { status: 400, body: { error: `send 1 to ${MAX_STATUS} released repos, each with its tag` } };
+  const found = new Map();
+  try {
+    for (let i = 0; i < items.length; i += 45) {
+      const part = items.slice(i, i + 45);
+      const { results } = await env.DB
+        .prepare(
+          `SELECT repo, tag, released_at, removed_at, rebuilt_at, build_conclusion, build_url
+             FROM release_tag_feedback
+            WHERE release_id IS NOT NULL AND (repo, tag) IN (VALUES ${part.map(() => "(?, ?)").join(", ")})
+            ORDER BY id`,
+        )
+        .bind(...part.flatMap((it) => [it.repo, it.tag]))
+        .all();
+      for (const r of results) found.set(`${r.repo}\n${r.tag}`, r);
+    }
+  } catch (err) {
+    if (/no such column/i.test(String(err))) {
+      return { status: 200, body: { unavailable: "Rebuilds aren't tracked yet. Run migrations/010-release-rebuilds.sql on D1", statuses: [] } };
+    }
+    return { status: 502, body: { error: `Couldn't read the releases: ${short(err)}` } };
+  }
+  return {
+    status: 200,
+    body: { statuses: items.map((it) => ({ repo: it.repo, tag: it.tag, ...rebuildStatus(found.get(`${it.repo}\n${it.tag}`), now) })) },
+  };
 }
 
 function cleanDeletePreview(body) {
