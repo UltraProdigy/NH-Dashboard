@@ -58,3 +58,29 @@
   .rl-table th:nth-child(3), .rl-table td:nth-child(3) { display: none; }
   .rl-branch { width: 84px; }
 }
+
+.sn-file { display: inline-flex; align-items: center; cursor: pointer; }
+.sn-file.sn-off { opacity: .5; pointer-events: none; }
+.sn-branch { width: 160px; }
+.sn-scroll { max-height: 40vh; }
+.sn-table td { vertical-align: middle; }
+.sn-using { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; padding: 8px 10px; font-size: 12.5px; border: 1px solid var(--accent); border-radius: 8px; }
+.sn-using .ghost { margin-left: auto; }
+.sn-history-box { margin-top: 12px; }
+.sn-history { list-style: none; margin: 8px 0 0; padding: 0; }
+.sn-history li { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 12.5px; }
+.sn-history li .sub { margin-top: 2px; font-size: 11.5px; word-break: break-word; }
+.sn-history li > .ghost, .sn-history li > .label { flex: none; }
+.sn-dialog-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; margin: 8px 0; }
+.rl-dialog .sn-dialog-fields .rl-input { width: 170px; }
+.sn-exists { margin: 6px 0 4px; }
+.sn-exists p { margin: 4px 0; }
+.ra-note .ghost.mini { margin: 3px 0; }
+
+@media (max-width: 720px) {
+  .sn-table th:nth-child(4), .sn-table td:nth-child(4) { display: none; }
+  .sn-using .ghost { margin-left: 0; }
+}
+.sn-table td:first-child { min-width: 190px; }
+.sn-table td:first-child > a { white-space: nowrap; }
+.sn-table .ra-tag { min-width: 150px; }

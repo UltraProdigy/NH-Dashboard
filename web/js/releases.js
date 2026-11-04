@@ -4,6 +4,7 @@ import { panelRows } from "./dream.js";
 import { BUMPS, DATED_REPOS, planTag, tagProblem } from "./release-tags.js";
 import { propertyFilter, valuesOf } from "./property-filter.js";
 import { loadRepoList, repoList, repoListError, repoListStale } from "./repo-list.js";
+import { findSnapshot, initSnapshots, loadSnapshots, saveFromPreview, snapChange, snapClick, snapInput, snapshotsCard, takeNewer } from "./release-snapshots.js";
 
 const PREVIEW_CHUNK = 50;
 const DELETE_CHUNK = 20;
@@ -30,6 +31,8 @@ const all = { bump: "predicted", pattern: "", pre: false, notLatest: false, bran
 let rows = [];
 let previewMeta = null;
 let releaseResults = null;
+let using = null;
+let usingNote = "";
 
 const del = { by: "pattern", pattern: "", release: true, tag: true };
 let found = null;
@@ -61,7 +64,8 @@ function ago(iso) {
   if (!Number.isFinite(mins)) return "";
   if (mins < 1) return "just now";
   if (mins < 90) return `${mins} min ago`;
-  return `${Math.round(mins / 60)} hr ago`;
+  if (mins < 48 * 60) return `${Math.round(mins / 60)} hr ago`;
+  return `${Math.round(mins / 1440)} days ago`;
 }
 
 const plural = (n, one, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
@@ -129,6 +133,7 @@ function rowNotes(r, c) {
   if (d.problem) out.push(`<span class="rl-bad">${esc(d.problem)}</span>`);
   if (d.lastNote) out.push(esc(d.lastNote));
   if (d.unchanged) out.push(`No commits since ${esc(d.lastTag)}`);
+  if (d.snapshot?.newer && !r.done) out.push(`<button type="button" class="ghost mini" data-x-newer${busy ? " disabled" : ""}>Count from ${esc(d.snapshot.newer)}</button>`);
   for (const n of c.plan.notes) out.push(esc(n));
   if (c.invalid && usable(r)) out.push(`<span class="rl-bad">${esc(c.invalid)}</span>`);
   return out.join("<br>");
@@ -193,8 +198,12 @@ function resultsHtml(res, kind) {
       ? `Released ${plural(made, "repo")}${failed.length ? `, ${failed.length} failed` : ""}. Workflow builds follow over the next few minutes`
       : `Deleted ${plural(res.results.filter((r) => r.release).length, "release")} and ${plural(res.results.filter((r) => r.tagDeleted).length, "tag")}${failed.length ? `, ${failed.length} failed` : ""}`;
   const stopped = res.stopped ? `<p class="daily-warn">${esc(res.stopped)}</p>` : "";
+  const moved = res.results.filter((r) => r.snapshot);
+  const snapLine = moved.length ? `<p>Moved ${plural(moved.length, "repo")} forward on the <b>${esc(moved[0].snapshot)}</b> snapshot.</p>` : "";
+  const notes = res.results.filter((r) => r.ok && r.note);
+  const noteLine = notes.length ? `<p class="daily-warn">${notes.map((r) => esc(r.note)).join("<br>")}</p>` : "";
   return `<div class="rl-results">
-    <p><b>${esc(head)}</b></p>${stopped}
+    <p><b>${esc(head)}</b></p>${stopped}${snapLine}${noteLine}
     ${failed.length ? `<ul class="ra-results">${failed.map((r) => `<li><b>${esc(r.repo)}</b> ${esc(r.tag)}: ${esc(r.error ?? "failed")}</li>`).join("")}</ul>` : ""}
   </div>`;
 }
@@ -209,7 +218,10 @@ function releaseWork() {
     <label class="rl-check"><input type="checkbox" data-a-pre${all.pre ? " checked" : ""}> Pre-release (adds -pre)</label>
     <label class="rl-check" title="Make the releases without marking them as each repo's latest"><input type="checkbox" data-a-notlatest${all.notLatest ? " checked" : ""}> Not latest</label>
     <button type="button" class="ghost" data-a-preview${busy || !n ? " disabled" : ""}>${busy === "previewing" ? esc(progress) : rows.length ? `Preview ${plural(n, "repo")} again` : `Preview ${plural(n, "repo")}`}</button>
+    ${rows.length && !using ? `<button type="button" class="ghost" data-a-savesnap${busy ? " disabled" : ""} title="Save each previewed repo's last tag as a snapshot to release a line from later">Save as snapshot</button>` : ""}
   </div>
+  ${using ? `<p class="sn-using">Counting from the <b>${esc(using)}</b> snapshot: each of its repos starts from the snapshot's tag, and releasing moves that tag forward.${usingNote ? ` ${esc(usingNote)}` : ""}
+    <button type="button" class="ghost mini" data-x-unsnap${busy ? " disabled" : ""}>Stop using it</button></p>` : ""}
   <p class="hint rl-gap">Patch, Minor, Major and Super bump the last, second-to-last, third-to-last and fourth-to-last number of the version.
     A pattern can use <code>{next}</code> (the bump), <code>{last}</code>, <code>{date}</code> and <code>{repo}</code>. Changing these resets every row; a row can then be changed on its own.
     Pre-release adds <code>-pre</code> to the tag, which the release workflow treats as a pre-release.
@@ -337,12 +349,12 @@ function workCard() {
 /* ---- painting ---- */
 
 export function releasesBody() {
-  return `<div class="grid rl" data-rl>${pickerCard()}${workCard()}</div>`;
+  return `<div class="grid rl" data-rl>${pickerCard()}${snapshotsCard()}${workCard()}</div>`;
 }
 
 function redraw() {
   const root = document.querySelector("[data-rl]");
-  if (root) root.innerHTML = pickerCard() + workCard();
+  if (root) root.innerHTML = pickerCard() + snapshotsCard() + workCard();
 }
 
 function paintList() {
@@ -450,14 +462,14 @@ async function preview() {
     for (let i = 0; i < names.length; i += PREVIEW_CHUNK) {
       progress = `Reading ${Math.min(i + PREVIEW_CHUNK, names.length)} of ${names.length}…`;
       paintWork();
-      const chunk = names.slice(i, i + PREVIEW_CHUNK).map((repo) => ({ repo, branch }));
+      const chunk = names.slice(i, i + PREVIEW_CHUNK).map((repo) => ({ repo, branch, snapshot: using }));
       const { ok, status, body } = await call("/api/releases/preview", { repos: chunk });
       if (!ok) throw new Error(body.error ?? String(status));
       meta = meta ?? body;
       out.push(...body.repos);
     }
     rows = out.map((d) => freshRow(d));
-    previewMeta = { ready: meta.ready, stats: meta.stats, storeError: meta.storeError };
+    previewMeta = { ready: meta.ready, stats: meta.stats, storeError: meta.storeError ?? meta.snapshotError };
   } catch (err) {
     note = `Couldn't read the repos: ${err instanceof TypeError ? "the dashboard couldn't be reached" : err.message}`;
   } finally {
@@ -470,7 +482,7 @@ async function preview() {
 async function previewOne(i, branch) {
   const r = rows[i];
   try {
-    const { ok, body } = await call("/api/releases/preview", { repos: [{ repo: r.data.repo, branch: branch || null }] });
+    const { ok, body } = await call("/api/releases/preview", { repos: [{ repo: r.data.repo, branch: branch || null, snapshot: using }] });
     if (!ok) throw new Error(body.error);
     rows[i] = freshRow(body.repos[0], r);
   } catch (err) {
@@ -591,6 +603,8 @@ async function runReleases(picked) {
         bump: r.pattern && r.edit == null ? "pattern" : r.bump,
         wrong: r.bump === "predicted" && !r.pattern && c.changed && r.wrong,
         notLatest: r.notLatest,
+        snapshot: r.data.snapshot?.name ?? null,
+        observed: r.data.branchTag ?? null,
       },
       onDone: (res) => { r.done = res.ok ? { ok: true, tag: res.tag, url: res.url ?? `${repoUrl(r.data.repo)}/releases/tag/${encodeURIComponent(res.tag)}` } : { ok: false, error: res.error }; },
     };
@@ -601,6 +615,33 @@ async function runReleases(picked) {
   busy = null;
   progress = "";
   redraw();
+  if (out.results.some((x) => x.snapshot)) loadSnapshots();
+}
+
+function useSnapshot(s) {
+  if (busy) return;
+  if (!list) {
+    note = "The org's repo list hasn't been read yet. Try again when it has";
+    return paintWork();
+  }
+  const names = new Set(list.repos.map((r) => r.name));
+  ticked = new Set(s.repos.map((r) => r.repo).filter((n) => names.has(n)));
+  const gone = s.repos.length - ticked.size;
+  Object.assign(all, { bump: s.bump, pattern: "", pre: s.pre, notLatest: s.notLatest, branch: s.branch ?? "" });
+  using = s.name;
+  usingNote = gone ? `${plural(gone, "of its repos isn't", "of its repos aren't")} in the org's repo list, so ${gone === 1 ? "it's" : "they're"} left out.` : "";
+  mode = "release";
+  rows = [];
+  previewMeta = null;
+  releaseResults = null;
+  redraw();
+  return preview();
+}
+
+function stopUsing() {
+  using = null;
+  usingNote = "";
+  return rows.length ? preview() : paintWork();
 }
 
 function confirmDelete() {
@@ -643,6 +684,18 @@ const inPage = (e) => e.target.closest?.("[data-rl]");
 function onClick(e) {
   if (!inPage(e)) return;
   const t = e.target;
+  if (snapClick(t)) return;
+  if (t.closest("[data-x-unsnap]")) return stopUsing();
+  if (t.closest("[data-a-savesnap]")) {
+    return saveFromPreview(rows.map((r) => ({ repo: r.data.repo, tag: r.data.lastTag, problem: r.data.problem })), all.branch.trim());
+  }
+  const newer = t.closest("[data-x-newer]");
+  if (newer) {
+    const i = Number(newer.closest("tr[data-row]").dataset.row);
+    const d = rows[i].data;
+    newer.disabled = true;
+    return takeNewer(d.snapshot.name, d.repo, d.snapshot.newer, d.snapshot.tag).then((ok) => (ok ? previewOne(i, d.customBranch ? d.branch : "") : paintRow(i)));
+  }
   if (t.closest("[data-r-refresh]")) return loadList({ force: true });
   const preset = t.closest("[data-r-preset]")?.dataset.rPreset;
   if (preset) {
@@ -666,6 +719,7 @@ function onClick(e) {
 function onChange(e) {
   if (!inPage(e)) return;
   const t = e.target;
+  if (snapChange(t)) return;
   if (t.matches("[data-r-tick]")) {
     if (t.checked) ticked.add(t.value);
     else ticked.delete(t.value);
@@ -677,7 +731,13 @@ function onChange(e) {
   if (t.matches("[data-a-pre]")) { all.pre = t.checked; for (const r of rows) { r.pre = all.pre; r.edit = null; } return paintWork(); }
   if (t.matches("[data-a-notlatest]")) { all.notLatest = t.checked; for (const r of rows) r.notLatest = all.notLatest; return paintWork(); }
   if (t.matches("[data-a-pattern]")) { all.pattern = t.value; for (const r of rows) { r.pattern = all.pattern; r.edit = null; } return paintWork(); }
-  if (t.matches("[data-a-branch]")) { all.branch = t.value.trim(); return rows.length ? preview() : undefined; }
+  if (t.matches("[data-a-branch]")) {
+    all.branch = t.value.trim();
+    const left = using && all.branch !== (findSnapshot(using)?.branch ?? "") ? using : null;
+    if (left) { using = null; usingNote = ""; }
+    const said = () => { if (left) { note = `Stopped counting from the ${left} snapshot, since the branch isn't its branch any more`; paintWork(); } };
+    return rows.length ? preview().then(said) : said();
+  }
   const tr = t.closest("tr[data-row]");
   if (tr) {
     const i = Number(tr.dataset.row);
@@ -708,6 +768,7 @@ function onChange(e) {
 function onInput(e) {
   if (!inPage(e)) return;
   const t = e.target;
+  if (snapInput(t)) return;
   if (t.matches("[data-r-search]")) { search = t.value; return paintList(); }
   if (t.matches("[data-d-pattern]")) { del.pattern = t.value; return syncWorkCount(); }
   if (t.matches("[data-x-tag]")) {
@@ -739,6 +800,8 @@ function wire() {
 
 export function openReleasesFor(names) {
   pending = [...new Set(names)];
+  using = null;
+  usingNote = "";
   mode = "release";
   rows = [];
   previewMeta = null;
@@ -756,4 +819,14 @@ export function syncReleases(on) {
   if (!on) return;
   wire();
   if ((!list && !listing) || (list && !busy && repoListStale())) loadList();
+  loadSnapshots({ ifNeeded: true });
 }
+
+initSnapshots({
+  call,
+  dialog,
+  ago,
+  plural,
+  onLoad: useSnapshot,
+  onDeleted: (name) => { if (using === name) stopUsing(); },
+});
