@@ -127,7 +127,10 @@ const days = (now, iso) =>
  *   `latest` is stage 1 — the newest non-draft release per repo. A repo with
  *   no releases produces no row and drops out of the join for free, which is
  *   exactly what the GraphQL sweep got for free too. Prereleases are kept: a
- *   repo that just cut an rc is not waiting on a release.
+ *   repo that just cut an rc is not waiting on a release. Releases on a
+ *   snapshot's line (a 2.9.x patch after master moved to 2.10) are not
+ *   master's, so they are skipped: in the series, not the base tag, and
+ *   published after the snapshot row was saved.
  *
  *   `COUNT(*) >= RELEASE_COMMIT_THRESHOLD` is stage 2, replacing `ahead_by`.
  *
@@ -141,7 +144,25 @@ const days = (now, iso) =>
  * chronological order — and `strftime` parses a date per row per call, which
  * measured 43ms against 7ms for the equivalent compare in `analytics`.
  */
+const OFF_SNAPSHOT_LINE = `
+            AND NOT EXISTS (
+                  SELECT 1 FROM release_snapshot_tags s
+                   WHERE s.repo = rl.repo AND s.series IS NOT NULL
+                     AND rl.tag_name GLOB s.series AND rl.tag_name <> s.base_tag
+                     AND rl.published_at > s.since)`;
+
 export async function needsRelease(db, now = Date.now()) {
+  let results;
+  try {
+    results = await needsReleaseRows(db, OFF_SNAPSHOT_LINE);
+  } catch (err) {
+    if (!/no such table: release_snapshot_tags/.test(String(err))) throw err;
+    results = await needsReleaseRows(db, "");
+  }
+  return shapeNeedsRelease(results, now);
+}
+
+async function needsReleaseRows(db, offLine) {
   const { results } = await db
     .prepare(
       `WITH ${LIVE},
@@ -149,8 +170,8 @@ export async function needsRelease(db, now = Date.now()) {
          SELECT repo, tag_name, published_at,
                 ROW_NUMBER() OVER (PARTITION BY repo
                                    ORDER BY published_at DESC) AS rn
-           FROM releases
-          WHERE draft = 0 AND published_at IS NOT NULL
+           FROM releases rl
+          WHERE draft = 0 AND published_at IS NOT NULL${offLine}
        )
        SELECT l.name              AS repo,
               l.default_branch    AS default_branch,
@@ -174,7 +195,10 @@ export async function needsRelease(db, now = Date.now()) {
     )
     .bind(RELEASE_COMMIT_THRESHOLD)
     .all();
+  return results;
+}
 
+function shapeNeedsRelease(results, now) {
   return results.map((r) => {
     // The count is only a count when the store reaches back past the release.
     // Otherwise it is "however many commits the sweep happened to capture",

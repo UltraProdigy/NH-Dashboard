@@ -425,6 +425,59 @@ console.log("\ndepUpdates");
   db.close();
 }
 
+// ------------------------------------------------------- snapshot lines
+
+console.log("\na snapshot's line");
+
+{
+  const db = blank();
+  const line = db.prepare(
+    `INSERT INTO release_snapshot_tags (snapshot, repo, tag, base_tag, series, since, updated_by, updated_at)
+     VALUES ('2.9.x', ?, ?, ?, ?, ?, 'admin', ?)`,
+  );
+
+  addRepo(db, "Lined");
+  addRelease(db, "Lined", "5.09.54.233", 20);
+  addRelease(db, "Lined", "5.09.55.0", 10);
+  addRelease(db, "Lined", "5.09.54.234", 2);
+  line.run("Lined", "5.09.54.234", "5.09.54.233", "5.09.54.*", ago(15), ago(2));
+  const l1 = addCommit(db, "Lined", 5);
+  addMergedPr(db, "Lined", 1, l1);
+  addCommit(db, "Lined", 3);
+
+  addRepo(db, "Unbumped");
+  addRelease(db, "Unbumped", "1.1.71-GTNH", 20);
+  line.run("Unbumped", "1.1.71-GTNH", "1.1.71-GTNH", "1.1.*", ago(15), ago(15));
+  const u1 = addCommit(db, "Unbumped", 5);
+  addMergedPr(db, "Unbumped", 2, u1);
+
+  const got = byRepo(await needsRelease(d1(db), NOW));
+  check(
+    "a release on the snapshot's line isn't master's latest",
+    got.Lined?.tagName === "5.09.55.0" && got.Lined?.commitsAhead === 2,
+    JSON.stringify(got.Lined),
+  );
+  check(
+    "the snapshot's base tag still counts",
+    got.Unbumped?.tagName === "1.1.71-GTNH" && got.Unbumped?.commitsAhead === 1,
+    JSON.stringify(got.Unbumped),
+  );
+
+  db.close();
+}
+
+{
+  const db = blank();
+  db.exec("DROP TABLE release_snapshot_tags");
+  addRepo(db, "Premigration");
+  addRelease(db, "Premigration", "1.0.0", 10);
+  const p1 = addCommit(db, "Premigration", 5);
+  addMergedPr(db, "Premigration", 3, p1);
+  const got = byRepo(await needsRelease(d1(db), NOW));
+  check("before the snapshot tables exist, the card still answers", got.Premigration?.tagName === "1.0.0", JSON.stringify(got));
+  db.close();
+}
+
 // ------------------------------------------------------- the store's horizon
 
 console.log("\nhow far back the store can see");
