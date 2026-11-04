@@ -1283,6 +1283,30 @@ the release the dashboard made (its "Delete old release if it already exists"
 step), recreates it with the jar and its own notes, and publishes. A tag made by
 a GitHub App's token starts workflows, unlike one made with `GITHUB_TOKEN`.
 
+**Following the rebuild.** After a run, each released row also says what the
+workflow has done with it, updated every 15 seconds while the page is open, for
+up to three hours:
+
+| Row says | Meaning |
+|---|---|
+| waiting for the release workflow | Nothing yet |
+| the workflow is rebuilding it | The dashboard's release was deleted |
+| re-released by the workflow ✓ | A release with the same tag and a new id appeared |
+| build passed, the release wasn't replaced | The tag's build passed and the release is still the dashboard's |
+| no rebuild seen yet | Still nothing after 30 minutes, usually a repo without the workflow |
+| the build failed … | With a link to the run, and whether the release is now gone, still the dashboard's, or already recreated |
+
+A line under the table counts each kind. None of this reads GitHub. When a
+release is made, the run keeps the id GitHub gave it in `release_tag_feedback`.
+The webhook Worker fills in the rest from events it already receives:
+- a `release` deleted with that id
+- a `release` under the tag, not a draft, with another id
+- a completed `workflow_run` pushed for the tag, with its conclusion and link,
+  before skipping it as not the default branch
+
+A run that failed and is re-run updates the row with the newer conclusion. A new
+preview stops following the last run.
+
 **Two runs can't collide.** This replaced Release All's two-minute cooldown with
 two checks:
 
@@ -1451,6 +1475,7 @@ All under `/api/releases/`, admin only:
 | `GET repos` | the repo list and custom properties |
 | `POST preview` | `{ repos: [{ repo, branch, snapshot }] }`, up to 100 |
 | `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong, notLatest, snapshot, observed }] }`, up to 25 |
+| `POST status` | `{ items: [{ repo, tag }] }`, up to 500: how the release workflow's rebuild of each is going |
 | `POST delete-preview` | `{ repos, pattern }` or `{ repos, latest: true }`, up to 100 |
 | `POST delete` | `{ run, last, pattern, items: [{ repo, tag, releaseId, release, deleteTag }] }`, up to 25 |
 | `GET snapshots` | every snapshot with its repos and last 15 changes |
@@ -1478,6 +1503,7 @@ Run the migrations, in order, before deploying the Worker:
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/007-release-bump.sql
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/008-release-snapshots.sql
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/009-snapshot-tags-only.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/010-release-rebuilds.sql
 ```
 
 The preview's stats and the feedback write both read 007's column. Without it,
@@ -1485,8 +1511,9 @@ the preview says past releases couldn't be read (so nothing learned is
 applied), and the feedback write is logged as failed. Without 008, the
 Snapshots card says to run it, and previews, releases and the Needs a release
 card carry on without snapshots. 009 only drops unused columns, so it can run
-before or after the deploy. In all three cases releases are still
-made.
+before or after the deploy. Without 010, released rows say rebuilds aren't
+tracked yet, and the webhook Worker logs the skipped update without failing the
+delivery. In every case releases are still made.
 
 NH-Dashbot needs organization **Custom properties: Read** for the filter.
 Org-Manager needs **Contents: Read and write** on every repo, which Release All
@@ -1508,6 +1535,9 @@ deploy gate) covers:
 - snapshots: series, saving, counting from one, moving it forward after a run,
   master skipping its line, the recheck, edits against a stale read, revert,
   import by merge and replace, and delete
+- following the rebuild: the release id kept, the dashboard's own release
+  webhook ignored, deleted, recreated, a failed build, and working without
+  migration 010
 - needing a release on a branch: commits since the tag, through a pull request
   or pushed directly, more than 100, and a failed check
 

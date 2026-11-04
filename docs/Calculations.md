@@ -1385,6 +1385,33 @@ enough that it counts as needing a release. A failed read decides nothing and
 leaves the row ticked. Rows that don't need a release start unticked. The
 default branch isn't checked here.
 
+### Release rebuild status
+
+On screen: *Releases & Tags*, the line after **Released** on each released row,
+and the *Release workflow* count under the table
+
+`rebuildStatus` in `worker/src/release-manager.js`, from the newest
+`release_tag_feedback` row for the repo and tag that has a `release_id`. The
+first rule that matches wins:
+
+```
+failed      build_conclusion ∈ {failure, cancelled, timed_out, startup_failure, action_required}
+rebuilt     rebuilt_at set     (a non-draft release under the tag with another id)
+rebuilding  removed_at set     (the dashboard's release id was deleted)
+built       any other build_conclusion, with the release untouched
+quiet       none of these, 30 minutes or more after released_at
+waiting     none of these yet
+unknown     no row, so not a release this page made
+```
+
+A failure comes first, because a failed build is the one that needs a person,
+whatever happened to the release. The row then says whether the release is gone
+(`removed_at` without `rebuilt_at`), already recreated, or still the
+dashboard's. `rebuilt_at` and `removed_at` keep their first time. The build
+conclusion is the latest completed run pushed for the tag, so a re-run replaces
+it. `failed`, `rebuilt`, `built` and `unknown` are final, and the page stops
+asking about those rows.
+
 ### Snapshot lines
 
 On screen: *Releases & Tags*, *Snapshots*, *Counts from*, *Saved with*
@@ -1945,6 +1972,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-04 | Release rebuild status | New: each row released from Releases & Tags follows the release workflow's rebuild, from release and workflow_run webhooks. See **Release rebuild status**. |
 | 2026-11-04 | Needs a release on a branch, snapshot lines | New: rows on a non-default branch say whether they need a release, by the Needs a release rule applied to that branch, and start unticked when they don't. A snapshot's series is now always cut at the last number, since snapshots no longer choose a bump; every existing snapshot was saved with Patch, so no series moves. See **Needs a release on a branch** and **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag, Needs a release | Release snapshots added. A row loaded from a snapshot counts from the snapshot's tag. For repos in a snapshot, master's last tag and the Needs a release card skip releases on the snapshot's line (in its series, not its base tag). Repos in no snapshot don't move. See **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag | On a non-default branch, the last tag is the newest tag on that branch's history (500 commits, 300 tags), falling back to the repo-wide last tag. Default-branch rows don't move. See **Predicted release tag**. |
