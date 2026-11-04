@@ -1109,8 +1109,8 @@ all** dialog stays as the quick version for the Needs a release card, and uses
 the same routes. Admin-only: missing from the sidebar for members, and every
 `/api/releases/` route refuses them.
 
-The page is two cards: **Repos**, to choose what to act on, and a second card
-that either makes releases or deletes them.
+The page is three cards: **Repos**, to choose what to act on, **Snapshots**, the
+saved release lines, and a last card that either makes releases or deletes them.
 
 ### Choosing repos
 
@@ -1283,13 +1283,102 @@ two checks:
    released 40s ago by … since the preview. Open the preview again"). The rest
    of the batch still goes. This is what stops a second run from bumping
    everything twice, without a timer. A row released on another branch sends
-   its branch, and is rechecked against that branch's newest tag.
+   its branch, and is rechecked against that branch's newest tag. A row from a
+   snapshot is refused if the snapshot no longer holds the tag the preview
+   counted from, or if the branch's newest tag isn't the one the preview saw.
 
 **Learning.** Every release made is a row in `release_tag_feedback`, as before,
 plus `bump` (`predicted`, `patch`, `minor`, `major`, `super` or `pattern`).
 *prediction was wrong* only shows on a *Predicted* row whose tag was typed over.
 Only those rows teach the predictor, and *Predictions kept as-is* counts
 predicted rows only.
+
+### Snapshots
+
+A snapshot is a named list of repo → tag for a release line, with the settings
+to release it. The first one is `2.9.x`: at 2.9.0, every repo got a
+`release/2.9.x` branch. Master moves on to 2.10 with a Minor bump, and 2.9.x
+gets Patch releases off the branch that aren't marked latest.
+
+**Making one.** Tick the repos, set **Branch** to the release branch, preview,
+then press **Save as snapshot**. The dialog takes a name (the branch's last
+part by default), the branch, the bump (Patch), **Not latest** (on) and
+**Pre-release** (off). It stores each row's last tag, which is the newest tag on
+that branch. Rows with a problem (such as no such branch) or no tag are left
+out, and the dialog says how many. Rows whose line can't be told apart from
+master's (one number like `rv3-beta-1091`, or dated) are saved with a warning.
+Saving under a name that exists offers **Merge into it** or **Replace it**.
+
+Do it before the Minor bumps if you can, though reading the branch means it's
+still right afterwards.
+
+**Releasing from one.** Pick it in the Snapshots card and press **Load into Make
+releases**. That ticks its repos, sets Branch, Bump, Pre-release and Not latest
+from it, and previews. A banner says the rows count from the snapshot. Each row's
+last tag is the snapshot's tag:
+- If the branch has a newer tag in the same line (released outside the
+  dashboard), the row says so and offers **Count from `<tag>`**, which updates
+  the snapshot.
+- If the branch's newest tag is from somewhere else, the row names it.
+
+Changing Branch to something else, or **Stop using it**, previews normally
+again. After a release, each released repo's tag in the snapshot moves forward
+to the new tag. The results say how many moved. A repo whose snapshot changed in
+the meantime isn't moved, and the result says to set it by hand.
+
+**Master stays on its own line.** For repos in a snapshot, the default-branch
+prediction and its recheck skip releases on the snapshot's line, so a 2.9.x
+patch made after `5.09.55.0` doesn't make master predict `5.09.54.235`. The
+Dream Panel's Needs a release card skips them too, so a patch doesn't make
+master look just released. If master hasn't moved past the line yet, the row
+says a Minor bump keeps the two apart. The exact rule is **Snapshot lines** in
+Calculations.md.
+
+**Editing.** The card shows each repo's tag (editable), the tag it was saved
+with, and when it last changed and by whom, plus the snapshot's settings. Tick
+**remove** to drop a repo. **Save changes** sends the edits, checked against
+the tags the page read. If someone else changed one in the meantime, nothing is
+saved and the page says to reload.
+
+**History and revert.** Every save, import, edit, removal, release and refresh is
+one change, with each repo's tag before and after. A release run is one change,
+however many batches it took. **Recent changes** shows the last 15, and 50 are
+kept. **Revert** puts each repo in that change back to its earlier tag, where it
+still has the tag that change gave it. The rest are skipped and named. A change
+can be reverted once. Reverting only changes the snapshot, never a release or
+tag on GitHub.
+
+**Export and import.** **Export** downloads `release-snapshot-<name>.json`:
+
+```json
+{
+  "kind": "nh-dashboard-release-snapshot",
+  "version": 1,
+  "name": "2.9.x",
+  "branch": "release/2.9.x",
+  "bump": "patch",
+  "notLatest": true,
+  "pre": false,
+  "exportedAt": "2026-11-04T08:00:00.000Z",
+  "repos": [{ "repo": "GT5-Unofficial", "tag": "5.09.54.234", "base": "5.09.54.233" }]
+}
+```
+
+**Import** reads a file like that. `base` is optional, and defaults to `tag` for
+a repo new to the snapshot. Before anything is saved, a dialog shows the name
+and settings, both editable. For an existing name it offers merge or replace
+and counts what would be added, changed and removed.
+
+**Delete** needs the name typed. It removes the snapshot and its history, can't
+be reverted, and leaves GitHub alone. Export first if it might be wanted again.
+
+**Storage.** Three D1 tables, from migration 008:
+- `release_snapshots`: the name and settings
+- `release_snapshot_tags`: per repo, `tag`, `base_tag`, `series` and `since`
+  (when the row was saved)
+- `release_snapshot_changes`: the history
+
+A page open reads all three once. A save, edit or revert is one batch.
 
 ### Deleting releases and tags
 
@@ -1343,10 +1432,15 @@ All under `/api/releases/`, admin only:
 | Route | |
 |---|---|
 | `GET repos` | the repo list and custom properties |
-| `POST preview` | `{ repos: [{ repo, branch }] }`, up to 100 |
-| `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong, notLatest }] }`, up to 25 |
+| `POST preview` | `{ repos: [{ repo, branch, snapshot }] }`, up to 100 |
+| `POST run` | `{ run, last, items: [{ repo, tag, sha, previous, predicted, bump, wrong, notLatest, snapshot, observed }] }`, up to 25 |
 | `POST delete-preview` | `{ repos, pattern }` or `{ repos, latest: true }`, up to 100 |
 | `POST delete` | `{ run, last, pattern, items: [{ repo, tag, releaseId, release, deleteTag }] }`, up to 25 |
+| `GET snapshots` | every snapshot with its repos and last 15 changes |
+| `POST snapshot-save` | `{ name, settings: { branch, bump, notLatest, pre }, repos: [{ repo, tag, base }], mode: new \| merge \| replace, kind: save \| import }`, up to 1,000 repos |
+| `POST snapshot-edit` | `{ name, settings, set: [{ repo, tag, was }], remove: [{ repo, was }], kind: edit \| refresh }` |
+| `POST snapshot-revert` | `{ name, change }` |
+| `POST snapshot-delete` | `{ name, confirm }`, where `confirm` is the name again |
 
 The POST routes also refuse another origin. `run` and `delete` refuse:
 - a run id that isn't 8 to 64 letters, digits and dashes
@@ -1361,12 +1455,16 @@ lock.
 
 ### Deploying
 
-Run the migration before deploying the Worker, because the preview's stats and
-the feedback write both read the new column:
+Run the migrations before deploying the Worker. The preview's stats and the
+feedback write both read 007's column. Snapshots need 008:
 
 ```bash
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/007-release-bump.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/008-release-snapshots.sql
 ```
+
+Without 008, the Snapshots card says to run it. Previews, releases and the
+Needs a release card carry on as before, without snapshots.
 
 Without it, the preview says past releases couldn't be read (so nothing learned
 is applied), and the feedback write is logged as failed. Releases are still
@@ -1389,7 +1487,11 @@ deploy gate) covers:
 - learning only from predicted rows
 - partial failures and the dry run
 - finding matches and deleting, including protected and already-gone tags
+- snapshots: series, saving, counting from one, moving it forward after a run,
+  master skipping its line, the recheck, edits against a stale read, revert,
+  import by merge and replace, and delete
 
+`releases.parity.test.js` covers Needs a release skipping a snapshot's line.
 The route guards are in `app.test.js`.
 
 ## Labels

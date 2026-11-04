@@ -1207,6 +1207,19 @@ rows, so the `compare` failure case cannot happen. Non-draft =
 `draft = 0 AND published_at IS NOT NULL`; prereleases count. Step 4 loses
 accuracy — see *Pull-request association*.
 
+**Snapshot lines.** A release on a snapshot's line (a 2.9.x patch made after
+master moved to 2.10) isn't master's latest release, so it's left out before
+picking the newest:
+
+```
+skip release r  if  ∃ snapshot row s for r.repo with
+  s.series IS NOT NULL  and  r.tag_name GLOB s.series
+  and  r.tag_name ≠ s.base_tag  and  r.published_at > s.since
+```
+
+The base tag stays in, so before master's first release past it nothing moves.
+See **Snapshot lines**.
+
 ### Predicted release tag
 
 On screen: *Release all* dialog, *Releases & Tags*, *New tag*, *Bump*, *learned*, *Predictions kept as-is*
@@ -1229,6 +1242,10 @@ commit date) and the newest 500 commits of the branch are read. If two tags
 share the commit, the one with a release wins. If none of those commits has a
 tag, it falls back to the repo-wide last tag above and the row says so. The
 default branch typed in by name keeps the repo-wide last tag.
+
+**For a repo in a snapshot**, a row loaded from that snapshot counts from the
+snapshot's tag, and the repo-wide last tag skips the snapshot's line. See
+**Snapshot lines**.
 
 **Prediction.** A trailing `-pre` is dropped, then the tag is split into
 numbers and the text between them. The last number goes up by one and
@@ -1337,6 +1354,56 @@ past by bumping the same number again, up to 20 times.
 
 **Pre-release** adds `-pre` to whatever tag comes out, unless it already ends in
 `-pre`, and the taken check is on the tag with `-pre` added.
+
+### Snapshot lines
+
+On screen: *Releases & Tags*, *Snapshots*, *Counts from*, *Saved with*
+
+A snapshot keeps three things per repo: the **tag** the next release counts
+from, the **base tag** it was saved with, and its **series**.
+
+**Series** (`seriesOf` in `web/js/release-tags.js`) is the version cut at the
+snapshot's bump, as a glob. The text before the version is kept, and anything
+after the cut is `*`:
+
+```
+                  Patch        Minor
+5.09.54.233       5.09.54.*    5.09.*
+1.1.71-GTNH       1.1.*        1.*
+v2.3              v2.*         —
+rv3-beta-1091     —            —
+```
+
+`—` is no series. That happens when the cut would leave no number before it
+(one number only, or too few for the bump), and for dated repos. With no series
+a repo's line can't be told apart from master's, so nothing below is skipped
+for it, and the page says so.
+
+**A row loaded from a snapshot** counts from the snapshot's tag, not from the
+branch. The branch's newest tag (as in **Predicted release tag**) is still read
+and compared:
+- If it's the snapshot's tag, its commit drives "No commits since".
+- If it's in the series and a higher version, the row offers to count from it.
+- Anything else is named in the row and changes nothing.
+
+Versions compare number by number over the version core, with a missing number
+lower than any number.
+
+**After a release from a snapshot**, that repo's tag becomes the new tag, but
+only if the snapshot still held the tag the preview counted from. The base tag
+never moves with a release.
+
+**Master skips the line.** For any repo in a snapshot, the repo-wide last tag
+(default branch, or a branch with no tag of its own) ignores tags that are in a
+snapshot's series and aren't its base tag:
+
+```
+last = newest release (then tag) t with  ∄ s: t ∈ s.series ∧ t ≠ s.base
+```
+
+If that skipped something and landed on the base tag itself, master hasn't moved
+past the line yet, and the row says a Minor bump keeps the two apart. The recheck
+before a release uses the same rule.
 
 **Patterns.** A tag pattern is filled in per repo:
 
@@ -1846,6 +1913,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-04 | Predicted release tag, Needs a release | Release snapshots added. A row loaded from a snapshot counts from the snapshot's tag. For repos in a snapshot, master's last tag and the Needs a release card skip releases on the snapshot's line (in its series, not its base tag). Repos in no snapshot don't move. See **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag | On a non-default branch, the last tag is the newest tag on that branch's history (500 commits, 300 tags), falling back to the repo-wide last tag. Default-branch rows don't move. See **Predicted release tag**. |
 | 2026-11-03 | Predicted release tag, chosen bumps | Patch, Minor, Major and Super bumps added, counted from the end of the version, with fallback to the leftmost number, a `-pre` option and tag patterns. *Predictions kept as-is* now counts predicted rows only (`bump = 'predicted'`); older rows all count, so today's figure doesn't move. The predictor itself is unchanged. See **Chosen bumps**. |
 | 2026-11-02 | Effective access and the Permissions boxes | New, for the Permissions page. No existing figure moves. A person's level on a repo is the highest of owner, base permission, their teams (including what a team inherits from its parent) and a direct grant. Direct grants come from `permissionSources` by `roleName`. See **Permissions**. |
