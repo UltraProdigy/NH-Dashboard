@@ -627,7 +627,7 @@ function useSnapshot(s) {
   const names = new Set(list.repos.map((r) => r.name));
   ticked = new Set(s.repos.map((r) => r.repo).filter((n) => names.has(n)));
   const gone = s.repos.length - ticked.size;
-  Object.assign(all, { bump: s.bump, pattern: "", pre: s.pre, notLatest: s.notLatest, branch: s.branch ?? "" });
+  all.branch = s.branch ?? "";
   using = s.name;
   usingNote = gone ? `${plural(gone, "of its repos isn't", "of its repos aren't")} in the org's repo list, so ${gone === 1 ? "it's" : "they're"} left out.` : "";
   mode = "release";

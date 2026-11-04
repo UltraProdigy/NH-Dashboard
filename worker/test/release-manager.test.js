@@ -625,19 +625,19 @@ github.GT5U = repo("GT5U", {
   history: { "release/2.9.x": [sha("d"), sha("1"), sha("2")] },
 });
 github.Weird = repo("Weird", { releases: ["rv3-beta-1091"], tags: ["rv3-beta-1091"], branches: { "release/2.9.x": sha("e") }, history: { "release/2.9.x": [sha("e")] } });
-const settings = { branch: "release/2.9.x", bump: "patch", notLatest: true, pre: false };
+const branch29 = "release/2.9.x";
 {
-  const out = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", settings, repos: [{ repo: "GT5U", tag: "5.09.54.233" }, { repo: "Weird", tag: "rv3-beta-1091" }] }, { now: T0 + 10 * 3_600_000 });
+  const out = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", branch: branch29, repos: [{ repo: "GT5U", tag: "5.09.54.233" }, { repo: "Weird", tag: "rv3-beta-1091" }] }, { now: T0 + 10 * 3_600_000 });
   const snap = out.body.snapshots?.[0];
-  check("saves a snapshot", [out.status, snap?.name, snap?.branch, snap?.bump, snap?.notLatest], [200, "2.9.x", "release/2.9.x", "patch", true]);
+  check("saves a snapshot with its branch and nothing else to choose", [out.status, snap?.name, snap?.branch, Object.keys(snap ?? {}).filter((k) => ["bump", "notLatest", "pre"].includes(k))], [200, "2.9.x", "release/2.9.x", []]);
   check("with each repo's tag, base and series", snapTags(), [
     { repo: "GT5U", tag: "5.09.54.233", base_tag: "5.09.54.233", series: "5.09.54.*" },
     { repo: "Weird", tag: "rv3-beta-1091", base_tag: "rv3-beta-1091", series: null },
   ]);
   check("and records it as one change", snap.changes.map((c) => [c.kind, c.rows.length]), [["save", 2]]);
-  const again = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", settings, repos: [{ repo: "GT5U", tag: "5.09.54.233" }] });
+  const again = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", branch: branch29, repos: [{ repo: "GT5U", tag: "5.09.54.233" }] });
   check("won't save over one by accident", again.status, 409);
-  for (const [name, b] of [["a bad name", { name: "2.9 x", settings, repos: [{ repo: "GT5U", tag: "1.0" }] }], ["a bad tag", { name: "x", settings, repos: [{ repo: "GT5U", tag: "../x" }] }], ["no repos", { name: "x", settings, repos: [] }]]) {
+  for (const [name, b] of [["a bad name", { name: "2.9 x", repos: [{ repo: "GT5U", tag: "1.0" }] }], ["a bad tag", { name: "x", repos: [{ repo: "GT5U", tag: "../x" }] }], ["no repos", { name: "x", repos: [] }], ["a bad branch", { name: "x", branch: "../x", repos: [{ repo: "GT5U", tag: "1.0" }] }]]) {
     check(`${name} is a 400`, (await saveSnapshot(env, "admin@example.com", b)).status, 400);
   }
 }
@@ -712,14 +712,14 @@ raw.prepare("DELETE FROM release_snapshot_tags WHERE repo = 'Unbumped'").run();
 }
 {
   const out = await saveSnapshot(env, "admin@example.com", {
-    name: "2.9.x", mode: "replace", kind: "import", settings,
+    name: "2.9.x", mode: "replace", kind: "import", branch: branch29,
     repos: [{ repo: "GT5U", tag: "5.09.54.234", base: "5.09.54.233" }, { repo: "Navigator", tag: "1.0.0" }],
   }, { now: T0 + 14 * 3_600_000 });
   check("an import replaces the list", [out.status, out.body.saved, snapTags().map((r) => r.repo)], [200, { name: "2.9.x", added: 1, changed: 0, removed: 1 }, ["GT5U", "Navigator"]]);
-  const merged = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", mode: "merge", kind: "import", settings, repos: [{ repo: "Weird", tag: "rv3-beta-1091" }] });
+  const merged = await saveSnapshot(env, "admin@example.com", { name: "2.9.x", mode: "merge", kind: "import", branch: branch29, repos: [{ repo: "Weird", tag: "rv3-beta-1091" }] });
   check("or merges into it", [merged.body.saved, snapTags().length], [{ name: "2.9.x", added: 1, changed: 0, removed: 0 }, 3]);
-  const minor = await editSnapshot(env, "admin@example.com", { name: "2.9.x", settings: { ...settings, bump: "minor" } });
-  check("a new bump redraws every series", [minor.status, snapTags()[0].series], [200, "5.09.*"]);
+  const moved = await editSnapshot(env, "admin@example.com", { name: "2.9.x", branch: "release/2.9" });
+  check("the branch can be changed on its own", [moved.status, moved.body.snapshots[0].branch, snapTags()[0].series], [200, "release/2.9", "5.09.54.*"]);
 }
 {
   const bare = new DatabaseSync(":memory:");

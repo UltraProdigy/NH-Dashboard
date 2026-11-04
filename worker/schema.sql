@@ -400,14 +400,11 @@ CREATE INDEX IF NOT EXISTS idx_release_tag_feedback_wrong
 -- Release snapshots: a named list of repo -> tag that a release line is
 -- released from. `tag` moves forward with each release made from the snapshot;
 -- `base_tag` is the tag it was saved with. `series` is a glob for the line
--- (5.09.54.* for Patch on 5.09.54.233), NULL when the line can't be told apart
--- from master's. Every change is kept per repo so it can be reverted.
+-- (5.09.54.* for 5.09.54.233), NULL when the line can't be told apart from
+-- master's. Every change is kept per repo so it can be reverted.
 CREATE TABLE IF NOT EXISTS release_snapshots (
   name              TEXT PRIMARY KEY,
   branch            TEXT,
-  bump              TEXT NOT NULL DEFAULT 'patch',
-  not_latest        INTEGER NOT NULL DEFAULT 1,
-  pre               INTEGER NOT NULL DEFAULT 0,
   created_by        TEXT NOT NULL,
   created_at        TEXT NOT NULL,
   updated_by        TEXT NOT NULL,

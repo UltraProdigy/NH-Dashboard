@@ -3,7 +3,6 @@ import { seriesOf, validTagName } from "../../web/js/release-tags.js";
 export const SNAPSHOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 const BRANCH = /^(?!.*\.\.)(?!\/)[A-Za-z0-9._\/-]{1,200}(?<![\/.])$/;
-const BUMPS = ["patch", "minor", "major", "super"];
 const MODES = ["new", "merge", "replace"];
 const MAX_REPOS = 1000;
 const KEEP_CHANGES = 50;
@@ -21,12 +20,12 @@ function chunks(list, n = BIND) {
   return out;
 }
 
-function cleanSettings(s) {
-  if (!s || typeof s !== "object") return null;
-  const branch = typeof s.branch === "string" ? s.branch.trim() : "";
-  if (branch && !BRANCH.test(branch)) return null;
-  const bump = BUMPS.includes(s.bump) ? s.bump : "patch";
-  return { branch: branch || null, bump, notLatest: s.notLatest === undefined ? true : Boolean(s.notLatest), pre: Boolean(s.pre) };
+const lineOf = (tag) => seriesOf(tag, "patch");
+
+function cleanBranch(v) {
+  const branch = typeof v === "string" ? v.trim() : "";
+  if (branch && !BRANCH.test(branch)) return undefined;
+  return branch || null;
 }
 
 const tagOrNull = (t) => (t == null || t === "" ? null : validTagName(t) ? t : undefined);
@@ -76,9 +75,6 @@ const prune = (db, name) =>
     )
     .bind(name);
 
-function settingsOut(s) {
-  return { branch: s.branch ?? "", bump: s.bump, notLatest: Boolean(s.not_latest), pre: Boolean(s.pre) };
-}
 
 export async function listSnapshots(env) {
   const db = env.DB;
@@ -117,7 +113,7 @@ export async function listSnapshots(env) {
       });
       out.push({
         name: s.name,
-        ...settingsOut(s),
+        branch: s.branch ?? "",
         createdBy: s.created_by,
         createdAt: s.created_at,
         updatedBy: s.updated_by,
@@ -156,12 +152,13 @@ async function answer(env, extra = {}) {
 
 export async function saveSnapshot(env, by, raw, { now = Date.now() } = {}) {
   const name = raw?.name;
-  const settings = cleanSettings(raw?.settings);
+  const branch = cleanBranch(raw?.branch);
   const repos = cleanRepos(raw?.repos);
   const mode = MODES.includes(raw?.mode) ? raw.mode : "new";
   const kind = raw?.kind === "import" ? "import" : "save";
   if (!SNAPSHOT_NAME.test(name ?? "")) return { status: 400, body: { error: "a snapshot name of up to 40 letters, numbers, dots, dashes and underscores" } };
-  if (!settings || !repos || !repos.length) return { status: 400, body: { error: `send settings and 1 to ${MAX_REPOS} repos, each with a valid tag` } };
+  if (branch === undefined) return { status: 400, body: { error: "the branch isn't a plain branch name" } };
+  if (!repos || !repos.length) return { status: 400, body: { error: `send 1 to ${MAX_REPOS} repos, each with a valid tag` } };
   const db = env.DB;
   const at = new Date(now).toISOString();
   try {
@@ -171,12 +168,11 @@ export async function saveSnapshot(env, by, raw, { now = Date.now() } = {}) {
     const change = newId();
     const list = [
       existing
-        ? db.prepare("UPDATE release_snapshots SET branch = ?, bump = ?, not_latest = ?, pre = ?, updated_by = ?, updated_at = ? WHERE name = ?")
-            .bind(settings.branch, settings.bump, settings.notLatest ? 1 : 0, settings.pre ? 1 : 0, by, at, name)
+        ? db.prepare("UPDATE release_snapshots SET branch = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(branch, by, at, name)
         : db.prepare(
-            `INSERT INTO release_snapshots (name, branch, bump, not_latest, pre, created_by, created_at, updated_by, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).bind(name, settings.branch, settings.bump, settings.notLatest ? 1 : 0, settings.pre ? 1 : 0, by, at, by, at),
+            `INSERT INTO release_snapshots (name, branch, created_by, created_at, updated_by, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          ).bind(name, branch, by, at, by, at),
     ];
     let added = 0;
     let changed = 0;
@@ -186,7 +182,7 @@ export async function saveSnapshot(env, by, raw, { now = Date.now() } = {}) {
       incoming.add(r.repo);
       const cur = current.get(r.repo);
       const base = r.base ?? cur?.base_tag ?? r.tag;
-      const series = seriesOf(r.tag, settings.bump);
+      const series = lineOf(r.tag);
       if (cur && cur.tag === r.tag && cur.base_tag === base && cur.series === series) continue;
       const since = cur?.since ?? at;
       list.push(upsertTag(db, name, r.repo, { tag: r.tag, base, series, since }, by, at));
@@ -198,8 +194,6 @@ export async function saveSnapshot(env, by, raw, { now = Date.now() } = {}) {
       if (mode === "replace") {
         list.push(dropTag(db, name, repo), logChange(db, name, change, kind, repo, cur.tag, null, cur.base_tag, cur.since, by, at));
         removed++;
-      } else if (existing && existing.bump !== settings.bump) {
-        list.push(upsertTag(db, name, repo, { tag: cur.tag, base: cur.base_tag, series: seriesOf(cur.tag, settings.bump), since: cur.since }, cur.updated_by, cur.updated_at));
       }
     }
     list.push(prune(db, name));
@@ -214,15 +208,16 @@ export async function saveSnapshot(env, by, raw, { now = Date.now() } = {}) {
 export async function editSnapshot(env, by, raw, { now = Date.now() } = {}) {
   const name = raw?.name;
   if (!SNAPSHOT_NAME.test(name ?? "")) return { status: 400, body: { error: "no such snapshot name" } };
-  const settings = raw?.settings == null ? null : cleanSettings(raw.settings);
-  if (raw?.settings != null && !settings) return { status: 400, body: { error: "the branch isn't a plain branch name" } };
+  const branch = raw?.branch === undefined ? undefined : cleanBranch(raw.branch);
+  if (raw?.branch !== undefined && branch === undefined) return { status: 400, body: { error: "the branch isn't a plain branch name" } };
+  const setBranch = raw?.branch !== undefined;
   const set = Array.isArray(raw?.set) ? raw.set : [];
   const remove = Array.isArray(raw?.remove) ? raw.remove : [];
   if (set.length + remove.length > MAX_REPOS) return { status: 400, body: { error: `at most ${MAX_REPOS} changes at once` } };
   for (const s of set) if (!REPO_NAME.test(s?.repo ?? "") || !validTagName(s.tag) || tagOrNull(s.was) === undefined) return { status: 400, body: { error: "each change needs a repo and a valid tag" } };
   for (const r of remove) if (!REPO_NAME.test(r?.repo ?? "") || tagOrNull(r.was) === undefined) return { status: 400, body: { error: "each removal needs a repo" } };
   if (new Set([...set, ...remove].map((x) => x.repo)).size !== set.length + remove.length) return { status: 400, body: { error: "the same repo twice" } };
-  if (!settings && !set.length && !remove.length) return { status: 400, body: { error: "nothing to change" } };
+  if (!setBranch && !set.length && !remove.length) return { status: 400, body: { error: "nothing to change" } };
   const kind = raw?.kind === "refresh" ? "refresh" : "edit";
   const db = env.DB;
   const at = new Date(now).toISOString();
@@ -235,36 +230,22 @@ export async function editSnapshot(env, by, raw, { now = Date.now() } = {}) {
       const said = moved.slice(0, 5).map((x) => `${x.repo} is ${current.get(x.repo)?.tag ?? "not in it"}`).join(", ");
       return { status: 409, body: { error: `The snapshot changed since it was read (${said}${moved.length > 5 ? ", …" : ""}). Reload it and try again` } };
     }
-    const bump = settings?.bump ?? snap.bump;
     const change = newId();
     const list = [];
-    if (settings) {
-      list.push(db.prepare("UPDATE release_snapshots SET branch = ?, bump = ?, not_latest = ?, pre = ?, updated_by = ?, updated_at = ? WHERE name = ?")
-        .bind(settings.branch, settings.bump, settings.notLatest ? 1 : 0, settings.pre ? 1 : 0, by, at, name));
-    } else {
-      list.push(touch(db, name, by, at));
-    }
-    const touched = new Set();
+    if (setBranch) list.push(db.prepare("UPDATE release_snapshots SET branch = ?, updated_by = ?, updated_at = ? WHERE name = ?").bind(branch, by, at, name));
+    else list.push(touch(db, name, by, at));
     for (const s of set) {
-      touched.add(s.repo);
       const cur = current.get(s.repo);
-      if (cur?.tag === s.tag && cur.series === seriesOf(s.tag, bump)) continue;
+      if (cur?.tag === s.tag) continue;
       const base = cur?.base_tag ?? s.tag;
       const since = cur?.since ?? at;
-      list.push(upsertTag(db, name, s.repo, { tag: s.tag, base, series: seriesOf(s.tag, bump), since }, by, at));
-      if (cur?.tag !== s.tag) list.push(logChange(db, name, change, kind, s.repo, cur?.tag ?? null, s.tag, base, since, by, at));
+      list.push(upsertTag(db, name, s.repo, { tag: s.tag, base, series: lineOf(s.tag), since }, by, at));
+      list.push(logChange(db, name, change, kind, s.repo, cur?.tag ?? null, s.tag, base, since, by, at));
     }
     for (const r of remove) {
-      touched.add(r.repo);
       const cur = current.get(r.repo);
       if (!cur) continue;
       list.push(dropTag(db, name, r.repo), logChange(db, name, change, "remove", r.repo, cur.tag, null, cur.base_tag, cur.since, by, at));
-    }
-    if (settings && settings.bump !== snap.bump) {
-      for (const [repo, cur] of current) {
-        if (touched.has(repo)) continue;
-        list.push(upsertTag(db, name, repo, { tag: cur.tag, base: cur.base_tag, series: seriesOf(cur.tag, bump), since: cur.since }, cur.updated_by, cur.updated_at));
-      }
     }
     list.push(prune(db, name));
     await db.batch(list);
@@ -306,7 +287,7 @@ export async function revertChange(env, by, raw, { now = Date.now() } = {}) {
       } else {
         const base = (r.after_tag == null ? r.base_tag : cur?.base_tag) ?? r.before_tag;
         const since = (r.after_tag == null ? r.since : cur?.since) ?? at;
-        list.push(upsertTag(db, name, r.repo, { tag: r.before_tag, base, series: seriesOf(r.before_tag, snap.bump), since }, by, at));
+        list.push(upsertTag(db, name, r.repo, { tag: r.before_tag, base, series: lineOf(r.before_tag), since }, by, at));
       }
       list.push(logChange(db, name, undo, "revert", r.repo, r.after_tag, r.before_tag, cur?.base_tag ?? r.base_tag, cur?.since ?? r.since, by, at, change));
       reverted++;
@@ -372,7 +353,7 @@ export async function advanceSnapshots(db, made, by, at, change) {
       const cur = current.get(it.repo);
       if (!cur || cur.tag !== it.previous) continue;
       list.push(
-        upsertTag(db, name, it.repo, { tag: it.tag, base: cur.base_tag, series: seriesOf(it.tag, snap.bump), since: cur.since }, by, at),
+        upsertTag(db, name, it.repo, { tag: it.tag, base: cur.base_tag, series: lineOf(it.tag), since: cur.since }, by, at),
         logChange(db, name, change, "release", it.repo, cur.tag, it.tag, cur.base_tag, cur.since, by, at),
       );
       advanced.add(`${name}\n${it.repo}`);

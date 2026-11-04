@@ -4,8 +4,6 @@ import { seriesOf, validTagName } from "./release-tags.js";
 const KIND = "nh-dashboard-release-snapshot";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 const REPO = /^[A-Za-z0-9._-]{1,100}$/;
-const BUMPS = ["patch", "minor", "major", "super"];
-const BUMP_LABEL = { patch: "Patch", minor: "Minor", major: "Major", super: "Super" };
 const CHANGE_LABEL = { save: "Saved", import: "Imported", edit: "Edited", remove: "Removed", release: "Released", refresh: "Took the branch's tag", revert: "Reverted" };
 const ORG = "GTNewHorizons";
 
@@ -94,20 +92,15 @@ function pendingCount() {
   if (!s) return 0;
   let n = removes.size;
   for (const [repo, tag] of edits) if (!removes.has(repo) && s.repos.find((r) => r.repo === repo)?.tag !== tag) n++;
-  const d = draft;
-  if (d && (d.branch !== s.branch || d.bump !== s.bump || d.notLatest !== s.notLatest || d.pre !== s.pre)) n++;
+  if (draft != null && draft !== s.branch) n++;
   return n;
 }
 
 const badEdits = () => [...edits].filter(([repo, tag]) => !removes.has(repo) && !validTagName(tag)).length;
 
-function settingsHtml(s) {
-  const d = draft ?? s;
+function branchHtml(s) {
   return `<div class="rl-controls">
-    <label class="rl-field"><span class="sub">Branch to release from</span><input type="text" class="rl-input sn-branch" data-s-set="branch" value="${esc(d.branch)}" placeholder="default branch" spellcheck="false" autocomplete="off"></label>
-    <label class="rl-field"><span class="sub">Bump</span><select data-s-set="bump">${BUMPS.map((b) => `<option value="${b}"${b === d.bump ? " selected" : ""}>${BUMP_LABEL[b]}</option>`).join("")}</select></label>
-    <label class="rl-check"><input type="checkbox" data-s-set="notLatest"${d.notLatest ? " checked" : ""}> Not latest</label>
-    <label class="rl-check"><input type="checkbox" data-s-set="pre"${d.pre ? " checked" : ""}> Pre-release</label>
+    <label class="rl-field"><span class="sub">Branch to release from</span><input type="text" class="rl-input sn-branch" data-s-branch value="${esc(draft ?? s.branch)}" placeholder="default branch" spellcheck="false" autocomplete="off"></label>
   </div>`;
 }
 
@@ -144,7 +137,7 @@ function bodyHtml() {
   const off = busy ? " disabled" : "";
   const bar = `<div class="rl-pickbar">
       ${snaps.length ? `<select data-s-pick aria-label="Snapshot"${off}>${options}</select>` : `<span class="sub">No snapshots yet.</span>`}
-      <button type="button" class="ghost" data-s-load${s && !busy ? "" : " disabled"} title="Tick its repos and preview them in Make releases with its settings">Load into Make releases</button>
+      <button type="button" class="ghost" data-s-load${s && !busy ? "" : " disabled"} title="Tick its repos and preview them in Make releases on its branch">Load into Make releases</button>
       <button type="button" class="ghost" data-s-export${s ? "" : " disabled"}>Export</button>
       <label class="ghost sn-file${busy ? " sn-off" : ""}">Import<input type="file" accept=".json,application/json" data-s-import hidden${off}></label>
       <button type="button" class="ghost" data-s-delete${s && !busy ? "" : " disabled"}>Delete</button>
@@ -164,7 +157,7 @@ function bodyHtml() {
     ? `<details class="rl-none sn-history-box"${historyOpen ? " open" : ""}><summary class="sub" data-s-history>Recent changes (${s.changes.length})</summary>
         <ul class="sn-history">${s.changes.map(changeHtml).join("")}</ul></details>`
     : "";
-  return `${bar}${msg}${settingsHtml(s)}
+  return `${bar}${msg}${branchHtml(s)}
     <div class="ra-scroll rl-scroll sn-scroll">
       <table class="ra-table rl-table sn-table">
         <thead><tr><th>Repo</th><th>Counts from</th><th>Saved with</th><th>Last changed</th><th></th></tr></thead>
@@ -213,19 +206,10 @@ function paintFoot() {
 
 const nameFromBranch = (branch) => String(branch ?? "").split("/").pop().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40);
 
-function settingsFields(s) {
-  return `<label class="rl-field"><span class="sub">Branch to release from</span><input type="text" class="rl-input" data-dlg-branch value="${esc(s.branch ?? "")}" placeholder="default branch" spellcheck="false" autocomplete="off"></label>
-    <label class="rl-field"><span class="sub">Bump</span><select class="rl-input" data-dlg-bump>${BUMPS.map((b) => `<option value="${b}"${b === s.bump ? " selected" : ""}>${BUMP_LABEL[b]}</option>`).join("")}</select></label>
-    <label class="rl-check"><input type="checkbox" data-dlg-notlatest${s.notLatest ? " checked" : ""}> Not latest</label>
-    <label class="rl-check"><input type="checkbox" data-dlg-pre${s.pre ? " checked" : ""}> Pre-release</label>`;
-}
+const branchField = (branch) =>
+  `<label class="rl-field"><span class="sub">Branch to release from</span><input type="text" class="rl-input" data-dlg-branch value="${esc(branch ?? "")}" placeholder="default branch" spellcheck="false" autocomplete="off"></label>`;
 
-const readSettings = (d) => ({
-  branch: d.querySelector("[data-dlg-branch]").value.trim(),
-  bump: d.querySelector("[data-dlg-bump]").value,
-  notLatest: d.querySelector("[data-dlg-notlatest]").checked,
-  pre: d.querySelector("[data-dlg-pre]").checked,
-});
+const readBranch = (d) => d.querySelector("[data-dlg-branch]").value.trim();
 
 function diffAgainst(name, repos) {
   const old = findSnapshot(name);
@@ -268,17 +252,15 @@ const existsBox = `<div class="sn-exists" data-dlg-exists hidden>
 export function saveFromPreview(previewRows, branch) {
   const keep = previewRows.filter((r) => !r.problem && r.tag && validTagName(r.tag));
   const left = previewRows.length - keep.length;
-  const settings = { branch, bump: "patch", notLatest: true, pre: false };
-  const lone = () => keep.filter((r) => !seriesOf(r.tag, settings.bump)).length;
   const repos = keep.map((r) => ({ repo: r.repo, tag: r.tag }));
-  const loneCount = lone();
+  const loneCount = keep.filter((r) => !seriesOf(r.tag)).length;
   const d = ctx.dialog(`<h3>Save ${ctx.plural(keep.length, "repo")} as a snapshot?</h3>
-    <p>Stores each repo's last tag from this preview: the newest tag on the branch, or the repo's last release where the branch has none.</p>
+    <p>Stores each repo's last tag from this preview: the newest tag on the branch, or the repo's last release where the branch has none. The bump, Not latest and Pre-release are chosen each time you release from it.</p>
     ${left ? `<p class="daily-warn">${ctx.plural(left, "repo is", "repos are")} left out, with a problem or no tag.</p>` : ""}
     ${loneCount ? `<p class="daily-warn">${ctx.plural(loneCount, "repo has", "repos have")} one number or a dated tag, so master can't tell its line apart from the snapshot's.</p>` : ""}
     <div class="sn-dialog-fields">
       <label class="rl-field"><span class="sub">Name</span><input type="text" class="rl-input" data-dlg-name value="${esc(nameFromBranch(branch) || "snapshot")}" spellcheck="false" autocomplete="off"></label>
-      ${settingsFields(settings)}
+      ${branchField(branch)}
     </div>
     ${existsBox}
     <div class="daily-actions"><span class="ra-count"></span>
@@ -290,7 +272,7 @@ export function saveFromPreview(previewRows, branch) {
     const exists = Boolean(findSnapshot(name));
     const mode = exists ? d.querySelector("[data-dlg-mode]:checked").value : "new";
     pick = name;
-    await send("/api/releases/snapshot-save", { name, settings: readSettings(d), repos, mode, kind: "save" }, (b) => savedNote(b.saved));
+    await send("/api/releases/snapshot-save", { name, branch: readBranch(d), repos, mode, kind: "save" }, (b) => savedNote(b.saved));
   });
   nameAndMode(d, repos, "go");
 }
@@ -310,9 +292,6 @@ function exportSnapshot(s) {
     version: 1,
     name: s.name,
     branch: s.branch,
-    bump: s.bump,
-    notLatest: s.notLatest,
-    pre: s.pre,
     exportedAt: new Date().toISOString(),
     repos: s.repos.map((r) => ({ repo: r.repo, tag: r.tag, base: r.base })),
   };
@@ -340,10 +319,9 @@ export function parseImport(data) {
     seen.add(r.repo);
     repos.push({ repo: r.repo, tag: r.tag, ...(r.base ? { base: r.base } : {}) });
   }
-  const branch = typeof data.branch === "string" ? data.branch.trim() : "";
   return {
     name: NAME.test(data.name ?? "") ? data.name : "",
-    settings: { branch, bump: BUMPS.includes(data.bump) ? data.bump : "patch", notLatest: data.notLatest === undefined ? true : Boolean(data.notLatest), pre: Boolean(data.pre) },
+    branch: typeof data.branch === "string" ? data.branch.trim() : "",
     repos,
   };
 }
@@ -364,7 +342,7 @@ async function importFile(file) {
     <p>From <code>${esc(file.name)}</code>. Nothing is saved until you press Import.</p>
     <div class="sn-dialog-fields">
       <label class="rl-field"><span class="sub">Name</span><input type="text" class="rl-input" data-dlg-name value="${esc(parsed.name)}" spellcheck="false" autocomplete="off"></label>
-      ${settingsFields(parsed.settings)}
+      ${branchField(parsed.branch)}
     </div>
     ${existsBox}
     <div class="daily-actions"><span class="ra-count"></span>
@@ -375,7 +353,7 @@ async function importFile(file) {
     const name = d.querySelector("[data-dlg-name]").value.trim();
     const mode = findSnapshot(name) ? d.querySelector("[data-dlg-mode]:checked").value : "new";
     pick = name;
-    await send("/api/releases/snapshot-save", { name, settings: readSettings(d), repos: parsed.repos, mode, kind: "import" }, (b) => savedNote(b.saved));
+    await send("/api/releases/snapshot-save", { name, branch: readBranch(d), repos: parsed.repos, mode, kind: "import" }, (b) => savedNote(b.saved));
   });
   nameAndMode(d, parsed.repos, "go");
 }
@@ -392,9 +370,8 @@ function saveEdits() {
     if (tag !== was) set.push({ repo, tag, was });
   }
   const remove = [...removes].map((repo) => ({ repo, was: s.repos.find((r) => r.repo === repo)?.tag ?? null }));
-  const d = draft;
-  const settings = d && (d.branch !== s.branch || d.bump !== s.bump || d.notLatest !== s.notLatest || d.pre !== s.pre) ? d : null;
-  return send("/api/releases/snapshot-edit", { name: s.name, set, remove, ...(settings ? { settings } : {}) }, () => `Saved ${s.name}`);
+  const branch = draft != null && draft !== s.branch ? draft : undefined;
+  return send("/api/releases/snapshot-edit", { name: s.name, set, remove, ...(branch !== undefined ? { branch } : {}) }, () => `Saved ${s.name}`);
 }
 
 function confirmRevert(change) {
@@ -476,11 +453,8 @@ export function snapChange(t) {
     if (t.checked) removes.add(repo);
     else removes.delete(repo);
     paint();
-  } else if (t.matches("[data-s-set]")) {
-    const s = current();
-    draft = { ...(draft ?? { branch: s.branch, bump: s.bump, notLatest: s.notLatest, pre: s.pre }) };
-    const k = t.dataset.sSet;
-    draft[k] = t.type === "checkbox" ? t.checked : t.value.trim();
+  } else if (t.matches("[data-s-branch]")) {
+    draft = t.value.trim();
     paintFoot();
   }
   return true;
