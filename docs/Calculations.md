@@ -1221,6 +1221,15 @@ Releases come first because every tag here becomes a release, and a release's
 creation time is the only real "created" date (lightweight tags have none).
 Tags with no digits at all, such as `latest`, are skipped.
 
+**On a branch other than the default** (a branch typed on Releases & Tags), the
+last tag is instead the newest tag on that branch's history: the first commit,
+walking back from the branch's HEAD, that a version tag points to. An
+annotated tag counts at the commit it points to. Up to 300 tags (newest by
+commit date) and the newest 500 commits of the branch are read. If two tags
+share the commit, the one with a release wins. If none of those commits has a
+tag, it falls back to the repo-wide last tag above and the row says so. The
+default branch typed in by name keeps the repo-wide last tag.
+
 **Prediction.** A trailing `-pre` is dropped, then the tag is split into
 numbers and the text between them. The last number goes up by one and
 everything else is kept: zero padding, prefixes and suffixes. `1.7.10` on its
@@ -1837,6 +1846,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-04 | Predicted release tag | On a non-default branch, the last tag is the newest tag on that branch's history (500 commits, 300 tags), falling back to the repo-wide last tag. Default-branch rows don't move. See **Predicted release tag**. |
 | 2026-11-03 | Predicted release tag, chosen bumps | Patch, Minor, Major and Super bumps added, counted from the end of the version, with fallback to the leftmost number, a `-pre` option and tag patterns. *Predictions kept as-is* now counts predicted rows only (`bump = 'predicted'`); older rows all count, so today's figure doesn't move. The predictor itself is unchanged. See **Chosen bumps**. |
 | 2026-11-02 | Effective access and the Permissions boxes | New, for the Permissions page. No existing figure moves. A person's level on a repo is the highest of owner, base permission, their teams (including what a team inherits from its parent) and a direct grant. Direct grants come from `permissionSources` by `roleName`. See **Permissions**. |
 | 2026-10-28 | Label drift, usage and unused | New, for the Labels page. No existing figure moves. Drift is what Label-Sync's `syncRepository` would do, worked out by the shared planner, and counts managed labels only until the rest of the config is in D1. Usage counts (repo, label) pairs, open and total, from the hourly facets pass. See **Label metrics**. |

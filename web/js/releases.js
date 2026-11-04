@@ -226,6 +226,7 @@ function rowNotes(r, c) {
   const d = r.data;
   const out = [];
   if (d.problem) out.push(`<span class="rl-bad">${esc(d.problem)}</span>`);
+  if (d.lastNote) out.push(esc(d.lastNote));
   if (d.unchanged) out.push(`No commits since ${esc(d.lastTag)}`);
   for (const n of c.plan.notes) out.push(esc(n));
   if (c.invalid && usable(r)) out.push(`<span class="rl-bad">${esc(c.invalid)}</span>`);
@@ -689,6 +690,7 @@ async function runReleases(picked) {
     return {
       item: {
         repo: r.data.repo,
+        branch: r.data.customBranch ? r.data.branch : null,
         tag: c.tag,
         sha: r.data.sha,
         previous: r.data.lastTag,

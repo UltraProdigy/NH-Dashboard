@@ -147,11 +147,12 @@ const env = {
 };
 
 const sha = (c) => c.repeat(40);
-const repo = (name, { releases = [], tags = [], head = sha("a"), branches = {}, archived = false } = {}) => ({
+const repo = (name, { releases = [], tags = [], head = sha("a"), branches = {}, history = {}, archived = false } = {}) => ({
   name,
   isArchived: archived,
   defaultBranchRef: { name: "master", target: { oid: head } },
   branches,
+  history,
   releases: {
     totalCount: releases.length,
     nodes: releases.map((r) => {
@@ -159,8 +160,18 @@ const repo = (name, { releases = [], tags = [], head = sha("a"), branches = {}, 
       return { isDraft: false, isPrerelease: false, databaseId: 100 + o.tagName.length, createdAt: "2026-10-01T00:00:00Z", tagCommit: { oid: o.sha ?? sha("0") }, ...o };
     }),
   },
-  refs: { nodes: tags.map((n) => ({ name: n, target: { oid: sha("0"), committedDate: "2026-10-01T00:00:00Z" } })) },
+  refs: {
+    nodes: tags.map((n) => {
+      const t = typeof n === "string" ? { name: n } : n;
+      return { name: t.name, annotated: Boolean(t.annotated), target: { oid: t.sha ?? sha("0"), committedDate: "2026-10-01T00:00:00Z" } };
+    }),
+  },
 });
+
+const pageOf = (list, after) => {
+  const at = after ? Number(after) : 0;
+  return { pageInfo: { hasNextPage: at + 100 < list.length, endCursor: String(at + 100) }, items: list.slice(at, at + 100) };
+};
 
 let github = {};
 let calls = [];
@@ -201,6 +212,25 @@ globalThis.fetch = async (url, init = {}) => {
   if (path === "/graphql") {
     const { query, variables } = JSON.parse(init.body);
     calls.push(`graphql ${token}`);
+    if (query.includes("$branch: String!")) {
+      const r = github[variables.name];
+      calls.push(`branch ${variables.name} ${variables.branch}${variables.tags ? " tags" : ""}${variables.history ? " history" : ""}`);
+      if (!r) return Response.json({ data: { repository: null } });
+      const out = {};
+      if (variables.tags) {
+        const p = pageOf(r.refs.nodes, variables.tagsAfter);
+        out.refs = {
+          pageInfo: p.pageInfo,
+          nodes: p.items.map((n) => ({ name: n.name, target: n.annotated ? { oid: sha("f"), target: { oid: n.target.oid } } : { oid: n.target.oid } })),
+        };
+      }
+      if (variables.history) {
+        const list = r.history[variables.branch.replace("refs/heads/", "")];
+        const p = list && pageOf(list, variables.historyAfter);
+        out.ref = list ? { target: { history: { pageInfo: p.pageInfo, nodes: p.items.map((oid) => ({ oid })) } } } : null;
+      }
+      return Response.json({ data: { repository: out } });
+    }
     if (query.includes("$name: String!")) {
       const r = github[variables.name];
       if (!r) return Response.json({ data: { repository: null } });
@@ -413,6 +443,70 @@ refStatus = { Failed: 422, NoWorkflow: 403 };
   check("and says so in GitHub Logs", [logged.at(-1).text, logged.at(-1).tone], ["ran Releases & Tags, and all 2 failed", "warn"]);
 }
 refStatus = {};
+
+console.log("\nanother branch");
+const filler = (n, c) => Array.from({ length: n }, (_, i) => `${c}${String(i).padStart(39, "0")}`);
+github.Branchy = repo("Branchy", {
+  releases: [{ tagName: "2.1.0", sha: sha("1") }, { tagName: "1.9.3", sha: sha("3") }],
+  tags: [{ name: "2.1.0", sha: sha("1") }, { name: "2.0.0", sha: sha("2") }, { name: "1.9.3", sha: sha("3"), annotated: true }, { name: "1.9.2", sha: sha("4") }],
+  head: sha("1"),
+  branches: { "1.9.x": sha("5"), frozen: sha("3"), bare: sha("6"), old: sha("7"), master: sha("1") },
+  history: {
+    "1.9.x": [sha("5"), sha("3"), sha("4")],
+    frozen: [sha("3"), sha("4")],
+    bare: [sha("6"), sha("8")],
+    old: [...filler(150, "7"), sha("4")],
+  },
+});
+calls = [];
+{
+  const out = await releasePreview(env, [{ repo: "Branchy", branch: "1.9.x" }]);
+  const b = out.body.repos[0];
+  check("counts from the newest tag on that branch", [b.lastTag, b.lastSha, b.predicted, b.unchanged], ["1.9.3", sha("3"), "1.9.4", false]);
+  check("and says so when it isn't the repo's last release", b.lastNote, "Counting from 1.9.3, the newest tag on 1.9.x");
+  check("reads the branch in one query when the tag is near the top", calls.filter((c) => c.startsWith("branch")), ["branch Branchy refs/heads/1.9.x tags history"]);
+}
+{
+  const out = await releasePreview(env, [{ repo: "Branchy", branch: "frozen" }]);
+  check("follows an annotated tag to its commit, so an untouched branch says so", [out.body.repos[0].lastTag, out.body.repos[0].unchanged], ["1.9.3", true]);
+}
+calls = [];
+{
+  const out = await releasePreview(env, [{ repo: "Branchy", branch: "old" }]);
+  const b = out.body.repos[0];
+  check("pages back through the branch's history", [b.lastTag, b.predicted, calls.filter((c) => c.startsWith("branch")).length], ["1.9.2", "1.9.4", 2]);
+}
+{
+  const out = await releasePreview(env, [{ repo: "Branchy", branch: "bare" }]);
+  const b = out.body.repos[0];
+  check("falls back to the repo's last release when the branch has no tag", [b.lastTag, b.predicted, b.lastNote], ["2.1.0", "2.1.1", "No tag anywhere on bare, so this counts from the repo's last release"]);
+}
+calls = [];
+{
+  const out = await releasePreview(env, [{ repo: "Branchy", branch: "master" }]);
+  check("doesn't walk the default branch typed in by name", [out.body.repos[0].lastTag, out.body.repos[0].lastNote, calls.filter((c) => c.startsWith("branch")).length], ["2.1.0", null, 0]);
+}
+calls = [];
+{
+  const out = await releaseRun(env, "admin@example.com", {
+    run: "run-ffffffff", last: true, items: [
+      { repo: "Branchy", branch: "1.9.x", tag: "1.9.4", sha: sha("5"), previous: "1.9.3", predicted: "1.9.4", bump: "predicted" },
+    ],
+  }, { now: T0 + 20 * 60_000, pace: 0 });
+  check("rechecks against the same branch before releasing", [out.status, out.body.results[0].ok, calls.some((c) => c === "branch Branchy refs/heads/1.9.x tags history")], [200, true, true]);
+}
+{
+  const out = await releaseRun(env, "admin@example.com", {
+    run: "run-gggggggg", last: true, items: [
+      { repo: "Branchy", branch: "frozen", tag: "1.9.5", sha: sha("3"), previous: "1.9.2", predicted: "1.9.3", bump: "predicted" },
+    ],
+  }, { now: T0 + 21 * 60_000, pace: 0 });
+  check("and refuses when that branch got a newer tag since the preview", [out.status, /^1\.9\.3 was released/.test(out.body.results[0].error)], [502, true]);
+}
+{
+  const out = await releaseRun(env, "admin@example.com", { run: "run-gggggggh", last: true, items: [{ repo: "Branchy", branch: "../x", tag: "1.9.5", sha: sha("3") }] }, { now: T0, pace: 0 });
+  check("a bad branch on a release is a 400", out.status, 400);
+}
 
 console.log("\nrefusing bad input");
 for (const [name, body] of [

@@ -1188,7 +1188,9 @@ Above the table, these apply to every row:
   `YYYY-MM-DD`) and `{repo}`. A pattern that comes out as a tag the repo
   already has marks that row invalid instead of counting up.
 - **Branch.** The branch to tag, for every repo. Blank means each repo's
-  default branch. Changing it previews again.
+  default branch. Changing it previews again. On another branch, the last tag
+  is the newest tag on that branch, not the repo's last release (see
+  **Branch tags** below).
 - **Pre-release.** Adds `-pre` to the tag.
 - **Not latest.** Makes the release with `make_latest: "false"`, so it doesn't
   become the repo's Latest release. This is for one-off custom tags.
@@ -1211,6 +1213,17 @@ Modrinth and CurseForge, and it deliberately never sets GitHub's flag, because
 DreamAssemblerXXL breaks on releases flagged that way. The workflow also deletes
 the dashboard's release and recreates its own, so a flag set here would be lost
 anyway.
+
+**Branch tags.** For each row whose branch isn't the default, the preview makes
+one more query per repo, three repos at a time: the newest 100 tags with their
+commits, and the branch's newest 100 commits. Tags are paged to 300 and history
+to 500 commits only if needed. The first commit back from the branch HEAD that
+has a version tag gives the last tag and its commit, so "No commits since" works
+on branches too. The row says "Counting from `<tag>`, the newest tag on
+`<branch>`" when that differs from the repo's last release, or that no tag was
+found and the repo's last release is used. Tag commits are read one repo at a
+time because asking for them across a batch made GitHub answer 502. The tags
+read this way are also counted as taken.
 
 **Warnings that don't block a row:**
 - "No commits since `<last tag>`": the target commit is the last release's.
@@ -1260,7 +1273,8 @@ two checks:
    refused with what was released, by whom and how long ago ("`0.11.55` was
    released 40s ago by … since the preview. Open the preview again"). The rest
    of the batch still goes. This is what stops a second run from bumping
-   everything twice, without a timer.
+   everything twice, without a timer. A row released on another branch sends
+   its branch, and is rechecked against that branch's newest tag.
 
 **Learning.** Every release made is a row in `release_tag_feedback`, as before,
 plus `bump` (`predicted`, `patch`, `minor`, `major`, `super` or `pattern`).

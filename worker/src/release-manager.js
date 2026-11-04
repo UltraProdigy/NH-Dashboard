@@ -181,20 +181,115 @@ function lastOf(repo, fits) {
   return ref ? { tag: ref.name, sha: null } : { tag: null, sha: null };
 }
 
-export function lastTagOf(repo) {
-  return lastOf(repo, DATED_REPOS.has(repo.name) ? isDatedTag : parseTag).tag;
+const fitsFor = (name) => (DATED_REPOS.has(name) ? isDatedTag : parseTag);
+
+const BRANCH_QUERY = `query($org: String!, $name: String!, $branch: String!, $tags: Boolean!, $history: Boolean!, $tagsAfter: String, $historyAfter: String) {
+  repository(owner: $org, name: $name) {
+    refs(refPrefix: "refs/tags/", first: 100, after: $tagsAfter, orderBy: { field: TAG_COMMIT_DATE, direction: DESC }) @include(if: $tags) {
+      pageInfo { hasNextPage endCursor }
+      nodes { name target { oid ... on Tag { target { oid } } } }
+    }
+    ref(qualifiedName: $branch) @include(if: $history) {
+      target { ... on Commit { history(first: 100, after: $historyAfter) { pageInfo { hasNextPage endCursor } nodes { oid } } } }
+    }
+  }
+}`;
+
+const BRANCH_TAG_PAGES = 3;
+const BRANCH_HISTORY_PAGES = 5;
+
+const onBranch = (repo, row) => Boolean(row.branch && repo?.branch?.target?.oid && row.branch !== repo.defaultBranchRef?.name);
+
+async function walkBranch(token, org, repo, branch) {
+  const fits = fitsFor(repo.name);
+  const released = new Set(repo.releases.nodes.filter((r) => !r.isDraft).map((r) => r.tagName));
+  const tagsAt = new Map();
+  const seen = [];
+  const ask = async (vars) => {
+    const out = await rest("/graphql", token, {
+      method: "POST",
+      body: { query: BRANCH_QUERY, variables: { org, name: repo.name, branch: `refs/heads/${branch}`, tagsAfter: null, historyAfter: null, ...vars } },
+    }).then((r) => r.json());
+    if (!out.data?.repository) throw new Error(`graphql: ${out.errors?.[0]?.message ?? "no data"}`);
+    return out.data.repository;
+  };
+  const addTags = (refs) => {
+    for (const n of refs?.nodes ?? []) {
+      seen.push(n.name);
+      const oid = n.target?.target?.oid ?? n.target?.oid;
+      if (!oid || !fits(n.name)) continue;
+      if (!tagsAt.has(oid)) tagsAt.set(oid, []);
+      tagsAt.get(oid).push(n.name);
+    }
+  };
+
+  const first = await ask({ tags: true, history: true });
+  let refs = first.refs;
+  addTags(refs);
+  for (let page = 1; refs?.pageInfo?.hasNextPage && page < BRANCH_TAG_PAGES; page++) {
+    refs = (await ask({ tags: true, history: false, tagsAfter: refs.pageInfo.endCursor })).refs;
+    addTags(refs);
+  }
+  if (!tagsAt.size) return { tag: null, sha: null, none: true, seen };
+
+  let history = first.ref?.target?.history;
+  if (!history) return { tag: null, sha: null, looked: 0, ended: true, seen };
+  let looked = 0;
+  for (let page = 1; ; page++) {
+    for (const { oid } of history.nodes) {
+      looked++;
+      const names = tagsAt.get(oid);
+      if (names) return { tag: names.find((n) => released.has(n)) ?? names[0], sha: oid, looked, seen };
+    }
+    if (!history.pageInfo.hasNextPage) return { tag: null, sha: null, looked, ended: true, seen };
+    if (page >= BRANCH_HISTORY_PAGES) break;
+    history = (await ask({ tags: false, history: true, historyAfter: history.pageInfo.endCursor })).ref?.target?.history;
+    if (!history) break;
+  }
+  return { tag: null, sha: null, looked, seen };
 }
 
-function plan(row, repo, learned, now) {
+async function walkBranches(env, rows, found) {
+  const want = rows.map((row, i) => (onBranch(found[i], row) ? i : -1)).filter((i) => i >= 0);
+  const out = new Map();
+  if (!want.length) return out;
+  const token = await installationToken(env);
+  const org = orgOf(env);
+  for (let i = 0; i < want.length; i += 3) {
+    await Promise.all(
+      want.slice(i, i + 3).map((at) =>
+        walkBranch(token, org, found[at], rows[at].branch)
+          .then((w) => out.set(at, w))
+          .catch((err) => out.set(at, { failed: short(err, 120) })),
+      ),
+    );
+  }
+  return out;
+}
+
+function branchLast(repo, row, walked) {
+  const repoWide = lastOf(repo, fitsFor(repo.name));
+  if (!walked || walked.none) return { ...repoWide, note: null };
+  if (walked.tag) {
+    const differs = walked.tag !== repoWide.tag;
+    return { tag: walked.tag, sha: walked.sha, note: differs ? `Counting from ${walked.tag}, the newest tag on ${row.branch}` : null };
+  }
+  const from = repoWide.tag ? `, so this counts from the repo's last release` : "";
+  if (walked.failed) return { ...repoWide, note: `Couldn't read the tags on ${row.branch} (${walked.failed})${from}` };
+  const where = walked.ended ? `anywhere on ${row.branch}` : `in the last ${walked.looked} commits of ${row.branch}`;
+  return { ...repoWide, note: `No tag ${where}${from}` };
+}
+
+function plan(row, repo, learned, now, walked) {
   if (!repo) return { repo: row.repo, problem: "GitHub doesn't know this repo, or NH-Dashbot can't see it", notes: [] };
   if (repo.failed) return { repo: row.repo, problem: repo.failed, notes: [] };
   if (repo.isArchived) return { repo: repo.name, problem: "Archived, so it can't be released", notes: [] };
   const dated = DATED_REPOS.has(repo.name);
-  const last = lastOf(repo, dated ? isDatedTag : parseTag);
+  const last = branchLast(repo, row, walked);
   const branch = row.branch ?? null;
   const sha = branch ? repo.branch?.target?.oid ?? null : repo.defaultBranchRef?.target?.oid ?? null;
   const rule = dated ? null : ruleFrom(learned.get(repo.name) ?? []);
-  const taken = [...new Set([...repo.refs.nodes.map((t) => t.name), ...repo.releases.nodes.map((r) => r.tagName)])];
+  const taken = [...new Set([...repo.refs.nodes.map((t) => t.name), ...repo.releases.nodes.map((r) => r.tagName), ...(walked?.seen ?? [])])];
 
   let problem = null;
   if (branch && !sha) problem = `No ${branch} branch`;
@@ -211,6 +306,7 @@ function plan(row, repo, learned, now) {
     lastTag: last.tag,
     lastSha: last.sha,
     lastWasPre: Boolean(parseTag(last.tag)?.pre),
+    lastNote: last.note,
     unchanged: Boolean(sha && last.sha && sha === last.sha),
     learned: rule && !isDefaultRule(rule) ? rule : null,
     taken,
@@ -249,8 +345,10 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
   }
 
   let found;
+  let walked;
   try {
     found = await lookUpAll(env, rows);
+    walked = await walkBranches(env, rows, found);
   } catch (err) {
     return { status: 502, body: { error: `Couldn't read the repos from GitHub: ${short(err)}` } };
   }
@@ -259,7 +357,7 @@ export async function releasePreview(env, list, { now = Date.now() } = {}) {
     status: 200,
     body: {
       ready: orgManagerReady(env),
-      repos: rows.map((row, i) => plan(row, found[i], learned, now)),
+      repos: rows.map((row, i) => plan(row, found[i], learned, now, walked.get(i))),
       stats,
       storeError,
     },
@@ -284,8 +382,10 @@ function cleanRunBody(body, cleanItem) {
 function cleanReleaseItem(it) {
   if (!it || !REPO_NAME.test(it.repo ?? "") || !validTagName(it.tag) || !SHA.test(it.sha ?? "")) return null;
   const bump = it.bump === "pattern" || BUMPS.includes(it.bump) ? it.bump : "predicted";
+  if (it.branch != null && (typeof it.branch !== "string" || !BRANCH.test(it.branch))) return null;
   return {
     repo: it.repo,
+    branch: it.branch || null,
     tag: it.tag,
     sha: it.sha,
     previous: text(it.previous),
@@ -414,7 +514,9 @@ async function whoReleased(db, repo, tag) {
 }
 
 async function recheck(env, items, now) {
-  const found = await lookUpAll(env, items.map((it) => ({ repo: it.repo, branch: null })));
+  const rows = items.map((it) => ({ repo: it.repo, branch: it.branch }));
+  const found = await lookUpAll(env, rows);
+  const walked = await walkBranches(env, rows, found);
   const out = new Map();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
@@ -423,12 +525,17 @@ async function recheck(env, items, now) {
       out.set(it.repo, repo?.failed ? `Couldn't check it again before releasing: ${repo.failed}` : "GitHub doesn't know this repo any more");
       continue;
     }
-    const taken = new Set([...repo.refs.nodes.map((t) => t.name), ...repo.releases.nodes.map((r) => r.tagName)]);
+    const seen = walked.get(i);
+    if (seen?.failed) {
+      out.set(it.repo, `Couldn't check ${it.branch} again before releasing: ${seen.failed}`);
+      continue;
+    }
+    const taken = new Set([...repo.refs.nodes.map((t) => t.name), ...repo.releases.nodes.map((r) => r.tagName), ...(seen?.seen ?? [])]);
     if (taken.has(it.tag)) {
       out.set(it.repo, "that tag or release already exists");
       continue;
     }
-    const lastNow = lastTagOf(repo);
+    const lastNow = branchLast(repo, rows[i], seen).tag;
     if (lastNow && lastNow !== it.previous) {
       const who = await whoReleased(env.DB, it.repo, lastNow);
       const when = who ? ` ${Math.max(1, Math.round((now - Date.parse(who.released_at)) / 1000))}s ago by ${who.released_by}` : "";
