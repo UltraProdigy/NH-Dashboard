@@ -4242,6 +4242,7 @@ js/paths.js            where the app is mounted, and links into it
 js/render.js           sidebar, tabs, toolbar, cards; and the drilldown fetch
 js/router.js           path routing, and the back trail behind the drilldowns
 js/events.js           every delegated listener
+js/scroll.js           keeps scroll positions through a redraw
 js/theme.js            dark/light toggle
 js/main.js             entry point: boot, /api/whoami, /api/dashboard, first render
 js/roles.js            LIVE_PANELS and ADMIN_PANELS, shared with the app Worker
@@ -4259,6 +4260,17 @@ styles/pills.css       status pills
 styles/dream.css       the Dream Panel's exclusion popup and By label columns
 styles/mobile.css      what changes below 760px — loaded last
 ```
+
+**Redraws keep their place.** Nearly every click redraws by replacing
+markup wholesale, and a replaced list starts back at the top. Wrap the
+replacement in `keepScroll(root, paint)` from `js/scroll.js`. It notes every
+list inside `root` that has been scrolled, runs `paint`, then scrolls the
+matching new list back to where the old one was, along with the page itself.
+Lists are matched by tag and classes plus their position among lists with the
+same classes, so a redraw that keeps the same layout lands in the same place.
+`render()` only does this when the page, tab and subject haven't changed, so
+moving to a different page still starts fresh. Any new code that repaints part
+of the view with `innerHTML` should go through it too.
 
 Dependencies run one way, roughly top to bottom in that list — `state` and
 `format` know about nothing, `main` knows about everything. A module that
