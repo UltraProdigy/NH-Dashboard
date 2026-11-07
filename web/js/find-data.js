@@ -2,6 +2,7 @@ import { FIND_DEFAULTS, blankFind, state } from "./state.js";
 import { API } from "./live.js";
 import { render } from "./render.js";
 import { resultsHtml } from "./modules/find.js";
+import { keepScroll } from "./scroll.js";
 
 /* ==========================================================================
    Find — the query, the URL it lives in, and the fetch
@@ -91,7 +92,7 @@ function readFindQuery(search) {
  */
 function paint() {
   const el = document.getElementById("findResults");
-  if (el && state.page === "find") el.innerHTML = resultsHtml();
+  if (el && state.page === "find") keepScroll(el, () => { el.innerHTML = resultsHtml(); });
   else render();
 }
 

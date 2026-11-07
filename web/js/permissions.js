@@ -4,6 +4,7 @@ import { KEEP_PER_BOX } from "./log-boxes.js";
 import {
   adminRows, directRows, indexSnapshot, LEVELS, personAccess, problems, rank, repoAccess, repoTeams, teamAncestors, teamRows,
 } from "./permissions-calc.js";
+import { keepScroll } from "./scroll.js";
 
 const REFRESH_MS = 60_000;
 const ARCHIVED_KEY = "nh:perm-archived";
@@ -475,7 +476,7 @@ export function permissionsBody() {
 
 function redraw() {
   const body = document.querySelector("[data-perm-body]");
-  if (body) body.innerHTML = bodyHtml();
+  if (body) keepScroll(body, () => { body.innerHTML = bodyHtml(); });
   const status = document.querySelector("[data-perm-status]");
   if (status) status.innerHTML = statusHtml();
   paintPanel();

@@ -1,6 +1,7 @@
 import { API } from "./live.js";
 import { esc } from "./format.js";
 import { BOXES, FALLBACK_BOX, KEEP_PER_BOX, monitors } from "./log-boxes.js";
+import { keepScroll } from "./scroll.js";
 
 const BOX_IDS = new Set(BOXES.map((b) => b.id));
 const STATUS = { connecting: "Connecting…", live: "Live", reconnecting: "Reconnecting…" };
@@ -94,7 +95,7 @@ function setStatus(next) {
 
 function redraw() {
   const grid = document.querySelector(".grid.logs");
-  if (grid) grid.innerHTML = BOXES.map(boxHtml).join("");
+  if (grid) keepScroll(grid, () => { grid.innerHTML = BOXES.map(boxHtml).join(""); });
 }
 
 function add(entry) {

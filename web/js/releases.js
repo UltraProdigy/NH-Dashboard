@@ -5,6 +5,7 @@ import { BUMPS, DATED_REPOS, planTag, tagProblem } from "./release-tags.js";
 import { propertyFilter, valuesOf } from "./property-filter.js";
 import { loadRepoList, repoList, repoListError, repoListStale } from "./repo-list.js";
 import { findSnapshot, initSnapshots, loadSnapshots, openSnapshots, saveFromPreview, snapChange, snapClick, snapInput, snapshotCount, takeNewer } from "./release-snapshots.js";
+import { keepScroll } from "./scroll.js";
 
 const PREVIEW_CHUNK = 50;
 const DELETE_CHUNK = 20;
@@ -473,19 +474,19 @@ export function releasesBody() {
 
 function redraw() {
   const root = document.querySelector("[data-rl]");
-  if (root) root.innerHTML = pickerCard() + workCard();
+  if (root) keepScroll(root, () => { root.innerHTML = pickerCard() + workCard(); });
   syncAllBoxes();
 }
 
 function paintList() {
   const el = document.querySelector("[data-rl-list]");
-  if (el) el.innerHTML = repoListHtml();
+  if (el) keepScroll(el, () => { el.innerHTML = repoListHtml(); });
   syncWorkCount();
 }
 
 function paintWork() {
   const el = document.querySelector("[data-rl-work]");
-  if (el) el.innerHTML = mode === "release" ? releaseWork() : deleteWork();
+  if (el) keepScroll(el, () => { el.innerHTML = mode === "release" ? releaseWork() : deleteWork(); });
   syncAllBoxes();
 }
 

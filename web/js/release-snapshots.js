@@ -1,5 +1,6 @@
 import { esc, safeUrl } from "./format.js";
 import { seriesOf, validTagName } from "./release-tags.js";
+import { keepScroll } from "./scroll.js";
 
 const KIND = "nh-dashboard-release-snapshot";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
@@ -205,7 +206,7 @@ const closeSnapshots = () => modal?.close();
 
 function paint() {
   const body = document.querySelector("[data-sn-body]");
-  if (body) body.innerHTML = bodyHtml();
+  if (body) keepScroll(body, () => { body.innerHTML = bodyHtml(); });
   const status = document.querySelector("[data-sn-status]");
   if (status) status.innerHTML = statusHtml();
   const refresh = document.querySelector("[data-s-refresh]");

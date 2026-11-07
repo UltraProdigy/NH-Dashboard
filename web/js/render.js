@@ -39,6 +39,7 @@ import { permissionsBody, syncPermissions } from "./permissions.js";
 import { releasesBody, syncReleases } from "./releases.js";
 import { overviewLead } from "./modules/overview.js";
 import { labelCount, labelModules } from "./modules/labels.js";
+import { keepScroll } from "./scroll.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -848,6 +849,8 @@ function renderMeta() {
   el.classList.toggle("stale", mins > 90);
 }
 
+let shown = null;
+
 function render() {
   renderSidebar();
   renderTabs();
@@ -857,11 +860,17 @@ function render() {
   const view = document.getElementById("view");
   if (!state.data) return;
 
-  if (isDrill(state.page)) renderDrill(view);
-  else if (state.page === "logs") view.innerHTML = logsBody();
-  else if (state.page === "permissions") view.innerHTML = permissionsBody();
-  else if (state.page === "releases") view.innerHTML = releasesBody();
-  else view.innerHTML = pageBody();
+  const where = `${state.page}|${state.tab}|${state.subject}`;
+  const paint = () => {
+    if (isDrill(state.page)) renderDrill(view);
+    else if (state.page === "logs") view.innerHTML = logsBody();
+    else if (state.page === "permissions") view.innerHTML = permissionsBody();
+    else if (state.page === "releases") view.innerHTML = releasesBody();
+    else view.innerHTML = pageBody();
+  };
+  if (where === shown) keepScroll(view, paint);
+  else paint();
+  shown = where;
   syncLogs(state.page === "logs", renderMeta);
   syncPermissions(state.page === "permissions");
   syncReleases(state.page === "releases");

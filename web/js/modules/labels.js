@@ -4,6 +4,7 @@ import { applyFilter, renderTable, sortRows, withOwner } from "../table.js";
 import { state } from "../state.js";
 import { propertyFilter } from "../property-filter.js";
 import { loadRepoList, onRepoList, repoList, repoListDue, repoListError, repoListLoading, repoListStale } from "../repo-list.js";
+import { keepScroll } from "../scroll.js";
 
 const sync = () => (panel("labelSync")?.ok ? panel("labelSync").data : null);
 const usage = () => (panel("labelUsage")?.ok ? panel("labelUsage").data : null);
@@ -195,7 +196,7 @@ function syncStatusHtml(expanded) {
 }
 
 function paintSyncRows() {
-  for (const el of document.querySelectorAll("[data-lb-rows]")) el.innerHTML = withOwner("lbSync", () => syncRowsHtml(el.dataset.lbRows === "1"));
+  for (const el of document.querySelectorAll("[data-lb-rows]")) keepScroll(el, () => { el.innerHTML = withOwner("lbSync", () => syncRowsHtml(el.dataset.lbRows === "1")); });
 }
 
 onRepoList(() => {
