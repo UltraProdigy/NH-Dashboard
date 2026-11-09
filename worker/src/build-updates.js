@@ -181,11 +181,21 @@ export async function updatesStatus(env, { now = Date.now() } = {}) {
 
 export async function runUpdatesScan(env, by, { now = Date.now() } = {}) {
   if (!appReady(env)) return { status: 503, body: { error: "GH_APP_ID or GH_APP_PRIVATE_KEY not set" } };
-  const lock = await readJson(env.DB, LOCK_KEY, null);
-  if (lock && now - Date.parse(lock.at) < LOCK_MS) {
-    return { status: 409, body: { error: `A scan started by ${lock.by} is still running.`, scanning: lock } };
+  const mine = { at: new Date(now).toISOString(), by };
+  // One statement, so two presses landing together can't both see the lock free.
+  const claim = await env.DB
+    .prepare(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value
+       WHERE json_extract(meta.value, '$.at') IS NULL OR json_extract(meta.value, '$.at') < ?`,
+    )
+    .bind(LOCK_KEY, JSON.stringify(mine), new Date(now - LOCK_MS).toISOString())
+    .run();
+  if (!(claim.meta?.changes ?? claim.changes)) {
+    const lock = await readJson(env.DB, LOCK_KEY, null);
+    return { status: 409, body: { error: `A scan started by ${lock?.by ?? "another admin"} is still running.`, scanning: lock } };
   }
-  await writeJson(env.DB, LOCK_KEY, { at: new Date(now).toISOString(), by });
+  await stamp(env.DB, now);
   const started = Date.now();
   try {
     const scan = await scanOrg(env, { now });

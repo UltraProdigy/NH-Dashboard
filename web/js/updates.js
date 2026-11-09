@@ -6,6 +6,7 @@ import { cardReposFrom, exclControlsHtml, isExcludedRepo } from "./dream.js";
 import { summarize } from "./updates-calc.js";
 
 const STALE_MS = 5 * 60_000;
+const WATCH_MS = 5000;
 const ONLY_KEY = "nh:updates:onlyOut";
 const DEPS_KEY = "nh:updates:countDeps";
 
@@ -15,6 +16,7 @@ let loading = null;
 let fetchedAt = 0;
 let busy = false;
 let seen = null;
+let watch = null;
 let note = "";
 const pinning = new Set();
 const opened = new Set();
@@ -35,7 +37,7 @@ export function onUpdatesChange(fn) {
 }
 
 onUpdatesStamp((at) => {
-  if (data && at && at !== seen && !busy) loadUpdates();
+  if (data && at && at !== seen && !busy && !watch) loadUpdates();
 });
 
 cardReposFrom("updates", () => (data?.scan?.repos ?? []).map((r) => r.name));
@@ -78,19 +80,33 @@ export function loadUpdates() {
     } finally {
       fetchedAt = Date.now();
       loading = null;
+      watchOthers();
       redraw();
     }
   })();
   return loading;
 }
 
+const othersScan = () => (!busy && data?.scanning) || null;
+
+function watchOthers() {
+  clearTimeout(watch);
+  watch = othersScan() ? setTimeout(loadUpdates, WATCH_MS) : null;
+}
+
 async function scan() {
-  if (busy) return;
+  if (busy || othersScan()) return;
   busy = true;
   note = "";
   redraw();
   try {
-    data = await readBody(await fetch(`${API}/api/updates/scan`, { method: "POST", cache: "no-store" }));
+    const res = await fetch(`${API}/api/updates/scan`, { method: "POST", cache: "no-store" });
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      data = { ...data, scanning: body.scanning ?? { by: "another admin" } };
+      return;
+    }
+    data = await readBody(res);
     seen = data.stamp ?? seen;
     fetchedAt = Date.now();
     error = null;
@@ -101,6 +117,7 @@ async function scan() {
     loadUpdates();
   } finally {
     busy = false;
+    watchOthers();
     redraw();
   }
 }
@@ -235,7 +252,7 @@ export function updatesHtml(expanded) {
     return `<div class="empty">Loading the last scan…</div>`;
   }
   if (!data.scan) {
-    return `<div class="empty">${busy ? "Reading every repo's Gradle files from GitHub. This takes a few seconds…"
+    return `<div class="empty">${busy || othersScan() ? "Reading every repo's Gradle files from GitHub. This takes a few seconds…"
       : "Nothing scanned yet. Press <strong>Refresh</strong> to read every repo's buildscript, Gradle wrapper and dependencies."}</div>`;
   }
   const s = summary();
@@ -259,18 +276,23 @@ export function updatesHtml(expanded) {
 
 export function updatesSubHtml() {
   const s = summary();
-  if (!s) return `<span class="sub">${busy ? "scanning…" : "buildscript, Gradle and dependencies"}</span>`;
+  const scanning = busy || othersScan();
+  if (!s) return `<span class="sub">${scanning ? "scanning…" : "buildscript, Gradle and dependencies"}</span>`;
   const c = s.counts;
   const parts = [`${fmt(updatesCount())} of ${fmt(c.repos)} out of sync`];
-  if (busy) parts.push("scanning…");
+  if (scanning) parts.push("scanning…");
   else parts.push(`scanned ${ago(data.scan.scannedAt)}`);
   return `<span class="sub">${esc(parts.join(" · "))}</span>`;
 }
 
 export function updatesControlsHtml() {
-  const refresh = `<button class="ghost" data-upd-scan${busy ? " disabled" : ""}
-    title="Read every repo's settings.gradle, gradle-wrapper.properties and dependencies.gradle from GitHub again">${
-    busy ? "Scanning…" : "Refresh"}</button>${note ? `<span class="minlabel upd-note">${esc(note)}</span>` : ""}`;
+  const other = othersScan();
+  const title = other
+    ? `${other.by} started a scan ${ago(other.at)}. This card reloads when it lands.`
+    : "Read every repo's settings.gradle, gradle-wrapper.properties and dependencies.gradle from GitHub again";
+  const refresh = `<button class="ghost" data-upd-scan${busy || other ? " disabled" : ""} title="${esc(title)}">${
+    busy ? "Scanning…" : other ? `Scanning… (${esc(String(other.by).split("@")[0])})` : "Refresh"}</button>${
+    note ? `<span class="minlabel upd-note">${esc(note)}</span>` : ""}`;
   return exclControlsHtml("updates", refresh);
 }
 

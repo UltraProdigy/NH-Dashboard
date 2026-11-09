@@ -107,7 +107,7 @@ const db = {
     let bound = [];
     const api = {
       bind: (...args) => ((bound = args), api),
-      async run() { raw.prepare(sql).run(...bound); return { success: true }; },
+      async run() { const r = raw.prepare(sql).run(...bound); return { success: true, meta: { changes: r.changes } }; },
       async first() { return raw.prepare(sql).get(...bound) ?? null; },
       async all() { return { results: raw.prepare(sql).all(...bound) }; },
     };
@@ -207,6 +207,8 @@ check("a second scan while one runs is refused", [busy.status, /other@example.co
 check("and the status says one is running", (await updatesStatus(env)).body.scanning?.by, "other@example.com");
 raw.prepare("UPDATE meta SET value = ? WHERE key = 'build_updates_lock'").run(JSON.stringify({ at: new Date(Date.now() - 10 * 60_000).toISOString(), by: "other@example.com" }));
 check("a stale lock doesn't block", (await runUpdatesScan(env, "admin@example.com")).status, 200);
+const racing = await Promise.all([runUpdatesScan(env, "one@example.com"), runUpdatesScan(env, "two@example.com")]);
+check("two presses at once run one scan", racing.map((r) => r.status).sort(), [200, 409]);
 
 console.log("\npins\n");
 const p1 = await setPin(env, "admin@example.com", { repo: "NotEnoughItems", dep: "StructureLib", pinned: true });
