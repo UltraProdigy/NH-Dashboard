@@ -413,6 +413,7 @@ topbar counts the rings on the page you're looking at.
 | Blue | `cron` | Recomputed by the Worker every 10 minutes — Time since last update, By label, Label mix and Actions load on PR Analytics, and every card on the contributor and repo drilldowns |
 | Purple | `hourly` | Recomputed by the Worker at most once an hour — the rest of PR Analytics, Issue Analytics, Repo Activity and Contributor Activity |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
+| Grey | `manual` | Read from GitHub when an admin presses Refresh, shown as "on refresh" — the Dream Panel's Updates card |
 | Red | `down` | Should have been blue or green, and the API didn't answer. Same stale data as amber, entirely different meaning |
 
 `direct` and `instant` share the green, and that is deliberate rather than a
@@ -422,7 +423,7 @@ What differs is the mechanism, which is what the label and the tooltip are for.
 A card cannot simply be called `instant` when nothing rebuilds it, because the
 tooltip would then describe a rebuild that never happens.
 
-`direct` is also the one tier a card names for itself, in a `tier()` on the
+`direct` and `manual` are the tiers a card names for itself, in a `tier()` on the
 module, because there is no panel behind it to read a header from. Every other
 card resolves through `PAGE_PANEL`, and `test/freshness.test.js` asserts that a
 card does one or the other — a card with no ring at all is the quietest of the
@@ -778,9 +779,9 @@ No migration is needed.
 
 ## Dream Panel
 
-Five cards, ordered by how close each one is to "somebody press the button":
+Six cards, ordered by how close each one is to "somebody press the button":
 Approved-not-merged, Needs a release, Changes requested, Time since last
-update, and then By label across the full width.
+update, then By label and Updates across the full width.
 
 The first four are half-width and tile two to a row. By label is the odd one
 out because it isn't one list — it draws a column per label — and three columns
@@ -961,6 +962,7 @@ Each card carries its own filters, as buttons in its own header:
 | Needs a release | Repos |
 | Changes requested | Repos |
 | Time since last update | Repos |
+| Updates | Repos |
 
 Each opens a searchable checklist of things to hide **from that card only**.
 Needs a release is repo-level data with no labels on it, and Changes requested
@@ -1100,6 +1102,59 @@ The columns are `repeat(auto-fit, minmax(240px, 1fr))` rather than a count
 pinned to how many labels are up. The card is full width in both views, but the
 sidebar collapses under both, so how many columns fit isn't something the label
 count can predict.
+
+### Updates
+
+Which repos need their buildscript, Gradle wrapper or dependencies bumped. It
+reads the files from every repo and compares the repos with each other, so
+"latest" means the newest version anyone in the org is on, not what ExampleMod
+has (ExampleMod lags). The exact rules are under **Build updates** in
+`Calculations.md`.
+
+**Refresh** in the card's header runs a scan through `POST /api/updates/scan`.
+The scan is one paginated GraphQL query over the org's repositories, 25 to a
+page, that pulls `settings.gradle(.kts)`, `gradle-wrapper.properties`,
+`dependencies.gradle(.kts)` and the 15 newest tags for each repo in the same
+request. About a dozen requests cover the org. Repos without the settings
+convention plugin get a second, batched query for the first line of their
+`build.gradle`, ten repos at a time, for the legacy `//version:` header. A page
+that GitHub times out is retried at half the size, down to three.
+
+The scan runs as NH-Dashbot, so it needs nothing new: Contents: Read was already
+granted. It skips archived repos, repos in `NH_INGEST_EXCLUDE`, and repos with
+none of those files (the website, the issue trackers).
+
+The result is cached in `meta` under `build_updates`, so no migration, and the
+card reads it from `GET /api/updates` on load and again after five minutes. It
+says when it was scanned and by whom. There is no scheduled scan: it is only as
+fresh as the last Refresh, which is why its ring is the grey `manual` tier. A scan holds a lock (`build_updates_lock`) for up to
+three minutes, so two admins pressing at once get one scan and a message naming
+who started it. The scan runs under `waitUntil`, so it still finishes and drops
+its lock if the tab is closed partway through.
+
+**The card** shows only the repos that are out of sync, ten at a time with *See
+all* opening the tab. The tab adds the newest versions, the scan details, and
+two checkboxes that are remembered per browser:
+
+- **only out of sync** (on by default). Untick to list every repo with Gradle
+  files.
+- **count dependencies as out of sync** (off by default). Nearly every repo is
+  behind on some dependency, so counting them would hide the buildscript and
+  Gradle gaps. Dependencies are still listed either way.
+
+Each row's dependencies open to show every one that is behind, its version, and
+the dependency's latest tag linked to that release. **Pin** stops a dependency
+counting as behind in that one repo, for when it's held back on purpose.
+**Unpin** puts it back. Pins are shared by every admin and kept in `meta` under
+`build_updates_pins` through `POST /api/updates/pin`.
+
+A **legacy** buildscript (the `//version:` header with no settings convention
+plugin) is flagged **migrate** rather than **behind**: those need
+`updateBuildScript`, not a version bump.
+
+`worker/test/build-updates.test.js` (`npm run test:build-updates`, in the
+deploy gate) covers the parsers, the comparison, pins, the lock and the scan
+against a stubbed GitHub. The route guards are in `app.test.js`.
 
 ## Releases & Tags
 
@@ -4234,6 +4289,9 @@ js/versus-data.js      the head-to-head lineup and its metric catalogue
 js/contributor-data.js the contributor rows shared by the people modules
 js/module-helpers.js   fragments several modules render the same way
 js/dream.js            Dream Panel exclusions and By label's columns
+js/updates.js          the Dream Panel's Updates card: scan, pins, table
+js/updates-calc.js     Gradle file parsers and the Updates comparison, shared
+                       with the app Worker
 js/pages.js            the twelve pages, the section each sits under, the
                        modules each shows, and its tab groups
 js/modules/            one file per page's modules; index.js composes them
@@ -4257,7 +4315,7 @@ styles/tables.css      tables and their scroll wrapper
 styles/charts.css      avatars, bars, heatmap, chart primitives
 styles/drilldown.css   subject header, combobox, paired boxes, head-to-head
 styles/pills.css       status pills
-styles/dream.css       the Dream Panel's exclusion popup and By label columns
+styles/dream.css       the Dream Panel's exclusion popup, By label columns and Updates
 styles/mobile.css      what changes below 760px — loaded last
 ```
 

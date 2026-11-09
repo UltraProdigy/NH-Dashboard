@@ -1517,6 +1517,70 @@ Sort: `daysSinceDirect` desc, exact before approximate, then repo name.
 only knows how far its own capture goes, so it under-claims instead of asserting
 a horizon it never reached.
 
+### Build updates
+
+On screen: *Updates* (Dream Panel)
+
+`web/js/updates-calc.js`, run in the browser on what `worker/src/build-updates.js`
+read. Nothing comes from D1 but the cached scan.
+
+**What is read**, from each repo's default branch (`HEAD`):
+
+| Thing | File | Value |
+|---|---|---|
+| Buildscript | `settings.gradle` or `settings.gradle.kts` | the version on `com.gtnewhorizons.gtnhsettingsconvention` |
+| Buildscript, legacy | `build.gradle` or `build.gradle.kts`, first line | the `//version: <epoch>` header, read only when there is no settings plugin |
+| Gradle | `gradle/wrapper/gradle-wrapper.properties` | the version in `distributionUrl` (`gradle-<v>-bin.zip` or `-all.zip`) |
+| Dependencies | `dependencies.gradle` and `dependencies.gradle.kts` | every `com.github.GTNewHorizons:<name>:<version>` string, comments stripped, each pair once |
+
+A repo with none of these files is skipped and counted as *without*. Archived
+repos and repos matched by `NH_INGEST_EXCLUDE` are skipped too.
+
+**The target is the highest version in the org, not ExampleMod's.** ExampleMod
+lags (2.0.33 while GT5-Unofficial was on 2.0.34). Versions are compared with
+`compareVersions` from `release-tags.js`, number by number. Anything ending in
+`pre`, `rc`, `alpha`, `beta`, `snapshot`, `milestone` or `dev` (with or
+without a trailing number) can't be the target, so one repo trying a
+pre-release doesn't put the whole org behind.
+
+- Buildscript target: the highest settings-plugin version. Only if no repo has
+  the plugin is it the highest legacy header.
+- Gradle target: the highest wrapper version.
+
+**Per repo:**
+
+```
+buildscript = none    no plugin and no header
+            = legacy  header only, while some repo has the plugin  → out of sync
+            = behind  plugin version < target                       → out of sync
+            = ok      otherwise (including ahead, or a pre-release)
+gradle      = none | behind (< target, out of sync) | ok
+```
+
+**Dependencies** are compared against the dependency's own repo, matched by
+name ignoring case. Its latest tag is the highest stable tag among the 15 newest
+by commit date, counting only tags shaped like the newest one (digits replaced
+by `#`). That stops an old naming scheme (`r1.8-321`) outranking the current
+one (`1.13.10-GTNH`).
+
+```
+dep = unknown  no repo by that name, no stable tag, or the version holds $ or + or no digit
+    = pinned   behind, but an admin pinned it for this repo
+    = behind   version < latest tag
+    = ok       otherwise
+```
+
+Deps only make a repo out of sync when *count dependencies* is ticked. It is
+off by default, because nearly every repo is behind on something and the deps
+would drown out the buildscript and Gradle gaps.
+
+**Counts:** the tab badge and the card's caption count out-of-sync repos after
+the card's repo exclusions and the toolbar filter. The *of N* in the caption is
+every repo with Gradle files in the scan.
+
+**Empty case:** before the first scan the card says nothing has been scanned.
+With every repo in sync it says so.
+
 ### Pull-request association
 
 Both panels ask whether a commit came through a PR (`needsRelease` wants ≥ 1
@@ -1972,6 +2036,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-09 | Build updates | New, for the Updates card on the Dream Panel. No existing figure moves. Buildscript and Gradle are compared with the highest stable version in the org; dependencies with the dependency repo's latest tag, and only count when asked. See **Build updates**. |
 | 2026-11-04 | Release rebuild status | New: each row released from Releases & Tags follows the release workflow's rebuild, from release and workflow_run webhooks. See **Release rebuild status**. |
 | 2026-11-04 | Needs a release on a branch, snapshot lines | New: rows on a non-default branch say whether they need a release, by the Needs a release rule applied to that branch, and start unticked when they don't. A snapshot's series is now always cut at the last number, since snapshots no longer choose a bump; every existing snapshot was saved with Patch, so no series moves. See **Needs a release on a branch** and **Snapshot lines**. |
 | 2026-11-04 | Predicted release tag, Needs a release | Release snapshots added. A row loaded from a snapshot counts from the snapshot's tag. For repos in a snapshot, master's last tag and the Needs a release card skip releases on the snapshot's line (in its series, not its base tag). Repos in no snapshot don't move. See **Snapshot lines**. |
