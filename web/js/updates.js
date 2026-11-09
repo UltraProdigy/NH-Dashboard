@@ -1,4 +1,4 @@
-import { API } from "./live.js";
+import { API, onUpdatesStamp } from "./live.js";
 import { state } from "./state.js";
 import { esc, fmt, repoLink, safeUrl } from "./format.js";
 import { applyFilter, renderTable, sortRows } from "./table.js";
@@ -14,6 +14,7 @@ let error = null;
 let loading = null;
 let fetchedAt = 0;
 let busy = false;
+let seen = null;
 let note = "";
 const pinning = new Set();
 const opened = new Set();
@@ -32,6 +33,10 @@ const remember = (key, on) => { try { localStorage.setItem(key, on ? "1" : "0");
 export function onUpdatesChange(fn) {
   redraw = fn;
 }
+
+onUpdatesStamp((at) => {
+  if (data && at && at !== seen && !busy) loadUpdates();
+});
 
 cardReposFrom("updates", () => (data?.scan?.repos ?? []).map((r) => r.name));
 
@@ -66,6 +71,7 @@ export function loadUpdates() {
     await null;
     try {
       data = await readBody(await fetch(`${API}/api/updates`, { cache: "no-store" }));
+      seen = data.stamp ?? null;
       error = null;
     } catch (err) {
       error = reachError(err);
@@ -85,6 +91,7 @@ async function scan() {
   redraw();
   try {
     data = await readBody(await fetch(`${API}/api/updates/scan`, { method: "POST", cache: "no-store" }));
+    seen = data.stamp ?? seen;
     fetchedAt = Date.now();
     error = null;
     const errs = data.scan?.errors?.length ?? 0;
@@ -109,6 +116,7 @@ async function pin(repo, dep, pinned) {
       body: JSON.stringify({ repo, dep, pinned }),
     }));
     data = { ...data, pins: body.pins };
+    seen = body.stamp ?? seen;
   } catch (err) {
     note = reachError(err);
   } finally {

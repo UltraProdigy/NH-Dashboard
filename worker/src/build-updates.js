@@ -5,6 +5,7 @@ import { latestTag, parseDeps, parseLegacyHeader, parseSettings, parseWrapper } 
 const SCAN_KEY = "build_updates";
 const PINS_KEY = "build_updates_pins";
 const LOCK_KEY = "build_updates_lock";
+const STAMP_KEY = "build_updates_at";
 const LOCK_MS = 3 * 60_000;
 const PAGE = 25;
 const MIN_PAGE = 3;
@@ -53,6 +54,26 @@ async function writeJson(db, key, value) {
     )
     .bind(key, JSON.stringify(value))
     .run();
+}
+
+async function stamp(db, now) {
+  const at = new Date(now).toISOString();
+  await db
+    .prepare(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+    )
+    .bind(STAMP_KEY, at)
+    .run();
+  return at;
+}
+
+async function readStamp(db) {
+  try {
+    return (await db.prepare("SELECT value FROM meta WHERE key = ?").bind(STAMP_KEY).first())?.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
 const dropKey = (db, key) => db.prepare("DELETE FROM meta WHERE key = ?").bind(key).run();
@@ -148,13 +169,14 @@ export async function scanOrg(env, { now = Date.now() } = {}) {
 }
 
 export async function updatesStatus(env, { now = Date.now() } = {}) {
-  const [scan, pins, lock] = await Promise.all([
+  const [scan, pins, lock, at] = await Promise.all([
     readJson(env.DB, SCAN_KEY, null),
     readPins(env.DB),
     readJson(env.DB, LOCK_KEY, null),
+    readStamp(env.DB),
   ]);
   const scanning = lock && now - Date.parse(lock.at) < LOCK_MS ? lock : null;
-  return { status: 200, body: { scan, pins, scanning } };
+  return { status: 200, body: { scan, pins, scanning, stamp: at } };
 }
 
 export async function runUpdatesScan(env, by, { now = Date.now() } = {}) {
@@ -170,8 +192,9 @@ export async function runUpdatesScan(env, by, { now = Date.now() } = {}) {
     scan.by = by;
     scan.ms = Date.now() - started;
     await writeJson(env.DB, SCAN_KEY, scan);
+    const at = await stamp(env.DB, Date.now());
     console.log(JSON.stringify({ at: "build-updates", by, repos: scan.repos.length, ms: scan.ms, errors: scan.errors.length }));
-    return { status: 200, body: { scan, pins: await readPins(env.DB), scanning: null } };
+    return { status: 200, body: { scan, pins: await readPins(env.DB), scanning: null, stamp: at } };
   } catch (err) {
     console.error(JSON.stringify({ at: "build-updates", by, error: String(err) }));
     return { status: 502, body: { error: `The scan couldn't read the org from GitHub: ${short(err)}` } };
@@ -191,5 +214,5 @@ export async function setPin(env, by, sent, { now = Date.now() } = {}) {
   if (sent.pinned) pins.push({ repo, dep, by, at: new Date(now).toISOString() });
   pins.sort((a, b) => a.repo.localeCompare(b.repo) || a.dep.localeCompare(b.dep));
   await writeJson(env.DB, PINS_KEY, pins);
-  return { status: 200, body: { pins } };
+  return { status: 200, body: { pins, stamp: await stamp(env.DB, Date.now()) } };
 }

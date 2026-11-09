@@ -958,6 +958,9 @@ const versionBody = await versionRes.json();
 check("carries checkedAt", versionBody.checkedAt, "2026-09-22T12:00:00.000Z");
 check("carries behind", versionBody.behind, ["analytics"]);
 check("still carries the version", typeof versionBody.version, "number");
+check("no Updates scan yet, no stamp", versionBody.updatesAt, null);
+raw.prepare("INSERT INTO meta (key, value) VALUES ('build_updates_at', '2026-11-09T15:00:00.000Z')").run();
+check("carries when the Updates card last changed", (await (await handleVersion({ DB: db })).json()).updatesAt, "2026-11-09T15:00:00.000Z");
 
 console.log("\n/api/search/facets is served from the cache");
 const getFacets = async () => {

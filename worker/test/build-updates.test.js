@@ -196,6 +196,9 @@ check("NEI's deps: StructureLib behind, its own entry fine, a variable unknown",
   "StructureLib:behind", "NotEnoughItems:behind", "GTNHLib:unknown",
 ]);
 check("the scan is cached with who ran it", (await updatesStatus(env)).body.scan.by, "admin@example.com");
+const stampAfterScan = raw.prepare("SELECT value FROM meta WHERE key = 'build_updates_at'").get()?.value;
+check("the scan stamps build_updates_at for open pages to notice", Boolean(stampAfterScan) && first.body.stamp === stampAfterScan, true);
+check("and the status hands the stamp back", (await updatesStatus(env)).body.stamp, stampAfterScan);
 check("and the lock is released", raw.prepare("SELECT COUNT(*) AS n FROM meta WHERE key = 'build_updates_lock'").get().n, 0);
 
 raw.prepare("INSERT INTO meta (key, value) VALUES ('build_updates_lock', ?)").run(JSON.stringify({ at: new Date().toISOString(), by: "other@example.com" }));
@@ -208,6 +211,7 @@ check("a stale lock doesn't block", (await runUpdatesScan(env, "admin@example.co
 console.log("\npins\n");
 const p1 = await setPin(env, "admin@example.com", { repo: "NotEnoughItems", dep: "StructureLib", pinned: true });
 check("pinning saves it", p1.body.pins.map((p) => `${p.repo}:${p.dep}`), ["NotEnoughItems:StructureLib"]);
+check("and stamps it too", raw.prepare("SELECT value FROM meta WHERE key = 'build_updates_at'").get()?.value, p1.body.stamp);
 await setPin(env, "admin@example.com", { repo: "NotEnoughItems", dep: "structurelib", pinned: true });
 check("pinning twice keeps one", (await updatesStatus(env)).body.pins.length, 1);
 const pinnedSum = summarize((await updatesStatus(env)).body.scan, { pins: (await updatesStatus(env)).body.pins, countDeps: true });

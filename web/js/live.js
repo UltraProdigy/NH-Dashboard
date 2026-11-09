@@ -137,10 +137,15 @@ let timer = null;
 let retries = 0;
 const MAX_RETRIES = 3;
 
+const stampListeners = [];
+
+export const onUpdatesStamp = (fn) => stampListeners.push(fn);
+
 async function getVersion() {
-  const { version, checkedAt, behind } = await getJSON("/api/version");
+  const { version, checkedAt, behind, updatesAt } = await getJSON("/api/version");
   state.checkedAt = checkedAt ?? null;
   state.behind = Array.isArray(behind) ? behind : [];
+  for (const fn of stampListeners) fn(updatesAt ?? null);
   return version;
 }
 
