@@ -4,6 +4,7 @@ import { esc, fmt, repoLink, safeUrl } from "./format.js";
 import { applyFilter, renderTable, sortRows } from "./table.js";
 import { cardReposFrom, exclControlsHtml, isExcludedRepo } from "./dream.js";
 import { summarize } from "./updates-calc.js";
+import { compareVersions } from "./release-tags.js";
 
 const STALE_MS = 5 * 60_000;
 const WATCH_MS = 5000;
@@ -205,13 +206,25 @@ function statusText(r) {
   return r.reasons.map((k) => `<span class="pill neutral">${names[k]}</span>`).join(" ");
 }
 
-const rank = { legacy: 2, behind: 1, ok: 0, none: -1 };
+const KIND = { legacy: 1, plugin: 2 };
+
+// Repos missing the thing sink to the bottom whichever way the column is sorted.
+function byVersion(pick) {
+  return (a, b, dir) => {
+    const x = pick(a), y = pick(b);
+    if (!x || !y) return (x ? 0 : 1) - (y ? 0 : 1);
+    return dir * ((KIND[x.kind] ?? 0) - (KIND[y.kind] ?? 0) || compareVersions(x.version, y.version)) || a.name.localeCompare(b.name);
+  };
+}
+
+const bsOf = (r) => r.buildscript;
+const gradleOf = (r) => (r.gradle ? { version: r.gradle } : null);
 
 function columns(expanded) {
   const cols = [
-    { key: "repo", label: "Repo", render: (r) => `${repoLink(r.name)}${r.fork ? ` <span class="pill draft">fork</span>` : ""}` },
-    { key: "buildscript", label: "Buildscript", get: (r) => rank[r.bsStatus], render: bsText },
-    { key: "gradle", label: "Gradle", get: (r) => rank[r.gradleStatus], render: gradleText },
+    { key: "repo", label: "Repo", get: (r) => r.name.toLowerCase(), render: (r) => `${repoLink(r.name)}${r.fork ? ` <span class="pill draft">fork</span>` : ""}` },
+    { key: "buildscript", label: "Buildscript", compare: byVersion(bsOf), render: bsText },
+    { key: "gradle", label: "Gradle", compare: byVersion(gradleOf), render: gradleText },
     { key: "deps", label: expanded ? "Dependencies" : "Deps behind", get: (r) => r.depsBehind, render: (r) => depsText(r, expanded) },
   ];
   if (expanded) cols.push({ key: "status", label: "Needs", get: (r) => r.reasons.length, sortable: true, render: statusText });

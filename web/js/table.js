@@ -134,6 +134,7 @@ function sortRows(rows, cols) {
   const { key, dir } = sortOf();
   if (!key) return rows;
   const col = cols.find(c => c.key === key);
+  if (col?.compare) return [...rows].sort((a, b) => col.compare(a, b, dir));
   const val = col?.get ?? (r => r[key]);
   return [...rows].sort((a, b) => {
     const x = val(a), y = val(b);
