@@ -1134,8 +1134,13 @@ so a page that's open when another admin scans or pins sees the new stamp on
 its next poll and reloads the card. That's one more row on a query the page was
 making anyway, and no extra request. There is no scheduled scan: it is only as
 fresh as the last Refresh, which is why its ring is the grey `manual` tier. A scan holds a lock (`build_updates_lock`) for up to
-three minutes, so two admins pressing at once get one scan and a message naming
-who started it. The scan runs under `waitUntil`, so it still finishes and drops
+three minutes. It is claimed in one upsert that only overwrites a lock older than
+that, so two presses landing together can't both get it: one scans, the other
+gets a 409 naming who started it. Claiming the lock also writes
+`build_updates_at`, so every open page learns a scan has started on its next
+poll. While one runs, Refresh is disabled on every page and reads *Scanning…*,
+with the name of whoever started it on other admins' pages, and those pages
+check every five seconds until it lands. The scan runs under `waitUntil`, so it still finishes and drops
 its lock if the tab is closed partway through.
 
 **The card** shows only the repos that are out of sync, ten at a time with *See
@@ -1147,6 +1152,13 @@ two checkboxes that are remembered per browser:
 - **count dependencies as out of sync** (off by default). Nearly every repo is
   behind on some dependency, so counting them would hide the buildscript and
   Gradle gaps. Dependencies are still listed either way.
+
+Buildscript and Gradle sort by version, not by status. The first click puts
+the newest at the top, and the second puts the oldest there. A legacy
+buildscript counts as older than any plugin version, and repos with no
+buildscript or no wrapper stay at the bottom whichever way the column is sorted.
+Ties go alphabetically. Columns can carry a `compare(a, b, dir)` for this,
+which `sortRows` in `table.js` uses in place of `get`.
 
 Each row's dependencies open to show every one that is behind, its version, and
 the dependency's latest tag linked to that release. **Pin** stops a dependency
