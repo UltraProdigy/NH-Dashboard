@@ -307,7 +307,7 @@ only for display. What actually protects a panel is the Worker refusing it.
 |---|---|
 | `/api/whoami` | Who you are and your role |
 | `/api/dashboard` | Every panel this role may read, from `panel_cache`, in one response |
-| `/api/version` | The version number the page polls |
+| `/api/version` | The version number the page polls, and when the Updates card last changed |
 | `/api/panel/:name` | One cached panel |
 | `/api/search`, `/api/search/facets` | Org Search |
 | `/api/contributor/:id`, `/api/repo/:id` | One drilldown subject |
@@ -1126,7 +1126,13 @@ none of those files (the website, the issue trackers).
 
 The result is cached in `meta` under `build_updates`, so no migration, and the
 card reads it from `GET /api/updates` on load and again after five minutes. It
-says when it was scanned and by whom. There is no scheduled scan: it is only as
+says when it was scanned and by whom.
+
+A scan and a pin also write `build_updates_at` to `meta`, and `/api/version`
+returns it as `updatesAt`. The page already polls that endpoint every minute,
+so a page that's open when another admin scans or pins sees the new stamp on
+its next poll and reloads the card. That's one more row on a query the page was
+making anyway, and no extra request. There is no scheduled scan: it is only as
 fresh as the last Refresh, which is why its ring is the grey `manual` tier. A scan holds a lock (`build_updates_lock`) for up to
 three minutes, so two admins pressing at once get one scan and a message naming
 who started it. The scan runs under `waitUntil`, so it still finishes and drops
