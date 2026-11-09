@@ -49,6 +49,7 @@
     "test:verify": "node --experimental-sqlite worker/test/verify.test.js",
     "test:daily": "node --experimental-sqlite worker/test/daily.test.js",
     "test:release-manager": "node --experimental-sqlite worker/test/release-manager.test.js",
+    "test:build-updates": "node --experimental-sqlite worker/test/build-updates.test.js",
     "test:rows-read": "node worker/test/rows-read.test.js"
   },
   "engines": {

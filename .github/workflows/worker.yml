@@ -73,6 +73,7 @@ jobs:
           npm run test:verify
           npm run test:daily
           npm run test:release-manager
+          npm run test:build-updates
           npm run test:freshness
 
       # Secrets are not touched. `wrangler deploy` uploads code and bindings;

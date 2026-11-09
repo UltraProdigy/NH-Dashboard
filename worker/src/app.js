@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release and Releases & Tags are refused to anyone who isn't on the admin team,
+ * release, Releases & Tags and the Updates scan are refused to anyone who isn't on the admin team,
  * whatever the page shows.
  */
 
@@ -20,6 +20,7 @@ import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
 import { deletePreview, deleteRun, releasePreview, releaseRun, releaseStatus, repoList } from "./release-manager.js";
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
+import { runUpdatesScan, setPin, updatesStatus } from "./build-updates.js";
 import {
   handleDashboard,
   handleFacets,
@@ -116,6 +117,28 @@ async function route(request, env, ctx, url, who) {
     const by = who.identity.email ?? who.identity.sub ?? "unknown";
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     const { status, body } = await action(sent, by, dryRun);
+    return json(body, status);
+  }
+
+  if (path === "/api/updates" || path.startsWith("/api/updates/")) {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (path === "/api/updates") {
+      if (request.method !== "GET") return json({ error: "GET only" }, 405);
+      const { status, body } = await updatesStatus(env);
+      return json(body, status);
+    }
+    if (path !== "/api/updates/scan" && path !== "/api/updates/pin") return json({ error: "not found" }, 404);
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    if (path === "/api/updates/pin") {
+      const { status, body } = await setPin(env, by, await request.json().catch(() => null));
+      return json(body, status);
+    }
+    // Kept alive past a closed tab, so a scan that's half done still lands and drops its lock.
+    const job = runUpdatesScan(env, by);
+    ctx?.waitUntil?.(job);
+    const { status, body } = await job;
     return json(body, status);
   }
 
