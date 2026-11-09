@@ -222,6 +222,7 @@ const DREAM_EXCL_KINDS = {
   needsRelease: ["repos"],
   depUpdates: ["repos"],
   byLabel: ["repos", "labels"],
+  updates: ["repos"],
 };
 
 /**
@@ -247,6 +248,7 @@ const DREAM_EXCL_DEFAULT = {
   },
   depUpdates: { repos: [], labels: [] },
   byLabel: { repos: [], labels: [] },
+  updates: { repos: [], labels: [] },
 };
 
 /**

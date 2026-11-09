@@ -40,6 +40,7 @@ import { releasesBody, syncReleases } from "./releases.js";
 import { overviewLead } from "./modules/overview.js";
 import { labelCount, labelModules } from "./modules/labels.js";
 import { keepScroll } from "./scroll.js";
+import { updatesCount } from "./updates.js";
 
 /* ==========================================================================
    Counts on tabs
@@ -55,6 +56,7 @@ function moduleCount(id) {
     return m.panelId === "byLabel" ? byLabelCount() : panelRows(m.panelId).length;
   }
   if (id in labelModules) return labelCount(id);
+  if (id === "updates") return updatesCount();
   if (id === "leaderboard") return contributorRows().length;
   if (id === "backlog") return A()?.backlog?.total ?? null;
   if (id === "iTriage") return I()?.triage?.open ?? null;
@@ -785,6 +787,7 @@ const TIERS = [
   ["cron", "live", "Recomputed by the Worker every 10 minutes"],
   ["hourly", "hourly", "Recomputed by the Worker at most once an hour"],
   ["build", "built", "From the last Actions build — no live source yet"],
+  ["manual", "on refresh", "Read from GitHub when an admin presses Refresh"],
   ["down", "down", "Should be live; the API did not answer, so these are build-old"],
 ];
 

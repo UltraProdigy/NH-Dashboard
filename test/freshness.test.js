@@ -264,8 +264,8 @@ console.log(`\nevery card: ${ids.length} of them\n`);
 
 // A card with no resolvable panel gets no border at all, which reads as "this
 // is fine" and is the quietest of the four failures. The `dream` page has no
-// PAGE_PANEL entry and survives only because all five of its cards carry a
-// panelId; a sixth added without one would land here.
+// PAGE_PANEL entry: five of its cards carry a panelId and Updates names its own
+// tier, so a card added with neither would land here.
 //
 // A card either reads a panel or declares its own tier. Org Search is the only
 // one doing the second — it queries the tables per request, so there is no
@@ -277,7 +277,8 @@ check("every card resolves to a panel or names its own tier", untinted.length ==
       untinted.join(", "));
 
 const selfTiered = ids.filter((id) => MODULES[id].tier);
-check("only Org Search names its own", selfTiered.join() === "find", selfTiered.join(", "));
+check("only Org Search and Updates name their own", selfTiered.sort().join() === "find,updates", selfTiered.join(", "));
+check("Updates reports one", ["manual", "down"].includes(MODULES.updates.tier()), String(MODULES.updates.tier()));
 check("and it reports one", ["direct", "down"].includes(MODULES.find.tier()),
       String(MODULES.find.tier()));
 

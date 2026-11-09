@@ -53,8 +53,15 @@ function exclOf(panelId) {
    today, and a list that only offers what's currently on screen can't be told
    about them until the morning they show up. */
 
+const cardRepoSources = {};
+
+function cardReposFrom(panelId, fn) {
+  cardRepoSources[panelId] = fn;
+}
+
 /** Bare repo names appearing on one card, unfiltered. */
 function panelRepos(panelId) {
+  if (cardRepoSources[panelId]) return cardRepoSources[panelId]();
   const p = panel(panelId);
   if (!p?.ok) return [];
   const lists = panelId === "byLabel" ? Object.values(p.data) : [p.data];
@@ -106,6 +113,8 @@ const isExcludedRow = (panelId, r) => {
   return ex.repos.includes(bareRepo(r.repo)) ||
     (r.labels ?? []).some(l => ex.labels.includes(l.name));
 };
+
+const isExcludedRepo = (panelId, repo) => exclOf(panelId).repos.includes(bareRepo(repo));
 
 /** Tracked labels the By-label columns can be set to — excluded ones drop out. */
 const visibleLabels = () => {
@@ -490,9 +499,11 @@ export {
   addLabelColumn,
   byLabelCount,
   byLabelHtml,
+  cardReposFrom,
   clearExclusions,
   exclControlsHtml,
   exclPopHtml,
+  isExcludedRepo,
   labelCardControlsHtml,
   loadExclusions,
   loadLabels,

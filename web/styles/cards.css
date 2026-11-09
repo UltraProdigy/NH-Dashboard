@@ -156,6 +156,7 @@
 .card.fresh-cron    { --fresh: var(--accent); }
 .card.fresh-hourly  { --fresh: var(--purple); }
 .card.fresh-build   { --fresh: var(--warn); }
+.card.fresh-manual  { --fresh: var(--muted); }
 
 /* Red carries a little more weight than the other three. They are ambient
    state on every card at once; this one is something that is wrong. */

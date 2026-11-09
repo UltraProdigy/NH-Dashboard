@@ -7,6 +7,7 @@ import { readRoute } from "./router.js";
 import { applyTheme } from "./theme.js";
 import { collapseBtn } from "./events.js";
 import { API, primeLive, setRole, startPolling } from "./live.js";
+import { onUpdatesChange } from "./updates.js";
 
 if (localStorage.getItem("nh:collapsed") === "1") {
   document.body.classList.add("collapsed");
@@ -45,6 +46,7 @@ try {
   loadExclusions();
   loadLabels();
   readRoute();
+  onUpdatesChange(render);
   render();
 
   startPolling(render, renderMeta);

@@ -4,6 +4,7 @@ import {
   exclControlsHtml,
   labelCardControlsHtml,
 } from "../dream.js";
+import { updatesControlsHtml, updatesHtml, updatesSubHtml, updatesTier } from "../updates.js";
 
 /* The filters live in each card's header rather than the page toolbar: they
    hide rows from that one card, and a control sitting above a grid of four
@@ -52,5 +53,12 @@ export const dreamModules = {
     // it's showing.
     render: (expanded) => byLabelHtml(expanded),
     controlsHtml: () => exclControlsHtml("byLabel", labelCardControlsHtml()),
+  },
+  updates: {
+    page: "dream", label: "Updates", span: 12, flush: true, controls: ["filter"],
+    tier: () => updatesTier(),
+    subHtml: () => updatesSubHtml(),
+    render: (expanded) => updatesHtml(expanded),
+    controlsHtml: () => updatesControlsHtml(),
   },
 };
