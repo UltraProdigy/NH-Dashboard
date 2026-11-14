@@ -64,6 +64,7 @@ jobs:
         run: |
           npm run test:handlers
           npm run test:event-log
+          npm run test:relay
           npm run test:label-plan
           npm run test:label-sync
           npm run test:app
@@ -87,6 +88,7 @@ jobs:
         working-directory: worker
         run: |
           npx wrangler deploy
+          npx wrangler deploy -c wrangler.relay.toml
           npx wrangler deploy -c wrangler.app.toml
 
       # A deploy that uploads and then answers 500 is worse than a failed one,
