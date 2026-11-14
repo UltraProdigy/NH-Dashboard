@@ -1,0 +1,23 @@
+name = "nh-discord-relay"
+main = "src/relay.js"
+compatibility_date = "2026-08-29"
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "DiscordRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DiscordRelay"]
+
+# Secrets, set with `wrangler secret put <NAME> -c wrangler.relay.toml`:
+#
+#   GITHUB_WEBHOOK_SECRET   the org webhook's secret
+#   DISCORD_WEBHOOK_URL     the Discord webhook URL, with or without /github
+#
+# The app Worker binds DiscordRelay from here, so this one deploys first.
