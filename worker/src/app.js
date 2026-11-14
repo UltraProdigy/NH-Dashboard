@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release, Releases & Tags and the Updates scan are refused to anyone who isn't on the admin team,
+ * release, Releases & Tags, the Updates scan and the GitHub Webhook rules are refused to anyone who isn't on the admin team,
  * whatever the page shows.
  */
 
@@ -21,6 +21,7 @@ import { dailyStatus, releaseDaily } from "./daily-release.js";
 import { deletePreview, deleteRun, releasePreview, releaseRun, releaseStatus, repoList } from "./release-manager.js";
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
 import { runUpdatesScan, setPin, updatesStatus } from "./build-updates.js";
+import { previewWebhookRules, saveWebhookRules, webhookState } from "./webhook-admin.js";
 import {
   handleDashboard,
   handleFacets,
@@ -139,6 +140,28 @@ async function route(request, env, ctx, url, who) {
     const job = runUpdatesScan(env, by);
     ctx?.waitUntil?.(job);
     const { status, body } = await job;
+    return json(body, status);
+  }
+
+  if (path === "/api/webhook" || path.startsWith("/api/webhook/")) {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (!env.DISCORD_RELAY) return json({ error: "relay not bound" }, 503);
+    if (path === "/api/webhook") {
+      if (request.method !== "GET") return json({ error: "GET only" }, 405);
+      const { status, body } = await webhookState(env);
+      return json(body, status);
+    }
+    if (!["/api/webhook/rules", "/api/webhook/preview", "/api/webhook/hook"].includes(path)) return json({ error: "not found" }, 404);
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    if (path === "/api/webhook/hook") {
+      const { status, body } = await webhookState(env, { forceHook: true });
+      return json(body, status);
+    }
+    const sent = await request.json().catch(() => null);
+    const { status, body } = path === "/api/webhook/rules"
+      ? await saveWebhookRules(env, who.identity.email ?? who.identity.sub ?? "unknown", sent)
+      : await previewWebhookRules(env, sent);
     return json(body, status);
   }
 

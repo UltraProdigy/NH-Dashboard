@@ -28,6 +28,12 @@ name = "PERMISSIONS"
 class_name = "Permissions"
 script_name = "nh-dashboard"
 
+# Lives in nh-discord-relay, so that one has to deploy first too.
+[[durable_objects.bindings]]
+name = "DISCORD_RELAY"
+class_name = "DiscordRelay"
+script_name = "nh-discord-relay"
+
 # ACCESS_AUD is the Access application's AUD tag. Set it as a secret in the
 # Cloudflare dashboard (or `wrangler secret put ACCESS_AUD -c wrangler.app.toml`)
 # so it survives deploys. Until it is set, every /api/ request is refused.
