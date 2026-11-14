@@ -1983,6 +1983,47 @@ baseline. A change is logged when:
 A row a webhook patched after the read started is kept as patched and not
 diffed, so a change landing mid-read isn't logged as being undone.
 
+## GitHub Webhook
+
+On screen: the Relay card and the Result column on the GitHub Webhook page.
+
+### Relay counts
+
+`statusCard()` in `web/js/webhook.js`, over the deliveries the relay's Durable
+Object keeps (the newest 500).
+
+| Field | Meaning |
+|---|---|
+| **Last 24 hours** | Logged deliveries whose `at` is within 24 hours of now. Pings aren't logged |
+| **Sent to Discord** | Of those, the ones the rules let through, whatever Discord answered |
+| **Dropped** | Received minus sent |
+| **Discord errors** | Sent ones whose Discord answer is anything but a 2xx, once it has one. A delivery still `pending` doesn't count |
+| **Empty case** | Zeros, and "none" for the last delivery |
+
+Past 500 deliveries a day the 24-hour figures undercount, because the oldest
+have been trimmed.
+
+### Delivery decision
+
+`decider` in `worker/src/relay-rules.js`, run by the relay on every delivery and
+by the app Worker for the unsaved-changes preview. The first rule that matches
+is the reason; anything no rule matches is sent:
+
+```
+repo unticked → event off → action off → sender excluded → bot
+  → not the default branch → sent
+```
+
+- The event and action checks use the repo's own list when it has one, and the
+  default list otherwise; never both. Their reasons get "for repo" added when it
+  was the repo's own list.
+- Repo names are compared exactly, ignoring case.
+- A PR `closed` with `merged` set is action `merged`.
+- **bot** is `sender.type === "Bot"` or `BOT_PATTERN` on the login. Unlike
+  `isBot`, a missing login is not a bot here.
+- **not the default branch** only applies to `push` to a `refs/heads/` ref, so a
+  tag push never matches it.
+
 ## Known biases and blind spots
 
 **Toward flattery**
@@ -2036,6 +2077,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-14 | Relay counts, delivery decision | New, for the GitHub Webhook page. No existing figure moves. Repos are a tick list rather than patterns, a repo can have its own event list that replaces the default one, and there's no private-repo rule. See **GitHub Webhook**. |
 | 2026-11-09 | Build updates | New, for the Updates card on the Dream Panel. No existing figure moves. Buildscript and Gradle are compared with the highest stable version in the org; dependencies with the dependency repo's latest tag, and only count when asked. See **Build updates**. |
 | 2026-11-04 | Release rebuild status | New: each row released from Releases & Tags follows the release workflow's rebuild, from release and workflow_run webhooks. See **Release rebuild status**. |
 | 2026-11-04 | Needs a release on a branch, snapshot lines | New: rows on a non-default branch say whether they need a release, by the Needs a release rule applied to that branch, and start unticked when they don't. A snapshot's series is now always cut at the last number, since snapshots no longer choose a bump; every existing snapshot was saved with Patch, so no series moves. See **Needs a release on a branch** and **Snapshot lines**. |

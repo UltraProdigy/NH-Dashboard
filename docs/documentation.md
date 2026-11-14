@@ -196,19 +196,20 @@ checks it is.
 
 ### Deploying the Workers
 
-There are two Workers on the one D1 database:
+There are two Workers on the one D1 database, and a third that doesn't use it:
 
 | Worker | Config | Serves | Behind Access |
 |---|---|---|---|
 | `nh-dashboard` | `worker/wrangler.toml`, `src/index.js` | `/webhook`, the cron recompute, `/api/health` | No |
 | `nh-dashboard-app` | `worker/wrangler.app.toml`, `src/app.js` | `web/` as static files, and the read API under `/api/` | Yes |
+| `nh-discord-relay` | `worker/wrangler.relay.toml`, `src/relay.js` | The org webhook on its way to Discord (see **GitHub Webhook**) | No |
 
 They're split because GitHub's webhooks can't log in, and Cloudflare's Access
 for Workers covers every hostname a Worker has. So the webhook Worker serves no
 dashboard data at all, only row counts on `/api/health`, and everything a person
 reads comes from the app Worker.
 
-`.github/workflows/worker.yml` deploys both on any push to `main` touching
+`.github/workflows/worker.yml` deploys all three on any push to `main` touching
 `worker/**`, `src/shared/**`, `web/**` or the lockfile. It runs the
 self-contained suites first (handlers, app, csp, recompute, backfill-prs,
 freshness), then `wrangler deploy` for each Worker, then two checks:
@@ -234,6 +235,10 @@ Verify button. It must be the PKCS#8 file (`nh-dashbot-pk8.pem`), pasted whole.
 that the cached panels hide. Set secrets with `wrangler secret put NAME` (add
 `-c wrangler.app.toml` for the app) or in the Cloudflare dashboard; they
 survive deploys.
+
+`nh-discord-relay` has its own two, `GITHUB_WEBHOOK_SECRET` (the org webhook's,
+not the App's) and `DISCORD_WEBHOOK_URL`, and deploys between the other two
+because the app binds its Durable Object.
 
 ### Login and roles
 
@@ -2906,6 +2911,163 @@ first snapshot lands on the first tick after the deploy.
 against a SQLite shim, the diff, every webhook patch, the mid-read race, the
 repo invite rotation and the effective-access calculation. `npm run test:app`
 covers the route's refusals.
+
+## GitHub Webhook
+
+Under Admin Resources, after Permissions. Decides which GitHub events reach the
+Discord channel. The org-level webhook posts to a relay Worker instead of
+straight to Discord; the relay drops whatever the rules say to drop and passes
+the rest to Discord's `/github` endpoint byte for byte, so the messages look
+exactly as they did when GitHub posted to Discord directly. Admin-only, like
+the rest of Admin Resources.
+
+The plan, with what was decided and why, is the "GitHub Webhook Plan" project
+doc.
+
+### The rules
+
+Anything a rule doesn't mention is sent. A new repo, or a new action on an
+event the webhook already sends, reaches Discord until someone turns it off.
+
+| Rule | Drops |
+|---|---|
+| Repos | Everything from a repo that's unticked. Stored as the list of unticked names, so a repo created later starts ticked |
+| Events | An event that's unticked, or one of its actions that's switched off. A merged PR counts as action `merged`, not `closed`, so merges and unmerged closes can be split |
+| A repo's own events | A repo can have its own event list. It **replaces** the default list for that repo; the default doesn't apply to it at all |
+| Excluded senders | Deliveries sent by these logins, any case |
+| Drop bots | Senders with `type: Bot` or a login matching `BOT_PATTERN` |
+| Pushes | `push` to anything but the default branch, when set to default branch only. Tag pushes always pass this rule |
+
+They're checked in that order and the first one that matches is the reason
+recorded. Repo names are matched exactly and ignore case. Events with no
+repository (org-level ones) only go through the default events, senders and
+bots. The logic is `decider` in `worker/src/relay-rules.js`.
+
+### Which events are listed
+
+Only the events the org webhook is subscribed to. Anything else never reaches
+the relay, so there's nothing to filter. The subscription is read three ways,
+best first:
+
+1. **From GitHub.** The app Worker reads the hook with NH-Dashbot
+   (`GET /orgs/{org}/hooks/{id}`, the id coming from the `X-GitHub-Hook-ID` of
+   any delivery, or by finding the hook whose URL contains `nh-discord-relay`).
+   This needs NH-Dashbot to have **Organization permissions → Webhooks:
+   Read-only**; without it the page says so. It's re-read on a page load at
+   most every 10 minutes (`HOOK_TTL_MS`), or straight away with **Re-read**.
+2. **From the ping.** GitHub's `ping` carries the hook's event list, and the
+   relay keeps it. A re-read that fails keeps whatever was last known.
+3. **Neither.** Every event in `web/js/webhook-catalog.js` plus anything seen in
+   the log is listed, and the same when the hook sends everything (`*`).
+
+A rule for an event the webhook has since stopped sending stays, marked "not
+subscribed", so it can be cleared. Actions come from the catalog plus whatever
+has been seen.
+
+### The page
+
+- **Relay**: when the last delivery came in, the last 24 hours received, sent,
+  dropped and failed at Discord, and where the event list came from.
+- **Repos**: every non-archived repo in the org (from `/api/releases/repos`),
+  plus any seen in the log or named in the rules that aren't in that list any
+  more, marked "gone". A tick box each, a filter box, All / Sending / Unticked /
+  Own events, and Tick shown / Untick shown for whatever the filter leaves.
+- **Events**: the default list. A repo's **Events** button switches this card
+  to that repo; the first change there gives it its own list, starting as a copy
+  of the default. **Use the default events** removes it again.
+- **Senders & branches**: the sender list, Drop bots and the push branch rule,
+  for every repo.
+- **Recent deliveries**: the last 500 deliveries with what happened to each:
+  sent, dropped and why, or the status Discord answered with. Hovering a row
+  gives **Untick repo**, **Drop action** (default list) and **…for this repo**
+  (that repo's own list).
+
+Nothing applies until **Save**. While there are unsaved changes the deliveries
+list shows what they would do to each delivery (`sent → would drop · bot`), and
+**Would change** filters it down to just those. The preview is computed by the
+app Worker against the log with the same `decider` the relay runs.
+
+A save carries the `updatedAt` it started from. If someone else saved in
+between it's refused with a 409, their rules are loaded, and the change has to
+be made again rather than silently overwriting theirs.
+
+### Where it lives
+
+A third Worker, `nh-discord-relay` (`worker/wrangler.relay.toml`,
+`src/relay.js`), with a Durable Object, `DiscordRelay`, holding the rules, the
+hook's event list and the log. There is one instance, named `discord-relay`.
+The app Worker binds it by `script_name` as `DISCORD_RELAY`, like `EVENT_LOG`.
+
+Per delivery the relay:
+
+1. Verifies `X-Hub-Signature-256` with the same `verifySignature` as the
+   webhook Worker (`src/signature.js`).
+2. Asks the object to decide. It applies the rules, records the delivery and
+   the reason, and answers. Rules are read from the object on every delivery,
+   so a save applies from the next one.
+3. On send, POSTs GitHub's raw body with `X-GitHub-Event`, `X-GitHub-Delivery`
+   and GitHub's `User-Agent` to `DISCORD_WEBHOOK_URL` + `/github`. A rate limit
+   of 4 seconds or less is waited out and retried once.
+4. Records Discord's status on the entry through `waitUntil`.
+
+**It fails open.** If the object can't be reached, the delivery is sent anyway
+and logged by Workers Logs only. That's the behaviour from before the relay,
+which is the safer of the two ways to be wrong.
+
+**A Discord failure is a GitHub failure.** When Discord refuses (or rate-limits
+for longer than the relay will wait) the relay answers GitHub with a 502, so the
+delivery shows as failed on the org webhook's Recent Deliveries page and can be
+redelivered from there. Nothing redelivers them automatically.
+
+It's separate from the `nh-dashboard` webhook Worker on purpose: a dashboard
+deploy or a D1 problem can't stop the Discord feed. It doesn't use D1 at all, so
+it can't stamp a table or cost anything against the rows-read budget. The
+object keeps the newest 500 deliveries (`KEEP_DELIVERIES`) and trims on every
+insert.
+
+### The API
+
+All of these refuse anyone not on the admin team, and the POSTs need the
+dashboard's own `Origin`.
+
+| Route | Does |
+|---|---|
+| `GET /api/webhook` | Rules, who saved them and when, the hook's event list, and the log, newest first. Re-reads the hook from GitHub when the last read is over 10 minutes old |
+| `POST /api/webhook/hook` | Re-reads the hook from GitHub now, and returns the same as the GET |
+| `POST /api/webhook/preview` | `{ rules }` → what each logged delivery would get under them. Saves nothing |
+| `POST /api/webhook/rules` | `{ rules, base }` → saves, signed with the Access email. 409 if `base` is stale |
+
+Rules are normalised on the way in (`normalizeRules`): unknown fields, bad
+repo, event or action names and empty entries are dropped, so the stored shape
+is always the one `decider` expects.
+
+### Setting it up
+
+1. Deploy the relay before the app, since the app's binding points at its
+   class: `npx wrangler deploy -c wrangler.relay.toml` from `worker/`.
+   `worker.yml` deploys in that order.
+2. Set its two secrets with `wrangler secret put NAME -c wrangler.relay.toml`:
+   `GITHUB_WEBHOOK_SECRET` (a new value, also pasted into the org webhook) and
+   `DISCORD_WEBHOOK_URL` (the Discord URL the org webhook uses today, with or
+   without `/github`; a `?thread_id=` is kept).
+3. Deploy the app Worker.
+4. Give NH-Dashbot **Organization permissions → Webhooks: Read-only** in the
+   App's settings (an org owner approves it), so the page can read the hook's
+   event list.
+5. In the org's Settings → Webhooks, edit the Discord webhook: payload URL
+   `https://nh-discord-relay.gtnh.workers.dev/`, content type
+   `application/json`, the same secret. Leave its events as they are.
+6. Deliveries start appearing on the page. With no rules saved, everything is
+   sent.
+
+To roll back, put the Discord URL back on the org webhook.
+
+### Testing
+
+`npm run test:relay` covers the rules (repo overrides included), the object
+(logging, trimming, the hook's event list, the 409), forwarding and the
+rate-limit retry, failing open, reading the hook from GitHub, and the API's
+refusals and preview, against a SQLite shim, a fake GitHub and a fake Discord.
 
 ## Org Search
 
