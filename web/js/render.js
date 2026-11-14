@@ -37,6 +37,7 @@ import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
 import { permissionsBody, syncPermissions } from "./permissions.js";
 import { releasesBody, syncReleases } from "./releases.js";
+import { syncWebhook, webhookBody } from "./webhook.js";
 import { overviewLead } from "./modules/overview.js";
 import { labelCount, labelModules } from "./modules/labels.js";
 import { keepScroll } from "./scroll.js";
@@ -869,6 +870,7 @@ function render() {
     else if (state.page === "logs") view.innerHTML = logsBody();
     else if (state.page === "permissions") view.innerHTML = permissionsBody();
     else if (state.page === "releases") view.innerHTML = releasesBody();
+    else if (state.page === "webhook") view.innerHTML = webhookBody();
     else view.innerHTML = pageBody();
   };
   if (where === shown) keepScroll(view, paint);
@@ -877,6 +879,7 @@ function render() {
   syncLogs(state.page === "logs", renderMeta);
   syncPermissions(state.page === "permissions");
   syncReleases(state.page === "releases");
+  syncWebhook(state.page === "webhook");
 
   // After the view, never before: the popup is positioned against a button
   // that only exists once the cards have been written out.
