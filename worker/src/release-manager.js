@@ -92,6 +92,7 @@ export async function repoList(env) {
       defaultBranch: r.default_branch ?? null,
       pushedAt: r.pushed_at ?? null,
       fork: Boolean(r.fork),
+      private: Boolean(r.private),
       properties: values?.get(r.name) ?? r.custom_properties ?? {},
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
