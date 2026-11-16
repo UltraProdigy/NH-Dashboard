@@ -4,6 +4,10 @@ import { KEEP_PER_BOX } from "./log-boxes.js";
 import {
   adminRows, directRows, indexSnapshot, LEVELS, personAccess, problems, rank, repoAccess, repoTeams, teamAncestors, teamRows,
 } from "./permissions-calc.js";
+import { describe, keyOf, TEAM_ROLES, validLogin, validTeamName } from "./permission-changes.js";
+import {
+  configureApply, flagsOf, ownerOnly, paintTray, stage, stagedFor, stagedList, syncApply, trayClick, trayMarkup, unstage,
+} from "./permission-apply.js";
 import { keepScroll } from "./scroll.js";
 
 const REFRESH_MS = 60_000;
@@ -71,9 +75,9 @@ function repoList(ids, max = 3) {
   return sorted.length > max ? `${head} <span class="sub">+${sorted.length - max} more</span>` : head;
 }
 
-function card(title, sub, body, { span = 6, cls = "" } = {}) {
+function card(title, sub, body, { span = 6, cls = "", extra = "" } = {}) {
   return `<section class="card perm-card ${cls}" style="--span:${span}">
-    <header><h2>${esc(title)}</h2>${sub ? `<span class="sub">${sub}</span>` : ""}</header>
+    <header><h2>${esc(title)}</h2>${sub ? `<span class="sub">${sub}</span>` : ""}${extra}</header>
     <div class="body flush">${body}</div>
   </section>`;
 }
@@ -90,9 +94,14 @@ function orgCard() {
   const repos = Object.values(data.repos);
   const archived = repos.filter((r) => r.archived).length;
   const base = data.org.base ?? "unknown";
-  const ownerNote = data.viewer?.ownerEdits
-    ? ""
-    : `<p class="hint perm-note">Owners and the base permission can only be changed by org owners, and those edits stay off until the dashboard can tell who's an owner.</p>`;
+  const v = data.viewer ?? {};
+  const notes = [
+    v.ownerCheck === "not set" ? "Owner-only edits (owners, and the admin team itself) are off for everyone until ORG_OWNER_EMAILS is set on the app Worker." : "",
+    v.ownerCheck === "emails" && !v.ownerEdits ? "Owners, and the admin team itself, can only be changed by org owners." : "",
+    v.ownerMismatch ? `ORG_OWNER_EMAILS lists ${plural(v.ownerMismatch.listed, "email")}, but the org has ${plural(v.ownerMismatch.owners, "owner")}. Bring it up to date so owner-only edits go to the right people.` : "",
+    v.canApply === false ? "Org-Manager's key isn't set on the app Worker, so changes can be staged but not applied." : "",
+  ].filter(Boolean);
+  const ownerNote = notes.map((n) => `<p class="hint perm-note">${esc(n)}</p>`).join("");
   const fact = (label, value, extra = "") => `<div class="perm-fact"><span class="sub">${esc(label)}</span><strong>${value}</strong>${extra}</div>`;
   return `<section class="card perm-card perm-org" style="--span:12">
     <header><h2>Org level</h2><span class="sub">${esc(data.org.login ?? "")}</span>
@@ -100,7 +109,7 @@ function orgCard() {
     <div class="body">
       <div class="perm-facts">
         <div class="perm-fact perm-owners"><span class="sub">Owners</span><div class="perm-people">${owners.map(personRef).join("") || "—"}</div></div>
-        ${fact("Base permission", esc(base), `<span class="sub">${base === "none" ? "members get no repo access just for being members" : "every member has this on every repo"}</span>`)}
+        ${fact("Base permission", esc(base), `<span class="sub">${base === "none" ? "members get no repo access just for being members" : "every member has this on every repo"}; changed on GitHub, not here</span>`)}
         ${fact("Members", members.length.toLocaleString())}
         ${fact("Outside collaborators", outside.toLocaleString())}
         ${fact("Teams", Object.keys(data.teams).length.toLocaleString())}
@@ -169,7 +178,8 @@ function teamsCard() {
     </tr>`;
   });
   return card("Teams overview", `${plural(rows.length, "team")} · child teams count what they inherit`,
-    table(["Team", "Members", ...LEVELS.slice().reverse().map((l) => l[0].toUpperCase() + l.slice(1))], html, "No teams."));
+    table(["Team", "Members", ...LEVELS.slice().reverse().map((l) => l[0].toUpperCase() + l.slice(1))], html, "No teams."),
+    { extra: `<button type="button" class="ghost mini perm-ext" data-new-team>New team</button>` });
 }
 
 function problemsCard() {
@@ -201,12 +211,13 @@ function changesCard() {
     return `<li class="log-row${e.tone ? ` tone-${esc(e.tone)}` : ""}">
       <time datetime="${esc(e.at)}" title="${esc(new Date(e.at).toLocaleString())}">${esc(when(e.at))}</time>
       <span class="log-what">${e.repo ? `<span class="log-repo">${repoByName(e.repo) ? opener("repo", repoByName(e.repo).id, esc(e.repo)) : esc(e.repo)}</span>` : ""}${
-        e.via ? `<span class="log-actor log-via" title="Found by the 10-minute check, not a webhook">${esc(e.via)}</span>`
-          : e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
+        e.via === "dashboard" ? `<span class="log-actor">${esc(e.actor)}</span><span class="log-actor log-via" title="Made from this page, by Org-Manager">via dashboard</span>`
+          : e.via ? `<span class="log-actor log-via" title="Found by the 10-minute check, not a webhook">${esc(e.via)}</span>`
+            : e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
     </li>`;
   };
   const count = rows.length >= KEEP_PER_BOX ? `latest ${KEEP_PER_BOX}` : plural(rows.length, "change");
-  return card("Recent changes", `${count} · from webhooks and the 10-minute check`,
+  return card("Recent changes", `${count} · from webhooks, the 10-minute check and this page`,
     `<ol class="log-rows perm-changes">${rows.length ? rows.map(row).join("") : `<li class="log-empty">No access changes since the snapshot started.</li>`}</ol>`,
     { span: 12 });
 }
@@ -347,6 +358,125 @@ const ptable = (head, rows, empty) => rows.length
   ? `<table class="perm-ptable"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`
   : `<p class="sub perm-none">${esc(empty)}</p>`;
 
+/* ---- editing ---- */
+
+const same = (a, b) => (a ?? null) === (b ?? null);
+const showValue = (v) => (v == null ? "none" : v === true ? "archived" : v === false ? "not archived" : String(v));
+const teamRefOf = (t) => ({ id: t.id, slug: t.slug, name: t.name });
+const repoRefOf = (r) => ({ id: r.id, name: r.name });
+const nameOfTeam = (id) => teamOf(id)?.name ?? `team ${id}`;
+const loginIn = (obj, login) => Object.keys(obj ?? {}).find((k) => k.toLowerCase() === login.toLowerCase()) ?? null;
+const valueIn = (obj, login) => {
+  const k = loginIn(obj, login);
+  return k == null ? null : obj[k] ?? "unknown";
+};
+const LEVEL_OPTIONS = [...LEVELS.map((l) => [l, l]), [null, "remove"]];
+const ROLE_OPTIONS = [...TEAM_ROLES.map((r) => [r, r]), [null, "remove"]];
+
+function editSelect(base, current, options, label) {
+  const key = keyOf(base);
+  const st = stagedFor(key);
+  const value = st ? st.to : current;
+  const locked = ownerOnly(base, data);
+  const unknown = current === "unknown" && !st ? `<option value="unknown" selected disabled>?</option>` : "";
+  const opts = options.map(([v, text]) => `<option value="${esc(v ?? "")}"${!unknown && same(v, value) ? " selected" : ""}>${esc(text)}</option>`).join("");
+  return `<span class="perm-edit${st ? " is-staged" : ""}"><select class="perm-sel" aria-label="${esc(label)}" data-edit="${esc(JSON.stringify({ ...base, from: current }))}"${
+    locked ? ` disabled title="Only an org owner can change this"` : ""}>${unknown}${opts}</select>${
+    st ? `<button type="button" class="perm-undo" data-unstage="${esc(key)}" title="Was ${esc(showValue(st.from))}">undo</button>` : ""}</span>`;
+}
+
+const removing = (base) => (stagedFor(keyOf(base))?.to === null && base.kind !== "archived" ? ` class="perm-removing"` : "");
+
+function stagedHere(match) {
+  const list = stagedList().filter(match);
+  if (!list.length) return "";
+  return section("Staged here", String(list.length), `<ul class="perm-plist perm-staged-list">${list.map((c) => {
+    const f = flagsOf(c, data);
+    return `<li><span>${esc(describe(c, { teamName: nameOfTeam }))}</span>${f.invite ? ` <span class="pill neutral">invite</span>` : ""}${
+      f.blocked ? ` <span class="pill perm-blocked">${f.blocked.startsWith("only") ? "owner only" : "gone"}</span>` : ""}
+      <button type="button" class="perm-undo" data-unstage="${esc(keyOf(c))}">undo</button></li>`;
+  }).join("")}</ul><p class="sub perm-none">Nothing changes on GitHub until the batch is applied from the tray at the bottom.</p>`);
+}
+
+const options = (list, selected) => list.map(([v, text]) => `<option value="${esc(v)}"${String(v) === String(selected) ? " selected" : ""}>${esc(text)}</option>`).join("");
+
+function addForm(kind, base, inner, button = "Stage", locked = false) {
+  return `<form class="perm-add" data-add="${esc(kind)}" data-base="${esc(JSON.stringify(base))}">${inner}
+    <button type="submit" class="ghost mini"${locked ? ` disabled title="Only an org owner can change this"` : ""}>${esc(button)}</button>
+    <span class="perm-add-err sub" aria-live="polite"></span></form>`;
+}
+
+const teamPicker = (exclude = () => false) => `<select name="team" class="perm-sel" aria-label="Team"><option value="">Team…</option>${
+  Object.values(data.teams).filter((t) => !exclude(t)).sort((a, b) => a.name.localeCompare(b.name)).map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select>`;
+const levelPicker = (name = "level", picked = "read") => `<select name="${name}" class="perm-sel" aria-label="Level">${options(LEVELS.map((l) => [l, l]), picked)}</select>`;
+const rolePicker = () => `<select name="role" class="perm-sel" aria-label="Role">${options(TEAM_ROLES.map((r) => [r, r]), "member")}</select>`;
+const repoInput = () => `<input name="repo" class="perm-input" list="perm-repos" placeholder="Repo" aria-label="Repo" autocomplete="off" spellcheck="false">`;
+const loginInput = () => `<input name="login" class="perm-input" list="perm-people" placeholder="GitHub login" aria-label="GitHub login" autocomplete="off" spellcheck="false">`;
+
+function descendantIds(id) {
+  const out = new Set([String(id)]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const t of Object.values(data.teams)) {
+      if (t.parent != null && out.has(String(t.parent)) && !out.has(String(t.id))) { out.add(String(t.id)); grew = true; }
+    }
+  }
+  return out;
+}
+
+function changeFromForm(form) {
+  const kind = form.dataset.add;
+  const c = { kind, ...JSON.parse(form.dataset.base || "{}") };
+  const f = new FormData(form);
+  if (f.has("team")) {
+    const t = teamOf(f.get("team"));
+    if (!t) return { error: "Pick a team." };
+    c.team = teamRefOf(t);
+  }
+  if (f.has("repo")) {
+    const r = repoByName(String(f.get("repo")).trim());
+    if (!r) return { error: "No repo by that name." };
+    c.repo = repoRefOf(r);
+  }
+  if (f.has("login")) {
+    const typed = String(f.get("login")).trim().replace(/^@/, "");
+    if (!validLogin(typed)) return { error: "That isn't a GitHub login." };
+    c.login = idx.people.find((p) => p.toLowerCase() === typed.toLowerCase()) ?? typed;
+  }
+  if (kind === "team_member") {
+    c.from = valueIn(teamOf(c.team.id).members, c.login);
+    c.to = String(f.get("role"));
+  } else if (kind === "team_repo") {
+    const own = idx.direct[c.team.id] ?? {};
+    c.from = c.repo.id in own ? own[c.repo.id] ?? "unknown" : null;
+    c.to = String(f.get("level"));
+  } else if (kind === "collaborator") {
+    c.from = valueIn(repoOf(c.repo.id).collaborators, c.login);
+    c.to = String(f.get("level"));
+  } else if (kind === "team_rename") {
+    const name = String(f.get("name")).trim();
+    if (!validTeamName(name)) return { error: "A team needs a name." };
+    if (Object.values(data.teams).some((t) => t.id !== c.team.id && t.name.toLowerCase() === name.toLowerCase())) return { error: "There's already a team with that name." };
+    c.from = teamOf(c.team.id).name;
+    c.to = name;
+  } else if (kind === "team_create") {
+    const name = String(f.get("name")).trim();
+    if (!validTeamName(name)) return { error: "A team needs a name." };
+    if (Object.values(data.teams).some((t) => t.name.toLowerCase() === name.toLowerCase())) return { error: "There's already a team with that name." };
+    c.name = name;
+    c.parent = f.get("parent") ? Number(f.get("parent")) : null;
+    c.from = null;
+    c.to = "created";
+  }
+  if (c.kind !== "team_create" && same(c.from, c.to)) return { error: `Already ${showValue(c.to)}.` };
+  if (ownerOnly(c, data)) return { error: "Only an org owner can make this change." };
+  return { change: c };
+}
+
+const readValue = (kind, raw) => (kind === "archived" ? raw === "true" : kind === "team_parent" ? (raw === "" ? null : Number(raw)) : raw === "" ? null : raw);
+
+/* ---- panels ---- */
+
 function personPanel(login) {
   const role = data.org.members[login];
   const access = personAccess(data, idx, login, { archived: showArchived });
@@ -357,19 +487,32 @@ function personPanel(login) {
       .map((i) => `<li>Invited to ${repoRef(id)} ${levelPill(i.level)}${i.by ? ` by ${esc(i.by)}` : ""} <span class="sub">${esc(ago(i.at))}${i.expired ? ", expired" : ""}</span></li>`)),
   ];
   const roleText = role === "owner" ? "Org owner" : role === "member" ? "Org member" : "Outside collaborator";
+  const roleEdit = role ? editSelect({ kind: "owner", login }, role, [["owner", "owner"], ["member", "member"]], `${login}'s org role`) : "";
   const head = `<div class="perm-phead">${avatar(login, 40)}<div><h2 tabindex="-1">${esc(login)}</h2><span class="sub">${roleText}</span></div></div>
     <div class="perm-plinks"><a href="${github(encodeURIComponent(login))}" target="_blank" rel="noopener">GitHub profile</a>
-      <a href="${contribHref({ login })}" data-drilllink>Contributor Drilldown</a></div>`;
+      <a href="${contribHref({ login })}" data-drilllink>Contributor Drilldown</a></div>
+    ${role ? `<div class="perm-pedit"><label class="sub">Org role ${roleEdit}</label></div>` : ""}`;
   const teamRows = teams.map(({ team, role: r }) => {
     const ups = teamAncestors(data.teams, team.id);
-    return `<tr><td>${teamRef(team.id)}${ups.length ? ` <span class="sub">under</span> ${ups.map((u) => teamRef(u.id)).join(" › ")}` : ""}</td><td>${r ? esc(r) : `<span class="sub" title="Not known until the next 10-minute read">?</span>`}</td></tr>`;
+    const base = { kind: "team_member", team: teamRefOf(team), login };
+    return `<tr${removing(base)}><td>${teamRef(team.id)}${ups.length ? ` <span class="sub">under</span> ${ups.map((u) => teamRef(u.id)).join(" › ")}` : ""}</td>
+      <td>${editSelect(base, r ?? "unknown", ROLE_OPTIONS, `${login}'s role on ${team.name}`)}</td></tr>`;
   });
-  const repoRows = access.map((a) => `<tr><td>${repoRef(a.repo)}</td><td>${levelPill(a.level)}</td><td class="perm-src">${a.sources.map(sourceText).join("<br>")}</td></tr>`);
+  const repoRows = access.map((a) => {
+    const direct = a.sources.find((s) => s.kind === "direct");
+    const base = { kind: "collaborator", repo: repoRefOf(repoOf(a.repo)), login };
+    return `<tr${direct ? removing(base) : ""}><td>${repoRef(a.repo)}</td><td>${levelPill(a.level)}</td><td class="perm-src">${a.sources.map(sourceText).join("<br>")}</td>
+      <td>${direct ? editSelect(base, direct.level ?? "unknown", LEVEL_OPTIONS, `${login}'s direct access to ${repoOf(a.repo).name}`) : `<span class="sub">–</span>`}</td></tr>`;
+  });
+  const inTeams = new Set(teams.map((t) => String(t.team.id)));
   return head +
+    stagedHere((c) => c.login && c.login.toLowerCase() === login.toLowerCase()) +
     (role === "owner" ? `<p class="hint perm-pnote">Owners are admin on every repo, and that can't be lowered from a repo.</p>` : "") +
     (invites.length ? section("Pending invites", "", `<ul class="perm-plist">${invites.join("")}</ul>`) : "") +
-    section("Teams", teams.length ? String(teams.length) : "", ptable(["Team", "Role"], teamRows, role ? "Not on any team." : "Not on any team, and not an org member.")) +
-    section("Repos", `${access.length} ${levelCounts(access)}`, ptable(["Repo", "Level", "From"], repoRows, "No access to any repo" + (showArchived ? "." : " that isn't archived.")));
+    section("Teams", teams.length ? String(teams.length) : "", ptable(["Team", "Role"], teamRows, role ? "Not on any team." : "Not on any team, and not an org member.") +
+      addForm("team_member", { login }, `${teamPicker((t) => inTeams.has(String(t.id)))}${rolePicker()}`, role ? "Add to team" : "Invite to team")) +
+    section("Repos", `${access.length} ${levelCounts(access)}`, ptable(["Repo", "Level", "From", "Direct"], repoRows, "No access to any repo" + (showArchived ? "." : " that isn't archived.")) +
+      addForm("collaborator", { login }, `${repoInput()}${levelPicker()}`, "Give direct access"));
 }
 
 function teamPanel(id) {
@@ -385,19 +528,44 @@ function teamPanel(id) {
     })
     .sort((a, b) => rank(b.level) - rank(a.level) || repoOf(a.repo).name.localeCompare(repoOf(b.repo).name));
   const inherited = repos.filter((r) => r.from).length;
+  const ref = teamRefOf(team);
+  const locked = ownerOnly({ kind: "team_rename", team: ref }, data);
+  const below = descendantIds(team.id);
+  const parentOptions = [["", "(top level)"], ...Object.values(data.teams).filter((t) => !below.has(String(t.id))).sort((a, b) => a.name.localeCompare(b.name)).map((t) => [t.id, t.name])];
+  const deleting = stagedFor(keyOf({ kind: "team_delete", team: ref }));
   const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(team.name)}</h2><span class="sub">Team · ${esc(team.slug)}${team.privacy ? ` · ${esc(team.privacy)}` : ""}</span></div></div>
-    <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a></div>`;
+    <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a></div>
+    <div class="perm-pedit">
+      ${addForm("team_rename", { team: ref }, `<input name="name" class="perm-input" value="${esc(team.name)}" aria-label="Team name" spellcheck="false">`, "Rename", locked)}
+      <label class="sub">Parent ${editSelect({ kind: "team_parent", team: ref }, team.parent ?? null, parentOptions.map(([v, t]) => [v === "" ? null : v, t]), `${team.name}'s parent team`)}</label>
+      ${deleting
+        ? `<button type="button" class="ghost mini" data-unstage="${esc(keyOf({ kind: "team_delete", team: ref }))}">Don't delete</button>`
+        : `<button type="button" class="ghost mini perm-danger" data-stage="${esc(JSON.stringify({ kind: "team_delete", team: ref, from: "exists", to: null }))}"${locked ? ` disabled title="Only an org owner can change this"` : ""}>Delete team</button>`}
+    </div>
+    ${locked ? `<p class="hint perm-pnote">This is the admin team. Only org owners can change its members, its repos, its name, its parent or delete it.</p>` : ""}`;
   const family = [
     ups.length ? `<li><span class="sub">Parent</span> ${ups.map((u) => teamRef(u.id)).join(" › ")}</li>` : "",
     kids.length ? `<li><span class="sub">Child teams</span> ${kids.map((k) => teamRef(k.id)).join(", ")}</li>` : "",
   ].filter(Boolean).join("");
+  const memberRows = members.map(([login, r]) => {
+    const base = { kind: "team_member", team: ref, login };
+    return `<tr${removing(base)}><td>${personRef(login)}</td><td>${editSelect(base, r ?? "unknown", ROLE_OPTIONS, `${login}'s role on ${team.name}`)}</td></tr>`;
+  });
+  const repoRows = repos.map((r) => {
+    const base = { kind: "team_repo", team: ref, repo: repoRefOf(repoOf(r.repo)) };
+    const level = r.from ? levelPill(r.level) : editSelect(base, r.level ?? "unknown", LEVEL_OPTIONS, `${team.name} on ${repoOf(r.repo).name}`);
+    return `<tr${r.from ? "" : removing(base)}><td>${repoRef(r.repo)}</td><td>${level}</td><td class="sub">${r.from ? `inherited from ${teamRef(r.from)}` : "own grant"}</td></tr>`;
+  });
   return head +
+    stagedHere((c) => (c.team && String(c.team.id) === String(team.id)) || (c.kind === "team_create" && String(c.parent) === String(team.id))) +
     (family ? `<ul class="perm-plist perm-family">${family}</ul>` : "") +
     section("Members", `${members.length}${members.some(([, r]) => r === "maintainer") ? ` · ${plural(members.filter(([, r]) => r === "maintainer").length, "maintainer")}` : ""}`,
-      ptable(["Who", "Role"], members.map(([login, r]) => `<tr><td>${personRef(login)}</td><td>${r ? esc(r) : `<span class="sub" title="Not known until the next 10-minute read">?</span>`}</td></tr>`), "Nobody is on this team.")) +
+      ptable(["Who", "Role"], memberRows, "Nobody is on this team.") +
+      addForm("team_member", { team: ref }, `${loginInput()}${rolePicker()}`, "Add member", locked)) +
     section("Repos", `${repos.length} ${levelCounts(repos)}${inherited ? ` · ${inherited} inherited` : ""}`,
-      ptable(["Repo", "Level", "From"], repos.map((r) => `<tr><td>${repoRef(r.repo)}</td><td>${levelPill(r.level)}</td><td class="sub">${r.from ? `inherited from ${teamRef(r.from)}` : "own grant"}</td></tr>`),
-        "This team has no repos" + (showArchived ? "." : " that aren't archived.")));
+      ptable(["Repo", "Level", "From"], repoRows, "This team has no repos" + (showArchived ? "." : " that aren't archived.")) +
+      addForm("team_repo", { team: ref }, `${repoInput()}${levelPicker()}`, "Give this team a repo", locked) +
+      (inherited ? `<p class="sub perm-none">An inherited grant is changed on the parent team. Giving this team a higher level of its own works here.</p>` : ""));
 }
 
 function repoPanel(id) {
@@ -406,18 +574,64 @@ function repoPanel(id) {
   const people = repoAccess(data, idx, String(repo.id));
   const invites = (data.repoInvites?.[repo.id]?.invites ?? []);
   const checked = data.repoInvites?.[repo.id]?.checkedAt;
+  const ref = repoRefOf(repo);
   const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(repo.name)}</h2><span class="sub">Repo · ${esc(repo.visibility)}${repo.archived ? " · archived" : ""}</span></div></div>
     <div class="perm-plinks"><a href="${github(`${encodeURIComponent(data.org.login)}/${encodeURIComponent(repo.name)}/settings/access`)}" target="_blank" rel="noopener">Access settings on GitHub</a>
-      <a href="${repoHref(repo.name)}" data-drilllink>Repo Drilldown</a></div>`;
+      <a href="${repoHref(repo.name)}" data-drilllink>Repo Drilldown</a></div>
+    <div class="perm-pedit">
+      <label class="sub">Visibility ${editSelect({ kind: "visibility", repo: ref }, repo.visibility, [["public", "public"], ["private", "private"]], `${repo.name}'s visibility`)}</label>
+      <label class="sub">Archived ${editSelect({ kind: "archived", repo: ref }, Boolean(repo.archived), [[false, "no"], [true, "yes"]], `Whether ${repo.name} is archived`)}</label>
+    </div>`;
+  const teamRows = teams.map((t) => {
+    const base = { kind: "team_repo", team: teamRefOf(teamOf(t.team)), repo: ref };
+    const level = t.from ? levelPill(t.level) : editSelect(base, t.level ?? "unknown", LEVEL_OPTIONS, `${teamOf(t.team).name} on ${repo.name}`);
+    return `<tr${t.from ? "" : removing(base)}><td>${teamRef(t.team)}</td><td>${level}</td><td class="sub">${t.from ? `inherited from ${teamRef(t.from)}` : "own grant"}</td></tr>`;
+  });
+  const peopleRows = people.map((p) => {
+    const direct = p.sources.find((s) => s.kind === "direct");
+    const base = { kind: "collaborator", repo: ref, login: p.login };
+    return `<tr${direct ? removing(base) : ""}><td>${personRef(p.login)}${p.outside ? ` <span class="pill neutral">outside</span>` : ""}</td><td>${levelPill(p.level)}</td><td class="perm-src">${p.sources.map(sourceText).join("<br>")}</td>
+      <td>${direct ? editSelect(base, direct.level ?? "unknown", LEVEL_OPTIONS, `${p.login}'s direct access`) : `<span class="sub">–</span>`}</td></tr>`;
+  });
+  const onRepo = new Set(teams.filter((t) => !t.from).map((t) => String(t.team)));
   return head +
+    stagedHere((c) => c.repo && String(c.repo.id) === String(repo.id)) +
     (repo.archived ? `<p class="hint perm-pnote">Archived: nobody can push to it, whatever their level.</p>` : "") +
-    section("Teams", String(teams.length), ptable(["Team", "Level", "From"],
-      teams.map((t) => `<tr><td>${teamRef(t.team)}</td><td>${levelPill(t.level)}</td><td class="sub">${t.from ? `inherited from ${teamRef(t.from)}` : "own grant"}</td></tr>`), "No team has access.")) +
-    section("People", `${people.length} ${levelCounts(people)}`, ptable(["Who", "Level", "From"],
-      people.map((p) => `<tr><td>${personRef(p.login)}${p.outside ? ` <span class="pill neutral">outside</span>` : ""}</td><td>${levelPill(p.level)}</td><td class="perm-src">${p.sources.map(sourceText).join("<br>")}</td></tr>`), "Nobody has access.")) +
+    section("Teams", String(teams.length), ptable(["Team", "Level", "From"], teamRows, "No team has access.") +
+      addForm("team_repo", { repo: ref }, `${teamPicker((t) => onRepo.has(String(t.id)))}${levelPicker()}`, "Give a team access")) +
+    section("People", `${people.length} ${levelCounts(people)}`, ptable(["Who", "Level", "From", "Direct"], peopleRows, "Nobody has access.") +
+      addForm("collaborator", { repo: ref }, `${loginInput()}${levelPicker()}`, "Give someone direct access")) +
     section("Pending invites", checked ? `checked ${esc(ago(checked))}` : "not checked yet",
       invites.length ? `<ul class="perm-plist">${invites.map((i) => `<li>${i.login ? personRef(i.login) : "someone"} ${levelPill(i.level)}${i.by ? ` <span class="sub">by ${esc(i.by)}</span>` : ""} <span class="sub">${esc(ago(i.at))}${i.expired ? ", expired" : ""}</span></li>`).join("")}</ul>`
         : `<p class="sub perm-none">${checked ? "None." : "Repo invites are read a few repos a tick, each about once a day."}</p>`);
+}
+
+function openNewTeam() {
+  const dialog = document.createElement("dialog");
+  dialog.className = "daily-dialog";
+  const parents = [["", "(top level)"], ...Object.values(data.teams).sort((a, b) => a.name.localeCompare(b.name)).map((t) => [t.id, t.name])];
+  dialog.innerHTML = `<h3>New team</h3>
+    <form class="perm-newteam" data-add="team_create" data-base="{}">
+      <label>Name <input name="name" class="perm-input" required autocomplete="off" spellcheck="false"></label>
+      <label>Parent <select name="parent" class="perm-sel">${options(parents, "")}</select></label>
+      <p class="daily-last">New teams are closed (visible to the whole org), so they can have a parent. It's staged like any other change.</p>
+      <span class="perm-add-err sub" aria-live="polite"></span>
+      <div class="daily-actions"><span class="ra-count"></span>
+        <button type="button" class="ghost" data-close>Cancel</button>
+        <button type="submit" class="daily-go">Stage</button></div>
+    </form>`;
+  dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
+  dialog.addEventListener("submit", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { change, error } = changeFromForm(e.target);
+    if (error) { e.target.querySelector(".perm-add-err").textContent = error; return; }
+    stage(change);
+    dialog.close();
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.appendChild(dialog);
+  dialog.showModal();
 }
 
 function panelHtml() {
@@ -430,7 +644,7 @@ function panelHtml() {
   return `<aside class="perm-panel" role="dialog" aria-label="${esc(KIND_LABEL[kind])} details">
     <div class="perm-pbar">
       ${trail.length ? `<button type="button" class="ghost" data-perm-back>← Back</button>` : "<span></span>"}
-      <span class="sub">Read-only for now</span>
+      ${stagedList().length ? `<button type="button" class="ghost" data-tray="review">Review ${stagedList().length} staged</button>` : `<span class="sub">Edits are staged until you apply them</span>`}
       <button type="button" class="icon-btn" data-perm-close aria-label="Close">✕</button>
     </div>
     <div class="perm-pbody">${body}</div>
@@ -450,7 +664,10 @@ function bodyHtml() {
     return `<section class="card stub" style="--span:12"><div class="body">
       <h2>No snapshot yet</h2><p>The first read runs on the 10-minute tick after the webhook Worker deploys.</p></div></section>`;
   }
-  return `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}</div>`;
+  const people = idx.people.map((l) => `<option value="${esc(l)}">`).join("");
+  const repos = Object.values(data.repos).filter(shownRepo).map((r) => r.name).sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join("");
+  return `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}</div>
+    <datalist id="perm-people">${people}</datalist><datalist id="perm-repos">${repos}</datalist>`;
 }
 
 function statusHtml() {
@@ -471,6 +688,7 @@ export function permissionsBody() {
     </div>
     <div data-perm-body>${bodyHtml()}</div>
     <div data-perm-panel>${panelHtml()}</div>
+    ${trayMarkup()}
   </div>`;
 }
 
@@ -481,7 +699,10 @@ function redraw() {
   if (status) status.innerHTML = statusHtml();
   paintPanel();
   paintSearch();
+  paintTray();
 }
+
+configureApply({ data: () => data, redraw: () => redraw(), reload: () => load() });
 
 async function load() {
   if (inFlight) return inFlight;
@@ -515,6 +736,11 @@ function wire() {
   if (wired) return;
   wired = true;
   document.addEventListener("change", (e) => {
+    const sel = e.target.closest?.("select[data-edit]");
+    if (sel && sel.closest("[data-perm]")) {
+      const base = JSON.parse(sel.dataset.edit);
+      return stage({ ...base, to: readValue(base.kind, sel.value) });
+    }
     if (!e.target.matches?.("[data-perm-archived]")) return;
     showArchived = e.target.checked;
     try { localStorage.setItem(ARCHIVED_KEY, showArchived ? "1" : "0"); } catch {}
@@ -546,6 +772,24 @@ function wire() {
   document.addEventListener("mousedown", (e) => {
     if (e.target.closest?.(".perm-opt[data-perm-open]")) e.preventDefault();
   });
+  document.addEventListener("submit", (e) => {
+    const form = e.target.closest?.("form[data-add]");
+    if (!form || !form.closest("[data-perm]")) return;
+    e.preventDefault();
+    const { change, error } = changeFromForm(form);
+    const err = form.querySelector(".perm-add-err");
+    if (error) { if (err) err.textContent = error; return; }
+    stage(change);
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest?.("[data-perm]")) return;
+    if (trayClick(e)) return;
+    const un = e.target.closest("[data-unstage]");
+    if (un) return unstage(un.dataset.unstage);
+    const st = e.target.closest("[data-stage]");
+    if (st) return stage(JSON.parse(st.dataset.stage));
+    if (e.target.closest("[data-new-team]")) return openNewTeam();
+  });
   document.addEventListener("click", (e) => {
     const opt = e.target.closest?.("[data-perm-open]");
     if (opt && opt.closest("[data-perm]")) {
@@ -573,7 +817,7 @@ function wire() {
       }
       return;
     }
-    if (e.key === "Escape" && open && document.querySelector("[data-perm]")) closePanel();
+    if (e.key === "Escape" && open && document.querySelector("[data-perm]") && !document.querySelector("dialog[open]")) closePanel();
   });
   document.addEventListener("visibilitychange", () => {
     if (timer && document.visibilityState === "visible" && Date.now() - fetchedAt > REFRESH_MS) load();
@@ -581,6 +825,7 @@ function wire() {
 }
 
 export function syncPermissions(on) {
+  syncApply(on);
   if (!on) {
     clearInterval(timer);
     timer = null;

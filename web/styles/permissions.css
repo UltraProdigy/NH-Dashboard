@@ -120,3 +120,73 @@
 @media (min-width: 1800px) {
   .perm.has-panel { padding-right: 560px; }
 }
+
+.perm-sel, .perm-input {
+  padding: 3px 7px; font: inherit; font-size: 12px; line-height: 1.4; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.perm-sel {
+  appearance: none; -webkit-appearance: none; padding-right: 22px; max-width: 100%;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 11px) 50%, calc(100% - 7px) 50%;
+  background-size: 4px 4px; background-repeat: no-repeat;
+}
+.perm-pbar .ghost[data-tray] { border-color: var(--warn); }
+.perm-sel:focus, .perm-input:focus { outline: none; border-color: var(--accent); }
+.perm-sel[disabled] { opacity: .55; cursor: not-allowed; }
+.perm-input { min-width: 0; width: 170px; }
+.perm-edit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.perm-edit.is-staged .perm-sel { border-color: var(--warn); background-color: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
+.perm-undo, .perm-x {
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px;
+  background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer;
+}
+.perm-undo:hover, .perm-x:hover { color: var(--text); border-color: var(--accent); }
+.perm-removing td:first-child { text-decoration: line-through; opacity: .65; }
+.perm-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 12px; }
+.perm-add-err { color: var(--bad); }
+.perm-pedit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 10px 0 0; font-size: 12px; }
+.perm-pedit .perm-add { margin: 0; }
+.perm-pedit label { display: inline-flex; align-items: center; gap: 6px; }
+.ghost.perm-danger { color: var(--bad); }
+.ghost.perm-danger:hover { border-color: var(--bad); }
+.perm-staged-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.perm-staged-list li > span:first-child { margin-right: auto; }
+.pill.perm-risky { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--border)); }
+.pill.perm-blocked { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
+
+.perm.has-tray { padding-bottom: 64px; }
+.perm-tray-wrap { position: sticky; bottom: 0; z-index: 35; }
+.perm-tray-wrap:empty { display: none; }
+.perm-tray {
+  position: relative; overflow: hidden;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  margin-top: 14px; padding: 10px 14px; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2);
+  box-shadow: 0 -6px 20px rgb(0 0 0 / .25);
+}
+.perm-tray-gap { flex: 1; }
+.perm-tray-now { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perm-bar-track { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--border); }
+.perm-bar-fill { height: 100%; background: var(--good); transition: width .3s ease; }
+
+.daily-dialog.perm-review { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; }
+.perm-review-list { max-height: min(52vh, 520px); overflow: auto; margin: 4px 0 12px; border: 1px solid var(--border); border-radius: 8px; }
+.perm-rgroup { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.perm-rgroup:last-child { border-bottom: none; }
+.perm-rgroup h4 { margin: 0 0 6px; font-size: 12.5px; }
+.perm-rgroup ul, .perm-results-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12.5px; }
+.perm-rgroup li, .perm-results-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.perm-rgroup li > span:first-child { margin-right: auto; }
+.perm-rblocked > span:first-child { color: var(--muted); text-decoration: line-through; }
+.perm-results-list { max-height: min(56vh, 560px); overflow: auto; margin: 4px 0 12px; }
+.pill.perm-st { min-width: 58px; text-align: center; }
+.pill.perm-st-done, .pill.perm-st-invited { color: var(--good); }
+.pill.perm-st-skipped { color: var(--warn); }
+.pill.perm-st-failed { color: var(--bad); }
+.pill.perm-st-cancelled, .pill.perm-st-pending { color: var(--muted); }
+.perm-newteam { display: grid; gap: 10px; }
+.perm-newteam label { display: grid; gap: 4px; font-size: 12.5px; }
+.perm-newteam .perm-input { width: 100%; }
+.perm-staged-list + .perm-none { margin-top: 6px; }
