@@ -92,9 +92,10 @@ still work, say the permission is missing, and offer no filter.
 NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
 second App, `Org-Manager` (App ID `5299242`), so the key that can start a
 release isn't the same key that serves every page load, and either one can be
-revoked without touching the other. Today that is releasing a daily and the
-Releases & Tags page (see **Dream Panel → Releasing a daily** and **Releases &
-Tags**). Label-sync is meant to move onto it later.
+revoked without touching the other. Today that is releasing a daily, the
+Releases & Tags page and changes made on the Permissions page (see **Dream Panel
+→ Releasing a daily**, **Releases & Tags** and **Permissions**). Label-sync is
+meant to move onto it later.
 
 It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
 `github.js` and sharing the JWT signing and token exchange with it, but with
@@ -107,7 +108,9 @@ Setup, once:
    and tags on Releases & Tags), then accept the change on the org's installation
    page. Releases & Tags can act on any repo, so the installation should cover
    all repositories. If any repo has a tag ruleset, Org-Manager needs to be on
-   its bypass list, or releases there fail and its tags can't be deleted.
+   its bypass list, or releases there fail and its tags can't be deleted. The
+   Permissions page also needs organization **Members: Read and write** and
+   repository **Administration: Read and write**.
 2. Generate a private key on the App's General page and convert it to PKCS#8,
    as above: `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in
    <downloaded>.pem -out org-manager-pk8.pem`.
@@ -117,7 +120,9 @@ Setup, once:
 Actions write covers more than dispatching: it can also cancel, re-run and
 delete runs in every repo the App is installed on. The dashboard only ever
 dispatches the one workflow. Contents write likewise covers pushing to
-branches; the dashboard only ever creates releases.
+branches; the dashboard only ever creates releases. Members and Administration
+write are the most powerful of the lot: whoever holds the key can change who has
+access to anything in the org, which is why it's only ever a Cloudflare secret.
 
 ### Exclusions that apply everywhere
 
@@ -2788,9 +2793,10 @@ every repo's teams and direct collaborators, and everyone's effective level on
 every repo with where it comes from. Admin-only like GitHub Logs: missing from
 the sidebar for members and refused by the server for them regardless.
 
-It's **read-only** for now. Edits go through Org-Manager, which needs write
-permissions an org owner hasn't approved yet. The plan, with everything still to
-build, is the "Permission Management Plan" project doc.
+Changes are made from the page too: staged, reviewed, then applied to GitHub by
+Org-Manager. Every edit goes through the same tray and review, whether it's one
+dropdown or a bulk change over hundreds of repos. The base permission is the one
+thing shown but not editable; it's changed on GitHub.
 
 ### The page
 
@@ -2813,8 +2819,160 @@ same way Org Search keeps its filters there, so a panel can be linked to. Esc or
 ✕ closes it.
 
 The page fetches `/api/permissions` when you open it and every minute while it's
-open and visible. A full render keeps the search box's text and caret and the
-open panel.
+open and visible. A full render keeps the search box's text and caret, the open
+panel and whatever's being typed in Bulk change.
+
+### Editing
+
+Nothing on the page changes GitHub straight away. An edit is **staged**: it shows
+as a highlighted dropdown with an *undo* beside it, in a **Staged here** list at the
+top of the panel it belongs to, and in the **tray** pinned to the bottom of the
+page. Staged changes live in the browser (mirrored to `localStorage`, so a reload
+keeps them) and nowhere else until they're applied. Staging the same thing twice
+keeps the last value; setting it back to what GitHub has unstages it.
+
+Where each edit lives:
+
+| Where | What can be changed |
+|---|---|
+| Person panel | Org role (owner or member). Role on each team, or remove. Add to a team (an invite for someone outside the org). Their direct grant on each repo, or remove. Give direct access to a repo |
+| Team panel | Rename, parent, delete. Each member's role, or remove. Add a member. The team's **own** grant on each repo, or remove. Give it a repo. An inherited grant isn't editable here, since removing it from the child wouldn't change anything; it's changed on the parent |
+| Repo panel | Visibility and archived (one repo at a time, never in bulk). Each team's own grant, or remove. Give a team access. Each person's direct grant, or remove. Give someone direct access |
+| Teams overview | **New team**, with a name and a parent. New teams are created closed, which GitHub needs for a team to have a parent |
+| Bulk change | Below |
+
+Effective access isn't edited, only its sources: a row whose level comes from a
+team says *via team X* and links to it.
+
+**Owner-only.** Owners, and anything about the admin team itself (its members, its
+repos, its name, its parent, deleting it, or moving another team under it), can
+only be changed by an org owner. For everyone else those controls are disabled
+with the reason, a bulk change with the admin team as its subject is blocked, and
+the server refuses them regardless. How the dashboard knows who's an owner is under
+**The API**.
+
+#### Bulk change
+
+A card at the bottom of the page. Pick a **subject** (one team, or one person by
+login) and an **action** (set read, triage, write, maintain or admin, or remove
+access). Every non-archived repo is listed with what would happen to it, and the
+list narrows by repo name, visibility, the subject's current level and, after
+**Filter by custom property** loads them from `/api/releases/repos`, custom
+properties. A team's own grant is what's changed, as everywhere else; for a person
+it's their direct grant.
+
+- **Raises** are ticked to start with.
+- **Lowers**, and grants whose level isn't known yet, are flagged and left unticked.
+- Repos the change wouldn't move are hidden.
+- Someone outside the org getting a new grant is flagged as an **invite**.
+
+**Stage** puts every ticked repo in the tray as its own change. *Bulk change for
+this team/person* in a panel opens the card with that subject picked. How a row's
+result is worked out is in Calculations.md under **Bulk change**.
+
+#### Review and apply
+
+**Review** in the tray (or in a panel's top bar) lists every staged change grouped
+by subject, worded the way it'll appear in Recent changes, and marks:
+
+- **invite**: GitHub will send an invite, and nothing changes until it's accepted;
+- **check**: admin level, removals, visibility, archive, deleting a team, owners;
+- **deletes child teams**: GitHub deletes a team's child teams with it;
+- **owner only** or **gone**: you can't make it, or the team or repo isn't in the
+  snapshot any more. These have to be removed before Apply is allowed.
+
+**Apply** sends the list to `POST /api/permissions/apply`. The tray then turns into
+a progress bar: done, invited, skipped and failed so far, the change in flight,
+and **Cancel**. **Details** opens the per-change results, which update live and
+stay viewable, with **Results**, until the next batch starts. Closing the tab
+doesn't stop a batch, and reopening the page picks its progress back up.
+
+A batch confirmed while another is running waits behind it, and the tray says so.
+
+### Applying
+
+**`PermissionJobs`**, a Durable Object in the **app** Worker (one instance, named
+`permission-jobs`), so Org-Manager's key stays in the one Worker that already holds
+it. The apply route checks the batch and hands it over; the object works through
+it in order, **one change per alarm**, so no invocation runs long.
+
+The apply route (`normaliseBatch` in `worker/src/permission-jobs.js`):
+
+- rebuilds every change from the snapshot by id, so a team or repo is always the
+  one its id names, whatever slug or name the page sent;
+- refuses the whole batch, saying which changes and why, if any names something
+  not in the snapshot, has a value that isn't valid for its kind, would put a team
+  under one of its own children, reuses an existing team name, or is owner-only and
+  the sender isn't an owner;
+- drops no-ops, keeps the last of any change staged twice, and caps a batch at 1,000;
+- stamps the batch with the sender's Access email.
+
+For each change, the object:
+
+1. **Re-reads that one thing from GitHub.** If GitHub already shows the new value
+   it's skipped as already done; if it no longer shows what the admin saw when they
+   staged it, it's skipped and says what GitHub shows instead. Nothing is forced
+   over a change someone made in the meantime, which matters because a large batch
+   can take a while. A team's grant is re-read from `GET /repos/{owner}/{repo}/teams`,
+   the only list of direct grants.
+2. **Tells the `Permissions` object to expect it** (below).
+3. **Makes it** with an Org-Manager installation token:
+
+   | Change | Call |
+   |---|---|
+   | Team member, role | `PUT`/`DELETE /orgs/{org}/teams/{slug}/memberships/{user}` |
+   | Team grant | `PUT`/`DELETE /orgs/{org}/teams/{slug}/repos/{owner}/{repo}` |
+   | Direct grant | `PUT`/`DELETE /repos/{owner}/{repo}/collaborators/{user}` |
+   | Visibility, archived | `PATCH /repos/{owner}/{repo}` |
+   | New team | `POST /orgs/{org}/teams`, closed |
+   | Rename, parent | `PATCH /orgs/{org}/teams/{slug}` |
+   | Delete team | `DELETE /orgs/{org}/teams/{slug}` |
+   | Owner | `PUT /orgs/{org}/memberships/{user}` |
+
+   A team renamed earlier in the batch is addressed by its new slug from then on.
+4. **Hands the result to the `Permissions` object**, which patches the snapshot so
+   the page shows it straight away.
+
+**Pacing.** GitHub's secondary limits are about 80 writes a minute and 500 an hour,
+and it asks for a second between writes. The object keeps writes a second apart,
+under 70 a minute and 480 an hour, counted across batches. A full-org bulk change of
+~350 repos finishes in under ten minutes. A rate-limited answer leaves the change
+waiting as long as GitHub says (`retry-after`, the primary limit's reset, or a
+minute for a secondary limit with neither), shown in the tray, and it's tried again
+up to five times. An expired token is minted again once.
+
+**Cancel** stops after the change in flight. Nothing already applied is rolled
+back, and the results say exactly what was and wasn't done. A queued batch can be
+cancelled before it starts.
+
+**Progress** goes out over a hibernating WebSocket (`/api/permissions/jobs`), like
+the GitHub Logs socket: the whole state when it connects and on every state change,
+and each change's result as it lands. The page reloads the snapshot a moment after
+anything is applied.
+
+**Local dev.** With `DEV_ROLE` on localhost, a batch runs as a **dry run**: every
+change is marked done and nothing is sent to GitHub.
+
+The object's log line is `{"at":"permission-jobs",…}` with the job, who sent it and
+its counts when it finishes.
+
+### Who made it
+
+Changes made from the page show on GitHub as made by Org-Manager. So that Recent
+changes and GitHub Logs name the admin instead:
+
+- Before each change, the job tells the `Permissions` object which webhook it will
+  cause (`expectKeys` in `web/js/permission-changes.js`), with the admin's email,
+  for 30 minutes.
+- When that webhook arrives from a bot, the snapshot is patched as usual, its
+  GitHub Logs line reads ***email* via dashboard**, and it isn't logged in Recent
+  changes, because:
+- once the change is made, the object logs its own line in Recent changes with the
+  admin's email and *via dashboard*.
+- Owner changes and team role changes send no webhook at all, so for those the
+  object also posts its line to GitHub Logs → Org & people.
+
+The same change made by a person on GitHub is credited to them as before.
 
 ### Where the data comes from
 
@@ -2875,7 +3033,8 @@ log, so a slow object never fails a delivery.
   next read fills it in.
 
 **Recent changes** keeps the newest 200 lines in the same object. Permission
-deliveries add their GitHub Logs line there too. Each read is also diffed
+deliveries add their GitHub Logs line there too, and so does every change made
+from the page. Each read is also diffed
 against the last, and anything no webhook reported (owner promotions, the base
 permission, team maintainer roles, a missed delivery) is logged with *10-min
 check* as the actor. Those lines also go to GitHub Logs → Org & people, except
@@ -2888,29 +3047,61 @@ lines it logged, and any repo invite reads that failed.
 
 ### The API
 
-`GET /api/permissions` returns the snapshot, the repo invites, Recent changes
-and a `viewer` block. It refuses anyone not on the admin team (403), and says
-so (503) if the binding is missing.
+All of it refuses anyone not on the admin team (403).
 
-**Who's an org owner isn't settled yet.** The Access identity carries GitHub
-orgs and teams, but owners aren't a team. Until the dashboard can tell,
-`viewer.ownerEdits` is false for everyone, owners included, and the page says so
-on the Org level card.
+| Route | What |
+|---|---|
+| `GET /api/permissions` | The snapshot, the repo invites, Recent changes and a `viewer` block: email, the admin team's slug, `canApply` (Org-Manager's key is set), and the owner check below. 503 if the binding is missing |
+| `POST /api/permissions/apply` | `{ changes }`. 400 with `problems` (each with its index and reason) if anything can't be applied, 409 before the first snapshot, 503 without Org-Manager's key. Otherwise the job id and how many batches are ahead of it |
+| `POST /api/permissions/cancel` | `{ job }`, or the running batch if none is named |
+| `GET /api/permissions/jobs` | The job state, or the progress socket with `Upgrade: websocket` |
+
+The POSTs and the socket need the page's own origin, like the other admin writes.
+
+**Who's an org owner.** The Access identity carries GitHub orgs and teams, but
+owners aren't a team, so it can't say. `ORG_OWNER_EMAILS`, a secret on the app
+Worker, lists the owners' Access emails, comma-separated, case doesn't matter.
+Someone listed gets `viewer.owner` and `viewer.ownerEdits`, and their owner-only
+changes are accepted. Without the secret nobody can make owner-only changes, and
+the Org level card says so. When the list's length doesn't match the snapshot's
+owner count, the card says that too, since it means the list is out of date: it
+has to be updated by hand when owners change.
 
 ### Deploying
 
 The `Permissions` class lives in the webhook Worker and is created by the `v2`
 migration in `wrangler.toml`. The app Worker binds it by `script_name`, so the
-webhook Worker has to deploy first, which `worker.yml` already does. Nothing new
-needs a secret: the reads use NH-Dashbot's existing `GH_APP_PRIVATE_KEY`. The
-first snapshot lands on the first tick after the deploy.
+webhook Worker has to deploy first, which `worker.yml` already does. The reads use
+NH-Dashbot's existing `GH_APP_PRIVATE_KEY`. The first snapshot lands on the first
+tick after the deploy.
+
+`PermissionJobs` lives in the app Worker and is created by the `v1` migration in
+`wrangler.app.toml`. Editing also needs:
+
+- **Org-Manager's permissions**, approved by an org owner:
+
+  | Permission | For |
+  |---|---|
+  | Organization → Members: write | Team membership and roles, creating, renaming, moving and deleting teams, org invites, owners |
+  | Repository → Administration: write | Team and direct grants on repos, visibility, archive |
+
+  Organization → Administration isn't needed: it's only for the base permission,
+  which the page doesn't change.
+- **`ORG_MANAGER_PRIVATE_KEY`** on the app Worker, which Releases already uses.
+- **`ORG_OWNER_EMAILS`** on the app Worker for owner-only changes
+  (`wrangler secret put ORG_OWNER_EMAILS -c wrangler.app.toml`).
 
 ### Testing
 
 `npm run test:permissions` covers the reader against a fake GitHub, the object
 against a SQLite shim, the diff, every webhook patch, the mid-read race, the
-repo invite rotation and the effective-access calculation. `npm run test:app`
-covers the route's refusals.
+repo invite rotation, the effective-access calculation, bulk change rows, and
+patching and crediting changes made from the page. `npm run test:permission-jobs`
+covers the shared change helpers, `normaliseBatch`, every kind of change read and
+made against a fake GitHub, and the job object: skipping, rate limits, token
+refresh, renames mid-batch, cancel, the queue, dry runs and pacing. `npm run
+test:app` covers the routes' refusals and the owner check. Both permission suites
+run before every deploy.
 
 ## GitHub Webhook
 

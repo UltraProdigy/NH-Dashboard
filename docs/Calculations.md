@@ -1981,7 +1981,45 @@ baseline. A change is logged when:
 | Collaborator | Added, removed, or their level changed with neither side unknown |
 
 A row a webhook patched after the read started is kept as patched and not
-diffed, so a change landing mid-read isn't logged as being undone.
+diffed, so a change landing mid-read isn't logged as being undone. A change made
+from the page patches its rows the same way, as soon as Org-Manager has made it.
+
+### Bulk change
+
+`bulkRows`. For one subject and one new level (or remove), a row per repo the
+change would actually move:
+
+| Subject | What's compared |
+|---|---|
+| A team | The team's **own** grant, as under Direct grants. A repo it only inherits counts as none, and the row says what it inherits |
+| A person | Their direct grant. Their overall level is shown beside it when a team, owner or base permission gives them more |
+
+| Result | When | Ticked to start with |
+|---|---|---|
+| Raise | There's no grant, or the new level ranks higher | Yes |
+| Lower | The new level ranks lower, or it's a remove and there's a grant | No |
+| Not known yet | The grant's level is unknown | No |
+| Left out | Same level, or a remove with nothing to remove | — |
+
+A new grant for someone who isn't an org member is an **invite**. Archived repos
+are left out unless *Show archived repos* is ticked. The name, visibility,
+current-level and custom-property filters only narrow the list; they never change
+a row's result.
+
+### Applying
+
+Right before a change is made, the job reads that one thing from GitHub again
+and compares it with the change's starting value:
+
+| GitHub now shows | Result |
+|---|---|
+| The new value already | Skipped, already like that |
+| The starting value (or any level, when it was unknown) | Made |
+| Anything else | Skipped, changed since it was staged |
+
+A team's grant is re-read from `GET /repos/{owner}/{repo}/teams`, which lists
+only direct grants, for the reason under Direct grants. A direct collaborator's
+level comes from `permissionSources` the same way the snapshot's does.
 
 ## GitHub Webhook
 
