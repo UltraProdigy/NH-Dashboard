@@ -6,7 +6,7 @@ import {
 } from "./permissions-calc.js";
 import { describe, keyOf, TEAM_ROLES, validLogin, validTeamName } from "./permission-changes.js";
 import {
-  configureApply, flagsOf, ownerOnly, paintTray, stage, stagedFor, stagedList, syncApply, trayClick, trayMarkup, unstage,
+  configureApply, flagsOf, ownerOnly, paintTray, stage, stagedFor, stagedList, stageMany, syncApply, trayClick, trayMarkup, unstage,
 } from "./permission-apply.js";
 import { bulkCard, bulkEvent, configureBulk, setBulkSubject } from "./permission-bulk.js";
 import { keepScroll } from "./scroll.js";
@@ -340,7 +340,11 @@ function openPanel(kind, key, { push = true } = {}) {
   document.querySelector("[data-perm-panel] h2")?.focus();
 }
 
-function closePanel() {
+function closePanel({ force = false } = {}) {
+  if (drafts.size && !force) {
+    closeBlocked = true;
+    return paintPanel();
+  }
   open = null;
   pending = null;
   trail.length = 0;
@@ -383,34 +387,91 @@ const valueIn = (obj, login) => {
 const LEVEL_OPTIONS = [...LEVELS.map((l) => [l, l]), [null, "remove"]];
 const ROLE_OPTIONS = [...TEAM_ROLES.map((r) => [r, r]), [null, "remove"]];
 
-function editSelect(base, current, options, label) {
-  const key = keyOf(base);
+const drafts = new Map();
+let closeBlocked = false;
+
+function setDraft(c) {
+  const key = keyOf(c);
   const st = stagedFor(key);
-  const value = st ? st.to : current;
-  const locked = ownerOnly(base, data);
-  const unknown = current === "unknown" && !st ? `<option value="unknown" selected disabled>?</option>` : "";
-  const opts = options.map(([v, text]) => `<option value="${esc(v ?? "")}"${!unknown && same(v, value) ? " selected" : ""}>${esc(text)}</option>`).join("");
-  return `<span class="perm-edit${st ? " is-staged" : ""}"><select class="perm-sel" aria-label="${esc(label)}" data-edit="${esc(JSON.stringify({ ...base, from: current }))}"${
-    locked ? ` disabled title="Only an org owner can change this"` : ""}>${unknown}${opts}</select>${
-    st ? `<button type="button" class="perm-undo" data-unstage="${esc(key)}" title="Was ${esc(showValue(st.from))}">undo</button>` : ""}</span>`;
+  if (c.kind !== "team_create" && same(st ? st.to : c.from, c.to)) drafts.delete(key);
+  else drafts.set(key, c);
+  closeBlocked = false;
+  paintPanel();
 }
 
-const removing = (base) => (stagedFor(keyOf(base))?.to === null && base.kind !== "archived" ? ` class="perm-removing"` : "");
+function dropDraft(key) {
+  drafts.delete(key);
+  closeBlocked = false;
+  paintPanel();
+}
+
+function saveDrafts() {
+  const list = [...drafts.values()];
+  drafts.clear();
+  closeBlocked = false;
+  stageMany(list);
+}
+
+const pendingFor = (key) => drafts.get(key) ?? stagedFor(key);
+
+function undoButton(key) {
+  const d = drafts.get(key);
+  const st = stagedFor(key);
+  if (d) return `<button type="button" class="perm-undo" data-undraft="${esc(key)}" title="Not saved yet. Was ${esc(showValue(st ? st.to : d.from))}">undo</button>`;
+  if (st) return `<button type="button" class="perm-undo" data-unstage="${esc(key)}" title="Saved, waiting to be applied. Was ${esc(showValue(st.from))}">undo</button>`;
+  return "";
+}
+
+function editSelect(base, current, options, label) {
+  const key = keyOf(base);
+  const d = drafts.get(key);
+  const st = stagedFor(key);
+  const value = d ? d.to : st ? st.to : current;
+  const locked = ownerOnly(base, data);
+  const unknown = current === "unknown" && !d && !st ? `<option value="unknown" selected disabled>?</option>` : "";
+  const opts = options.map(([v, text]) => `<option value="${esc(v ?? "")}"${!unknown && same(v, value) ? " selected" : ""}>${esc(text)}</option>`).join("");
+  return `<span class="perm-edit${d ? " is-draft" : st ? " is-staged" : ""}"><select class="perm-sel" aria-label="${esc(label)}" data-edit="${esc(JSON.stringify({ ...base, from: current }))}"${
+    locked ? ` disabled title="Only an org owner can change this"` : ""}>${unknown}${opts}</select>${undoButton(key)}</span>`;
+}
+
+const removing = (base) => (pendingFor(keyOf(base))?.to === null && base.kind !== "archived" ? ` class="perm-removing"` : "");
 
 function stagedHere(match) {
-  const list = stagedList().filter(match);
-  if (!list.length) return "";
-  return section("Staged here", String(list.length), `<ul class="perm-plist perm-staged-list">${list.map((c) => {
+  const unsaved = [...drafts.values()].filter(match);
+  const saved = stagedList().filter((c) => match(c) && !drafts.has(keyOf(c)));
+  if (!unsaved.length && !saved.length) return "";
+  const row = (c, draft) => {
     const f = flagsOf(c, data);
-    return `<li><span>${esc(describe(c, { teamName: nameOfTeam }))}</span>${f.invite ? ` <span class="pill neutral">invite</span>` : ""}${
+    return `<li><span>${esc(describe(c, { teamName: nameOfTeam }))}</span>
+      <span class="pill ${draft ? "perm-unsaved" : "neutral"}">${draft ? "not saved" : "saved"}</span>${f.invite ? ` <span class="pill neutral">invite</span>` : ""}${
       f.blocked ? ` <span class="pill perm-blocked">${f.blocked.startsWith("only") ? "owner only" : "gone"}</span>` : ""}
-      <button type="button" class="perm-undo" data-unstage="${esc(keyOf(c))}">undo</button></li>`;
-  }).join("")}</ul><p class="sub perm-none">Nothing changes on GitHub until the batch is applied from the tray at the bottom.</p>`);
+      <button type="button" class="perm-undo" ${draft ? "data-undraft" : "data-unstage"}="${esc(keyOf(c))}">undo</button></li>`;
+  };
+  return section("Changes here", String(unsaved.length + saved.length),
+    `<ul class="perm-plist perm-staged-list">${unsaved.map((c) => row(c, true)).join("")}${saved.map((c) => row(c, false)).join("")}</ul>`);
+}
+
+function footHtml() {
+  const n = drafts.size;
+  const waiting = stagedList().length;
+  if (n) {
+    return `<div class="perm-pfoot${closeBlocked ? " is-blocked" : ""}">
+      <span>${closeBlocked ? "Save or discard your edits before closing." : `<strong>${n}</strong> unsaved edit${n === 1 ? "" : "s"}`}</span>
+      <span class="perm-tray-gap"></span>
+      <button type="button" class="ghost" data-drafts="discard">Discard</button>
+      <button type="button" class="daily-go" data-drafts="save">Save ${n === 1 ? "edit" : `${n} edits`}</button>
+    </div>`;
+  }
+  return `<div class="perm-pfoot">
+    <span class="sub">${waiting ? `${waiting} saved change${waiting === 1 ? "" : "s"} waiting to be applied.` : "Edits aren't kept until you save them, and nothing reaches GitHub until you apply them."}</span>
+    <span class="perm-tray-gap"></span>
+    ${waiting ? `<button type="button" class="daily-go" data-tray="review">Review &amp; apply</button>` : ""}
+  </div>`;
 }
 
 const options = (list, selected) => list.map(([v, text]) => `<option value="${esc(v)}"${String(v) === String(selected) ? " selected" : ""}>${esc(text)}</option>`).join("");
 
-function addForm(kind, base, inner, button = "Stage", locked = false) {
+function addForm(kind, base, inner, button = "Add", locked = false) {
   return `<form class="perm-add" data-add="${esc(kind)}" data-base="${esc(JSON.stringify(base))}">${inner}
     <button type="submit" class="ghost mini"${locked ? ` disabled title="Only an org owner can change this"` : ""}>${esc(button)}</button>
     <span class="perm-add-err sub" aria-live="polite"></span></form>`;
@@ -554,14 +615,14 @@ function teamPanel(id) {
   const locked = ownerOnly({ kind: "team_rename", team: ref }, data);
   const below = descendantIds(team.id);
   const parentOptions = [["", "(top level)"], ...Object.values(data.teams).filter((t) => !below.has(String(t.id))).sort((a, b) => a.name.localeCompare(b.name)).map((t) => [t.id, t.name])];
-  const deleting = stagedFor(keyOf({ kind: "team_delete", team: ref }));
+  const deleting = pendingFor(keyOf({ kind: "team_delete", team: ref }));
   const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(team.name)}</h2><span class="sub">Team · ${esc(team.slug)}${team.privacy ? ` · ${esc(team.privacy)}` : ""}</span></div></div>
     <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a></div>
     <div class="perm-pedit">
       ${addForm("team_rename", { team: ref }, `<input name="name" class="perm-input" value="${esc(team.name)}" aria-label="Team name" spellcheck="false">`, "Rename", locked)}
       <label class="sub">Parent ${editSelect({ kind: "team_parent", team: ref }, team.parent ?? null, parentOptions.map(([v, t]) => [v === "" ? null : v, t]), `${team.name}'s parent team`)}</label>
       ${deleting
-        ? `<button type="button" class="ghost mini" data-unstage="${esc(keyOf({ kind: "team_delete", team: ref }))}">Don't delete</button>`
+        ? `<button type="button" class="ghost mini" ${drafts.has(keyOf({ kind: "team_delete", team: ref })) ? "data-undraft" : "data-unstage"}="${esc(keyOf({ kind: "team_delete", team: ref }))}">Don't delete</button>`
         : `<button type="button" class="ghost mini perm-danger" data-stage="${esc(JSON.stringify({ kind: "team_delete", team: ref, from: "exists", to: null }))}"${locked ? ` disabled title="Only an org owner can change this"` : ""}>Delete team</button>`}
       ${bulkButton("team", team.id, "Bulk change for this team")}
     </div>
@@ -644,11 +705,11 @@ function openNewTeam() {
     <form class="perm-newteam" data-add="team_create" data-base="{}">
       <label>Name <input name="name" class="perm-input" required autocomplete="off" spellcheck="false"></label>
       <label>Parent <select name="parent" class="perm-sel">${options(parents, "")}</select></label>
-      <p class="daily-last">New teams are closed (visible to the whole org), so they can have a parent. It's staged like any other change.</p>
+      <p class="daily-last">New teams are closed (visible to the whole org), so they can have a parent. Saving it adds it to the changes waiting to be applied.</p>
       <span class="perm-add-err sub" aria-live="polite"></span>
       <div class="daily-actions"><span class="ra-count"></span>
         <button type="button" class="ghost" data-close>Cancel</button>
-        <button type="submit" class="daily-go">Stage</button></div>
+        <button type="submit" class="daily-go">Save</button></div>
     </form>`;
   dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
   dialog.addEventListener("submit", (e) => {
@@ -674,21 +735,21 @@ function panelHtml() {
   return `<div class="perm-modal" data-perm-backdrop><div class="perm-panel" role="dialog" aria-modal="true" aria-label="${esc(KIND_LABEL[kind])} details">
     <div class="perm-pbar">
       ${trail.length ? `<button type="button" class="ghost" data-perm-back>← Back</button>` : "<span></span>"}
-      ${stagedList().length ? `<button type="button" class="ghost" data-tray="review">Review ${stagedList().length} staged</button>` : `<span class="sub">Edits are staged until you apply them</span>`}
       <button type="button" class="icon-btn" data-perm-close aria-label="Close">✕</button>
     </div>
     <div class="perm-pbody">${body}</div>
+    ${footHtml()}
   </div></div>`;
 }
 
 function paintPanel() {
   const el = document.querySelector("[data-perm-panel]");
   const top = el?.querySelector(".perm-pbody")?.scrollTop ?? 0;
-  const same = el?.dataset.showing === (open ? `${open.kind}:${open.key}` : "");
+  const stay = el?.dataset.showing === (open ? `${open.kind}:${open.key}` : "");
   if (el) {
     el.innerHTML = panelHtml();
     el.dataset.showing = open ? `${open.kind}:${open.key}` : "";
-    if (same) { const body = el.querySelector(".perm-pbody"); if (body) body.scrollTop = top; }
+    if (stay) { const body = el.querySelector(".perm-pbody"); if (body) body.scrollTop = top; }
   }
   document.querySelector("[data-perm]")?.classList.toggle("has-panel", Boolean(open));
   document.documentElement.classList.toggle("perm-modal-open", Boolean(open) && Boolean(el));
@@ -785,7 +846,7 @@ function wire() {
     const sel = e.target.closest?.("select[data-edit]");
     if (sel && sel.closest("[data-perm]")) {
       const base = JSON.parse(sel.dataset.edit);
-      return stage({ ...base, to: readValue(base.kind, sel.value) });
+      return setDraft({ ...base, to: readValue(base.kind, sel.value) });
     }
     if (!e.target.matches?.("[data-perm-archived]")) return;
     showArchived = e.target.checked;
@@ -826,7 +887,7 @@ function wire() {
     const { change, error } = changeFromForm(form);
     const err = form.querySelector(".perm-add-err");
     if (error) { if (err) err.textContent = error; return; }
-    stage(change);
+    setDraft(change);
   });
   document.addEventListener("click", (e) => {
     if (!e.target.closest?.("[data-perm]")) return;
@@ -836,12 +897,18 @@ function wire() {
     if (bulk) {
       const [kind, ...key] = bulk.dataset.permBulk.split(":");
       closePanel();
+      if (open) return;
       return setBulkSubject(kind, key.join(":"));
     }
     const un = e.target.closest("[data-unstage]");
     if (un) return unstage(un.dataset.unstage);
+    const undraft = e.target.closest("[data-undraft]");
+    if (undraft) return dropDraft(undraft.dataset.undraft);
+    const act = e.target.closest("[data-drafts]")?.dataset.drafts;
+    if (act === "save") return saveDrafts();
+    if (act === "discard") { drafts.clear(); closeBlocked = false; return paintPanel(); }
     const st = e.target.closest("[data-stage]");
-    if (st) return stage(JSON.parse(st.dataset.stage));
+    if (st) return setDraft(JSON.parse(st.dataset.stage));
     if (e.target.closest("[data-new-team]")) return openNewTeam();
   });
   document.addEventListener("click", (e) => {

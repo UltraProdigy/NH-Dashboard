@@ -89,7 +89,7 @@ function resultsHtml() {
       <span>${summary}</span>
       <span class="perm-tray-gap"></span>
       ${blocked ? `<span class="pill perm-blocked">owner only</span> <span class="sub">Only an org owner can change the admin team's repos.</span>` : ""}
-      <button type="button" class="daily-go" data-bulk-stage${!picked.length || blocked ? " disabled" : ""}>Stage ${picked.length === 1 ? "1 change" : `${picked.length} changes`}</button>
+      <button type="button" class="daily-go" data-bulk-stage${!picked.length || blocked ? " disabled" : ""}>Save ${picked.length === 1 ? "1 change" : `${picked.length} changes`}</button>
     </div>
     ${list.length ? `<p class="sub perm-bulk-what">This will ${action} each ticked repo. Repos it wouldn't change are hidden.</p>
     <div class="ra-scroll perm-bulk-scroll"><table class="ra-table">
@@ -112,7 +112,7 @@ export function bulkCard() {
   const opt = (v, text, sel) => `<option value="${esc(v)}"${String(v) === String(sel) ? " selected" : ""}>${esc(text)}</option>`;
   const admin = adminTeamId(data);
   return `<section class="card perm-card perm-bulk" style="--span:12" data-bulk>
-    <header><h2>Bulk change</h2><span class="sub">one team or person, many repos at once · staged like any other change</span></header>
+    <header><h2>Bulk change</h2><span class="sub">one team or person, many repos at once · saved changes wait to be applied like any other</span></header>
     <div class="body">
       <div class="perm-bulk-row">
         <label class="sub">For <select class="perm-sel" data-bulk-field="kind">${opt("team", "a team", bulk.kind)}${opt("person", "a person", bulk.kind)}</select></label>

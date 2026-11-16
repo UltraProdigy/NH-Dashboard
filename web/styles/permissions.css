@@ -211,3 +211,12 @@ html.perm-modal-open { overflow: hidden; }
 .pill.perm-role { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 40%, var(--border)); white-space: nowrap; }
 .perm-roles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12.5px; }
 .perm-role-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+
+.perm-edit.is-draft .perm-sel { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+.pill.perm-unsaved { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.perm-pfoot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 10px 20px; border-top: 1px solid var(--border); font-size: 12.5px;
+  background: var(--panel-2);
+}
+.perm-pfoot.is-blocked span:first-child { color: var(--warn); font-weight: 600; }

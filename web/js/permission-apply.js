@@ -132,7 +132,7 @@ function reviewHtml(data, problem = null) {
     problem ? `<div class="daily-warn">${problem}</div>` : "",
   ].join("");
   return `<h3>Review ${list.length === 1 ? "1 change" : `${list.length} changes`}</h3>
-    <p>Each change is made by Org-Manager, one at a time, and checked against GitHub right before it's made. One that no longer
+    <p>Nothing has been sent yet. Each change is made by Org-Manager, one at a time, and checked against GitHub right before it's made. One that no longer
       matches what you saw is skipped, not forced. Your name goes on each line in Recent changes.</p>
     <div class="perm-review-list">${groupHtml || `<p class="sub">Nothing staged.</p>`}</div>
     ${notes}
@@ -250,8 +250,8 @@ function trayHtml() {
   const running = focus?.state === "running" ? focus : null;
   const queued = jobs.filter((j) => j.state === "queued").length;
   const stagedBit = n
-    ? `<span class="perm-tray-count"><strong>${n}</strong> ${n === 1 ? "change" : "changes"} staged</span>
-       <button type="button" class="daily-go" data-tray="review">Review</button>`
+    ? `<span class="perm-tray-count"><strong>${n}</strong> saved ${n === 1 ? "change" : "changes"} waiting to be applied</span>
+       <button type="button" class="daily-go" data-tray="review">Review &amp; apply</button>`
     : "";
   if (running) {
     const total = running.total || 1;
