@@ -28,6 +28,16 @@ name = "PERMISSIONS"
 class_name = "Permissions"
 script_name = "nh-dashboard"
 
+# Runs confirmed Permissions page batches with Org-Manager. It lives here rather
+# than in the webhook Worker so Org-Manager's key stays in this Worker only.
+[[durable_objects.bindings]]
+name = "PERMISSION_JOBS"
+class_name = "PermissionJobs"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PermissionJobs"]
+
 # Lives in nh-discord-relay, so that one has to deploy first too.
 [[durable_objects.bindings]]
 name = "DISCORD_RELAY"
@@ -43,6 +53,10 @@ script_name = "nh-discord-relay"
 #
 # ORG_MANAGER_PRIVATE_KEY is Org-Manager's PKCS#8 key, also a secret. The App does
 # everything that changes something in the org, starting with releasing a daily.
+#
+# ORG_OWNER_EMAILS is a secret too: the org owners' Access emails, comma-separated.
+# It's how the Permissions page knows who may make owner-only edits; without it
+# nobody can.
 [vars]
 GITHUB_ORG = "GTNewHorizons"
 # NH-Dashbot. Public: it is in the App's own URL. GH_APP_PRIVATE_KEY is the secret.

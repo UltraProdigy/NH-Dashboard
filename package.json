@@ -27,6 +27,7 @@
     "test:app": "node --experimental-sqlite worker/test/app.test.js",
     "test:event-log": "node --experimental-sqlite worker/test/event-log.test.js",
     "test:permissions": "node --experimental-sqlite worker/test/permissions.test.js",
+    "test:permission-jobs": "node --experimental-sqlite worker/test/permission-jobs.test.js",
     "test:relay": "node --experimental-sqlite worker/test/relay.test.js",
     "test:label-plan": "node worker/test/label-plan.test.js",
     "test:label-sync": "node --experimental-sqlite worker/test/label-sync.test.js",

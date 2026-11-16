@@ -64,7 +64,7 @@ async function pages(fetchPage, take, maxPages) {
   throw new Error(`more than ${maxPages} pages`);
 }
 
-function directLevel(edge) {
+export function directLevel(edge) {
   const own = (edge.permissionSources ?? []).filter((s) => s.source?.__typename === "Repository");
   const levels = own.map((s) => levelOf(s.roleName) ?? levelOf(s.permission)).filter(Boolean);
   if (levels.length) return levels.reduce(higher);

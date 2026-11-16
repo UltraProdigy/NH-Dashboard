@@ -9,8 +9,8 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release, Releases & Tags, the Updates scan and the GitHub Webhook rules are refused to anyone who isn't on the admin team,
- * whatever the page shows.
+ * release, Releases & Tags, the Updates scan, the GitHub Webhook rules and the Permissions page are refused to anyone who isn't on
+ * the admin team, whatever the page shows.
  */
 
 import { verifyAccess } from "./access.js";
@@ -34,13 +34,60 @@ import {
 import { ADMIN_PANELS, isAdmin } from "../../web/js/roles.js";
 import { LOG_NAME } from "./event-log.js";
 import { PERMISSIONS_NAME } from "./permissions.js";
+import { jobsStub, normaliseBatch, PermissionJobs } from "./permission-jobs.js";
+import { orgManagerReady } from "./org-manager.js";
+
+export { PermissionJobs };
 
 const LOCAL = new Set(["localhost", "127.0.0.1"]);
 
-// Owners aren't a team, so the Access identity can't say who is one yet.
-// Until that's settled every owner-only edit is off, for owners too.
-export function orgOwnerCheck() {
-  return { owner: null, ownerEdits: false, ownerCheck: "not settled" };
+// Owners aren't a team, so the Access identity can't say who is one. ORG_OWNER_EMAILS
+// lists their Access emails; without it every owner-only edit is off, for owners too.
+export function orgOwnerCheck(who, snapshot, env) {
+  const listed = String(env?.ORG_OWNER_EMAILS ?? "").split(/[\s,]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (!listed.length) return { owner: null, ownerEdits: false, ownerCheck: "not set" };
+  const email = String(who.identity.email ?? "").toLowerCase();
+  const owner = Boolean(email) && listed.includes(email);
+  const owners = snapshot?.org?.members ? Object.values(snapshot.org.members).filter((r) => r === "owner").length : null;
+  return {
+    owner,
+    ownerEdits: owner,
+    ownerCheck: "emails",
+    ...(owners != null && owners !== listed.length ? { ownerMismatch: { listed: listed.length, owners } } : {}),
+  };
+}
+
+async function readSnapshot(env) {
+  const res = await env.PERMISSIONS.get(env.PERMISSIONS.idFromName(PERMISSIONS_NAME)).fetch("https://permissions/snapshot");
+  if (!res.ok) throw new Error(`permissions ${res.status}`);
+  return res.json();
+}
+
+async function permissionWrites(request, env, url, who, path) {
+  if (!env.PERMISSIONS || !env.PERMISSION_JOBS) return json({ error: "permissions not bound" }, 503);
+  if (request.method !== "POST") return json({ error: "POST only" }, 405);
+  if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+  const by = who.identity.email ?? who.identity.sub ?? "unknown";
+  const sent = await request.json().catch(() => null);
+  if (path === "/api/permissions/cancel") {
+    const res = await jobsStub(env).fetch("https://jobs/cancel", { method: "POST", body: JSON.stringify({ job: sent?.job ?? null, by }) });
+    return json(await res.json(), res.ok ? 200 : 502);
+  }
+  let snapshot;
+  try {
+    snapshot = await readSnapshot(env);
+  } catch {
+    return json({ error: "permissions unavailable" }, 502);
+  }
+  if (!snapshot.org) return json({ error: "no snapshot yet" }, 409);
+  const check = orgOwnerCheck(who, snapshot, env);
+  const batch = normaliseBatch(sent?.changes, snapshot, { adminTeam: env.ADMIN_TEAM ?? "admin", owner: check.ownerEdits });
+  if (batch.error) return json(batch, 400);
+  const dry = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
+  if (!dry && !orgManagerReady(env)) return json({ error: "ORG_MANAGER_APP_ID or ORG_MANAGER_PRIVATE_KEY not set" }, 503);
+  const res = await jobsStub(env).fetch("https://jobs/submit", { method: "POST", body: JSON.stringify({ by, changes: batch.changes, dry }) });
+  if (!res.ok) return json({ error: "the job couldn't be queued" }, 502);
+  return json({ ...(await res.json()), dry });
 }
 
 async function authenticate(request, env, ctx, url, opts) {
@@ -165,6 +212,11 @@ async function route(request, env, ctx, url, who) {
     return json(body, status);
   }
 
+  if (path === "/api/permissions/apply" || path === "/api/permissions/cancel") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    return permissionWrites(request, env, url, who, path);
+  }
+
   if (request.method !== "GET") return json({ error: "GET only" }, 405);
 
   if (path === "/api/whoami") {
@@ -183,13 +235,35 @@ async function route(request, env, ctx, url, who) {
     if (!env.EVENT_LOG) return json({ error: "event log not bound" }, 503);
     return env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME)).fetch(request);
   }
+  if (path === "/api/permissions/jobs") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (!env.PERMISSION_JOBS) return json({ error: "permission jobs not bound" }, 503);
+    if ((request.headers.get("upgrade") ?? "").toLowerCase() === "websocket") {
+      const devOrigin = env.DEV_ROLE && LOCAL.has(url.hostname);
+      if (!devOrigin && request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+      return jobsStub(env).fetch(request);
+    }
+    const res = await jobsStub(env).fetch("https://jobs/state");
+    return res.ok ? json(await res.json()) : json({ error: "permission jobs unavailable" }, 502);
+  }
   if (path === "/api/permissions") {
     if (!admin) return json({ error: "admin only" }, 403);
     if (!env.PERMISSIONS) return json({ error: "permissions not bound" }, 503);
-    const res = await env.PERMISSIONS.get(env.PERMISSIONS.idFromName(PERMISSIONS_NAME)).fetch("https://permissions/snapshot");
-    if (!res.ok) return json({ error: "permissions unavailable" }, 502);
-    const snapshot = await res.json();
-    return json({ ...snapshot, viewer: { email: who.identity.email ?? null, ...orgOwnerCheck(who, snapshot) } });
+    let snapshot;
+    try {
+      snapshot = await readSnapshot(env);
+    } catch {
+      return json({ error: "permissions unavailable" }, 502);
+    }
+    return json({
+      ...snapshot,
+      viewer: {
+        email: who.identity.email ?? null,
+        adminTeam: env.ADMIN_TEAM ?? "admin",
+        canApply: Boolean(env.PERMISSION_JOBS) && (orgManagerReady(env) || Boolean(env.DEV_ROLE && LOCAL.has(url.hostname))),
+        ...orgOwnerCheck(who, snapshot, env),
+      },
+    });
   }
   if (path === "/api/dashboard") return handleDashboard(env, who.role);
   if (path === "/api/version") return handleVersion(env);

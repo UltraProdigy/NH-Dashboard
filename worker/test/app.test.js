@@ -287,6 +287,71 @@ console.log("\nPermissions\n");
   check("an object that fails is a 502, not its body", broken.status === 502, broken.status);
 }
 
+console.log("\nPermissions edits\n");
+{
+  const SNAP = {
+    readAt: "2026-11-02T20:00:00Z",
+    org: { login: "GTNewHorizons", base: "none", members: { alice: "owner", "admin-user": "owner", bob: "member" } },
+    teams: { 1: { id: 1, slug: "admin", name: "Admin", parent: null, members: {}, repos: {} }, 2: { id: 2, slug: "developers", name: "Developers", parent: null, members: {}, repos: {} } },
+    repos: { 10: { id: 10, name: "GT5-Unofficial", visibility: "public", archived: false, collaborators: {} } },
+    repoInvites: {}, changes: [],
+  };
+  const jobs = [];
+  const env = {
+    ...ENV,
+    ORG_MANAGER_APP_ID: "1",
+    ORG_MANAGER_PRIVATE_KEY: "k",
+    PERMISSIONS: { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json(SNAP) }) },
+    PERMISSION_JOBS: {
+      idFromName: (n) => `id:${n}`,
+      get: (id) => ({ fetch: async (url, init) => {
+        const u = typeof url === "string" ? url : url.url;
+        jobs.push({ id, path: new URL(u).pathname, body: init?.body ? JSON.parse(init.body) : null });
+        if (new URL(u).pathname === "/state") return Response.json({ jobs: [], focus: null });
+        return Response.json({ job: "job-1", ahead: 0, total: init?.body ? JSON.parse(init.body).changes?.length : 0 });
+      } }),
+    },
+  };
+  const origin = { origin: "https://nh-dashboard-app.gtnh.workers.dev", "content-type": "application/json" };
+  const apply = (changes, opts = {}) => call("/api/permissions/apply", { sub: "admin-user", env, method: "POST", headers: origin, body: JSON.stringify({ changes }), ...opts });
+  const grant = { kind: "team_repo", team: { id: 2 }, repo: { id: 10 }, from: null, to: "write" };
+
+  const owners = { ...env, ORG_OWNER_EMAILS: "Admin-User@example.com, alice@example.com,carol@example.com" };
+  const asOwner = await call("/api/permissions", { sub: "admin-user", env: owners });
+  check("an admin whose Access email is listed is an owner", asOwner.body?.viewer?.owner === true && asOwner.body.viewer.ownerEdits === true && asOwner.body.viewer.ownerCheck === "emails");
+  check("and the page is told when the list and the owners don't add up", asOwner.body.viewer.ownerMismatch?.listed === 3 && asOwner.body.viewer.ownerMismatch.owners === 2);
+  const notOwner = await call("/api/permissions", { sub: "admin-user", env: { ...env, ORG_OWNER_EMAILS: "alice@example.com" } });
+  check("one who isn't listed isn't", notOwner.body?.viewer?.owner === false && notOwner.body.viewer.ownerEdits === false);
+  check("the page is told the admin team and whether it can apply", asOwner.body.viewer.adminTeam === "admin" && asOwner.body.viewer.canApply === true);
+
+  const member = await apply([grant], { sub: "member-user" });
+  check("a member can't apply anything", member.status === 403 && jobs.length === 0, member.status);
+  const evil = await apply([grant], { headers: { origin: "https://evil.example", "content-type": "application/json" } });
+  check("an apply from another origin is refused", evil.status === 403 && jobs.length === 0, evil.status);
+  const get = await call("/api/permissions/apply", { sub: "admin-user", env });
+  check("apply is POST only", get.status === 405);
+  const bad = await apply([{ kind: "team_repo", team: { id: 99 }, repo: { id: 10 }, to: "write" }]);
+  check("a batch that doesn't match the snapshot is refused with the reasons", bad.status === 400 && bad.body.problems?.length === 1 && jobs.length === 0);
+  const adminTeam = await apply([{ kind: "team_member", team: { id: 1 }, login: "bob", from: null, to: "member" }]);
+  check("a non-owner can't touch the admin team", adminTeam.status === 400 && /owner/.test(adminTeam.body.problems?.[0].error) && jobs.length === 0);
+  const asOwnerApply = await apply([{ kind: "team_member", team: { id: 1 }, login: "bob", from: null, to: "member" }], { env: owners });
+  check("an owner can", asOwnerApply.status === 200 && jobs.at(-1).path === "/submit");
+  const ok = await apply([grant]);
+  check("a good batch goes to the one named job object, stamped with who sent it",
+    ok.status === 200 && ok.body.job === "job-1" && jobs.at(-1).id === "id:permission-jobs" && jobs.at(-1).body.by === "admin-user@example.com" &&
+    jobs.at(-1).body.changes[0].team.slug === "developers" && jobs.at(-1).body.dry === false);
+  const noKey = await apply([grant], { env: { ...env, ORG_MANAGER_PRIVATE_KEY: undefined } });
+  check("without Org-Manager's key it says so", noKey.status === 503);
+  const cancel = await call("/api/permissions/cancel", { sub: "admin-user", env, method: "POST", headers: origin, body: "{}" });
+  check("cancel goes to the job object with who asked", cancel.status === 200 && jobs.at(-1).path === "/cancel" && jobs.at(-1).body.by === "admin-user@example.com");
+  const st = await call("/api/permissions/jobs", { sub: "admin-user", env });
+  check("the job state can be read without a socket", st.status === 200 && Array.isArray(st.body.jobs));
+  const memberState = await call("/api/permissions/jobs", { sub: "member-user", env });
+  check("but not by a member", memberState.status === 403);
+  const wsEvil = await call("/api/permissions/jobs", { sub: "admin-user", env, headers: { upgrade: "websocket", origin: "https://evil.example" } });
+  check("a progress socket from another origin is refused", wsEvil.status === 403);
+}
+
 console.log("\ndashboard\n");
 {
   const a = await call("/api/dashboard", { sub: "admin-user" });
