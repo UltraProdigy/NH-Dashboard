@@ -10,7 +10,7 @@ import {
 import { boxOf, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
 import { fetchPermissions, fetchRepoInvites, getAll } from "../src/permissions-read.js";
 import {
-  accessOn, adminRows, directRows, directTeamRepos, higher, indexSnapshot, levelOf, personAccess, problems, rank,
+  accessOn, adminRows, bulkRows, directRows, directTeamRepos, higher, indexSnapshot, levelOf, personAccess, problems, rank,
   repoAccess, repoTeams, teamAncestors, teamRows,
 } from "../../web/js/permissions-calc.js";
 
@@ -687,6 +687,44 @@ console.log("\nchanges made from the dashboard\n");
 
   const again = await post(obj, "/snapshot", { at: "2026-11-02T20:10:00.000Z", startedAt: "2026-11-02T20:04:00.000Z", snapshot: baseSnapshot() });
   check("a read that started before the change doesn't undo it", (await (await obj.fetch(new Request("https://permissions/snapshot"))).json()).teams[10].members.bob === "maintainer" && again.ok);
+}
+
+console.log("\nbulk change\n");
+{
+  const snap = {
+    org: { login: ORG, base: "none", members: { alice: "owner", bob: "member" } },
+    teams: {
+      10: { id: 10, slug: "developers", name: "Developers", parent: null, members: { bob: "member" }, repos: { 1: "write", 2: "read", 4: null } },
+      11: { id: 11, slug: "scala", name: "Scala", parent: 10, members: {}, repos: { 1: "write", 2: "maintain" } },
+    },
+    repos: {
+      1: { id: 1, name: "GT5-Unofficial", visibility: "public", archived: false, collaborators: { bob: "admin" } },
+      2: { id: 2, name: "Secret", visibility: "private", archived: false, collaborators: {} },
+      3: { id: 3, name: "Old", visibility: "public", archived: true, collaborators: {} },
+      4: { id: 4, name: "Lonely", visibility: "public", archived: false, collaborators: { bob: null } },
+    },
+  };
+  const idx = indexSnapshot(snap);
+  const team = (id, to, more = {}) => bulkRows(snap, idx, { subject: { kind: "team", id }, to, ...more });
+  const write = team(10, "write");
+  check("a team's own grants are compared, and repos it wouldn't change are left out",
+    write.map((r) => `${r.repo}:${r.change}`).join() === "4:unknown,2:raise", write.map((r) => `${r.repo}:${r.change}`).join());
+  check("archived repos are left out unless asked", team(10, "write", { archived: true }).some((r) => r.repo === "3"));
+  const down = team(10, "read");
+  check("a lower level is a lower", down.find((r) => r.repo === "1")?.change === "lower");
+  check("an inherited grant isn't the child's own, so it's a raise and says what it inherits",
+    team(11, "maintain").find((r) => r.repo === "1")?.change === "raise" && team(11, "maintain").find((r) => r.repo === "1").inherited === "write");
+  check("remove only lists repos with a grant to remove", team(10, null).map((r) => r.repo).sort().join() === "1,2,4");
+  check("filters narrow by name, visibility and current level",
+    team(10, "admin", { name: "secr" }).map((r) => r.repo).join() === "2" &&
+    team(10, "admin", { visibility: "private" }).map((r) => r.repo).join() === "2" &&
+    team(10, "admin", { current: "write" }).map((r) => r.repo).join() === "1" &&
+    team(11, "admin", { current: "none" }).map((r) => r.repo).sort().join() === "1,4");
+  const person = bulkRows(snap, idx, { subject: { kind: "person", login: "Bob" }, to: "write" });
+  check("a person's direct grant is what's compared, with their overall level beside it",
+    person.find((r) => r.repo === "1")?.change === "lower" && person.find((r) => r.repo === "2")?.change === "raise" && person.find((r) => r.repo === "2").effective === "read");
+  check("an outsider's new grant is an invite", bulkRows(snap, idx, { subject: { kind: "person", login: "stranger" }, to: "read" }).every((r) => r.invite));
+  check("no subject, no rows", bulkRows(snap, idx, { subject: { kind: "team", id: 99 }, to: "read" }).length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

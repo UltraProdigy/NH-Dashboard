@@ -246,3 +246,43 @@ export function problems(snap, idx, { archived = false } = {}) {
     invitesChecked: { checked, total: Object.keys(snap.repos).length },
   };
 }
+
+export function bulkRows(snap, idx, { subject, to = null, archived = false, current = "any", name = "", visibility = "any" } = {}) {
+  const needle = name.trim().toLowerCase();
+  const team = subject?.kind === "team" ? snap.teams?.[subject.id] : null;
+  const typed = subject?.kind === "person" ? subject.login : null;
+  const login = typed ? idx.people.find((p) => p.toLowerCase() === typed.toLowerCase()) ?? typed : null;
+  if (!team && !login) return [];
+  const own = team ? idx.direct[team.id] ?? {} : null;
+  const member = login ? Object.keys(snap.org?.members ?? {}).some((m) => m.toLowerCase() === login.toLowerCase()) : true;
+  const rows = [];
+  for (const repo of Object.values(snap.repos ?? {})) {
+    if (!shown(repo, archived)) continue;
+    if (needle && !repo.name.toLowerCase().includes(needle)) continue;
+    if (visibility !== "any" && repo.visibility !== visibility) continue;
+    let now;
+    let also = null;
+    if (team) {
+      now = repo.id in own ? own[repo.id] ?? "unknown" : null;
+      if (now == null && team.repos?.[repo.id]) also = { inherited: team.repos[repo.id] };
+    } else {
+      const key = Object.keys(repo.collaborators ?? {}).find((k) => k.toLowerCase() === login.toLowerCase());
+      now = key == null ? null : repo.collaborators[key] ?? "unknown";
+      const effective = accessOn(snap, idx, login, String(repo.id))?.level ?? null;
+      if (effective && effective !== now) also = { effective };
+    }
+    const has = now != null;
+    if (current === "none" && has) continue;
+    if (current === "has" && !has) continue;
+    if (current !== "any" && current !== "none" && current !== "has" && now !== current) continue;
+    let change;
+    if (now === "unknown") change = "unknown";
+    else if (to == null) change = has ? "lower" : null;
+    else if (!has || rank(to) > rank(now)) change = "raise";
+    else if (rank(to) < rank(now)) change = "lower";
+    else change = null;
+    if (!change) continue;
+    rows.push({ repo: String(repo.id), now, to, change, invite: !member && !has && to != null, ...also });
+  }
+  return rows.sort((a, b) => String(snap.repos[a.repo].name).localeCompare(String(snap.repos[b.repo].name)));
+}

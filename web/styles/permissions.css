@@ -190,3 +190,11 @@
 .perm-newteam label { display: grid; gap: 4px; font-size: 12.5px; }
 .perm-newteam .perm-input { width: 100%; }
 .perm-staged-list + .perm-none { margin-top: 6px; }
+
+.perm-bulk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; font-size: 12.5px; }
+.perm-bulk-row label { display: inline-flex; align-items: center; gap: 6px; }
+.perm-bulk-row [data-pf] { flex-basis: 100%; }
+.perm-bulk-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 4px; font-size: 12.5px; }
+.perm-bulk-what { margin: 6px 0 0; font-size: 12px; }
+.perm-bulk-empty { margin: 4px 0 0; font-size: 12.5px; }
+.perm-bulk-scroll { margin-top: 8px; }

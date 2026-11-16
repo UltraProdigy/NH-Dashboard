@@ -8,6 +8,7 @@ import { describe, keyOf, TEAM_ROLES, validLogin, validTeamName } from "./permis
 import {
   configureApply, flagsOf, ownerOnly, paintTray, stage, stagedFor, stagedList, syncApply, trayClick, trayMarkup, unstage,
 } from "./permission-apply.js";
+import { bulkCard, bulkEvent, configureBulk, setBulkSubject } from "./permission-bulk.js";
 import { keepScroll } from "./scroll.js";
 
 const REFRESH_MS = 60_000;
@@ -473,6 +474,10 @@ function changeFromForm(form) {
   return { change: c };
 }
 
+function bulkButton(kind, key, label) {
+  return `<button type="button" class="ghost mini" data-perm-bulk="${esc(kind)}:${esc(key)}">${esc(label)}</button>`;
+}
+
 const readValue = (kind, raw) => (kind === "archived" ? raw === "true" : kind === "team_parent" ? (raw === "" ? null : Number(raw)) : raw === "" ? null : raw);
 
 /* ---- panels ---- */
@@ -491,7 +496,7 @@ function personPanel(login) {
   const head = `<div class="perm-phead">${avatar(login, 40)}<div><h2 tabindex="-1">${esc(login)}</h2><span class="sub">${roleText}</span></div></div>
     <div class="perm-plinks"><a href="${github(encodeURIComponent(login))}" target="_blank" rel="noopener">GitHub profile</a>
       <a href="${contribHref({ login })}" data-drilllink>Contributor Drilldown</a></div>
-    ${role ? `<div class="perm-pedit"><label class="sub">Org role ${roleEdit}</label></div>` : ""}`;
+    <div class="perm-pedit">${role ? `<label class="sub">Org role ${roleEdit}</label>` : ""}${bulkButton("person", login, "Bulk change for this person")}</div>`;
   const teamRows = teams.map(({ team, role: r }) => {
     const ups = teamAncestors(data.teams, team.id);
     const base = { kind: "team_member", team: teamRefOf(team), login };
@@ -541,6 +546,7 @@ function teamPanel(id) {
       ${deleting
         ? `<button type="button" class="ghost mini" data-unstage="${esc(keyOf({ kind: "team_delete", team: ref }))}">Don't delete</button>`
         : `<button type="button" class="ghost mini perm-danger" data-stage="${esc(JSON.stringify({ kind: "team_delete", team: ref, from: "exists", to: null }))}"${locked ? ` disabled title="Only an org owner can change this"` : ""}>Delete team</button>`}
+      ${bulkButton("team", team.id, "Bulk change for this team")}
     </div>
     ${locked ? `<p class="hint perm-pnote">This is the admin team. Only org owners can change its members, its repos, its name, its parent or delete it.</p>` : ""}`;
   const family = [
@@ -666,7 +672,7 @@ function bodyHtml() {
   }
   const people = idx.people.map((l) => `<option value="${esc(l)}">`).join("");
   const repos = Object.values(data.repos).filter(shownRepo).map((r) => r.name).sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join("");
-  return `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}</div>
+  return `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}${bulkCard()}</div>
     <datalist id="perm-people">${people}</datalist><datalist id="perm-repos">${repos}</datalist>`;
 }
 
@@ -694,7 +700,14 @@ export function permissionsBody() {
 
 function redraw() {
   const body = document.querySelector("[data-perm-body]");
+  const focused = document.activeElement?.closest?.("[data-bulk]") ? document.activeElement : null;
+  const keep = focused?.dataset.bulkField ? { field: focused.dataset.bulkField, at: focused.selectionStart ?? null } : null;
   if (body) keepScroll(body, () => { body.innerHTML = bodyHtml(); });
+  if (keep) {
+    const el = document.querySelector(`[data-bulk-field="${keep.field}"]`);
+    el?.focus();
+    if (keep.at != null) el?.setSelectionRange?.(keep.at, keep.at);
+  }
   const status = document.querySelector("[data-perm-status]");
   if (status) status.innerHTML = statusHtml();
   paintPanel();
@@ -703,6 +716,7 @@ function redraw() {
 }
 
 configureApply({ data: () => data, redraw: () => redraw(), reload: () => load() });
+configureBulk({ data: () => data, idx: () => idx, archived: () => showArchived, levelPill, repoRef });
 
 async function load() {
   if (inFlight) return inFlight;
@@ -736,6 +750,7 @@ function wire() {
   if (wired) return;
   wired = true;
   document.addEventListener("change", (e) => {
+    if (bulkEvent(e)) return;
     const sel = e.target.closest?.("select[data-edit]");
     if (sel && sel.closest("[data-perm]")) {
       const base = JSON.parse(sel.dataset.edit);
@@ -747,6 +762,7 @@ function wire() {
     redraw();
   });
   document.addEventListener("input", (e) => {
+    if (bulkEvent(e)) return;
     if (!e.target.matches?.("[data-perm-search]")) return;
     query = e.target.value;
     active = 0;
@@ -784,6 +800,13 @@ function wire() {
   document.addEventListener("click", (e) => {
     if (!e.target.closest?.("[data-perm]")) return;
     if (trayClick(e)) return;
+    if (bulkEvent(e)) return;
+    const bulk = e.target.closest("[data-perm-bulk]");
+    if (bulk) {
+      const [kind, ...key] = bulk.dataset.permBulk.split(":");
+      closePanel();
+      return setBulkSubject(kind, key.join(":"));
+    }
     const un = e.target.closest("[data-unstage]");
     if (un) return unstage(un.dataset.unstage);
     const st = e.target.closest("[data-stage]");
