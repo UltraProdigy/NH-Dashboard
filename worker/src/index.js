@@ -71,20 +71,23 @@ async function handleWebhook(request, env, ctx) {
     return json({ ok: true, pong: payload.zen ?? null });
   }
 
-  if (ctx && env.EVENT_LOG) {
-    ctx.waitUntil(
-      logDelivery(env, event, payload, delivery).catch((err) =>
-        console.error(JSON.stringify({ at: "eventLog", delivery, error: String(err) })),
-      ),
-    );
-  }
-
-  if (ctx && env.PERMISSIONS && PERMISSION_EVENTS.has(event)) {
-    ctx.waitUntil(
-      recordPermissionDelivery(env, event, payload, delivery).catch((err) =>
-        console.error(JSON.stringify({ at: "permissions", delivery, error: String(err) })),
-      ),
-    );
+  // The permissions object goes first: if the delivery is from a change made on the
+  // Permissions page, it says who made it, and the GitHub Logs line names them.
+  const permission = Boolean(env.PERMISSIONS) && PERMISSION_EVENTS.has(event);
+  if (ctx && (env.EVENT_LOG || permission)) {
+    ctx.waitUntil((async () => {
+      let by = null;
+      if (permission) {
+        by = await recordPermissionDelivery(env, event, payload, delivery)
+          .then((r) => r?.attributed ?? null)
+          .catch((err) => (console.error(JSON.stringify({ at: "permissions", delivery, error: String(err) })), null));
+      }
+      if (env.EVENT_LOG) {
+        await logDelivery(env, event, payload, delivery, by ? { actor: `${by} via dashboard` } : {}).catch((err) =>
+          console.error(JSON.stringify({ at: "eventLog", delivery, error: String(err) })),
+        );
+      }
+    })());
   }
 
   const repo = payload.repository?.name ?? null;

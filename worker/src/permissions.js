@@ -8,6 +8,7 @@
 import { matchesAny } from "../../src/shared/repo-rules.js";
 import { KEEP_PER_BOX } from "../../web/js/log-boxes.js";
 import { directTeamRepos, levelOf, rank } from "../../web/js/permissions-calc.js";
+import { deliveryKey, describe, isRemoval, keyOf } from "../../web/js/permission-changes.js";
 import { excludeRules, LOG_NAME, summarise } from "./event-log.js";
 import { appReady, installationToken } from "./github.js";
 import { fetchPermissions, fetchRepoInvites } from "./permissions-read.js";
@@ -262,6 +263,105 @@ export function applyDelivery(snap, event, p) {
   return touched;
 }
 
+const findLogin = (obj, login) => Object.keys(obj ?? {}).find((k) => k.toLowerCase() === String(login).toLowerCase()) ?? login;
+
+export function applyChange(snap, c, result = {}) {
+  const touched = new Set();
+  const team = c.team ? snap.teams[c.team.id] : null;
+  const repo = c.repo ? snap.repos[c.repo.id] : null;
+  const touchTeam = (t) => touched.add(teamKey(t.id));
+  const touchRepo = (r) => touched.add(repoKey(r.id));
+  switch (c.kind) {
+    case "team_member":
+      if (!team || result.invited) break;
+      if (c.to == null) delete team.members[findLogin(team.members, c.login)];
+      else team.members[findLogin(team.members, c.login)] = c.to;
+      touchTeam(team);
+      break;
+    case "team_repo":
+      if (!team) break;
+      if (c.to == null) delete team.repos[c.repo.id];
+      else team.repos[c.repo.id] = c.to;
+      touchTeam(team);
+      break;
+    case "collaborator":
+      if (!repo || result.invited) break;
+      if (c.to == null) delete repo.collaborators[findLogin(repo.collaborators, c.login)];
+      else repo.collaborators[findLogin(repo.collaborators, c.login)] = c.to;
+      touchRepo(repo);
+      break;
+    case "visibility":
+    case "archived":
+      if (!repo) break;
+      repo[c.kind] = c.to;
+      touchRepo(repo);
+      break;
+    case "team_create":
+      if (result.team?.id == null) break;
+      snap.teams[result.team.id] = { id: result.team.id, slug: result.team.slug, name: result.team.name, privacy: "closed",
+        parent: result.team.parent ?? null, members: {}, repos: {} };
+      touched.add(teamKey(result.team.id));
+      break;
+    case "team_rename":
+      if (!team) break;
+      team.name = c.to;
+      if (result.slug) team.slug = result.slug;
+      touchTeam(team);
+      break;
+    case "team_parent":
+      if (!team) break;
+      team.parent = c.to;
+      touchTeam(team);
+      break;
+    case "team_delete": {
+      if (!team) break;
+      const gone = new Set([String(team.id)]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const t of Object.values(snap.teams)) {
+          if (t.parent != null && gone.has(String(t.parent)) && !gone.has(String(t.id))) { gone.add(String(t.id)); grew = true; }
+        }
+      }
+      for (const id of gone) { delete snap.teams[id]; touched.add(teamKey(id)); }
+      break;
+    }
+    case "owner":
+      if (!snap.org?.members) break;
+      snap.org.members[findLogin(snap.org.members, c.login)] = c.to;
+      touched.add("org");
+      break;
+  }
+  return touched;
+}
+
+// GitHub sends no webhook for these, so the dashboard's own line is the only one GitHub Logs gets.
+export const noWebhook = (c) => c.kind === "owner" || (c.kind === "team_member" && c.from != null && c.from !== "unknown" && c.to != null);
+
+export function appliedLine(c, { by, at, org, result = {}, teamName }) {
+  let text = describe(c, { teamName, past: true });
+  if (result.invited && c.kind === "team_member") text = `invited ${c.login} to the org to join team ${c.team.name} as ${c.to}`;
+  if (result.invited && c.kind === "collaborator") text = `invited ${c.login} to ${c.repo.name} as ${c.to}`;
+  const slug = c.team?.slug ?? result.team?.slug ?? null;
+  const url = c.kind === "owner" ? `https://github.com/orgs/${org}/people`
+    : c.repo ? `https://github.com/${org}/${encodeURIComponent(c.repo.name)}/settings/access`
+      : slug ? `https://github.com/orgs/${org}/teams/${encodeURIComponent(slug)}` : `https://github.com/orgs/${org}/teams`;
+  return {
+    id: `dash-${at}-${keyOf(c)}`,
+    at,
+    box: "org",
+    event: "permissions",
+    action: c.kind,
+    repo: c.repo?.name ?? null,
+    team: slug,
+    login: c.login ?? null,
+    actor: by,
+    via: "dashboard",
+    text,
+    url,
+    tone: isRemoval(c) || c.to === "admin" || ["team_delete", "owner", "visibility"].includes(c.kind) ? "warn" : null,
+  };
+}
+
 export function snapshotRows(snapshot) {
   const rows = new Map([["org", snapshot.org]]);
   for (const team of Object.values(snapshot.teams ?? {})) rows.set(teamKey(team.id), team);
@@ -341,6 +441,7 @@ export class Permissions {
     this.sql.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS repo_invites (repo INTEGER PRIMARY KEY, json TEXT NOT NULL, checked_at TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, entry TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS expected (key TEXT PRIMARY KEY, by TEXT NOT NULL, until TEXT NOT NULL)");
   }
 
   async fetch(request) {
@@ -358,6 +459,16 @@ export class Permissions {
     }
     if (url.pathname === "/delivery" && request.method === "POST") {
       return Response.json(this.delivery(await request.json()));
+    }
+    if (url.pathname === "/expect" && request.method === "POST") {
+      const { keys, by, until } = await request.json();
+      for (const key of keys ?? []) {
+        this.sql.exec("INSERT INTO expected (key, by, until) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET by = excluded.by, until = excluded.until", key, by, until);
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/applied" && request.method === "POST") {
+      return Response.json(await this.applied(await request.json()));
     }
     if (url.pathname === "/snapshot" && request.method === "GET") {
       return Response.json(this.read());
@@ -421,10 +532,7 @@ export class Permissions {
     };
   }
 
-  delivery({ event, payload, delivery, at }) {
-    const rows = this.rows();
-    const snap = rowsSnapshot([...rows].map(([key, row]) => [key, row.value]));
-    const touched = rows.size ? applyDelivery(snap, event, payload) : new Set();
+  persist(snap, touched, at) {
     const current = snapshotRows({ org: snap.org ?? {}, teams: snap.teams, repos: snap.repos });
     for (const key of touched) {
       if (current.has(key)) {
@@ -436,8 +544,24 @@ export class Permissions {
         this.sql.exec("DELETE FROM entities WHERE key = ?", key);
       }
     }
+  }
+
+  attributed(event, payload, at) {
+    if (!String(payload.sender?.login ?? "").endsWith("[bot]")) return null;
+    const key = deliveryKey(event, payload);
+    if (!key) return null;
+    this.sql.exec("DELETE FROM expected WHERE until < ?", at);
+    return this.sql.exec("SELECT by FROM expected WHERE key = ?", key).toArray()[0]?.by ?? null;
+  }
+
+  delivery({ event, payload, delivery, at }) {
+    const rows = this.rows();
+    const snap = rowsSnapshot([...rows].map(([key, row]) => [key, row.value]));
+    const touched = rows.size ? applyDelivery(snap, event, payload) : new Set();
+    this.persist(snap, touched, at);
+    const by = this.attributed(event, payload, at);
     let entry = null;
-    if (logsPermissionLine(event, payload.action)) {
+    if (!by && logsPermissionLine(event, payload.action)) {
       entry = summarise(event, payload, { delivery, at });
       if (entry) {
         entry.login = payload.member?.login ?? payload.membership?.user?.login ?? payload.invitation?.login ?? null;
@@ -445,7 +569,26 @@ export class Permissions {
         this.record(entry);
       }
     }
-    return { patched: [...touched], logged: Boolean(entry) };
+    return { patched: [...touched], logged: Boolean(entry), attributed: by };
+  }
+
+  async applied({ change, by, at, result }) {
+    const rows = this.rows();
+    const snap = rowsSnapshot([...rows].map(([key, row]) => [key, row.value]));
+    const teamName = (id) => snap.teams[id]?.name ?? `team ${id}`;
+    const org = snap.org?.login ?? this.env?.GITHUB_ORG ?? "GTNewHorizons";
+    const line = appliedLine(change, { by, at, org, result, teamName });
+    const touched = rows.size ? applyChange(snap, change, result) : new Set();
+    this.persist(snap, touched, at);
+    this.record(line);
+    if (noWebhook(change) && this.env?.EVENT_LOG) {
+      const res = await this.env.EVENT_LOG.get(this.env.EVENT_LOG.idFromName(LOG_NAME)).fetch("https://event-log/record", {
+        method: "POST",
+        body: JSON.stringify({ ...line, actor: `${by} via dashboard`, via: null }),
+      }).catch((err) => ({ ok: false, err }));
+      if (!res.ok) console.error(JSON.stringify({ at: "permissions", error: `GitHub Logs line not posted: ${res.err ?? res.status}` }));
+    }
+    return { patched: [...touched], logged: true };
   }
 
   record(entry) {

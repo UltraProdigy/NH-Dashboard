@@ -416,10 +416,11 @@ export function summarise(event, payload, { delivery = null, at = new Date().toI
 
 export const excludeRules = (env) => compileRules(parseRepoList(env?.NH_INGEST_EXCLUDE));
 
-export async function logDelivery(env, event, payload, delivery) {
+export async function logDelivery(env, event, payload, delivery, { actor } = {}) {
   if (!env?.EVENT_LOG) return null;
   const entry = summarise(event, payload, { delivery, rules: excludeRules(env) });
   if (!entry) return null;
+  if (actor) entry.actor = actor;
   const stub = env.EVENT_LOG.get(env.EVENT_LOG.idFromName(LOG_NAME));
   const res = await stub.fetch("https://event-log/record", { method: "POST", body: JSON.stringify(entry) });
   if (!res.ok) throw new Error(`event log ${res.status}`);

@@ -4,7 +4,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import {
-  applyDelivery, checkPermissions, completeSnapshot, diffPermissions, logsPermissionLine, PERMISSION_EVENTS,
+  applyChange, appliedLine, applyDelivery, checkPermissions, noWebhook, completeSnapshot, diffPermissions, logsPermissionLine, PERMISSION_EVENTS,
   Permissions, PERMISSIONS_NAME, recordPermissionDelivery, trimPayload,
 } from "../src/permissions.js";
 import { boxOf, KEEP_PER_BOX } from "../../web/js/log-boxes.js";
@@ -150,7 +150,7 @@ console.log("\nthe reader\n");
   check("one repo failing doesn't stop the rest, and it's reported", !(9 in inv.results) && inv.failed.length === 1 && inv.failed[0].name === "Broken");
 }
 
-function fakeObject() {
+function fakeObject(env = {}) {
   const db = new DatabaseSync(":memory:");
   const ctx = {
     storage: {
@@ -165,7 +165,7 @@ function fakeObject() {
     },
     getWebSockets: () => [],
   };
-  return { obj: new Permissions(ctx, {}), db };
+  return { obj: new Permissions(ctx, env), db };
 }
 
 const post = (obj, path, body) => obj.fetch(new Request(`https://permissions${path}`, { method: "POST", body: JSON.stringify(body) }));
@@ -520,6 +520,20 @@ console.log("\nthe webhook\n");
   await hit("star", "del-2");
   await Promise.all(pending);
   check("a delivery that isn't about access doesn't", sent.length === 1);
+
+  const logs = [];
+  const credited = {
+    ...env,
+    PERMISSIONS: { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json({ logged: false, attributed: "admin@example.com" }) }) },
+    EVENT_LOG: { idFromName: (n) => n, get: () => ({ fetch: async (u, init) => (logs.push(JSON.parse(init.body)), new Response(null, { status: 204 })) }) },
+  };
+  await worker.fetch(new Request("https://nh-dashboard.gtnh.workers.dev/webhook", {
+    method: "POST",
+    headers: { "x-hub-signature-256": `sha256=${sig}`, "x-github-event": "membership", "x-github-delivery": "del-3" },
+    body,
+  }), credited, { waitUntil: (p) => pending.push(p) });
+  await Promise.all(pending);
+  check("a delivery from a dashboard change names the admin in GitHub Logs", logs.length === 1 && logs[0].actor === "admin@example.com via dashboard");
 }
 
 console.log("\neffective access\n");
@@ -608,6 +622,71 @@ console.log("\nthe boxes\n");
   snap.teams[11].repos[2] = "write";
   check("and turns up once its last admin or maintainer goes", problems(snap, indexSnapshot(snap)).unowned.join() === "2");
   check("invite coverage is how many repos have been checked", p.invitesChecked.checked === 2 && p.invitesChecked.total === 3, JSON.stringify(p.invitesChecked));
+}
+
+console.log("\nchanges made from the dashboard\n");
+{
+  const snap = baseSnapshot();
+  const T = { id: 10, slug: "developers", name: "Developers" };
+  const R = { id: 1, name: "GT5-Unofficial" };
+  applyChange(snap, { kind: "team_member", team: T, login: "Bob", from: "member", to: "maintainer" });
+  check("a role change patches the member GitHub already has, whatever the case", snap.teams[10].members.bob === "maintainer" && !("Bob" in snap.teams[10].members));
+  applyChange(snap, { kind: "team_member", team: T, login: "zed", from: null, to: "member" }, { invited: true });
+  check("an invite isn't a member yet", !("zed" in snap.teams[10].members));
+  applyChange(snap, { kind: "team_repo", team: T, repo: R, from: "write", to: null });
+  check("a removed team grant goes", !(1 in snap.teams[10].repos));
+  applyChange(snap, { kind: "archived", repo: { id: 2 }, from: false, to: true });
+  check("archiving patches the repo", snap.repos[2].archived === true);
+  const created = applyChange(snap, { kind: "team_create", name: "Ports", parent: 10, to: "created" }, { team: { id: 20, slug: "ports", name: "Ports", parent: 10 } });
+  check("a new team is added with what GitHub returned", snap.teams[20]?.slug === "ports" && snap.teams[20].parent === 10 && created.has("team:20"));
+  const gone = applyChange(snap, { kind: "team_delete", team: T, from: "exists", to: null });
+  check("deleting a team takes its child teams with it, as GitHub does", !snap.teams[10] && !snap.teams[20] && gone.has("team:20"));
+  applyChange(snap, { kind: "owner", login: "bob", from: "member", to: "owner" });
+  check("an owner change patches the org", snap.org.members.bob === "owner");
+
+  const line = appliedLine({ kind: "collaborator", repo: R, login: "zed", from: null, to: "read" }, { by: "admin@example.com", at: AT, org: ORG, result: { invited: true } });
+  check("the line names the admin and says it came from the dashboard", line.actor === "admin@example.com" && line.via === "dashboard" && line.box === "org");
+  check("and says when GitHub sent an invite instead", line.text === "invited zed to GT5-Unofficial as read" && line.url.endsWith("/GT5-Unofficial/settings/access"));
+  check("only owner and team role changes have no webhook of their own",
+    noWebhook({ kind: "owner" }) && noWebhook({ kind: "team_member", from: "member", to: "maintainer" }) &&
+    !noWebhook({ kind: "team_member", from: null, to: "member" }) && !noWebhook({ kind: "team_repo", from: "read", to: "write" }));
+}
+
+{
+  const logged = [];
+  const env = { EVENT_LOG: { idFromName: (n) => n, get: () => ({ fetch: async (url, init) => (logged.push(JSON.parse(init.body)), new Response(null, { status: 204 })) }) } };
+  const { obj } = fakeObject(env);
+  await post(obj, "/snapshot", { at: AT, snapshot: baseSnapshot() });
+  const T = { id: 10, slug: "developers", name: "Developers" };
+  const later = "2026-11-02T20:05:00.000Z";
+
+  await post(obj, "/expect", { keys: ["tm:10:carol"], by: "admin@example.com", until: "2026-11-02T20:30:00.000Z" });
+  const bot = { login: "org-manager[bot]" };
+  const early = await (await post(obj, "/delivery", { event: "membership", delivery: "d1", at: later,
+    payload: { action: "added", team: { id: 10, slug: "developers" }, member: { login: "carol" }, sender: bot } })).json();
+  check("a webhook from a change the dashboard is making is credited to the admin and not logged twice", early.attributed === "admin@example.com" && early.logged === false);
+  check("it still patches the snapshot", "carol" in (await (await obj.fetch(new Request("https://permissions/snapshot"))).json()).teams[10].members);
+
+  const human = await (await post(obj, "/delivery", { event: "membership", delivery: "d2", at: later,
+    payload: { action: "removed", team: { id: 10, slug: "developers" }, member: { login: "carol" }, sender: { login: "somebody" } } })).json();
+  check("the same change made by a person on GitHub is theirs", human.attributed === null && human.logged === true);
+
+  const stale = await (await post(obj, "/delivery", { event: "membership", delivery: "d3", at: "2026-11-02T21:00:00.000Z",
+    payload: { action: "added", team: { id: 10, slug: "developers" }, member: { login: "carol" }, sender: bot } })).json();
+  check("an expectation runs out", stale.attributed === null);
+
+  const applied = await (await post(obj, "/applied", { by: "admin@example.com", at: later,
+    change: { kind: "team_member", team: T, login: "bob", from: "member", to: "maintainer" }, result: {} })).json();
+  const read = await (await obj.fetch(new Request("https://permissions/snapshot"))).json();
+  check("an applied change patches the snapshot and logs a line for the admin",
+    applied.logged && read.teams[10].members.bob === "maintainer" && read.changes[0].actor === "admin@example.com" && read.changes[0].via === "dashboard");
+  check("one with no webhook also goes to GitHub Logs, named as from the dashboard",
+    logged.length === 1 && logged[0].actor === "admin@example.com via dashboard" && logged[0].via === null);
+  await post(obj, "/applied", { by: "admin@example.com", at: later, change: { kind: "team_repo", team: T, repo: { id: 1, name: "GT5-Unofficial" }, from: "write", to: "read" }, result: {} });
+  check("one GitHub sends a webhook for leaves GitHub Logs to the webhook", logged.length === 1);
+
+  const again = await post(obj, "/snapshot", { at: "2026-11-02T20:10:00.000Z", startedAt: "2026-11-02T20:04:00.000Z", snapshot: baseSnapshot() });
+  check("a read that started before the change doesn't undo it", (await (await obj.fetch(new Request("https://permissions/snapshot"))).json()).teams[10].members.bob === "maintainer" && again.ok);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
