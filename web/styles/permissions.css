@@ -83,13 +83,21 @@
 .perm-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .perm-link .repo { color: var(--muted); }
 
+.perm-modal {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 5vh 16px;
+  background: rgba(1, 4, 9, .6);
+}
+:root[data-theme="light"] .perm-modal { background: rgba(31, 35, 40, .35); }
+html.perm-modal-open { overflow: hidden; }
 .perm-panel {
-  position: fixed; z-index: 40; top: 0; right: 0; bottom: 0;
-  width: min(560px, 100vw);
+  width: min(900px, 100%); max-height: 90vh;
   display: flex; flex-direction: column;
-  border-left: 1px solid var(--border);
+  border: 1px solid var(--border); border-radius: 12px;
   background: var(--panel);
-  box-shadow: -10px 0 30px rgb(0 0 0 / .35);
+  box-shadow: 0 16px 40px rgb(0 0 0 / .4);
+  overflow: hidden;
 }
 .perm-pbar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -100,7 +108,7 @@
   background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
 }
 .perm-pbar .ghost:hover { background: var(--panel-2); }
-.perm-pbody { flex: 1; overflow-y: auto; padding: 16px; }
+.perm-pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 20px; }
 .perm-phead { display: flex; align-items: center; gap: 12px; }
 .perm-phead h2 { margin: 0; font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
 .perm-phead h2:focus { outline: none; }
@@ -117,8 +125,9 @@
 .perm-family { margin-top: 12px; }
 .perm-none { margin: 0; font-size: 12.5px; }
 
-@media (min-width: 1800px) {
-  .perm.has-panel { padding-right: 560px; }
+@media (max-width: 620px) {
+  .perm-modal { padding: 0; }
+  .perm-panel { max-height: 100vh; height: 100vh; border-radius: 0; }
 }
 
 .perm-sel, .perm-input {

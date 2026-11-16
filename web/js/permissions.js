@@ -671,20 +671,27 @@ function panelHtml() {
   const body = !exists
     ? `<p class="sub">This ${kind} isn't in the snapshot any more.</p>`
     : kind === "person" ? personPanel(key) : kind === "team" ? teamPanel(key) : repoPanel(key);
-  return `<aside class="perm-panel" role="dialog" aria-label="${esc(KIND_LABEL[kind])} details">
+  return `<div class="perm-modal" data-perm-backdrop><div class="perm-panel" role="dialog" aria-modal="true" aria-label="${esc(KIND_LABEL[kind])} details">
     <div class="perm-pbar">
       ${trail.length ? `<button type="button" class="ghost" data-perm-back>← Back</button>` : "<span></span>"}
       ${stagedList().length ? `<button type="button" class="ghost" data-tray="review">Review ${stagedList().length} staged</button>` : `<span class="sub">Edits are staged until you apply them</span>`}
       <button type="button" class="icon-btn" data-perm-close aria-label="Close">✕</button>
     </div>
     <div class="perm-pbody">${body}</div>
-  </aside>`;
+  </div></div>`;
 }
 
 function paintPanel() {
   const el = document.querySelector("[data-perm-panel]");
-  if (el) el.innerHTML = panelHtml();
+  const top = el?.querySelector(".perm-pbody")?.scrollTop ?? 0;
+  const same = el?.dataset.showing === (open ? `${open.kind}:${open.key}` : "");
+  if (el) {
+    el.innerHTML = panelHtml();
+    el.dataset.showing = open ? `${open.kind}:${open.key}` : "";
+    if (same) { const body = el.querySelector(".perm-pbody"); if (body) body.scrollTop = top; }
+  }
   document.querySelector("[data-perm]")?.classList.toggle("has-panel", Boolean(open));
+  document.documentElement.classList.toggle("perm-modal-open", Boolean(open) && Boolean(el));
 }
 
 function bodyHtml() {
@@ -845,7 +852,7 @@ function wire() {
       }
       return pick(opt);
     }
-    if (e.target.closest?.("[data-perm-close]")) return closePanel();
+    if (e.target.closest?.("[data-perm-close]") || e.target.matches?.("[data-perm-backdrop]")) return closePanel();
     if (e.target.closest?.("[data-perm-back]")) {
       const back = trail.pop();
       if (back) openPanel(back.kind, back.key, { push: false });
@@ -873,6 +880,7 @@ function wire() {
 
 export function syncPermissions(on) {
   syncApply(on);
+  if (!on) document.documentElement.classList.remove("perm-modal-open");
   if (!on) {
     clearInterval(timer);
     timer = null;
