@@ -220,3 +220,4 @@ html.perm-modal-open { overflow: hidden; }
   background: var(--panel-2);
 }
 .perm-pfoot.is-blocked span:first-child { color: var(--warn); font-weight: 600; }
+.perm-filter { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; }

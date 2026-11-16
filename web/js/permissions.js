@@ -331,7 +331,10 @@ function syncAddress() {
   if (location.pathname + location.search !== url) history.replaceState(null, "", url);
 }
 
+let sourceShown = "all";
+
 function openPanel(kind, key, { push = true } = {}) {
+  if (!(open?.kind === kind && open?.key === String(key))) sourceShown = "all";
   if (push && open && !(open.kind === kind && open.key === String(key))) trail.push(open);
   open = { kind, key: String(key) };
   pending = null;
@@ -360,6 +363,34 @@ const sourceText = (s) => {
   const via = `via ${teamRef(s.team)} ${levelPill(s.level)}`;
   return s.from ? `${via} <span class="sub">inherited from</span> ${teamRef(s.from)}` : via;
 };
+
+function sourceOptions(rows) {
+  const found = new Map();
+  for (const r of rows) {
+    for (const s of r.sources) {
+      if (s.kind === "direct") found.set("direct", [0, "direct access"]);
+      else if (s.kind === "owner") found.set("owner", [1, "org owners"]);
+      else if (s.kind === "base") found.set("base", [2, "base permission"]);
+      else if (s.kind === "role") found.set(`role:${s.role}`, [3, `org role ${roleName(s.role)}`]);
+      if (s.team != null) found.set(`team:${s.team}`, [4, `team ${teamOf(s.team)?.name ?? s.team}`]);
+      if (s.from != null) found.set(`team:${s.from}`, [4, `team ${teamOf(s.from)?.name ?? s.from}`]);
+    }
+  }
+  return [...found].sort((a, b) => a[1][0] - b[1][0] || a[1][1].localeCompare(b[1][1])).map(([v, [, text]]) => [v, text]);
+}
+
+const fromSource = (f) => (s) => f === "all" || s.kind === f || `role:${s.role}` === f || `team:${s.team}` === f || `team:${s.from}` === f;
+
+function sourceFilter(rows) {
+  const opts = sourceOptions(rows);
+  if (!opts.some(([v]) => v === sourceShown)) sourceShown = "all";
+  const shown = rows.filter((r) => r.sources.some(fromSource(sourceShown)));
+  const control = opts.length > 1
+    ? `<label class="sub perm-filter">From <select class="perm-sel" data-perm-source aria-label="Only show access from">${options([["all", "anywhere"], ...opts], sourceShown)}</select>${
+      sourceShown !== "all" ? ` <span>${shown.length} of ${rows.length}</span>` : ""}</label>`
+    : "";
+  return { shown, control };
+}
 
 const levelCounts = (rows) => LEVELS.slice().reverse()
   .map((l) => [l, rows.filter((r) => r.level === l).length])
@@ -573,7 +604,8 @@ function personPanel(login) {
     return `<tr${removing(base)}><td>${teamRef(team.id)}${ups.length ? ` <span class="sub">under</span> ${ups.map((u) => teamRef(u.id)).join(" › ")}` : ""}</td>
       <td>${editSelect(base, r ?? "unknown", ROLE_OPTIONS, `${login}'s role on ${team.name}`)}</td></tr>`;
   });
-  const repoRows = access.map((a) => {
+  const repoFilter = sourceFilter(access);
+  const repoRows = repoFilter.shown.map((a) => {
     const direct = a.sources.find((s) => s.kind === "direct");
     const base = { kind: "collaborator", repo: repoRefOf(repoOf(a.repo)), login };
     return `<tr${direct ? removing(base) : ""}><td>${repoRef(a.repo)}</td><td>${levelPill(a.level)}</td><td class="perm-src">${a.sources.map(sourceText).join("<br>")}</td>
@@ -592,7 +624,7 @@ function personPanel(login) {
     (invites.length ? section("Pending invites", "", `<ul class="perm-plist">${invites.join("")}</ul>`) : "") +
     section("Teams", teams.length ? String(teams.length) : "", ptable(["Team", "Role"], teamRows, role ? "Not on any team." : "Not on any team, and not an org member.") +
       addForm("team_member", { login }, `${teamPicker((t) => inTeams.has(String(t.id)))}${rolePicker()}`, role ? "Add to team" : "Invite to team")) +
-    section("Repos", `${access.length} ${levelCounts(access)}`, ptable(["Repo", "Level", "From", "Direct"], repoRows, "No access to any repo" + (showArchived ? "." : " that isn't archived.")) +
+    section("Repos", `${access.length} ${levelCounts(access)}`, repoFilter.control + ptable(["Repo", "Level", "From", "Direct"], repoRows, "No access to any repo" + (showArchived ? "." : " that isn't archived.")) +
       addForm("collaborator", { login }, `${repoInput()}${levelPicker()}`, "Give direct access"));
 }
 
@@ -678,7 +710,8 @@ function repoPanel(id) {
     return `<tr${own ? removing(base) : ""}><td>${teamRef(t.team)}</td><td>${levelPill(t.level)}</td><td class="perm-src sub">${from}</td>
       <td>${own ? editSelect(base, t.grant ?? "unknown", LEVEL_OPTIONS, `${teamOf(t.team).name} on ${repo.name}`) : `<span class="sub">–</span>`}</td></tr>`;
   });
-  const peopleRows = people.map((p) => {
+  const peopleFilter = sourceFilter(people);
+  const peopleRows = peopleFilter.shown.map((p) => {
     const direct = p.sources.find((s) => s.kind === "direct");
     const base = { kind: "collaborator", repo: ref, login: p.login };
     return `<tr${direct ? removing(base) : ""}><td>${personRef(p.login)}${p.outside ? ` <span class="pill neutral">outside</span>` : ""}</td><td>${levelPill(p.level)}</td><td class="perm-src">${p.sources.map(sourceText).join("<br>")}</td>
@@ -690,7 +723,7 @@ function repoPanel(id) {
     (repo.archived ? `<p class="hint perm-pnote">Archived: nobody can push to it, whatever their level.</p>` : "") +
     section("Teams", String(teams.length), ptable(["Team", "Level", "From", "Own grant"], teamRows, "No team has access.") +
       addForm("team_repo", { repo: ref }, `${teamPicker((t) => onRepo.has(String(t.id)))}${levelPicker()}`, "Give a team access")) +
-    section("People", `${people.length} ${levelCounts(people)}`, ptable(["Who", "Level", "From", "Direct"], peopleRows, "Nobody has access.") +
+    section("People", `${people.length} ${levelCounts(people)}`, peopleFilter.control + ptable(["Who", "Level", "From", "Direct"], peopleRows, "Nobody has access.") +
       addForm("collaborator", { repo: ref }, `${loginInput()}${levelPicker()}`, "Give someone direct access")) +
     section("Pending invites", checked ? `checked ${esc(ago(checked))}` : "not checked yet",
       invites.length ? `<ul class="perm-plist">${invites.map((i) => `<li>${i.login ? personRef(i.login) : "someone"} ${levelPill(i.level)}${i.by ? ` <span class="sub">by ${esc(i.by)}</span>` : ""} <span class="sub">${esc(ago(i.at))}${i.expired ? ", expired" : ""}</span></li>`).join("")}</ul>`
@@ -843,6 +876,10 @@ function wire() {
   wired = true;
   document.addEventListener("change", (e) => {
     if (bulkEvent(e)) return;
+    if (e.target.matches?.("[data-perm-source]")) {
+      sourceShown = e.target.value;
+      return paintPanel();
+    }
     const sel = e.target.closest?.("select[data-edit]");
     if (sel && sel.closest("[data-perm]")) {
       const base = JSON.parse(sel.dataset.edit);
