@@ -51,6 +51,35 @@ export function teamAncestors(teams, id) {
   return out;
 }
 
+export const repoRoles = (snap) => Object.values(snap.org?.roles ?? {}).filter((r) => levelOf(r.level));
+
+export const teamRoles = (snap, teamId) => Object.values(snap.org?.roles ?? {}).filter((r) => (r.teams ?? []).some((t) => String(t) === String(teamId)));
+
+// A person holds an org role directly, or through a team it's assigned to. GitHub's
+// own user list for the role is trusted first; team membership fills any gap.
+function roleSources(snap, teamsOf) {
+  const out = new Map();
+  const add = (login, source) => {
+    if (!out.has(login)) out.set(login, []);
+    const list = out.get(login);
+    const same = list.find((s) => s.role === source.role);
+    if (!same) list.push(source);
+    else if (same.team && !source.team) delete same.team;
+  };
+  for (const role of repoRoles(snap)) {
+    const holders = new Set((role.teams ?? []).map(String));
+    for (const [login, u] of Object.entries(role.users ?? {})) {
+      const via = (u.via ?? []).map(String).find((t) => snap.teams?.[t]);
+      add(login, { kind: "role", role: role.id, level: role.level, ...(u.direct || !via ? {} : { team: via }) });
+    }
+    for (const [login, teams] of teamsOf) {
+      const via = teams.find((t) => holders.has(String(t.id)));
+      if (via) add(login, { kind: "role", role: role.id, level: role.level, team: String(via.id) });
+    }
+  }
+  return out;
+}
+
 export function indexSnapshot(snap) {
   const teamsOf = new Map();
   for (const team of Object.values(snap.teams ?? {})) {
@@ -59,9 +88,10 @@ export function indexSnapshot(snap) {
       teamsOf.get(login).push({ id: team.id, role });
     }
   }
-  const people = new Set([...Object.keys(snap.org?.members ?? {}), ...teamsOf.keys()]);
+  const rolesOf = roleSources(snap, teamsOf);
+  const people = new Set([...Object.keys(snap.org?.members ?? {}), ...teamsOf.keys(), ...rolesOf.keys()]);
   for (const repo of Object.values(snap.repos ?? {})) for (const login of Object.keys(repo.collaborators ?? {})) people.add(login);
-  return { teamsOf, direct: directTeamRepos(snap.teams), people: [...people].sort((a, b) => a.localeCompare(b)) };
+  return { teamsOf, rolesOf, direct: directTeamRepos(snap.teams), people: [...people].sort((a, b) => a.localeCompare(b)) };
 }
 
 export function grantedBy(snap, idx, teamId, repoId) {
@@ -83,6 +113,7 @@ export function accessOn(snap, idx, login, repoId) {
   const sources = [];
   if (isOwner(snap, login)) sources.push({ kind: "owner", level: "admin" });
   if (isMember(snap, login) && baseLevel(snap)) sources.push({ kind: "base", level: baseLevel(snap) });
+  for (const s of idx.rolesOf?.get(login) ?? []) sources.push({ ...s });
   for (const { id } of idx.teamsOf.get(login) ?? []) {
     const team = snap.teams[id];
     if (!(repoId in (team.repos ?? {}))) continue;
@@ -98,7 +129,7 @@ export function accessOn(snap, idx, login, repoId) {
 const shown = (repo, archived) => archived || !repo.archived;
 
 function candidateRepos(snap, idx, login) {
-  if (isOwner(snap, login) || (isMember(snap, login) && baseLevel(snap))) return Object.keys(snap.repos);
+  if (isOwner(snap, login) || (isMember(snap, login) && baseLevel(snap)) || idx.rolesOf?.get(login)?.length) return Object.keys(snap.repos);
   const ids = new Set();
   for (const { id } of idx.teamsOf.get(login) ?? []) for (const repo of Object.keys(snap.teams[id].repos ?? {})) ids.add(repo);
   for (const repo of Object.values(snap.repos)) if (login in (repo.collaborators ?? {})) ids.add(String(repo.id));
@@ -121,6 +152,7 @@ export function repoAccess(snap, idx, repoId) {
   if (!repo) return [];
   const logins = new Set(Object.keys(repo.collaborators ?? {}));
   for (const [login, role] of Object.entries(snap.org?.members ?? {})) if (role === "owner" || baseLevel(snap)) logins.add(login);
+  for (const login of idx.rolesOf?.keys() ?? []) logins.add(login);
   for (const team of Object.values(snap.teams)) if (repoId in (team.repos ?? {})) for (const login of Object.keys(team.members ?? {})) logins.add(login);
   return [...logins]
     .map((login) => ({ login, outside: !isMember(snap, login), ...accessOn(snap, idx, login, repoId) }))
@@ -128,13 +160,22 @@ export function repoAccess(snap, idx, repoId) {
     .sort((a, b) => rank(b.level) - rank(a.level) || a.login.localeCompare(b.login));
 }
 
+function bestRole(snap, teamId) {
+  return repoRoles(snap).filter((r) => (r.teams ?? []).some((t) => String(t) === String(teamId))).reduce((a, r) => (!a || rank(r.level) > rank(a.level) ? r : a), null);
+}
+
 export function repoTeams(snap, idx, repoId) {
   return Object.values(snap.teams)
-    .filter((team) => repoId in (team.repos ?? {}))
     .map((team) => {
-      const from = grantedBy(snap, idx, team.id, repoId);
-      return { team: team.id, level: team.repos[repoId], from: from.id !== team.id ? from.id : null };
+      const role = bestRole(snap, team.id);
+      const listed = repoId in (team.repos ?? {});
+      if (!listed && !role) return null;
+      const from = listed ? grantedBy(snap, idx, team.id, repoId) : team;
+      const grant = listed ? team.repos[repoId] : undefined;
+      const level = role && (!listed || rank(role.level) > rank(grant)) ? role.level : grant;
+      return { team: team.id, level, grant, from: from.id !== team.id ? from.id : null, ...(role ? { role: role.id } : {}) };
     })
+    .filter(Boolean)
     .sort((a, b) => rank(b.level) - rank(a.level) || snap.teams[a.team].name.localeCompare(snap.teams[b.team].name));
 }
 
@@ -142,27 +183,35 @@ const STRONG = new Set(["admin", "maintain"]);
 
 export function adminRows(snap, idx, { archived = false } = {}) {
   const rows = [];
+  const allShown = Object.values(snap.repos).filter((r) => shown(r, archived)).map((r) => String(r.id));
   for (const team of Object.values(snap.teams)) {
+    const role = bestRole(snap, team.id);
     for (const level of ["admin", "maintain"]) {
+      const members = Object.keys(team.members ?? {}).length;
+      if (role && rank(role.level) >= rank(level)) {
+        if (role.level === level) rows.push({ kind: "team", team: team.id, level, repos: allShown, members, from: { inherited: 0, role: role.id } });
+        continue;
+      }
       const repos = Object.entries(team.repos ?? {})
         .filter(([id, l]) => l === level && snap.repos[id] && shown(snap.repos[id], archived))
         .map(([id]) => id);
       if (!repos.length) continue;
       const inherited = repos.filter((id) => grantedBy(snap, idx, team.id, id).id !== team.id).length;
-      rows.push({ kind: "team", team: team.id, level, repos, members: Object.keys(team.members ?? {}).length, from: { inherited } });
+      rows.push({ kind: "team", team: team.id, level, repos, members, from: { inherited } });
     }
   }
   for (const login of idx.people) {
     if (isOwner(snap, login)) continue;
     const access = personAccess(snap, idx, login, { archived }).filter((a) => STRONG.has(a.level));
     for (const level of ["admin", "maintain"]) {
-      const own = access.filter((a) => a.level === level && a.sources.some((s) => s.level === level && s.kind !== "team"));
+      const ownSource = (s) => s.level === level && s.kind !== "team" && !(s.kind === "role" && s.team);
+      const own = access.filter((a) => a.level === level && a.sources.some(ownSource));
       if (!own.length) continue;
       const via = new Map();
       for (const a of own) {
         for (const s of a.sources) {
           if (s.level !== level) continue;
-          const key = s.kind === "team" ? `team:${s.team}` : s.kind;
+          const key = s.kind === "team" ? `team:${s.team}` : s.kind === "role" ? `role:${s.role}` : s.kind;
           via.set(key, (via.get(key) ?? 0) + 1);
         }
       }
@@ -204,14 +253,17 @@ export function teamRows(snap, { archived = false } = {}) {
       seen.add(t.id);
       const levels = Object.fromEntries(LEVELS.map((l) => [l, 0]));
       let unknown = 0;
-      for (const [id, level] of Object.entries(t.repos ?? {})) {
+      const role = bestRole(snap, t.id);
+      const ids = role ? Object.keys(snap.repos) : Object.keys(t.repos ?? {});
+      for (const id of ids) {
         if (!snap.repos[id] || !shown(snap.repos[id], archived)) continue;
+        const level = role ? higher(role.level, t.repos?.[id] ?? null) : t.repos[id];
         if (level in levels) levels[level]++;
         else unknown++;
       }
       const roles = Object.values(t.members ?? {});
       out.push({
-        team: t.id, depth, parent: t.parent ?? null,
+        team: t.id, depth, parent: t.parent ?? null, orgRoles: teamRoles(snap, t.id).map((r) => r.id),
         members: roles.length, maintainers: roles.filter((r) => r === "maintainer").length,
         levels, unknown, repos: Object.values(levels).reduce((n, x) => n + x, 0) + unknown,
       });
@@ -231,7 +283,8 @@ export function problems(snap, idx, { archived = false } = {}) {
     if (!repo || !shown(repo, archived)) continue;
     for (const invite of entry.invites ?? []) repoInvites.push({ repo: id, ...invite });
   }
-  const strongBase = rank(baseLevel(snap)) >= rank("maintain");
+  const strongBase = rank(baseLevel(snap)) >= rank("maintain") ||
+    repoRoles(snap).some((r) => STRONG.has(r.level) && ((r.teams ?? []).length || Object.keys(r.users ?? {}).length));
   const unowned = strongBase ? [] : repos.filter((repo) =>
     !teams.some((t) => STRONG.has(t.repos?.[repo.id])) &&
     !Object.values(repo.collaborators ?? {}).some((l) => STRONG.has(l)),
@@ -264,7 +317,9 @@ export function bulkRows(snap, idx, { subject, to = null, archived = false, curr
     let also = null;
     if (team) {
       now = repo.id in own ? own[repo.id] ?? "unknown" : null;
-      if (now == null && team.repos?.[repo.id]) also = { inherited: team.repos[repo.id] };
+      const role = bestRole(snap, team.id);
+      if (role) also = { role: role.level };
+      else if (now == null && team.repos?.[repo.id]) also = { inherited: team.repos[repo.id] };
     } else {
       const key = Object.keys(repo.collaborators ?? {}).find((k) => k.toLowerCase() === login.toLowerCase());
       now = key == null ? null : repo.collaborators[key] ?? "unknown";

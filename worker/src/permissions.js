@@ -69,6 +69,26 @@ export function diffPermissions(before, after, { at, org }) {
     for (const login of Object.keys(was)) {
       if (!(login in now)) out.push(line({ action: "member_removed", login, tone: "warn", text: `${login} left the org` }));
     }
+    if (before.org.roles && after.org.roles) {
+      const url = `https://github.com/organizations/${org}/settings/org_role_assignments`;
+      const teamName = (id) => after.teams?.[id]?.name ?? before.teams?.[id]?.name ?? `team ${id}`;
+      const ids = new Set([...Object.keys(before.org.roles), ...Object.keys(after.org.roles)]);
+      for (const id of ids) {
+        const old = before.org.roles[id] ?? { teams: [], users: {} };
+        const cur = after.org.roles[id] ?? { teams: [], users: {} };
+        const label = cur.label ?? old.label ?? `role ${id}`;
+        const strong = ["admin", "maintain"].includes(cur.level ?? old.level) ? "warn" : null;
+        const oldTeams = new Set((old.teams ?? []).map(String));
+        const curTeams = new Set((cur.teams ?? []).map(String));
+        for (const t of curTeams) if (!oldTeams.has(t)) out.push(line({ action: "org_role_added", team: after.teams?.[t]?.slug ?? null, url, tone: strong, text: `gave team ${teamName(t)} the ${label} org role` }));
+        for (const t of oldTeams) if (!curTeams.has(t)) out.push(line({ action: "org_role_removed", team: before.teams?.[t]?.slug ?? null, url, text: `took the ${label} org role from team ${teamName(t)}` }));
+        const direct = (r) => new Set(Object.entries(r.users ?? {}).filter(([, u]) => u.direct).map(([l]) => l));
+        const oldUsers = direct(old);
+        const curUsers = direct(cur);
+        for (const l of curUsers) if (!oldUsers.has(l)) out.push(line({ action: "org_role_added", login: l, url, tone: strong, text: `gave ${l} the ${label} org role` }));
+        for (const l of oldUsers) if (!curUsers.has(l)) out.push(line({ action: "org_role_removed", login: l, url, text: `took the ${label} org role from ${l}` }));
+      }
+    }
   }
 
   const directBefore = directTeamRepos(before.teams);

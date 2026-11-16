@@ -159,12 +159,15 @@ export async function fetchPermissions(token, org, { query = graphql, request = 
 
   const info = await (await request(`/orgs/${org}`, token)).json();
   const invitations = await getAll(`/orgs/${org}/invitations?per_page=100`, token, { request });
+  const { roles, rolesError } = await fetchRoles(token, org, { request });
 
   return {
     org: {
       login: org,
       base: info.default_repository_permission ?? null,
       members,
+      roles,
+      rolesError,
       invites: invitations.map((i) => ({
         login: i.login ?? null,
         email: i.email ?? null,
@@ -176,6 +179,44 @@ export async function fetchPermissions(token, org, { query = graphql, request = 
     teams,
     repos,
   };
+}
+
+const ROLE_LEVEL = /^all[\s_-]*repo(?:sitory)?[\s_-]*(read|triage|write|maintain|admin)$/i;
+
+export const roleLevel = (role) => levelOf(role.base_role) ?? levelOf(String(role.name ?? "").match(ROLE_LEVEL)?.[1]);
+
+export const roleLabel = (name) => {
+  const m = String(name ?? "").match(ROLE_LEVEL);
+  return m ? `All-repository ${m[1].toLowerCase()}` : String(name ?? "");
+};
+
+// Listing roles needs "Custom organization roles: Read" on the App. Without it the
+// snapshot still stores, just without roles, and the page says why.
+export async function fetchRoles(token, org, { request = rest } = {}) {
+  let list;
+  try {
+    list = (await (await request(`/orgs/${org}/organization-roles`, token)).json()).roles ?? [];
+  } catch (err) {
+    return { roles: null, rolesError: /-> 40[34]/.test(String(err)) ? "no access" : String(err).slice(0, 200) };
+  }
+  const roles = {};
+  for (const r of list) {
+    const teams = await getAll(`/orgs/${org}/organization-roles/${r.id}/teams?per_page=100`, token, { request });
+    const users = await getAll(`/orgs/${org}/organization-roles/${r.id}/users?per_page=100`, token, { request });
+    if (!teams.length && !users.length) continue;
+    roles[r.id] = {
+      id: r.id,
+      name: r.name,
+      label: roleLabel(r.name),
+      level: roleLevel(r),
+      teams: teams.map((t) => t.id),
+      users: Object.fromEntries(users.map((u) => [u.login, {
+        direct: u.assignment ? u.assignment !== "indirect" : !(u.inherited_from ?? []).length,
+        via: (u.inherited_from ?? []).map((t) => t.id).filter((id) => id != null),
+      }])),
+    };
+  }
+  return { roles, rolesError: null };
 }
 
 export async function fetchRepoInvites(token, org, due, { request = rest } = {}) {

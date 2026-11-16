@@ -73,7 +73,7 @@ function resultsHtml() {
     : `give ${who} ${s.kind === "team" ? "" : "direct "}${esc(bulk.action)} on`;
   const body = list.map((r) => {
     const repo = data.repos[r.repo];
-    const extra = r.inherited ? `<span class="sub">(inherits ${esc(r.inherited)})</span>` : r.effective ? `<span class="sub">(${esc(r.effective)} overall)</span>` : "";
+    const extra = r.role ? `<span class="sub">(${esc(r.role)} from an org role anyway)</span>` : r.inherited ? `<span class="sub">(inherits ${esc(r.inherited)})</span>` : r.effective ? `<span class="sub">(${esc(r.effective)} overall)</span>` : "";
     return `<tr class="${ticked(r) ? "" : "ra-off"}">
       <td><input type="checkbox" data-bulk-tick="${esc(r.repo)}" aria-label="Include ${esc(repo.name)}"${ticked(r) ? " checked" : ""}${blocked ? " disabled" : ""}></td>
       <td>${ctx.repoRef(r.repo)}${repo.visibility !== "public" ? ` <span class="pill draft">${esc(repo.visibility)}</span>` : ""}</td>

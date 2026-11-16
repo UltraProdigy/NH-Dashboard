@@ -198,3 +198,7 @@
 .perm-bulk-what { margin: 6px 0 0; font-size: 12px; }
 .perm-bulk-empty { margin: 4px 0 0; font-size: 12.5px; }
 .perm-bulk-scroll { margin-top: 8px; }
+
+.pill.perm-role { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 40%, var(--border)); white-space: nowrap; }
+.perm-roles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 12.5px; }
+.perm-role-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }

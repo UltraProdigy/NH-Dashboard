@@ -28,7 +28,7 @@ const repoEdge = (databaseId, permission) => ({ permission, node: { databaseId }
 const source = (type, roleName, permission) => ({ roleName, permission, source: { __typename: type } });
 const collab = (login, permission, sources) => ({ permission, permissionSources: sources, node: { login } });
 
-function fakeGitHub({ failOn = null } = {}) {
+function fakeGitHub({ failOn = null, noRoles = false } = {}) {
   const calls = [];
   const query = async (token, text, vars) => {
     calls.push({ text, vars });
@@ -84,6 +84,19 @@ function fakeGitHub({ failOn = null } = {}) {
     if (url === `https://api.github.com/orgs/${ORG}/invitations?per_page=100&page=2`) {
       return Response.json([{ login: null, email: "x@example.com", role: "admin", created_at: AT, inviter: { login: "alice" } }]);
     }
+    if (url === `/orgs/${ORG}/organization-roles`) {
+      if (noRoles) throw new Error(`GET ${url} -> 403 Resource not accessible by integration`);
+      return Response.json({ total_count: 3, roles: [{ id: 1, name: "all_repo_admin", base_role: "admin" }, { id: 2, name: "CI/CD Admin" }, { id: 3, name: "Nobody's" }] });
+    }
+    const role = url.match(/^\/orgs\/GTNewHorizons\/organization-roles\/(\d+)\/(teams|users)/);
+    if (role) {
+      const lists = {
+        "1/teams": [{ id: 10, slug: "developers" }],
+        "1/users": [{ login: "bob", assignment: "indirect", inherited_from: [{ id: 10 }] }, { login: "zed", assignment: "direct" }],
+        "2/teams": [{ id: 10, slug: "developers" }],
+      };
+      return Response.json(lists[`${role[1]}/${role[2]}`] ?? []);
+    }
     const inv = url.match(/^\/repos\/GTNewHorizons\/([^/]+)\/invitations/);
     if (inv) {
       if (inv[1] === "Broken") throw new Error("GET -> 500");
@@ -135,6 +148,16 @@ console.log("\nthe reader\n");
   check("two direct sources give the higher", snap.repos[2].collaborators.dave === "admin");
   check("collaborators are read past the first page", snap.repos[2].collaborators.frank === "read");
   check("a repo with nobody direct has an empty list", JSON.stringify(snap.repos[3].collaborators) === "{}");
+
+  const roles = snap.org.roles;
+  check("org roles are read with their repo level and a readable name",
+    roles[1]?.level === "admin" && roles[1].label === "All-repository admin" && roles[2].level === null && roles[2].label === "CI/CD Admin" && snap.org.rolesError === null);
+  check("a role keeps its teams, and its users with how they got it",
+    roles[1].teams.join() === "10" && roles[1].users.bob.direct === false && roles[1].users.bob.via.join() === "10" && roles[1].users.zed.direct === true);
+  check("a role nobody holds is left out", !(3 in roles));
+  const noRoles = fakeGitHub({ noRoles: true });
+  const without = await fetchPermissions("t", ORG, { query: noRoles.query, request: noRoles.request });
+  check("without permission to read roles the snapshot still comes back, saying so", without.org.roles === null && without.org.rolesError === "no access" && Object.keys(without.repos).length === 3);
 
   const broken = fakeGitHub({ failOn: "repository(owner" });
   let threw = null;
@@ -725,6 +748,55 @@ console.log("\nbulk change\n");
     person.find((r) => r.repo === "1")?.change === "lower" && person.find((r) => r.repo === "2")?.change === "raise" && person.find((r) => r.repo === "2").effective === "read");
   check("an outsider's new grant is an invite", bulkRows(snap, idx, { subject: { kind: "person", login: "stranger" }, to: "read" }).every((r) => r.invite));
   check("no subject, no rows", bulkRows(snap, idx, { subject: { kind: "team", id: 99 }, to: "read" }).length === 0);
+}
+
+console.log("\norg roles\n");
+{
+  const snap = {
+    org: { login: ORG, base: "none", members: { alice: "owner", bob: "member", zed: "member", carol: "member" },
+      roles: {
+        1: { id: 1, name: "all_repo_admin", label: "All-repository admin", level: "admin", teams: [10], users: { bob: { direct: false, via: [10] }, zed: { direct: true, via: [] } } },
+        2: { id: 2, name: "CI/CD Admin", label: "CI/CD Admin", level: null, teams: [10], users: {} },
+      } },
+    teams: {
+      10: { id: 10, slug: "admin", name: "Admin", parent: null, members: { bob: "member", carol: "member" }, repos: { 1: "write" } },
+      11: { id: 11, slug: "devs", name: "Devs", parent: null, members: {}, repos: { 1: "write" } },
+    },
+    repos: {
+      1: { id: 1, name: "GT5-Unofficial", visibility: "public", archived: false, collaborators: {} },
+      2: { id: 2, name: "Secret", visibility: "private", archived: false, collaborators: {} },
+    },
+  };
+  const idx = indexSnapshot(snap);
+  const bob = accessOn(snap, idx, "bob", "2");
+  check("a team's org role gives its members that level on every repo, through the team",
+    bob?.level === "admin" && bob.sources.some((s) => s.kind === "role" && s.role === 1 && String(s.team) === "10"));
+  check("a member GitHub's role list missed still gets it from the team", accessOn(snap, idx, "carol", "2")?.level === "admin");
+  check("someone given the role directly gets it on every repo, with no team", personAccess(snap, idx, "zed").length === 2 && !accessOn(snap, idx, "zed", "1").sources[0].team);
+  check("a role with no repo level gives no access", !bob.sources.some((s) => s.role === 2));
+  const teams = repoTeams(snap, idx, "2");
+  check("a repo lists the team holding the role, at the role's level", teams.length === 1 && teams[0].team === 10 && teams[0].level === "admin" && teams[0].role === 1 && teams[0].grant === undefined);
+  const both = repoTeams(snap, idx, "1").find((t) => t.team === 10);
+  check("and keeps the team's own grant beside it", both.level === "admin" && both.grant === "write");
+  const admins = adminRows(snap, idx);
+  check("the team with the role is an admin row over every repo", admins.some((r) => r.kind === "team" && r.team === 10 && r.level === "admin" && r.repos.length === 2 && r.from.role === 1));
+  check("its members aren't rows of their own, but someone with the role directly is",
+    !admins.some((r) => r.login === "bob" || r.login === "carol") && admins.some((r) => r.login === "zed" && r.from["role:1"] === 2));
+  check("no repo is short of an admin while an admin role is held", problems(snap, idx).unowned.length === 0);
+  check("the teams overview says which org roles a team holds, and counts every repo at the role's level",
+    teamRows(snap).find((r) => r.team === 10).orgRoles.join() === "1,2" && teamRows(snap).find((r) => r.team === 10).levels.admin === 2);
+  check("bulk change says when a team's org role outranks what's being set", bulkRows(snap, idx, { subject: { kind: "team", id: 10 }, to: "read" })[0]?.role === "admin");
+
+  const later = structuredClone(snap);
+  later.org.roles[1].teams = [10, 11];
+  delete later.org.roles[1].users.zed;
+  const lines = diffPermissions(snap, later, { at: AT, org: ORG });
+  check("role assignments that change are logged by the 10-minute check",
+    lines.some((l) => l.text === "gave team Devs the All-repository admin org role" && l.tone === "warn") &&
+    lines.some((l) => l.text === "took the All-repository admin org role from zed") && lines.every((l) => l.via === "10-min check"));
+  const unread = structuredClone(snap);
+  unread.org.roles = null;
+  check("a read that couldn't see roles logs nothing about them", diffPermissions(snap, unread, { at: AT, org: ORG }).length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
