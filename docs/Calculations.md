@@ -1920,6 +1920,9 @@ GraphQL's `READ`…`ADMIN`, REST's `pull`/`push` and a REST `permissions` object
 (the highest flag that's true) all map onto it. A custom role name that isn't one
 of the five falls back to the base permission GitHub reports beside it.
 
+A team on a repo shows the higher of its listed grant and any org role it holds,
+with its own grant beside it, since that's the part that can be changed here.
+
 A level can be **unknown** for a few minutes: a webhook that adds someone to a
 team or a repo without saying the role or level stores it as unknown, and the
 next read fills it in. Unknown counts as having access, ranks below read, and
@@ -1942,6 +1945,7 @@ kept so the page can show where it comes from:
 |---|---|
 | Org owner | They're an owner. Admin on every repo, and can't be lowered from a repo |
 | Base permission | They're an org member and the org's base permission isn't `none`. Outside collaborators don't get it |
+| Org role | They hold an organization role with a repo level (All-repository read through admin, or a custom role's `base_role`), on every repo. Held directly, or through a team the role is assigned to: GitHub's own list of the role's users is used first, and anyone on a team that holds the role counts too. Through a team, the source names the team |
 | Team | They're a direct member of a team that lists the repo, at the team's listed level. If the team inherits it, the source names the team it comes from |
 | Direct | They have a direct grant on the repo |
 
@@ -1956,10 +1960,10 @@ collaborator (`affiliation: ALL`) matched this calculation for all 2,239 pairs.
 
 | Box | Rows |
 |---|---|
-| Repo admins & maintainers | A row per team per level (admin, maintain) with the repos it lists at that level, and a row per person per level for the repos where a direct grant or the base permission gives them that level. Owners are left out, and so is anyone who only gets admin or maintain through a team, since the team's row covers them |
+| Repo admins & maintainers | A row per team per level (admin, maintain) with the repos it lists at that level; a team holding an admin or maintain org role gets one row over every repo at the role's level instead. A row per person per level for the repos where a direct grant, the base permission or an org role held directly gives them that level. Owners are left out, and so is anyone who only gets admin or maintain through a team, including a team's org role, since the team's row covers them |
 | Direct grants & outside collaborators | Everyone with at least one direct grant, outside collaborators first. **Outside** means not an org member |
-| Teams overview | Every team, each child under its parent. Repos are counted at the team's listed level, so a child team counts what it inherits |
-| Problems & pending | Pending org invites. Pending repo invites, from the per-repo read, each repo about once a day. Teams with no members. Teams with no repos. Repos where no team lists admin or maintain and nobody has it directly, so only owners can administer them (none when the base permission is maintain or admin) |
+| Teams overview | Every team, each child under its parent, with its org roles. Repos are counted at the team's listed level, so a child team counts what it inherits. A team holding a repo-level org role counts every repo, at the higher of the role and its listed level |
+| Problems & pending | Pending org invites. Pending repo invites, from the per-repo read, each repo about once a day. Teams with no members. Teams with no repos. Repos where no team lists admin or maintain and nobody has it directly, so only owners can administer them (none when the base permission is maintain or admin, or while anyone holds an admin or maintain org role) |
 | Recent changes | The newest 200 changes, from webhooks and the 10-minute diff, newest first |
 
 **Archived repos** are left out of every box and panel unless *Show archived
@@ -1979,6 +1983,7 @@ baseline. A change is logged when:
 | Team repo | The team's **own** grant was added, removed or changed. A child team following its parent logs nothing |
 | Repo | Visibility or archived changed. A repo that's new to the read logs nothing |
 | Collaborator | Added, removed, or their level changed with neither side unknown |
+| Org role | A team or a person (held directly) gained or lost a role. Skipped when either read couldn't see roles |
 
 A row a webhook patched after the read started is kept as patched and not
 diffed, so a change landing mid-read isn't logged as being undone. A change made
@@ -1991,7 +1996,7 @@ change would actually move:
 
 | Subject | What's compared |
 |---|---|
-| A team | The team's **own** grant, as under Direct grants. A repo it only inherits counts as none, and the row says what it inherits |
+| A team | The team's **own** grant, as under Direct grants. A repo it only inherits counts as none, and the row says what it inherits. A team with a repo-level org role says what the role gives it anyway |
 | A person | Their direct grant. Their overall level is shown beside it when a team, owner or base permission gives them more |
 
 | Result | When | Ticked to start with |

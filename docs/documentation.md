@@ -2793,8 +2793,8 @@ every repo's teams and direct collaborators, and everyone's effective level on
 every repo with where it comes from. Admin-only like GitHub Logs: missing from
 the sidebar for members and refused by the server for them regardless.
 
-Changes are made from the page too: staged, reviewed, then applied to GitHub by
-Org-Manager. Every edit goes through the same tray and review, whether it's one
+Changes are made from the page too: edited, saved, reviewed, then applied to
+GitHub by Org-Manager. Every edit goes through the same tray and review, whether it's one
 dropdown or a bulk change over hundreds of repos. The base permission is the one
 thing shown but not editable; it's changed on GitHub.
 
@@ -2806,17 +2806,22 @@ From the top:
 - **Show archived repos.** Off by default, and remembered per browser. It applies
   to every box, panel and the search, which says when archived repos matched
   but are hidden. Recent changes is a log and isn't filtered.
-- **Org level**: owners, the base permission, and counts of members, outside
-  collaborators, teams and repos.
+- **Org level**: owners, the base permission, counts of members, outside
+  collaborators, teams and repos, and which teams and people hold an org role
+  that gives repo access (All-repository admin and the like).
 - **Repo admins & maintainers**, **Direct grants & outside collaborators**,
   **Teams overview**, **Problems & pending** and **Recent changes**. What each
   counts is in Calculations.md under **Permissions**.
 
-Every name on the page opens a **detail panel** for that person, team or repo,
-and names inside a panel open theirs, with a back button. The open panel is in
-the address (`?person=`, `?team=` with the slug, `?repo=` with the name) the
-same way Org Search keeps its filters there, so a panel can be linked to. Esc or
-✕ closes it.
+Every name on the page opens a **detail panel**, a modal over the page, for that
+person, team or repo, and names inside a panel open theirs, with a back button.
+The open panel is in the address (`?person=`, `?team=` with the slug, `?repo=`
+with the name) the same way Org Search keeps its filters there, so a panel can be
+linked to. Esc, ✕ or a click outside it closes it, unless it has unsaved edits.
+
+A person's repos and a repo's people can be narrowed with **From**: direct access,
+org owners, the base permission, an org role, or one team (which includes an org
+role that comes through that team, and access inherited from it as a parent).
 
 The page fetches `/api/permissions` when you open it and every minute while it's
 open and visible. A full render keeps the search box's text and caret, the open
@@ -2824,12 +2829,20 @@ panel and whatever's being typed in Bulk change.
 
 ### Editing
 
-Nothing on the page changes GitHub straight away. An edit is **staged**: it shows
-as a highlighted dropdown with an *undo* beside it, in a **Staged here** list at the
-top of the panel it belongs to, and in the **tray** pinned to the bottom of the
-page. Staged changes live in the browser (mirrored to `localStorage`, so a reload
-keeps them) and nowhere else until they're applied. Staging the same thing twice
-keeps the last value; setting it back to what GitHub has unstages it.
+Nothing on the page changes GitHub straight away. There are two steps before
+anything is sent:
+
+1. **Save.** An edit in a panel is unsaved at first: the dropdown is highlighted
+   with an *undo* beside it, it's listed under **Changes here** as *not saved*, and
+   the panel's footer counts it with **Save** and **Discard**. The panel won't close
+   with unsaved edits; it asks you to save or discard them first. Bulk change and
+   New team have their own Save button.
+2. **Review & apply.** Saved changes wait in the **tray** pinned to the bottom of
+   the page (and in the panel footer) until they're reviewed and applied.
+
+Saved changes live in the browser (mirrored to `localStorage`, so a reload keeps
+them) and nowhere else until they're applied. Saving the same thing twice keeps
+the last value; setting it back to what GitHub has drops it.
 
 Where each edit lives:
 
@@ -2838,11 +2851,12 @@ Where each edit lives:
 | Person panel | Org role (owner or member). Role on each team, or remove. Add to a team (an invite for someone outside the org). Their direct grant on each repo, or remove. Give direct access to a repo |
 | Team panel | Rename, parent, delete. Each member's role, or remove. Add a member. The team's **own** grant on each repo, or remove. Give it a repo. An inherited grant isn't editable here, since removing it from the child wouldn't change anything; it's changed on the parent |
 | Repo panel | Visibility and archived (one repo at a time, never in bulk). Each team's own grant, or remove. Give a team access. Each person's direct grant, or remove. Give someone direct access |
+| Org roles | Not editable here. They're shown wherever they give access, and changed on GitHub |
 | Teams overview | **New team**, with a name and a parent. New teams are created closed, which GitHub needs for a team to have a parent |
 | Bulk change | Below |
 
 Effective access isn't edited, only its sources: a row whose level comes from a
-team says *via team X* and links to it.
+team says *via team X* and links to it, and one from an org role names the role.
 
 **Owner-only.** Owners, and anything about the admin team itself (its members, its
 repos, its name, its parent, deleting it, or moving another team under it), can
@@ -2866,13 +2880,13 @@ it's their direct grant.
 - Repos the change wouldn't move are hidden.
 - Someone outside the org getting a new grant is flagged as an **invite**.
 
-**Stage** puts every ticked repo in the tray as its own change. *Bulk change for
+**Save** puts every ticked repo in the tray as its own change. *Bulk change for
 this team/person* in a panel opens the card with that subject picked. How a row's
 result is worked out is in Calculations.md under **Bulk change**.
 
 #### Review and apply
 
-**Review** in the tray (or in a panel's top bar) lists every staged change grouped
+**Review & apply** in the tray (or in a panel's footer) lists every saved change grouped
 by subject, worded the way it'll appear in Recent changes, and marks:
 
 - **invite**: GitHub will send an invite, and nothing changes until it's accepted;
@@ -2988,10 +3002,11 @@ so its read never delays the cards. With NH-Dashbot it reads
 | Base permission | REST `GET /orgs/{org}`, `default_repository_permission` |
 | Teams: slug, name, privacy, parent, members with role, repos with level | GraphQL `teams`, with follow-up pages for a team past 100 members or repos |
 | Repos: visibility, archived, direct collaborators with level | GraphQL `repositories` with `collaborators(affiliation: DIRECT)` |
+| Org roles: each role's repo level, and the teams and people holding it | REST `GET /orgs/{org}/organization-roles`, then each role's `/teams` and `/users` |
 
-That's about 18 calls and half a minute, nearly all of it waiting on GitHub,
-and a handful of GraphQL points from the hourly allowance. Two things about what
-GitHub sends back:
+That's about 18 calls, plus two per org role that anyone holds, and half a
+minute, nearly all of it waiting on GitHub, and a handful of GraphQL points from
+the hourly allowance. Three things about what GitHub sends back:
 
 - **A team's repos already include what it inherits from its parent.** So does
   `GET /orgs/{org}/teams/{slug}/repos`. Only `GET /repos/{owner}/{repo}/teams`
@@ -3001,6 +3016,14 @@ GitHub sends back:
   direct grant. The direct grant is the `roleName` of the edge's Repository
   `permissionSources`. Their `permission` field is no use either: it only knows
   read, write and admin, so maintain comes back as write.
+- **An org role isn't a repo grant.** The admin team's admin on every repo comes
+  from the *All-repository admin* organization role, which no team or collaborator
+  list mentions. The roles are read on their own: listing them needs NH-Dashbot to
+  have organization **Custom organization roles: Read**; their teams and users only
+  need Members. Without the first, the snapshot is stored without roles and the Org
+  level card says access from roles isn't being counted. A role nobody holds is
+  left out, and so are roles with no repo level (CI/CD Admin, say) everywhere but
+  the panels that list a team's or person's roles.
 
 **Pending repo invites** are one REST call per repo, too many for one tick. Each
 tick reads the few repos checked longest ago (the repo count over 144, rounded
@@ -3031,6 +3054,9 @@ log, so a slow object never fails a delivery.
 - Where a payload doesn't say a level or a role (a team membership, `team_add`
   without permissions), it's stored as **unknown** and shown as `?` until the
   next read fills it in.
+
+Org role assignments have no webhook, so a team or person gaining or losing a role
+is only noticed by the 10-minute diff.
 
 **Recent changes** keeps the newest 200 lines in the same object. Permission
 deliveries add their GitHub Logs line there too, and so does every change made
