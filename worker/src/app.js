@@ -96,8 +96,8 @@ async function authenticate(request, env, ctx, url, opts) {
   }
   const auth = await verifyAccess(request, env, opts);
   if (!auth.ok) return auth;
-  const { role, groups } = await roleFor(request, env, ctx, auth.identity, opts);
-  return { ...auth, role, groups };
+  const { role, groups, login } = await roleFor(request, env, ctx, auth.identity, opts);
+  return { ...auth, role, groups, login };
 }
 
 async function route(request, env, ctx, url, who) {
@@ -224,6 +224,7 @@ async function route(request, env, ctx, url, who) {
       email: who.identity.email ?? null,
       role: who.role,
       groups: who.groups,
+      login: who.login ?? null,
       sessionExpires: who.identity.exp ? new Date(who.identity.exp * 1000).toISOString() : null,
     });
   }

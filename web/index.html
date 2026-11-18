@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://github.com https://avatars.githubusercontent.com; connect-src 'self' http://localhost:8787; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NH Dashboard</title>
+<link rel="icon" href="assets/logo.png">
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/sidebar.css">
 <link rel="stylesheet" href="styles/layout.css">
@@ -22,16 +23,18 @@
 <link rel="stylesheet" href="styles/releases.css">
 <link rel="stylesheet" href="styles/webhook.css">
 <link rel="stylesheet" href="styles/overview.css">
-<!-- Last, so its breakpoint rules win over the ones they undo without needing
-     to out-specify them. -->
 <link rel="stylesheet" href="styles/mobile.css">
+<link rel="stylesheet" href="styles/timber.css">
+<link rel="stylesheet" href="styles/timber-views.css">
+<link rel="stylesheet" href="styles/timber-charts.css">
 </head>
 <body>
 
+<a class="skip-link" href="#pageTitle">Skip to content</a>
 <aside id="sidebar">
   <div class="brand">
     <img class="mark" src="assets/logo.png" alt="New Horizons">
-    <span class="name">NH Dashboard</span>
+    <span class="name">NH Dashboard<small>GTNewHorizons</small></span>
     <button class="icon-btn" id="collapse" title="Collapse sidebar" aria-label="Collapse sidebar">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"/><path d="M12.25 2.5a.75.75 0 0 1 .75.75v9.5a.75.75 0 0 1-1.5 0v-9.5a.75.75 0 0 1 .75-.75Z"/></svg>
     </button>
@@ -48,19 +51,32 @@
     </a>
   </div>
 </aside>
-
 <main>
+
   <div class="topbar">
     <button class="icon-btn navbtn" id="navToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Zm0 4h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Zm0 4h13a.75.75 0 0 1 0 1.5h-13a.75.75 0 0 1 0-1.5Z"/></svg>
     </button>
-    <h1 id="pageTitle">…</h1>
-    <span class="meta" id="meta">loading…</span>
+    <div id="backSlot"></div>
+    <span class="meta" id="meta">Loading…</span>
   </div>
-  <nav class="tabs" id="tabs"></nav>
+  <header class="timber-hero" id="hero">
+    <div id="heroScene" class="hero-scene"></div>
+    <div class="hero-copy">
+      <img class="landing-mark" id="landingMark" alt="" width="147" height="112" hidden>
+      <h1 id="pageTitle" tabindex="-1">NH Dashboard</h1>
+      <p id="pageDescription" hidden></p>
+      <div id="subjectToolbar" class="subject-toolbar" hidden></div>
+      <div id="findInputs" hidden></div>
+    </div>
+    <div id="heroCredit" class="hero-credit"></div>
+  </header>
+  <div id="overviewLinks" hidden></div>
+  <nav class="tabs" id="tabs" aria-label="Page views"></nav>
   <div class="content">
     <div class="toolbar" id="toolbar"></div>
     <div id="view"></div>
+    <div id="showcase" class="timber-showcase" hidden></div>
   </div>
 </main>
 

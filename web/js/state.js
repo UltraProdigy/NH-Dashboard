@@ -51,10 +51,11 @@ const state = {
   // New Faces is the exception, and keeps its own — see OWN_WINDOW. Six months
   // of first-timers is a long list of people who aren't new any more.
   newFacesWindow: "m3",
-  gran: "month",      // x-axis granularity: day | week | month
   filter: "",
   minActivity: 3,
   role: null,
+  viewer: null,
+  viewerGroups: [],
   verify: { busy: false, note: "" },
   daily: { busy: null, note: "", link: null },
   releaseAll: { busy: null, note: "" },

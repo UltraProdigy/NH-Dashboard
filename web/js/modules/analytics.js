@@ -18,11 +18,12 @@ import {
 import {
   barChart,
   barGrid,
+  chartControls,
+  chartGrouping,
   grossingBoxes,
   grossingNote,
   hbars,
   kpi,
-  legend,
   lineChart,
   trio,
 } from "../charts.js";
@@ -37,7 +38,7 @@ import {
   windowLabel,
   windowPhrase,
 } from "../data.js";
-import { ciDur, missingIngest, sizeNotice } from "../module-helpers.js";
+import { chartDataTable, ciDur, missingIngest, sizeNotice } from "../module-helpers.js";
 import { volumeTable } from "../contributor-data.js";
 
 export const analyticsModules = {
@@ -122,11 +123,13 @@ export const analyticsModules = {
 
   volume: {
     page: "analytics", label: "PR volume", span: 8,
-    sub: () => `by ${state.gran}, ${windowPhrase()}`,
-    controls: ["window", "gran"],
+    sub: () => `by ${chartGrouping("volume")}, ${windowPhrase()}`,
+    controls: ["window"],
     render(expanded) {
-      if (!A()) return missingIngest();
-      const s = seriesSlice();
+      const a = A();
+      if (!a) return missingIngest();
+      const grouping = chartGrouping("volume");
+      const s = seriesSlice(a, grouping);
       const series = [
         { key: "opened", label: "Opened", color: "var(--accent)" },
         { key: "merged", label: "Merged", color: "var(--good)" },
@@ -134,12 +137,13 @@ export const analyticsModules = {
       ];
       const tot = k => s.reduce((n, b) => n + (b[k] ?? 0), 0);
       const head = `<div class="kpis" style="margin:-14px -14px 14px">
-        ${kpi("Opened in range", fmt(tot("opened")), `${s.length} ${state.gran}s`)}
+        ${kpi("Opened in range", fmt(tot("opened")), `${s.length} ${grouping}s`)}
         ${kpi("Merged in range", fmt(tot("merged")), pctFmt(tot("opened") ? tot("merged") / tot("opened") : null) + " of opened")}
-        ${kpi(`Peak ${state.gran}`, fmt(Math.max(0, ...s.map(b => b.opened))), s.length ? bucketLabel(s.reduce((m, b) => b.opened > m.opened ? b : m, s[0]).b) : "")}
+        ${kpi(`Peak ${grouping}`, fmt(Math.max(0, ...s.map(b => b.opened))), s.length ? bucketLabel(s.reduce((m, b) => b.opened > m.opened ? b : m, s[0]).b) : "")}
       </div>`;
-      return head + legend(series) + barChart(s, series, { height: expanded ? 380 : 210 }) +
-        dayLimitNote() + (expanded ? volumeTable(s) : "");
+      return head + chartControls("volume", this.label, series) +
+        barChart(s, series, { height: expanded ? 380 : 210, label: this.label }) +
+        dayLimitNote(a, grouping) + (expanded ? volumeTable(s, grouping) : "");
     },
   },
 
@@ -185,40 +189,45 @@ export const analyticsModules = {
 
   latency: {
     page: "analytics", label: "Review latency", span: 6,
-    controls: ["window", "gran"],
-    sub: () => `median hours, by ${state.gran}`,
+    controls: ["window"],
+    sub: () => `median hours, by ${chartGrouping("latency")}`,
     render(expanded) {
-      if (!A()) return missingIngest();
-      const s = seriesSlice().filter(b => b.mergeN > 3);
+      const a = A();
+      if (!a) return missingIngest();
+      const grouping = chartGrouping("latency");
+      const s = seriesSlice(a, grouping).map(b => b.mergeN > 3 ? b : { b: b.b });
       const series = [
-        { key: "reviewMedianH", label: "To first review (median)", color: "var(--purple)" },
-        { key: "mergeMedianH",  label: "To merge (median)",        color: "var(--good)" },
-        { key: "mergeP90H",     label: "To merge (p90)",           color: "var(--warn)" },
+        { key: "reviewMedianH", label: "To first review (median)", color: "var(--purple)", line: "solid" },
+        { key: "mergeMedianH",  label: "To merge (median)",        color: "var(--good)",   line: "dashed" },
+        { key: "mergeP90H",     label: "To merge (p90)",           color: "var(--warn)",   line: "dotted" },
       ];
-      return legend(series) + lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur }) +
-        `<div class="hint" style="margin-top:10px">Points only appear once a ${state.gran} has more than three merges — small samples swing the median wildly, which is why a daily view of this is mostly gaps.</div>` +
-        dayLimitNote();
+      return chartControls("latency", this.label, series) +
+        lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur, label: this.label }) +
+        `<div class="hint" style="margin-top:10px">Points only appear once a ${grouping} has more than three merges — small samples swing the median wildly, which is why a daily view of this is mostly gaps.</div>` +
+        dayLimitNote(a, grouping) + (expanded ? chartDataTable(s, series, dur) : "");
     },
   },
 
   growth: {
     page: "analytics", label: "Contributor growth", span: 6,
-    controls: ["window", "gran"],
+    controls: ["window"],
     sub: () => "active vs. first-time",
     render(expanded) {
-      if (!A()) return missingIngest();
-      const s = seriesSlice();
-      const series = [
-        { key: "authors",    label: "Active authors", color: "var(--accent)" },
-        { key: "newAuthors", label: "First-time",     color: "var(--pink)" },
-      ];
       const a = A();
+      if (!a) return missingIngest();
+      const grouping = chartGrouping("growth");
+      const s = seriesSlice(a, grouping);
+      const series = [
+        { key: "authors",    label: "Active authors", color: "var(--accent)", line: "solid" },
+        { key: "newAuthors", label: "First-time",     color: "var(--pink)",   line: "dashed" },
+      ];
       return `<div class="kpis" style="margin:-14px -14px 14px">
           ${kpi("All-time contributors", fmt(a.totals.contributors), `since ${new Date(a.totals.firstPR).getFullYear()}`)}
           ${kpi("New this window", fmt(W()?.newContributors), `in ${windowLabel().toLowerCase()}`)}
           ${kpi("Repos with PRs", fmt(a.totals.repos), "all time")}
-        </div>` + legend(series) + lineChart(s, series, { height: expanded ? 380 : 200 }) +
-        dayLimitNote();
+        </div>` + chartControls("growth", this.label, series) +
+        lineChart(s, series, { height: expanded ? 380 : 200, label: this.label }) +
+        dayLimitNote(a, grouping) + (expanded ? chartDataTable(s, series) : "");
     },
   },
 

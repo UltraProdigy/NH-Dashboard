@@ -2,7 +2,6 @@ import { state } from "../state.js";
 import { age, avatar, contribLink, contribName, esc, fmt, repoLink, safeUrl } from "../format.js";
 import { renderTable, sortRows, withOwner } from "../table.js";
 import { ensureFacets, ensureSearch } from "../find-data.js";
-import { render as repaint } from "../render.js";
 
 /* ==========================================================================
    Org Search — one card, and it is the page
@@ -13,10 +12,10 @@ import { render as repaint } from "../render.js";
    do not exist until the form has been used.
    ========================================================================== */
 
-const TYPE_LABEL = { both: "Everything", issue: "Issues", pr: "Pull requests" };
+const TYPE_LABEL = { both: "All", issue: "Issues", pr: "Pull requests" };
 const STATE_LABEL = { "": "Any state", open: "Open", closed: "Closed", merged: "Merged" };
 const SORT_LABEL = {
-  updated: "Recently updated", created: "Newest", oldest: "Oldest", comments: "Most discussed",
+  updated: "Recently updated", created: "Newest", oldest: "Oldest", comments: "Most Discussed",
 };
 
 /** The three filters that have a list behind them, and what to call an unset one. */
@@ -26,10 +25,11 @@ const COMBOS = {
   label: { any: "Any label", placeholder: "any label" },
 };
 
-const seg = (key, labels) =>
-  `<span class="seg mini">${Object.entries(labels).map(([id, label]) =>
+const seg = (key, label, labels) =>
+  `<fieldset class="find-segment"><legend>${label}</legend><span class="seg">${Object.entries(labels).map(([id, name]) =>
     `<button data-find="${key}" data-val="${esc(id)}" aria-pressed="${
-      state.find[key] === id}">${esc(label)}</button>`).join("")}</span>`;
+      state.find[key] === id}">${esc(name)}</button>`).join("")}</span></fieldset>`;
+
 
 /**
  * What one picker can offer, from the facets the Worker sent.
@@ -96,7 +96,7 @@ function findPopHtml(key = state.findPop.key) {
     // strings. Lazy, because this list repaints on every keystroke and sixty
     // images must not go on the wire until they scroll into view.
     const face = key === "author" && o.id ? avatar(o.id, 18) : "";
-    return `<div class="combo-opt" role="option" data-findpick="${esc(o.id)}"
+    return `<div class="combo-opt" id="find-option-${key}-${i}" role="option" data-findpick="${esc(o.id)}"
       aria-selected="${i === state.findPop.active}">${face}<span class="n">${
         o.label ? `<span class="sub">${name}</span>` : name}</span><span class="c">${esc(o.count)}</span></div>`;
   }).join("");
@@ -123,10 +123,13 @@ function updateFindPop() {
     const open = state.findPop.key === key;
     pop.hidden = !open;
     pop.innerHTML = open ? findPopHtml(key) : "";
-    document.querySelector(`input[data-findbox="${key}"]`)
-      ?.setAttribute("aria-expanded", String(open));
-    if (open)
-      pop.querySelector('.combo-opt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+    const input = document.querySelector(`input[data-findbox="${key}"]`);
+    input?.setAttribute("aria-expanded", String(open));
+    const selected = open ? pop.querySelector('.combo-opt[aria-selected="true"]') : null;
+    if (selected) {
+      input?.setAttribute("aria-activedescendant", selected.id);
+      selected.scrollIntoView({ block: "nearest" });
+    } else input?.removeAttribute("aria-activedescendant");
   }
 }
 
@@ -136,11 +139,13 @@ function closeFindPop() {
   state.findPop.active = 0;
 }
 
+const fieldLabels = { repo: "Repository", author: "Author", label: "Label" };
 const combo = (key) => `<span class="combo" data-findcombo="${key}">
-    <input type="search" data-findbox="${key}" autocomplete="off" role="combobox"
-           aria-expanded="false" aria-autocomplete="list"
+    <label for="find-${key}">${fieldLabels[key]}</label>
+    <input type="search" id="find-${key}" data-findbox="${key}" autocomplete="off" role="combobox"
+           aria-expanded="false" aria-autocomplete="list" aria-controls="find-pop-${key}"
            placeholder="${esc(COMBOS[key].placeholder)}" value="${esc(state.find[key])}">
-    <div class="combo-pop" data-findpop="${key}" role="listbox" hidden></div>
+    <div class="combo-pop" id="find-pop-${key}" data-findpop="${key}" role="listbox" aria-label="${fieldLabels[key]} results" hidden></div>
   </span>`;
 
 /**
@@ -210,7 +215,7 @@ const COLS = [
     render: (r) => r.labels.length
       ? r.labels.map((n) => {
           const c = state.find.labelColors[r.repo]?.[n];
-          return `<span class="label"${c ? ` style="border-color:#${esc(c)}"` : ""}>${esc(n)}</span>`;
+          return `<span class="label"${c ? ` style="--label-tone:#${esc(c)}"` : ""}>${esc(n)}</span>`;
         }).join("")
       : `<span class="sub">—</span>`,
   },
@@ -275,6 +280,24 @@ function resultsHtml() {
   });
 }
 
+function findInputsHtml() {
+  return `<div class="findrow inputs">
+    <span><label for="find-q">Title or number</label>
+      <input type="search" id="find-q" data-findbox="q" autocomplete="off"
+        placeholder="e.g. boiler or #91000" value="${esc(state.find.q)}"></span>
+    ${combo("repo")}${combo("author")}${combo("label")}
+  </div>`;
+}
+
+function findFiltersHtml() {
+  return `<div class="findrow toggles" role="group" aria-label="Search filters">
+    ${seg("type", "Type", TYPE_LABEL)}
+    ${seg("state", "State", STATE_LABEL)}
+    ${seg("sort", "Sort by", SORT_LABEL)}
+    <button class="ghost" data-findreset="1">Reset</button>
+  </div>`;
+}
+
 const findModules = {
   find: {
     page: "find", label: "Org Search", span: 12, tab: false,
@@ -302,36 +325,12 @@ const findModules = {
       ensureSearch();
       // Same place, same reasoning: this card is the only thing that knows the
       // page is open, and the pickers are empty until the lists arrive.
-      //
-      // A popup already open when they land is refreshed in place rather than
-      // through a repaint, which would take the caret out of the box being
-      // typed into — the list can arrive while somebody is staring at
-      // "Loading repos…" and typing anyway.
-      ensureFacets(() => (state.findPop.key ? updateFindPop() : repaint()));
+      // Refresh an open facet list without replacing the header input.
+      ensureFacets(updateFindPop);
 
-      // Two rows, and which control goes in which is the distinction between
-      // typing and clicking rather than anything about what they filter. The
-      // query box is wider than the three beside it because it holds the
-      // longest value and is the one the cursor starts in.
-      const form = `<div class="findbar">
-        <div class="findrow inputs">
-          <input type="search" id="find-q" data-findbox="q" autocomplete="off"
-                 placeholder="Search titles, or a number…" value="${esc(state.find.q)}">
-          ${combo("repo")}
-          ${combo("author")}
-          ${combo("label")}
-        </div>
-        <div class="findrow toggles">
-          ${seg("type", TYPE_LABEL)}
-          ${seg("state", STATE_LABEL)}
-          ${seg("sort", SORT_LABEL)}
-          <button class="ghost" data-findreset="1">Reset</button>
-        </div>
-      </div>`;
-
-      return `${form}<div id="findResults">${resultsHtml()}</div>`;
+      return `<div id="findResults">${resultsHtml()}</div>`;
     },
   },
 };
 
-export { closeFindPop, findModules, findOptions, resultsHtml, updateFindPop };
+export { closeFindPop, findFiltersHtml, findInputsHtml, findModules, findOptions, resultsHtml, updateFindPop };

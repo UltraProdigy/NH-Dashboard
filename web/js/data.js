@@ -301,18 +301,13 @@ const windowDays = (mod) =>
   windowList().find(w => w.id === activeWindow(mod))?.days ?? null;
 
 /**
- * Time series for the selected granularity, trimmed to the selected period.
- *
- * One control drives both now, so this reads the same window the KPI tiles do
- * rather than a second lookback of its own.
+ * Read the chart's selected grouping from the same time window the KPI tiles use.
  */
-function seriesSlice(src = A()) {
-  const a = src;
-  if (!a) return [];
-  const all = a.series[state.gran] ?? [];
+function seriesSlice(src = A(), grouping = "month") {
+  const all = src?.series?.[grouping] ?? [];
   const days = windowDays();
   if (days == null) return all;
-  const per = GRANS.find(g => g.id === state.gran)?.bucketDays ?? 30.4;
+  const per = GRANS.find(g => g.id === grouping)?.bucketDays ?? 30.4;
   return all.slice(-Math.ceil(days / per));
 }
 
@@ -324,8 +319,8 @@ function seriesSlice(src = A()) {
  * on every build. Saying so is better than silently drawing a two-year chart
  * under a control that says "5 years".
  */
-function dayLimitNote(src = A()) {
-  if (state.gran !== "day") return "";
+function dayLimitNote(src = A(), grouping = "month") {
+  if (grouping !== "day") return "";
   const from = src?.series?.dayFrom;
   if (!from) return "";
   const days = windowDays();

@@ -5,6 +5,7 @@ import { closeCombo, render } from "./render.js";
 import { resolveTab, tabSlug } from "./modules/index.js";
 import { findQuery, readFindQuery } from "./find-data.js";
 import { permQuery, readPermQuery } from "./permissions.js";
+import { closeFindPop } from "./modules/find.js";
 
 /* ==========================================================================
    Routing — the path is the state, so a link is shareable and a reload lands
@@ -98,7 +99,7 @@ function routeSegments() {
     params.delete("route");
     const rest = params.toString();
     history.replaceState(
-      null, "", BASE + carried.replace(/^\/+/, "") + (rest ? `?${rest}` : ""));
+      history.state, "", BASE + carried.replace(/^\/+/, "") + (rest ? `?${rest}` : ""));
   }
 
   // Split before decoding: encodeURIComponent turns a slash in a repo name into
@@ -107,14 +108,19 @@ function routeSegments() {
     .split("/").filter(Boolean);
 }
 
+function decodeSubject(segment) {
+  try { return decodeURIComponent(segment); }
+  catch { return null; }
+}
+
 function readRoute() {
   const parts = routeSegments();
   const page = pageBySlug(parts[0]);
-  if (page) state.page = page.id;
+  state.page = page?.id ?? "overview";
 
   const drill = isDrill(state.page);
   state.subject =
-    drill && parts[1] && parts[1] !== NO_SUBJECT ? decodeURIComponent(parts[1]) : null;
+    drill && parts[1] && parts[1] !== NO_SUBJECT ? decodeSubject(parts[1]) : null;
 
   // resolveTab also redirects: a link made before the tab consolidation names a
   // card that is now one of several under a group tab, and lands on the group.
@@ -131,115 +137,93 @@ function readRoute() {
   // that no longer exists. `replaceState`, so none of those becomes a history
   // entry you can press Back into.
   const canon = urlFor(state.page, state.tab, state.subject);
-  if (location.pathname + location.search !== canon) history.replaceState(null, "", canon);
-  remember();
-}
-
-/**
- * `subject` left off means "decide for me": keep it when staying on the same
- * drilldown page (switching tabs), drop it otherwise — a login is not a repo
- * name, so carrying one across a mode switch would only ever 404.
- *
- * `restore` is a trail entry being replayed — see goBack. Without one the sort
- * and filter reset, which is what every ordinary navigation wants.
- */
-function go(page, tab = null, subject, restore = null) {
-  const drill = isDrill(page);
-  if (subject === undefined)
-    subject = drill && page === state.page ? state.subject : null;
-
-  state.page = page;
-  state.tab = resolveTab(page, tab);
-  state.subject = drill ? subject : null;
-  state.sort = restore ? { ...restore.sort } : {};
-  state.filter = restore ? restore.filter : "";
+  if (location.pathname + location.search !== canon) history.replaceState(history.state, "", canon);
+  const saved = history.state?.dashboard?.position;
+  state.sort = saved?.sort ?? {};
+  state.filter = saved?.filter ?? "";
   closeCombo();
+  closeFindPop();
   remember();
-
-  history.pushState(null, "", urlFor(page, state.tab, subject));
-  render();
-  // Next frame, not now: the view has just been replaced wholesale and a scroll
-  // set against a page that hasn't been laid out yet gets clamped to whatever
-  // height it briefly had.
-  if (restore) requestAnimationFrame(() => scrollTo({ top: restore.scrollY }));
 }
 
-/**
- * Rewrite the address bar to match the state, without a history entry.
- *
- * For the Find page, where the state changes on every keystroke. `pushState`
- * would put a back-button stop between "cr" and "cra"; `replaceState` keeps the
- * URL shareable at every moment while leaving Back meaning "the page I was on
- * before this search".
- */
-function syncUrl() {
-  const url = urlFor(state.page, state.tab, state.subject);
-  if (location.pathname + location.search !== url) history.replaceState(null, "", url);
-}
+const panes = () => [...(document.querySelectorAll?.("#view .tscroll, #view .scroll, #view .rl-list, #view .wh-list") ?? [])];
+const place = () => ({ page: state.page, tab: state.tab, subject: state.subject });
 
-/* ==========================================================================
-   Where you came from
-   --------------------------------------------------------------------------
-   Repo and contributor names are links into a drilldown nearly everywhere on
-   the dashboard, and the only way back to the table you clicked one from was
-   the browser's Back — which on a hash-routed page also unwinds every tab and
-   period you touched after arriving. This is a trail of the places those links
-   were followed *from*, so the drilldown can offer exactly one step back, to
-   the card, sort and scroll position you left.
-   ========================================================================== */
-
-const trail = [];
-
-/**
- * Where the back button on the current drilldown would take you, or null if
- * you arrived under your own steam.
- *
- * The entry's destination is checked rather than trusted: the browser's own
- * Back and Forward move the hash out from under the trail, and an entry that
- * no longer describes where you are is not somewhere to return *from*.
- */
-function backFrom() {
-  const top = trail[trail.length - 1];
-  if (!top) return null;
-  return top.to.page === state.page && top.to.subject === state.subject ? top.from : null;
-}
-
-function goBack() {
-  const from = backFrom();
-  if (!from) return;
-  trail.pop();
-  go(from.page, from.tab, from.subject, from);
-}
-
-/**
- * Jump into a drilldown. Called without an origin — the picker, the search box
- * — it's you navigating yourself, which is the case the trail has to forget:
- * an offer to go back somewhere you left ten minutes ago is worse than none.
- */
-function drillTo(page, id, from = null) {
-  if (from) trail.push({ from, to: { page, subject: id } });
-  else trail.length = 0;
-  go(page, null, id);
-}
-
-/** Following a repo or contributor link in the page, remembering the spot. */
-function drillFromHere(page, id) {
-  if (page === state.page && id === state.subject) return drillTo(page, id);
-  drillTo(page, id, {
-    page: state.page,
-    tab: state.tab,
-    subject: state.subject,
+function saveViewport() {
+  const position = {
     sort: { ...state.sort },
     filter: state.filter,
-    scrollY: window.scrollY,
+    scrollY: globalThis.window?.scrollY ?? 0,
+    panes: panes().map(el => [el.scrollLeft, el.scrollTop]),
+  };
+  history.replaceState({
+    ...history.state,
+    dashboard: { ...history.state?.dashboard, position },
+  }, "", location.pathname + location.search);
+}
+
+/** Navigate to a dashboard view, keeping the previous entry's local state. */
+function go(page, tab = null, subject) {
+  const drill = isDrill(page);
+  if (subject === undefined) subject = drill && page === state.page ? state.subject : null;
+  const nextTab = resolveTab(page, tab);
+  const nextSubject = drill ? subject : null;
+  const url = urlFor(page, nextTab, nextSubject);
+  if (page === state.page && nextTab === state.tab && nextSubject === state.subject &&
+      url === location.pathname + location.search) return;
+
+  const from = place();
+  saveViewport();
+  state.page = page;
+  state.tab = nextTab;
+  state.subject = nextSubject;
+  state.sort = {};
+  state.filter = "";
+  closeCombo();
+  closeFindPop();
+  remember();
+
+  history.pushState({ dashboard: { from } }, "", url);
+  render();
+  globalThis.scrollTo?.({ top: 0 });
+  document.getElementById("pageTitle")?.focus({ preventScroll: true });
+}
+
+/** Update shareable filters without creating a Back step on each keystroke. */
+function syncUrl() {
+  const url = urlFor(state.page, state.tab, state.subject);
+  if (location.pathname + location.search !== url) history.replaceState(history.state, "", url);
+}
+
+function restoreViewport() {
+  const saved = history.state?.dashboard?.position;
+  if (!saved) return;
+  requestAnimationFrame(() => {
+    panes().forEach((el, i) => { if (saved.panes?.[i]) el.scrollTo(...saved.panes[i]); });
+    globalThis.scrollTo?.({ top: saved.scrollY });
   });
 }
 
-/** Sidebar and mode-toggle navigation: resume rather than reset. */
+function backFrom() {
+  return history.state?.dashboard?.from ?? null;
+}
+
+function goBack() {
+  if (!backFrom()) return;
+  saveViewport();
+  history.back();
+}
+
+function drillTo(page, id) {
+  go(page, null, id);
+}
+
+const drillFromHere = drillTo;
+
+/** Sidebar and mode-toggle navigation: resume the last tab or subject. */
 function goPage(page, fallbackTab = null) {
-  trail.length = 0;
   const last = lastPlace[page];
   go(page, last?.tab ?? fallbackTab, last?.subject ?? null);
 }
 
-export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readRoute, syncUrl };
+export { backFrom, drillFromHere, drillTo, go, goBack, goPage, readRoute, restoreViewport, syncUrl };
