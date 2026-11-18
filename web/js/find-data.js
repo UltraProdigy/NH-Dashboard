@@ -1,6 +1,5 @@
 import { FIND_DEFAULTS, blankFind, state } from "./state.js";
 import { API } from "./live.js";
-import { render } from "./render.js";
 import { resultsHtml } from "./modules/find.js";
 import { keepScroll } from "./scroll.js";
 
@@ -87,13 +86,12 @@ function readFindQuery(search) {
  * takes the caret with it — and this fetch resolves, by design, 250ms after a
  * keystroke. Swapping the results container leaves the form alone.
  *
- * Falls back to a full render when the container is not there: the first search
- * of a session, or one arriving while another page is open.
+ * First render reads the current search state, and off-page results wait for
+ * the next visit.
  */
 function paint() {
   const el = document.getElementById("findResults");
   if (el && state.page === "find") keepScroll(el, () => { el.innerHTML = resultsHtml(); });
-  else render();
 }
 
 let timer = null;

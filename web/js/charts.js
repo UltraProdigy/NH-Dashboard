@@ -1,4 +1,4 @@
-import { state } from "./state.js";
+import { GRANS, state } from "./state.js";
 import { avatar, bareRepo, bucketLabel, bucketParts, diff, esc, fmt } from "./format.js";
 
 /* ==========================================================================
@@ -12,137 +12,214 @@ function niceMax(v) {
   return (NICE.find(n => v <= n * mag) ?? 10) * mag;
 }
 
-/**
- * Shared scaffold: y grid lines + labels, x labels thinned to ~6 ticks.
- * Returns the plot geometry so each chart type only has to draw its marks.
- */
-function plotFrame(buckets, max, { height, padL = 38, padB = 22, padT = 6, everyLabel = false }) {
-  const W = 1000, H = height;
-  const innerW = W - padL - 6, innerH = H - padB - padT;
-  const top = niceMax(max);
-  const y = v => padT + innerH - (v / top) * innerH;
+const groupingByChart = new Map();
+const chartGrouping = id => groupingByChart.get(id) ?? "month";
+const groupingLabel = id => id[0].toUpperCase() + id.slice(1);
 
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => top * f);
-  const gridSvg = ticks.map(t => `
-    <line class="grid-line" x1="${padL}" x2="${W - 6}" y1="${y(t)}" y2="${y(t)}" opacity="${t === 0 ? 1 : .45}"/>
-    <text class="axis" x="${padL - 7}" y="${y(t) + 3}" text-anchor="end">${t >= 1000 ? `${Math.round(t / 1000)}k` : Math.round(t * 10) / 10}</text>`).join("");
+function setChartGrouping(id, grouping) {
+  if (!id || !GRANS.some(g => g.id === grouping) || chartGrouping(id) === grouping) return false;
+  groupingByChart.set(id, grouping);
+  return true;
+}
 
-  // Label roughly six evenly-spaced buckets, anchored on the newest one so the
-  // right-hand edge is always dated. When everyLabel is set the labels move
-  // out of the SVG entirely — see xAxis() — so nothing is drawn here.
-  const every = Math.max(1, Math.ceil(buckets.length / 6));
-  const xLabels = everyLabel ? "" : buckets.map((b, i) =>
-    (buckets.length - 1 - i) % every === 0
-      ? `<text class="axis" x="${padL + (innerW / buckets.length) * (i + 0.5)}" y="${H - 6}" text-anchor="middle">${esc(bucketLabel(b.b))}</text>`
-      : ""
-  ).join("");
-
-  return { W, H, padL, padT, innerW, innerH, top, y, gridSvg, xLabels };
+/** The date range stays in the page toolbar. These controls affect one chart. */
+function chartControls(id, title, series) {
+  return `<div class="chart-toolbar">${legend(series)}
+    <fieldset class="chart-grouping" aria-label="Group ${esc(title.toLowerCase())} by">
+      <legend>Group by</legend>
+      <div class="chart-segments">${GRANS.map(({ id: grouping }) =>
+        `<button type="button" data-chart-gran="${esc(id)}" data-gran="${grouping}" aria-pressed="${chartGrouping(id) === grouping}">${groupingLabel(grouping)}</button>`).join("")}</div>
+    </fieldset>
+  </div>`;
 }
 
 /**
- * Every bucket labelled, as HTML beneath the plot.
- *
- * Inset to match the plot area so label i sits under bar i. The percentages
- * come from the same geometry plotFrame uses, so the two can't drift.
+ * The SVG scales to any card width. Its axis labels are laid out in CSS pixels
+ * so a narrow card never compresses the text to match the plot geometry.
  */
-const MAX_LABELS = 12;
+function plotFrame(max, height) {
+  const W = 1000;
+  const innerH = height - 18;
+  const top = niceMax(max);
+  const y = v => 8 + (1 - v / top) * innerH;
+  const ticks = [1, 0.75, 0.5, 0.25, 0].map(f => top * f);
+  const grid = ticks.map(t =>
+    `<line x1="0" x2="${W}" y1="${y(t)}" y2="${y(t)}" opacity="${t === 0 ? 1 : .6}"/>`).join("");
+  const labels = ticks.map(t => {
+    const value = t >= 1000 ? `${Math.round(t / 100) / 10}k` : Math.round(t * 10) / 10;
+    return `<span style="top:${y(t) / height * 100}%">${value}</span>`;
+  }).join("");
+  return { W, height, innerH, top, y, grid, labels };
+}
 
-/* Strides that read as something — every 6th month is "twice a year", every
-   5th is noise. One list per bucket size, since a good stride for months is a
-   bad one for weeks. */
 const STRIDES = {
   M: [1, 2, 3, 6, 12, 24],
   W: [1, 2, 4, 8, 13, 26, 52],
   D: [1, 2, 7, 14, 28, 91, 182, 364],
 };
 
-function labelStride(buckets) {
-  const k = buckets[0].b;
-  const list = STRIDES[k.includes("W") ? "W" : k.split("-").length > 2 ? "D" : "M"];
-  let s = list.find(c => buckets.length / c <= MAX_LABELS);
-  if (!s) { s = list.at(-1); while (buckets.length / s > MAX_LABELS) s *= 2; }
-  return s;
+function xAxis(buckets, maxLabels, density) {
+  const key = buckets[0].b;
+  const steps = STRIDES[key.includes("W") ? "W" : key.split("-").length > 2 ? "D" : "M"];
+  let stride = steps.find(step => Math.ceil(buckets.length / step) <= maxLabels) ?? steps.at(-1);
+  while (Math.ceil(buckets.length / stride) > maxLabels) stride *= 2;
+
+  let lastYear = null;
+  const labels = [];
+  // Date the right edge even when the width leaves room for only a few ticks.
+  for (let i = (buckets.length - 1) % stride; i < buckets.length; i += stride) {
+    const { period, year } = bucketParts(buckets[i].b);
+    const label = `<span>${esc(period)}</span>${year === lastYear ? "" : `<small>${esc(year)}</small>`}`;
+    labels.push(`<span class="chart-tick" style="--at:${(i + 0.5) / buckets.length * 100}%">${label}</span>`);
+    lastYear = year;
+  }
+  return `<div class="chart-xaxis ${density}">${labels.join("")}</div>`;
 }
 
-function xAxis(buckets, { padL = 38, W = 1000, padR = 6 } = {}) {
-  if (!buckets.length) return "";
-  const left = (padL / W) * 100;
-  const width = ((W - padR - padL) / W) * 100;
-  const stride = labelStride(buckets);
-  let lastYear = null;
-  const cells = buckets.map((b, i) => {
-    // Anchored on the newest bucket so the right-hand edge is always dated,
-    // the same way plotFrame's thinned SVG ticks are. Skipped buckets still
-    // get an empty cell, or the grid stops lining up with the bars.
-    if ((buckets.length - 1 - i) % stride) return `<span></span>`;
-    const { period, year } = bucketParts(b.b);
-    // Only when it changes: on an all-time axis the year is the same for
-    // twelve labels running, and repeating it is what made the row unreadable.
-    const yr = year === lastYear ? "" : `<span class="yr">${esc(year)}</span>`;
-    lastYear = year;
-    return `<span>${esc(period)}${yr}</span>`;
-  }).join("");
-  return `<div class="xaxis" style="margin-left:${left}%;width:${width}%;grid-template-columns:repeat(${buckets.length},1fr)">${cells}</div>`;
+function chartFrame(f, buckets, series, marks, describe, { everyLabel, label }) {
+  const slot = f.W / buckets.length;
+  const hover = buckets.map((b, i) => `
+    <rect class="hoverzone" x="${slot * i}" y="${f.y(f.top)}" width="${slot}" height="${f.innerH}" fill="transparent" data-chart-bucket="${i}">
+      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${esc(s.label)}: ${esc(describe(b[s.key]))}`).join("\n")}</title>
+    </rect>`).join("");
+  const name = label ?? series.map(s => s.label).join(", ");
+  return `<div class="chart-frame" data-chart-label="${esc(name)}">
+    <div class="chart-stage">
+      <div class="chart-axes" aria-hidden="true">
+        <div class="chart-yaxis">${f.labels}</div>
+        <svg class="chart" viewBox="0 0 ${f.W} ${f.height}" preserveAspectRatio="none" height="${f.height}">
+          <g class="chart-grid">${f.grid}</g>${marks}${hover}
+        </svg>
+        ${xAxis(buckets, everyLabel ? 12 : 7, "wide")}
+        ${xAxis(buckets, 5, "medium")}
+        ${xAxis(buckets, 3, "narrow")}
+      </div>
+    </div>
+  </div>`;
 }
 
 /** Grouped vertical bars. `series` = [{ key, label, color }]. */
-function barChart(buckets, series, { height = 190, everyLabel = false } = {}) {
+function barChart(buckets, series, { height = 190, everyLabel = false, label } = {}) {
   if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
   const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
-  const f = plotFrame(buckets, max, { height, everyLabel });
-  const slot = f.innerW / buckets.length;
-  const bw = Math.max(1, (slot * 0.74) / series.length);
+  const f = plotFrame(max, height);
+  const slot = f.W / buckets.length;
+  const bw = (slot * 0.74) / series.length;
 
   const bars = buckets.map((b, i) => {
-    const x0 = f.padL + slot * i + slot * 0.13;
+    const x0 = slot * (i + 0.13);
     return series.map((s, j) => {
       const v = b[s.key] ?? 0;
-      const h = Math.max(v > 0 ? 1 : 0, f.padT + f.innerH - f.y(v));
-      return `<rect x="${x0 + bw * j}" y="${f.y(v)}" width="${bw}" height="${h}" fill="${s.color}" rx="1"/>`;
+      const h = Math.max(v > 0 ? 1 : 0, f.y(0) - f.y(v));
+      return `<rect x="${x0 + bw * j}" y="${f.y(0) - h}" width="${bw}" height="${h}" fill="${s.color}" rx="1"/>`;
     }).join("");
   }).join("");
 
-  const hover = buckets.map((b, i) => `
-    <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
-      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${esc(s.label)}: ${fmt(b[s.key] ?? 0)}`).join("\n")}</title>
-    </rect>`).join("");
-
-  return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
-    ${f.gridSvg}${bars}${hover}${f.xLabels}</svg>` + (everyLabel ? xAxis(buckets) : "");
+  return chartFrame(f, buckets, series, bars, v => fmt(v ?? 0), { everyLabel, label });
 }
 
-/** Multi-series line chart. Nulls break the line rather than dropping to zero. */
-function lineChart(buckets, series, { height = 190, fmtV = fmt, everyLabel = false } = {}) {
+const LINE_DASHES = { dashed: "6 4", dotted: "2 4" };
+
+/** Multi-series line chart. Nulls break the line and single points stay visible. */
+function lineChart(buckets, series, { height = 190, fmtV = fmt, everyLabel = false, label } = {}) {
   if (!buckets.length) return `<div class="empty">No data in this range.</div>`;
   const max = Math.max(1, ...buckets.flatMap(b => series.map(s => b[s.key] ?? 0)));
-  const f = plotFrame(buckets, max, { height, everyLabel });
-  const slot = f.innerW / buckets.length;
-  const px = i => f.padL + slot * (i + 0.5);
+  const f = plotFrame(max, height);
+  const slot = f.W / buckets.length;
+  const px = i => slot * (i + 0.5);
 
   const paths = series.map(s => {
-    let d = "", pen = false;
+    let line = "", isolated = "";
     buckets.forEach((b, i) => {
       const v = b[s.key];
-      if (v == null) { pen = false; return; }
-      d += `${pen ? "L" : "M"}${px(i).toFixed(1)},${f.y(v).toFixed(1)}`;
-      pen = true;
+      if (v == null) return;
+      const follows = buckets[i - 1]?.[s.key] != null;
+      const precedes = buckets[i + 1]?.[s.key] != null;
+      const position = `${px(i).toFixed(1)},${f.y(v).toFixed(1)}`;
+      if (follows || precedes) line += `${follows ? "L" : "M"}${position}`;
+      else isolated += `M${position}h0`;
     });
-    return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+    return `<g stroke="${s.color}" fill="none">
+      <path d="${line}" stroke-width="2" stroke-linejoin="round" stroke-dasharray="${LINE_DASHES[s.line] ?? "none"}" vector-effect="non-scaling-stroke"/>
+      <path d="${isolated}" stroke-width="4" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    </g>`;
   }).join("");
 
-  const hover = buckets.map((b, i) => `
-    <rect class="hoverzone" x="${f.padL + slot * i}" y="${f.padT}" width="${slot}" height="${f.innerH}" fill="transparent">
-      <title>${esc(bucketLabel(b.b))}\n${series.map(s => `${esc(s.label)}: ${b[s.key] == null ? "—" : fmtV(b[s.key])}`).join("\n")}</title>
-    </rect>`).join("");
-
-  return `<svg class="chart" viewBox="0 0 ${f.W} ${f.H}" preserveAspectRatio="none" height="${height}">
-    ${f.gridSvg}${paths}${hover}${f.xLabels}</svg>` + (everyLabel ? xAxis(buckets) : "");
+  return chartFrame(f, buckets, series, paths, v => v == null ? "—" : fmtV(v), { everyLabel, label });
 }
 
 function legend(series) {
   return `<div class="legend">${series.map(s =>
-    `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("")}</div>`;
+    `<span><i${s.line ? ` class="legend-${s.line}"` : ""} style="--series-color:${s.color};background:${s.color}" aria-hidden="true"></i>${esc(s.label)}</span>`).join("")}</div>`;
+}
+
+function bindChartInspection(root) {
+  for (const frame of root.querySelectorAll(".chart-frame")) {
+    const stage = frame.querySelector(".chart-stage");
+    if (stage.hasAttribute("role")) continue;
+    const chart = stage.querySelector("svg");
+    const zones = [...chart.querySelectorAll("[data-chart-bucket]")];
+    const describe = zone => zone.querySelector("title").textContent.split("\n");
+    const readout = document.createElement("div");
+    readout.className = "chart-readout";
+    readout.innerHTML = `
+      <div class="chart-value"><strong></strong>${describe(zones[0]).slice(1).map(() => "<span></span>").join("")}</div>
+      <div class="chart-step">
+        <button type="button" aria-label="Previous bucket" title="Previous bucket"></button>
+        <button type="button" aria-label="Next bucket" title="Next bucket"></button>
+      </div>
+      <div class="chart-announcement" role="status"></div>`;
+    frame.append(readout);
+    stage.tabIndex = 0;
+    stage.setAttribute("role", "slider");
+    stage.setAttribute("aria-label", `${frame.dataset.chartLabel} data point. Use arrow keys to inspect.`);
+    stage.setAttribute("aria-valuemin", "1");
+    stage.setAttribute("aria-valuemax", String(zones.length));
+    const [previous, next] = readout.querySelectorAll("button");
+    const values = [...readout.querySelector(".chart-value").children];
+    const announcement = readout.querySelector(".chart-announcement");
+    let selected = -1;
+    function inspect(index, announce = false) {
+      const pick = Math.max(0, Math.min(zones.length - 1, index));
+      if (pick === selected) return;
+
+      zones[selected]?.classList.remove("selected-zone");
+      selected = pick;
+      const zone = zones[selected];
+      zone.classList.add("selected-zone");
+      const entries = describe(zone);
+      const text = entries.join(", ");
+      values.forEach((node, i) => { node.textContent = entries[i]; });
+      stage.setAttribute("aria-valuenow", String(selected + 1));
+      stage.setAttribute("aria-valuetext", text);
+      if (announce) announcement.textContent = text;
+      previous.setAttribute("aria-disabled", String(selected === 0));
+      next.setAttribute("aria-disabled", String(selected === zones.length - 1));
+    }
+
+    const inspectZone = event => {
+      const zone = event.target.closest("[data-chart-bucket]");
+      if (zone) inspect(Number(zone.dataset.chartBucket));
+    };
+    chart.addEventListener("pointerover", inspectZone);
+    chart.addEventListener("pointerup", inspectZone);
+    previous.addEventListener("click", () => inspect(selected - 1, true));
+    next.addEventListener("click", () => inspect(selected + 1, true));
+    stage.addEventListener("keydown", event => {
+      const index = {
+        ArrowLeft: selected - 1,
+        ArrowDown: selected - 1,
+        ArrowRight: selected + 1,
+        ArrowUp: selected + 1,
+        Home: 0,
+        End: zones.length - 1,
+      }[event.key];
+      if (index == null) return;
+      event.preventDefault();
+      inspect(index);
+    });
+    inspect(zones.length - 1);
+  }
 }
 
 /**
@@ -272,4 +349,18 @@ function kpi(k, v, d = "", cls = "") {
   return `<div class="kpi"><div class="k">${esc(k)}</div><div class="v ${cls}">${v}</div><div class="d">${d}</div></div>`;
 }
 
-export { barChart, barGrid, grossingBoxes, grossingNote, hbars, kpi, legend, lineChart, trio };
+export {
+  barChart,
+  barGrid,
+  bindChartInspection,
+  chartControls,
+  chartGrouping,
+  grossingBoxes,
+  grossingNote,
+  hbars,
+  kpi,
+  legend,
+  lineChart,
+  setChartGrouping,
+  trio,
+};

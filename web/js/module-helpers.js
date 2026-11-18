@@ -1,8 +1,9 @@
-import { diff, dur, esc, fmt, pctFmt, safeUrl } from "./format.js";
+import { bucketLabel, diff, dur, esc, fmt, pctFmt, safeUrl } from "./format.js";
 import { kpi } from "./charts.js";
 import { A, panel, windowList } from "./data.js";
 import { labelsOf, prLabelsMissing } from "./drilldown-data.js";
 import { PR_STATE_LABEL, REVIEW_KIND_LABEL, REVIEW_STATE_LABEL, state } from "./state.js";
+import { renderTable } from "./table.js";
 
 /* ---- controls that have two homes ---------------------------------------
    A `tabControls` entry sits in the page toolbar when its module has a tab to
@@ -195,10 +196,24 @@ const netClass = (n) => (n == null || n === 0 ? "" : n > 0 ? "down" : "up");
 const missingIngest = () =>
   `<div class="error">Analytics needs the local PR store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
 
+/** Exact values for the expanded line-chart views, in newest-first order. */
+function chartDataTable(buckets, series, fmtV = fmt) {
+  const columns = [
+    { key: "b", label: "Period", render: b => esc(bucketLabel(b.b)) },
+    ...series.map(s => ({
+      key: s.key,
+      label: s.label,
+      render: b => `<span class="num">${b[s.key] == null ? "—" : esc(fmtV(b[s.key]))}</span>`,
+    })),
+  ];
+  return `<details class="chart-data"><summary>Chart data</summary>${renderTable([...buckets].reverse(), columns)}</details>`;
+}
+
 export {
   SEG_KEY,
   cardSeg,
   cardWindow,
+  chartDataTable,
   labelCol,
   labelNotice,
   ciDur,

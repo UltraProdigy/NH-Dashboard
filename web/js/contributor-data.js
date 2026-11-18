@@ -82,9 +82,9 @@ function contributorColumns() {
   ];
 }
 
-function volumeTable(s) {
+function volumeTable(s, grouping) {
   const cols = [
-    { key: "b", label: { day: "Day", week: "Week", month: "Month" }[state.gran] ?? "Bucket",
+    { key: "b", label: { day: "Day", week: "Week", month: "Month" }[grouping] ?? "Bucket",
       render: b => esc(bucketLabel(b.b)) },
     { key: "opened", label: "Opened", render: b => `<span class="num">${fmt(b.opened)}</span>` },
     { key: "merged", label: "Merged", render: b => `<span class="num">${fmt(b.merged)}</span>` },

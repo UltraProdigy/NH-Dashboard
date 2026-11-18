@@ -64,6 +64,17 @@ export function isAdminTeam(identity, org, team) {
   });
 }
 
+// Only use an explicit provider login or GitHub's own noreply address.
+function githubLogin(full, claim) {
+  const loginPattern = /^(?!-)[A-Za-z0-9-]{1,39}(?<!-)$/;
+  for (const candidate of [full?.login, full?.github_login, full?.preferred_username, full?.username,
+    claim?.github_login, ...[full?.email, claim?.email].map(email =>
+      /^(?:\d+\+)?([A-Za-z0-9-]+)@users\.noreply\.github\.com$/i.exec(email ?? "")?.[1])]) {
+    if (typeof candidate === "string" && loginPattern.test(candidate)) return candidate;
+  }
+  return null;
+}
+
 async function identityOf(request, env, ctx, fetchImpl) {
   if (typeof ctx?.access?.getIdentity === "function") return ctx.access.getIdentity();
   const token = request.headers.get("cf-access-jwt-assertion");
@@ -85,12 +96,16 @@ export async function roleFor(request, env, ctx, identity, { fetchImpl = fetch, 
     full = await identityOf(request, env, ctx, fetchImpl);
   } catch (err) {
     console.log(JSON.stringify({ at: "roles", error: String(err) }));
-    return { role: "member", groups: [] };
+    return { role: "member", groups: [], login: githubLogin(null, identity) };
   }
 
   const org = env.GITHUB_ORG ?? "GTNewHorizons";
   const team = env.ADMIN_TEAM ?? "admin";
-  const value = { role: isAdminTeam(full, org, team) ? "admin" : "member", groups: groupNames(full) };
+  const value = {
+    role: isAdminTeam(full, org, team) ? "admin" : "member",
+    groups: groupNames(full),
+    login: githubLogin(full, identity),
+  };
 
   if (cache.size >= MAX_ENTRIES) cache.delete(cache.keys().next().value);
   cache.set(key, { at: now, value });

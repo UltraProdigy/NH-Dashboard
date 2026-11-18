@@ -1,4 +1,5 @@
-import { GRANS, isDrill, state } from "./state.js";
+import { isDrill, state } from "./state.js";
+import { bindChartInspection } from "./charts.js";
 import { controlHtml } from "./module-helpers.js";
 import { age, agoText, avatar, daysSince, esc, fmt, safeUrl } from "./format.js";
 import {
@@ -28,6 +29,9 @@ import { API, lazyPanel } from "./live.js";
 import { byLabelCount, exclPopHtml, panelRows } from "./dream.js";
 import { contributorRows } from "./contributor-data.js";
 import { href } from "./paths.js";
+import { renderArtwork } from "./artwork.js";
+import { findFiltersHtml, findInputsHtml } from "./modules/find.js";
+import { renderAdminDiagnostics } from "./admin-diagnostics.js";
 import { PAGES } from "./pages.js";
 import { MODULES, tabCountId, tabMembers, tabsFor } from "./modules/index.js";
 import { withOwner } from "./table.js";
@@ -96,17 +100,22 @@ const currentPage = () => PAGES.find(p => p.id === state.page) ?? PAGES[0];
  * ordering, and it is the array.
  */
 function renderSidebar() {
-  let section = null;
-  document.getElementById("pages").innerHTML = PAGES.map(p => {
-    const head = p.section === section
-      ? ""
-      : `<h3 class="pgroup"><span class="plabel">${esc(p.section)}</span></h3>`;
-    section = p.section;
-    return head + `
-    <button data-page="${p.id}" aria-current="${p.id === state.page}" title="${esc(p.label)}">
-      <svg viewBox="0 0 16 16" fill="currentColor">${p.icon}</svg>
+  const nav = document.getElementById("pages");
+  const open = new Map([...nav.querySelectorAll("details[data-group]")].map(d => [d.dataset.group, d.open]));
+  const link = p => `<button data-page="${p.id}" aria-current="${p.id === state.page}"
+      aria-label="${esc(p.label)}" title="${esc(p.label)}">
+      <svg aria-hidden="true" viewBox="0 0 16 16" fill="currentColor">${p.icon}</svg>
       <span class="plabel">${esc(p.label)}</span>
     </button>`;
+  nav.innerHTML = ["Org Analytics", "Admin Resources", "Queries"].map((section, index) => {
+    const links = PAGES.filter(p => p.section === section);
+    if (!links.length) return "";
+    const heading = `<span class="plabel">${section}</span>`;
+    if (index === 0) return `<div class="timber-nav-group"><h3 class="pgroup">${heading}</h3>${links.map(link).join("")}</div>`;
+    return `<details class="timber-nav-group" data-group="${index}"${open.get(String(index)) !== false || links.some(p => p.id === state.page) ? " open" : ""}>
+      <summary class="pgroup">${heading}<span class="nav-disclosure" aria-hidden="true">⌄</span></summary>
+      ${links.map(link).join("")}
+    </details>`;
   }).join("");
 }
 
@@ -161,7 +170,9 @@ function tabEmpty(pageId, tab) {
 
 function renderTabs() {
   const page = currentPage();
-  document.getElementById("pageTitle").textContent = page.label;
+  document.getElementById("pageTitle").textContent = page.id === "overview" ? "GTNH GitHub Overview" : page.label;
+  document.body.dataset.dashboardPage = page.id;
+  renderArtwork(page);
 
   // A page whose only module declines a tab has nothing to put in the bar but
   // the word "Overview", which is a control offering to take you where you
@@ -231,7 +242,7 @@ function comboPopHtml() {
     // repaints on every keystroke, so the images have to stay off the wire
     // until they scroll into view.
     const face = state.page === "contributor" ? avatar(o.id, 18) : "";
-    return `<div class="combo-opt" role="option" data-pick="${esc(o.id)}"
+    return `<div class="combo-opt" id="subject-option-${i}" role="option" data-pick="${esc(o.id)}"
       aria-selected="${i === state.combo.active}">${face}<span class="n">${name}</span><span class="c">${meta}</span></div>`;
   }).join("");
 }
@@ -245,9 +256,13 @@ function updateComboPop() {
   if (!pop) return;
   pop.hidden = !state.combo.open;
   pop.innerHTML = state.combo.open ? comboPopHtml() : "";
-  document.getElementById("comboInput")?.setAttribute("aria-expanded", String(state.combo.open));
-  if (state.combo.open)
-    pop.querySelector('.combo-opt[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  const input = document.getElementById("comboInput");
+  input?.setAttribute("aria-expanded", String(state.combo.open));
+  const selected = state.combo.open ? pop.querySelector('.combo-opt[aria-selected="true"]') : null;
+  if (selected) {
+    input?.setAttribute("aria-activedescendant", selected.id);
+    selected.scrollIntoView({ block: "nearest" });
+  } else input?.removeAttribute("aria-activedescendant");
 }
 
 function closeCombo() {
@@ -267,23 +282,15 @@ function placeLabel(p) {
   return bits.join(" · ");
 }
 
-/**
- * Nothing at all when there's nowhere to return to.
- *
- * This used to render disabled, to keep the toolbar from shifting as you moved
- * between pages that had a trail and pages that didn't. But a greyed control is
- * still a control: it reads as something you could use and can't work out how,
- * and on a page you opened yourself there is no answer to that question. The
- * shift is one 30px button at the far left, which costs less than the puzzle.
- */
+/** An enabled Back control names the dashboard page it will restore. */
 function backButtonHtml() {
   const from = backFrom();
-  if (!from) return "";
-  const arrow = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"
-    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M3.4 6.2h6.3a3.4 3.4 0 0 1 0 6.8H6.1"/><path d="M6.2 3.1 3.1 6.2l3.1 3.1"/></svg>`;
-  return `<button class="backbtn" id="backBtn" aria-label="Back"
-    title="Back to ${esc(placeLabel(from))}">${arrow}</button>`;
+  const tip = from ? `Back to ${placeLabel(from)}` : "No previous dashboard page";
+  return `<button type="button" class="backbtn" id="backBtn" aria-label="${from ? esc(tip) : "Back"}"
+    title="${esc(tip)}"${from ? "" : " disabled"}>
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 8H2m5-5L2 8l5 5"/>
+    </svg><span>Back</span></button>`;
 }
 
 /**
@@ -372,24 +379,36 @@ function renderToolbar() {
 
   const bits = [];
 
-  if (wanted.has("subject")) {
-    bits.push(backButtonHtml());
-    const what = state.page === "contributor" ? "contributors" : "repos";
-    bits.push(`<span class="combo" id="combo">
-      <input type="search" id="comboInput" role="combobox" aria-expanded="${state.combo.open}"
-             aria-autocomplete="list" aria-controls="comboPop" autocomplete="off"
-             placeholder="Search ${what}…"
-             value="${esc(state.combo.open ? state.combo.q : (state.subject ?? ""))}">
-      <div class="combo-pop" id="comboPop" role="listbox"${state.combo.open ? "" : " hidden"}>${
-        state.combo.open ? comboPopHtml() : ""}</div>
-    </span>`);
-    // Routes through the same go() the sidebar uses, so the toggle and the
-    // sidebar highlight cannot disagree about which mode you're in.
-    bits.push(`<span class="seg" id="modeSeg">${
-      ["contributor", "repo"].map(m =>
-        `<button data-mode="${m}" aria-pressed="${state.page === m}">${m === "contributor" ? "Contributor" : "Repo"}</button>`
-      ).join("")}</span>`);
-  }
+  const subjectTools = document.getElementById("subjectToolbar");
+  const hasSubjectPicker = wanted.has("subject");
+  subjectTools.hidden = !hasSubjectPicker;
+  if (hasSubjectPicker) {
+    const what = state.page === "contributor" ? "contributors" : "repositories";
+    if (!state.combo.open || !subjectTools.querySelector("#comboInput")) {
+      subjectTools.innerHTML = `<label class="subject-search" for="comboInput">
+        <span>${state.page === "contributor" ? "Contributor" : "Repository"}</span>
+        <span class="combo" id="combo">
+          <input type="search" id="comboInput" role="combobox" aria-expanded="${state.combo.open}"
+            aria-autocomplete="list" aria-controls="comboPop" autocomplete="off"
+            placeholder="Search ${what}…" value="${esc(state.combo.open ? state.combo.q : (state.subject ?? ""))}">
+          <span class="combo-pop" id="comboPop" role="listbox" aria-label="Matching ${what}" ${state.combo.open ? "" : "hidden"}>${
+            state.combo.open ? comboPopHtml() : ""}</span>
+        </span></label>`;
+    }
+    bits.push(`<span class="seg" id="modeSeg">${["contributor", "repo"].map(m =>
+      `<button data-mode="${m}" aria-pressed="${state.page === m}">${m === "contributor" ? "Contributor" : "Repo"}</button>`).join("")}</span>`);
+  } else subjectTools.innerHTML = "";
+
+  const findInputs = document.getElementById("findInputs");
+  findInputs.hidden = page.id !== "find";
+  if (page.id === "find") {
+    // The results can refresh while a maintainer is typing in the header.
+    // Leave that input alone until selection or a route change replaces it.
+    if (!findInputs.contains?.(document.activeElement)) findInputs.innerHTML = findInputsHtml();
+    bits.push(findFiltersHtml());
+  } else findInputs.innerHTML = "";
+  if (page.id === "overview")
+    bits.push('<div class="activity-intro"><h2>Organization activity</h2><p>Date range applies to windowed metrics. CI uses its own sample.</p></div>');
 
   if (wanted.has("filter"))
     bits.push(`<input type="search" id="filter" placeholder="${
@@ -406,19 +425,11 @@ function renderToolbar() {
     // Labelled for the same reason the x-axis control is: "3m" and "by month"
     // are both short strings of time next to each other, and which one is the
     // range and which one is the bucket size isn't guessable from the buttons.
-    bits.push(`<span class="minlabel">period
+    bits.push(`<span class="minlabel toolbar-period">Date range
       <span class="seg" id="windowSeg">${ws.map(w =>
         `<button data-window="${w.id}" data-windowkey="${esc(windowKey())}" aria-pressed="${
           w.id === cur}" title="${esc(w.label)}">${esc(w.short ?? w.label)}</button>`).join("")}</span></span>`);
   }
-
-  // Granularity is not a time range — it's what one bar means — so it keeps
-  // its own control, labelled the way the window control used to be so it's
-  // obvious the two aren't the same kind of thing.
-  if (wanted.has("gran"))
-    bits.push(`<span class="minlabel">x-axis
-      <span class="seg" id="granSeg">${GRANS.map(g =>
-        `<button data-gran="${g.id}" aria-pressed="${state.gran === g.id}">${esc(g.label)}</button>`).join("")}</span></span>`);
 
   // Any declared control that CONTROL_HTML knows how to draw. Generic rather
   // than a list of names, because these toggles move between homes — a module
@@ -453,12 +464,6 @@ function renderToolbar() {
   tb.innerHTML = bits.join("");
   tb.style.display = bits.length ? "" : "none";
 
-  // A render triggered while the popup is open (changing the window picker,
-  // say) rebuilds the input and drops the caret. Put it back.
-  if (state.combo.open) {
-    const c = document.getElementById("comboInput");
-    if (c) { c.focus(); c.setSelectionRange(c.value.length, c.value.length); }
-  }
 }
 
 /**
@@ -500,15 +505,17 @@ function card(id) {
   // "See all →" rather than an up-and-right arrow: this opens the card's own
   // tab on the same page, and ↗ is the mark this dashboard uses for links that
   // leave it — "View on GitHub ↗" sits three lines above it on the drilldowns.
-  return `<section class="card${freshClass(m, id)}" style="--span:${m.span}">
+  return `<section class="card${freshClass(m, id)}" data-timber-module="${id}" style="--span:${m.span}">
     <header>
       <h2>${esc(m.label)}</h2>
       ${cardSub(m, false)}
-      ${cardControls(m)}
-      ${m.tab === false ? "" : `<button class="expand" data-open="${id}">See all →</button>`}
+      ${cardFreshness(m, id)}
+      ${id.startsWith("g") && m.page === "overview" ? "" : cardControls(m)}
     </header>
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}${
       m.fillList ? " fill-list" : ""}">${body}</div>
+    ${m.page === "overview" ? `<footer class="module-footer">${cardControls(m)}</footer>` :
+      m.tab === false ? "" : `<footer class="module-footer"><button class="expand" data-open="${id}" aria-label="Expand ${esc(m.label)}">Expand →</button></footer>`}
   </section>`;
 }
 
@@ -536,8 +543,8 @@ function freshClass(m, id) {
 function expandedCard(id, grouped) {
   const m = MODULES[id];
   const body = bodyOf(m, id, true);
-  return `<section class="card${freshClass(m, id)}" style="--span:12">
-    <header><h2>${esc(m.label)}</h2>${cardSub(m, true)}${cardControls(m, grouped)}</header>
+  return `<section class="card${freshClass(m, id)}" data-timber-module="${id}" style="--span:12">
+    <header><h2>${esc(m.label)}</h2>${cardSub(m, true)}${cardFreshness(m, id)}${cardControls(m, grouped)}</header>
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
 }
@@ -568,12 +575,13 @@ function lockedBody() {
 /** Overview grid, or the selected tab's cards stacked full-width. */
 function pageBody() {
   const page = currentPage();
+  if (isAdmin(state.role) && (page.id === "ci" || page.id === "rulesets"))
+    return renderAdminDiagnostics(page.id);
   if (!page.modules.length) return stubBody(page);
 
   if (state.tab === null) {
     const ids = page.modules.filter(id => !emptyReason(id));
-    const lead = page.id === "overview" ? overviewLead() : "";
-    return `${lead}<div class="grid">${ids.map(card).join("")}</div>`;
+    return `<div class="grid">${ids.map(card).join("")}</div>`;
   }
 
   const ids = liveMembers(page.id, state.tab);
@@ -636,9 +644,48 @@ function positionExclPop() {
   pop.style.top = `${Math.round(top)}px`;
 }
 
+function viewerSubject() {
+  const login = state.viewer?.toLowerCase();
+  if (!login) return null;
+  return state.drill?.index?.contributors?.find(row => row.id.toLowerCase() === login)?.id ?? null;
+}
+
+function personalizedPicks(person, viewer) {
+  const index = subjectList();
+  if (person) return (viewer ?
+    [{ id: viewer, self: true, personal: true }, ...index.filter(row => row.id !== viewer)] : index).slice(0, 24);
+
+  const entry = viewer ? subjectEntry("contributors", viewer)?.s : null;
+  const contributions = new Map();
+  for (const { repo, count } of [...(entry?.topRepos?.all ?? []), ...(entry?.reviewRepos?.all ?? [])])
+    contributions.set(repo, (contributions.get(repo) ?? 0) + count);
+  const personal = index.filter(row => contributions.has(row.id))
+    .map(row => ({ ...row, personal: true, count: contributions.get(row.id) }))
+    .sort((a, b) => b.count - a.count);
+  return [...personal, ...index.filter(row => !contributions.has(row.id))].slice(0, 24);
+}
+
+let requestedViewer;
+let requestedViewerVersion;
+function loadViewerPicks() {
+  const viewer = viewerSubject();
+  if (!viewer || subjectEntry("contributors", viewer) ||
+      (viewer === requestedViewer && state.version === requestedViewerVersion)) return;
+  requestedViewer = viewer;
+  requestedViewerVersion = state.version;
+  fetchSubject("contributors", viewer).then(entry => {
+    state.subjects.contributors[viewer] ??= entry;
+    if (state.page === "repo" && !state.subject) render();
+  }).catch(() => {
+    // The organization activity index remains available without personal history.
+  });
+}
+
 /** Nothing selected yet — offer the busiest subjects as a starting point. */
 function pickerHtml() {
-  const what = state.page === "contributor" ? "contributor" : "repo";
+  const person = state.page === "contributor";
+  const viewer = viewerSubject();
+  const picks = personalizedPicks(person, viewer);
   // Only a 404, or a name the index has never heard of. It used to be
   // `state.subject && !subject()`, which was the same thing when the whole file
   // was in hand and there was nothing between asking and having; now a subject
@@ -650,11 +697,10 @@ function pickerHtml() {
     state.subjectState[`${drillKey()}/${state.subject}`] === "missing";
   return `<div class="picker">
     ${missing ? `<div class="error" style="padding:0 0 22px">Nothing named “${esc(state.subject)}” in the ingested data. It may be a bot, or a repo with no pull requests.</div>` : ""}
-    <h3>Pick a ${what}</h3>
-    <p>Search above, or jump straight to one of the busiest.</p>
-    <div class="chips">${subjectList().slice(0, 24).map(o =>
-      `<button data-pick="${esc(o.id)}">${
-        state.page === "contributor" ? avatar(o.id, 18) : ""}${esc(o.id)}</button>`).join("")}</div>
+    <h2>Quick Select</h2>
+    <div class="chips">${picks.map(o =>
+      `<button type="button" class="${o.personal ? "personal-pick" : ""}" data-pick="${esc(o.id)}"${o.count ? ` title="${fmt(o.count)} PRs opened or reviewed by you"` : ""}">
+        ${person ? avatar(o.id, 18) : ""}<span>${esc(o.id)}</span>${o.self ? '<small class="you-badge">You</small>' : ""}</button>`).join("")}</div>
   </div>`;
 }
 
@@ -672,6 +718,7 @@ function renderDrill(view) {
     return;
   }
   if (!state.subject) {
+    if (state.page === "repo") loadViewerPicks();
     view.innerHTML = pickerHtml();
     return;
   }
@@ -826,7 +873,18 @@ const minsAgo = (iso) => {
 };
 
 const clockTime = (iso) =>
-  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+
+function cardFreshness(m, id) {
+  const f = freshness(m, id);
+  const tier = f && TIERS.find(([key]) => key === f.tier);
+  if (!tier) return "";
+  const [key, label, description] = tier;
+  const when = f.refreshedAt ?? f.computedAt;
+  const title = when ? `${description}. Last refresh ${clockTime(when)}.` : description;
+  return `<span class="tier card-freshness tier-${key}" tabindex="0"
+    title="${esc(title)}" aria-label="${esc(title)}"><i></i>${esc(label)}</span>`;
+}
 
 function renderMeta() {
   const el = document.getElementById("meta");
@@ -844,10 +902,11 @@ function renderMeta() {
     const at = refreshed[tier];
     const tip = at ? `${title}. Last refreshed ${clockTime(at)}` : title;
     const when = at ? ` (${minsAgo(at)})` : "";
-    return `<span class="tier tier-${tier}" title="${esc(tip)}"><i></i>${counts[tier]} ${label}${when}</span>`;
+    return `<span class="tier tier-${tier}" tabindex="0" title="${esc(tip)}" aria-label="${esc(counts[tier] + " " + label + ". " + tip)}"><i></i>${counts[tier]} ${label}${when}</span>`;
   });
 
-  el.innerHTML = [`${esc(state.data.org)} · built ${ageText}`, ...dots].join(" · ");
+  el.innerHTML = [`<span class="freshness-caption" title="${esc("Snapshot built " + clockTime(state.data.generatedAt))}">Data freshness</span>`,
+    ...dots.length ? dots : [`built ${ageText}`]].join(" · ");
   // Older than a couple of cron cycles usually means a workflow run failed
   // rather than just ran late.
   el.classList.toggle("stale", mins > 90);
@@ -859,6 +918,10 @@ function render() {
   renderSidebar();
   renderTabs();
   renderToolbar();
+  document.getElementById("backSlot").innerHTML = backButtonHtml();
+  const helpful = document.getElementById("overviewLinks");
+  helpful.hidden = state.page !== "overview";
+  if (!helpful.hidden && !helpful.innerHTML) helpful.innerHTML = overviewLead();
   renderMeta();
 
   const view = document.getElementById("view");
@@ -876,6 +939,7 @@ function render() {
   if (where === shown) keepScroll(view, paint);
   else paint();
   shown = where;
+  bindChartInspection(view);
   syncLogs(state.page === "logs", renderMeta);
   syncPermissions(state.page === "permissions");
   syncReleases(state.page === "releases");

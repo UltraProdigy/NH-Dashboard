@@ -17,6 +17,8 @@ import {
 import {
   barChart,
   barGrid,
+  chartControls,
+  chartGrouping,
   hbars,
   kpi,
   legend,
@@ -38,7 +40,7 @@ import {
   windowLabel,
   windowPhrase,
 } from "../data.js";
-import { netClass, signed } from "../module-helpers.js";
+import { chartDataTable, netClass, signed } from "../module-helpers.js";
 
 const missing = () =>
   `<div class="error">Issue analytics needs the local issue store. Run <code>npm run ingest</code>, then <code>npm run build</code>.</div>`;
@@ -315,12 +317,13 @@ export const issueModules = {
 
   iVolume: {
     page: "issues", label: "Issue volume", span: 8,
-    sub: () => `by ${state.gran}, ${windowPhrase()}`,
-    controls: ["window", "gran"],
+    sub: () => `by ${chartGrouping("iVolume")}, ${windowPhrase()}`,
+    controls: ["window"],
     render(expanded) {
       const d = I();
       if (!d) return missing();
-      const s = seriesSlice(d);
+      const grouping = chartGrouping("iVolume");
+      const s = seriesSlice(d, grouping);
       const series = [
         { key: "opened", label: "Opened", color: "var(--accent)" },
         { key: "closed", label: "Closed", color: "var(--good)" },
@@ -330,26 +333,27 @@ export const issueModules = {
       const net = tot("opened") - tot("closed");
 
       const head = `<div class="kpis" style="margin:-14px -14px 14px">
-        ${kpi("Opened in range", fmt(tot("opened")), `${s.length} ${state.gran}s`)}
+        ${kpi("Opened in range", fmt(tot("opened")), `${s.length} ${grouping}s`)}
         ${kpi("Closed in range", fmt(tot("closed")), `${fmt(tot("unresolved"))} resolved nothing`)}
         ${kpi("Net backlog", signed(net), net > 0 ? "the pile grew" : net < 0 ? "the pile shrank" : "broke even", netClass(net))}
       </div>`;
 
       const table = () => {
         const cols = [
-          { key: "b", label: state.gran === "month" ? "Month" : state.gran === "week" ? "Week" : "Day", render: (r) => esc(bucketLabel(r.b)) },
+          { key: "b", label: { day: "Day", week: "Week", month: "Month" }[grouping], render: (r) => esc(bucketLabel(r.b)) },
           { key: "opened", label: "Opened", render: (r) => `<span class="num">${fmt(r.opened)}</span>` },
           { key: "closed", label: "Closed", render: (r) => `<span class="num">${fmt(r.closed)}</span>` },
           { key: "net", label: "Net", render: (r) => `<span class="num ${netClass(r.net)}">${signed(r.net)}</span>` },
           { key: "reporters", label: "Reporters", render: (r) => `<span class="num">${fmt(r.reporters)}</span>` },
           { key: "closeMedianH", label: "Median close", render: (r) => `<span class="num">${dur(r.closeMedianH)}</span>` },
         ];
-        return `<h3 style="font-size:13px;margin:22px 0 8px">By ${state.gran}</h3>` +
+        return `<h3 style="font-size:13px;margin:22px 0 8px">By ${grouping}</h3>` +
           renderTable(sortRows([...s].reverse(), cols), cols, { sortable: true });
       };
 
-      return head + legend(series) + barChart(s, series, { height: expanded ? 380 : 210 }) +
-        dayLimitNote(d) + (expanded ? table() : "");
+      return head + chartControls("iVolume", this.label, series) +
+        barChart(s, series, { height: expanded ? 380 : 210, label: this.label }) +
+        dayLimitNote(d, grouping) + (expanded ? table() : "");
     },
   },
 
@@ -400,19 +404,20 @@ export const issueModules = {
 
   iResponse: {
     page: "issues", label: "Response and resolution", span: 6,
-    controls: ["window", "gran"],
-    sub: () => `median hours, by ${state.gran}`,
+    controls: ["window"],
+    sub: () => `median hours, by ${chartGrouping("iResponse")}`,
     render(expanded) {
       const d = I();
       if (!d) return missing();
       const w = IW();
       // Same guard the PR latency chart uses: a bucket with two closes swings
       // the median hard enough to make the line meaningless.
-      const s = seriesSlice(d).filter((b) => b.closeN > 3 || b.responseN > 3);
+      const grouping = chartGrouping("iResponse");
+      const s = seriesSlice(d, grouping).map(b => b.closeN > 3 || b.responseN > 3 ? b : { b: b.b });
       const series = [
-        { key: "responseMedianH", label: "To first response (median)", color: "var(--purple)" },
-        { key: "closeMedianH", label: "To close (median)", color: "var(--good)" },
-        { key: "closeP90H", label: "To close (p90)", color: "var(--warn)" },
+        { key: "responseMedianH", label: "To first response (median)", color: "var(--purple)", line: "solid" },
+        { key: "closeMedianH", label: "To close (median)", color: "var(--good)", line: "dashed" },
+        { key: "closeP90H", label: "To close (p90)", color: "var(--warn)", line: "dotted" },
       ];
 
       const head = `<div class="kpis" style="margin:-14px -14px 14px">
@@ -421,10 +426,10 @@ export const issueModules = {
         ${kpi("Median time to close", dur(w?.medianCloseHours), `${fmt(w?.closedN)} closed in range`)}
       </div>`;
 
-      return head + legend(series) +
-        lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur }) +
+      return head + chartControls("iResponse", this.label, series) +
+        lineChart(s, series, { height: expanded ? 380 : 200, fmtV: dur, label: this.label }) +
         `<div class="hint" style="margin-top:10px">Response time is dated to the issue that was opened, not the reply — a slow month is a month whose arrivals waited, wherever the answer eventually landed.</div>` +
-        dayLimitNote(d);
+        dayLimitNote(d, grouping) + (expanded ? chartDataTable(s, series, dur) : "");
     },
   },
 

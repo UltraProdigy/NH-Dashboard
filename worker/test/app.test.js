@@ -65,10 +65,11 @@ const OTHER = { id: 5, name: "SomeOtherOrg" };
 const IDENTITIES = {
   "admin-user": {
     idp: { type: "github" },
+    login: "UltraProdigy",
     orgs: [GTNH],
     teams: [{ name: "Admin", org_id: GTNH.id }, { name: "Developers", org_id: GTNH.id }, { name: "Triage team", org_id: GTNH.id }],
   },
-  "member-user": { idp: { type: "github" }, orgs: [GTNH], teams: [{ name: "Developers", org_id: GTNH.id }] },
+  "member-user": { idp: { type: "github" }, email: "123+member-user@users.noreply.github.com", orgs: [GTNH], teams: [{ name: "Developers", org_id: GTNH.id }] },
   "other-admin": { idp: { type: "github" }, orgs: [GTNH, OTHER], teams: [{ name: "Admin", org_id: OTHER.id }] },
   "groups-admin": { groups: [{ name: "GTNewHorizons:admin" }] },
 };
@@ -138,11 +139,14 @@ console.log("\nroles\n");
   resetRoles();
   const a = await call("/api/whoami", { sub: "admin-user" });
   check("an admin team member is an admin", a.body?.role === "admin", JSON.stringify(a.body));
+  check("whoami exposes the explicit GitHub login for personalization", a.body?.login === "UltraProdigy");
   check("whoami shows the teams Access reported", a.body?.groups?.includes("GTNewHorizons:Admin"), JSON.stringify(a.body?.groups));
   check("whoami carries no CORS header and isn't cached", noCors(a) && a.headers.get("cache-control") === "private, no-store");
   const m = await call("/api/whoami", { sub: "member-user" });
   check("an org member is a member", m.body?.role === "member", JSON.stringify(m.body));
+  check("whoami reads a GitHub noreply address when no explicit login is available", m.body?.login === "member-user");
   const o = await call("/api/whoami", { sub: "other-admin" });
+  check("whoami does not guess a login from a normal email address", o.body?.login === null);
   check("another org's admin team doesn't count", o.body?.role === "member");
   const g = await call("/api/whoami", { sub: "groups-admin" });
   check("an admin reported through groups still counts", g.body?.role === "admin");

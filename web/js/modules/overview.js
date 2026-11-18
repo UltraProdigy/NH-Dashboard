@@ -35,15 +35,33 @@ const versus = (w) =>
    refuse it. */
 
 const MEMBER_LINKS = [
+  ["Open PRs", (o) => `https://github.com/pulls?q=is:open+is:pr+org:${o}`],
+  ["Open issues", (o) => `https://github.com/${o}/GT-New-Horizons-Modpack/issues`],
   ["Organization", (o) => `https://github.com/${o}`],
   ["Repositories", (o) => `https://github.com/orgs/${o}/repositories`],
-  ["Open PRs", (o) => `https://github.com/pulls?q=is:open+is:pr+org:${o}`],
-  ["Awaiting my review", (o) => `https://github.com/pulls?q=is:open+is:pr+org:${o}+review-requested:@me`],
-  ["Open issues", (o) => `https://github.com/issues?q=is:open+is:issue+org:${o}`],
-  ["Modpack tracker", (o) => `https://github.com/${o}/GT-New-Horizons-Modpack/issues`],
   ["People", (o) => `https://github.com/orgs/${o}/people`],
   ["Teams", (o) => `https://github.com/orgs/${o}/teams`],
 ];
+
+const DEVELOPER_LINKS = [
+  ["Awaiting my review", (o) => `https://github.com/pulls?q=is:open+is:pr+org:${o}+review-requested:@me`],
+  ["Ready-for-review PRs", (o) => `https://github.com/pulls?q=is:open+is:pr+org:${o}+archived:false+draft:false`],
+  ["Development wiki", () => "https://wiki.gtnewhorizons.com/wiki/Development"],
+  ["Daily builds", (o) => `https://github.com/${o}/GTNH-Daily-Builds/releases`],
+  ["Experimental builds", (o) => `https://github.com/${o}/DreamAssemblerXXL/actions/workflows/experimental-modpack-build.yml`],
+  ["Maven", () => "https://nexus.gtnewhorizons.com/service/rest/repository/browse/public/"],
+  ["Code of Conduct", (o) => `https://github.com/${o}/.github/blob/master/CODE_OF_CONDUCT.md`],
+  ["Contribution guidelines", (o) => `https://github.com/${o}/.github/blob/master/CONTRIBUTING.md`],
+];
+
+function isDeveloper(org) {
+  return state.viewerGroups.some(group => {
+    if (typeof group !== "string") return false;
+    const [teamOrg, name] = group.trim().toLowerCase().split(/[:/]/, 2);
+    if (teamOrg !== org.toLowerCase()) return false;
+    return /^(?:gtnh[ -])?developers?$/.test(name?.trim() ?? "");
+  });
+}
 
 // A member gets a 404 from every one of these, so they are left out rather
 // than drawn dead.
@@ -58,13 +76,17 @@ const chips = (links, org) => links.map(([label, url]) =>
   `<a class="ghost" href="${safeUrl(url(org))}" target="_blank" rel="noopener">${esc(label)}&nbsp;↗</a>`).join("");
 
 function overviewLead() {
-  const org = encodeURIComponent(state.data?.org ?? "GTNewHorizons");
-  return `<nav class="ov-links" aria-label="GitHub links">
-    <div class="ov-row">${chips(MEMBER_LINKS, org)}</div>
-    ${isAdmin(state.role)
-      ? `<div class="ov-row"><span class="minlabel">admin</span>${chips(ADMIN_LINKS, org)}</div>`
-      : ""}
-  </nav>`;
+  const owner = state.data?.org ?? "GTNewHorizons";
+  const org = encodeURIComponent(owner);
+  const group = (label, links) => `<div class="ov-row"><span class="minlabel">${label}</span><div>${chips(links, org)}</div></div>`;
+  return `<details class="helpful-links">
+    <summary>Helpful Links</summary>
+    <nav class="ov-links" aria-label="GitHub links">
+      ${group("Organization", MEMBER_LINKS)}
+      ${isDeveloper(owner) ? group("Developer", DEVELOPER_LINKS) : ""}
+      ${isAdmin(state.role) ? group("Administration", ADMIN_LINKS) : ""}
+    </nav>
+  </details>`;
 }
 
 export const overviewModules = {

@@ -4,6 +4,8 @@ import { render, renderMeta } from "./render.js";
 import { PAGES, restrictToMembers } from "./pages.js";
 import { isAdmin } from "./roles.js";
 import { readRoute } from "./router.js";
+import { bindPhotoCredits } from "./artwork.js";
+import { bindNestedWheel } from "./scroll.js";
 import { applyTheme } from "./theme.js";
 import { collapseBtn } from "./events.js";
 import { API, primeLive, setRole, startPolling } from "./live.js";
@@ -18,6 +20,13 @@ const prefersLight =
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-color-scheme: light)").matches;
 applyTheme(localStorage.getItem("nh:theme") ?? (prefersLight ? "light" : "dark"));
+bindPhotoCredits();
+bindNestedWheel(document.getElementById("view"));
+history.scrollRestoration = "manual";
+document.querySelector(".skip-link").addEventListener("click", event => {
+  event.preventDefault();
+  document.getElementById("pageTitle").focus();
+});
 
 document.addEventListener("error", (e) => {
   if (e.target instanceof HTMLImageElement && e.target.parentElement?.classList.contains("pfp"))
@@ -33,6 +42,8 @@ async function getJson(path) {
 try {
   const who = await getJson("whoami");
   state.role = who.role;
+  state.viewer = who.login;
+  state.viewerGroups = Array.isArray(who.groups) ? who.groups : [];
   if (!isAdmin(who.role)) {
     restrictToMembers();
     setRole(who.role);

@@ -19,8 +19,9 @@ import {
   render,
   updateComboPop,
 } from "./render.js";
-import { drillFromHere, drillTo, go, goBack, goPage, readRoute, syncUrl } from "./router.js";
+import { drillFromHere, drillTo, go, goBack, goPage, readRoute, restoreViewport, syncUrl } from "./router.js";
 import { defaultSortOf } from "./table.js";
+import { setChartGrouping } from "./charts.js";
 import { routeOf } from "./paths.js";
 import { pageBySlug } from "./pages.js";
 import { tabTwin } from "./modules/index.js";
@@ -113,6 +114,15 @@ document.getElementById("tabs").addEventListener("click", e => {
 });
 
 document.getElementById("view").addEventListener("click", e => {
+  const group = e.target.closest("button[data-chart-gran][data-gran]");
+  if (group) {
+    const { chartGran, gran } = group.dataset;
+    if (!setChartGrouping(chartGran, gran)) return;
+    render();
+    document.querySelector(`button[data-chart-gran="${CSS.escape(chartGran)}"][data-gran="${CSS.escape(gran)}"]`)?.focus({ preventScroll: true });
+    return;
+  }
+
   /* ---- card filters ----
      Stopped here rather than left to bubble: the document-level
      close-on-outside-click handler would otherwise see this same click *after*
@@ -208,35 +218,6 @@ document.getElementById("view").addEventListener("click", e => {
   const pick = e.target.closest("[data-pick]");
   if (pick) return drillTo(state.page, pick.dataset.pick);
 
-  /* ---- the search form ----
-     Its controls live in the card rather than the toolbar — the form is the
-     page's content, not a filter over content already on screen — so these
-     arrive here. A click cannot be in a text box, so a full render is safe;
-     typing is handled separately below, where it is not. */
-  const fp = e.target.closest(".combo-opt[data-findpick]");
-  if (fp) {
-    state.find[state.findPop.key] = fp.dataset.findpick;
-    closeFindPop();
-    syncUrl();
-    searchNow();
-    return render();
-  }
-
-  const fb = e.target.closest("button[data-find]");
-  if (fb) {
-    state.find[fb.dataset.find] = fb.dataset.val;
-    syncUrl();
-    searchNow();
-    return render();
-  }
-  if (e.target.closest("button[data-findreset]")) {
-    state.find = blankFind();
-    state.sort = {};
-    syncUrl();
-    searchNow();
-    return render();
-  }
-
   const open = e.target.closest("button[data-open]");
   if (open) return go(state.page, open.dataset.open);
 
@@ -258,15 +239,42 @@ document.getElementById("view").addEventListener("click", e => {
   }
 });
 
-/* Typing in the head-to-head picker repaints only its popup, for the same
-   reason the toolbar's combobox does: render() would redraw every chart on the
-   page and drop the caret on each keystroke. */
-/* Typing in the search form updates the state, the address bar and the pending
-   request — and deliberately does not render. render() replaces the view and
-   would take the caret out of the box being typed into; the results repaint
-   themselves through `paint()` when the fetch lands, which touches only the
-   table. */
-document.getElementById("view").addEventListener("input", e => {
+function selectFindOption(key, value) {
+  state.find[key] = value;
+  closeFindPop();
+  const box = document.getElementById(`find-${key}`);
+  if (box) box.value = value;
+  updateFindPop();
+  syncUrl();
+  searchNow();
+  render();
+}
+
+const findInputs = document.getElementById("findInputs");
+findInputs.addEventListener("mousedown", e => {
+  if (e.target.closest("[data-findpick]")) e.preventDefault();
+});
+findInputs.addEventListener("click", e => {
+  const option = e.target.closest("[data-findpick]");
+  if (option && state.findPop.key) return selectFindOption(state.findPop.key, option.dataset.findpick);
+  const field = e.target.closest("input[data-findbox]:not([data-findbox=q])");
+  if (field && state.findPop.key !== field.dataset.findbox) openFindPicker(field);
+});
+
+function openFindPicker(field) {
+  const previous = state.findPop.key;
+  if (previous && previous !== field.dataset.findbox) {
+    const box = document.getElementById(`find-${previous}`);
+    if (box) box.value = state.find[previous];
+  }
+  state.findPop.key = field.dataset.findbox;
+  state.findPop.q = "";
+  state.findPop.active = 0;
+  field.value = "";
+  updateFindPop();
+}
+
+document.getElementById("findInputs").addEventListener("input", e => {
   const key = e.target.closest("input[data-findbox]")?.dataset.findbox;
   if (key) {
     // The three filter boxes are comboboxes: typing narrows the list and picks
@@ -282,37 +290,27 @@ document.getElementById("view").addEventListener("input", e => {
     syncUrl();
     return searchSoon();
   }
-  if (e.target.id !== "vsInput") return;
-  state.vs.q = e.target.value;
-  state.vs.open = true;
-  state.vs.active = 0;
-  updateVsPop();
 });
 
-document.getElementById("view").addEventListener("focusin", e => {
-  const fk = e.target.closest("input[data-findbox]")?.dataset.findbox;
-  if (fk && fk !== "q") {
-    state.findPop.key = fk;
-    state.findPop.q = "";
-    state.findPop.active = 0;
-    // Emptied rather than selected, for the reason the drilldown's picker
-    // empties: select-all only survives until the first click lands, and typing
-    // after that would append to the current filter instead of starting a fresh
-    // one. The value is put back if you click away without picking.
-    e.target.value = "";
-    return updateFindPop();
+findInputs.addEventListener("focusin", e => {
+  const field = e.target.closest("input[data-findbox]:not([data-findbox=q])");
+  if (field) openFindPicker(field);
+});
+
+findInputs.addEventListener("focusout", e => {
+  const key = e.target.dataset.findbox;
+  if (key && key === state.findPop.key) {
+    closeFindPop();
+    e.target.value = state.find[key];
+    updateFindPop();
   }
-  if (e.target.id !== "vsInput") return;
-  state.vs.open = true;
-  state.vs.q = "";
-  e.target.value = "";
-  updateVsPop();
 });
 
-document.getElementById("view").addEventListener("keydown", e => {
+document.getElementById("findInputs").addEventListener("keydown", e => {
   const fk = e.target.closest("input[data-findbox]")?.dataset.findbox;
   if (fk && fk !== "q") {
-    if (e.key === "Escape") {
+    if (e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Escape") e.preventDefault();
       closeFindPop();
       e.target.value = state.find[fk];
       return updateFindPop();
@@ -327,16 +325,38 @@ document.getElementById("view").addEventListener("keydown", e => {
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const pick = findOptions(fk)[state.findPop.active];
-      if (!pick) return;
-      state.find[fk] = pick.id;
-      closeFindPop();
-      syncUrl();
-      searchNow();
-      return render();
+      const pick = state.findPop.key === fk ? findOptions(fk)[state.findPop.active] : null;
+      if (pick) selectFindOption(fk, pick.id);
     }
     return;
   }
+});
+
+/* Typing in the head-to-head picker repaints only its popup, for the same
+   reason the toolbar's combobox does: render() would redraw every chart on the
+   page and drop the caret on each keystroke. */
+/* Typing in the search form updates the state, the address bar and the pending
+   request — and deliberately does not render. render() replaces the view and
+   would take the caret out of the box being typed into; the results repaint
+   themselves through `paint()` when the fetch lands, which touches only the
+   table. */
+document.getElementById("view").addEventListener("input", e => {
+  if (e.target.id !== "vsInput") return;
+  state.vs.q = e.target.value;
+  state.vs.open = true;
+  state.vs.active = 0;
+  updateVsPop();
+});
+
+document.getElementById("view").addEventListener("focusin", e => {
+  if (e.target.id !== "vsInput") return;
+  state.vs.open = true;
+  state.vs.q = "";
+  e.target.value = "";
+  updateVsPop();
+});
+
+document.getElementById("view").addEventListener("keydown", e => {
   if (e.target.id !== "vsInput") return;
 
   if (e.key === "Escape") {
@@ -392,16 +412,28 @@ document.getElementById("view").addEventListener("change", e => {
   }
 });
 
+const subjectToolbar = document.getElementById("subjectToolbar");
+subjectToolbar.addEventListener("input", e => {
+  if (e.target.id !== "comboInput") return;
+  state.combo.q = e.target.value;
+  state.combo.open = true;
+  state.combo.active = 0;
+  updateComboPop();
+});
+subjectToolbar.addEventListener("mousedown", e => {
+  if (e.target.closest(".combo-opt[data-pick]")) e.preventDefault();
+});
+subjectToolbar.addEventListener("click", e => {
+  const option = e.target.closest(".combo-opt[data-pick]");
+  if (option) return drillTo(state.page, option.dataset.pick);
+  if (e.target.id === "comboInput" && !state.combo.open) openSubjectPicker(e.target);
+});
+document.getElementById("backSlot").addEventListener("click", e => {
+  if (e.target.closest("#backBtn")) goBack();
+});
+
 document.getElementById("toolbar").addEventListener("input", e => {
   const t = e.target;
-  // Typing in the combobox repaints only the popup. Routing it through
-  // render() would redraw every chart on the page on every keystroke.
-  if (t.id === "comboInput") {
-    state.combo.q = t.value;
-    state.combo.open = true;
-    state.combo.active = 0;
-    return updateComboPop();
-  }
   if (t.id === "filter") state.filter = t.value.trim();
   else if (t.id === "minActivity") {
     const v = Number(t.value);
@@ -444,13 +476,26 @@ async function runVerify() {
 }
 
 document.getElementById("toolbar").addEventListener("click", e => {
-  if (e.target.closest("#backBtn")) return goBack();
+  const find = e.target.closest("button[data-find]");
+  const reset = e.target.closest("button[data-findreset]");
+  if (find || reset) {
+    if (reset) {
+      state.find = blankFind();
+      state.sort = {};
+      closeFindPop();
+      for (const box of findInputs.querySelectorAll("[data-findbox]")) box.value = "";
+      updateFindPop();
+    } else state.find[find.dataset.find] = find.dataset.val;
+    syncUrl();
+    searchNow();
+    render();
+    if (reset) document.getElementById("find-q")?.focus({ preventScroll: true });
+    else document.querySelector(`button[data-find="${CSS.escape(find.dataset.find)}"][data-val="${CSS.escape(find.dataset.val)}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   if (e.target.closest("#verifyBtn")) return runVerify();
   if (e.target.closest("#dailyBtn")) return openDaily();
   if (e.target.closest("#releaseAllBtn")) return openReleaseAll();
-
-  const opt = e.target.closest(".combo-opt[data-pick]");
-  if (opt) return drillTo(state.page, opt.dataset.pick);
 
   const mode = e.target.closest("button[data-mode]");
   if (mode && mode.dataset.mode !== state.page) {
@@ -464,8 +509,6 @@ document.getElementById("toolbar").addEventListener("click", e => {
 
   if (segClick(e)) return render();
 
-  const g = e.target.closest("button[data-gran]");
-  if (g) { state.gran = g.dataset.gran; return render(); }
 });
 
 /* ==========================================================================
@@ -531,10 +574,11 @@ addEventListener("resize", () => { if (state.exclOpen) positionExclPop(); });
 
 /* Combobox keyboard handling. Kept on the toolbar rather than the input
    because render() replaces the input element wholesale. */
-document.getElementById("toolbar").addEventListener("keydown", e => {
+subjectToolbar.addEventListener("keydown", e => {
   if (e.target.id !== "comboInput") return;
 
-  if (e.key === "Escape") {
+  if (e.key === "Escape" || e.key === "Tab") {
+    if (e.key === "Escape") e.preventDefault();
     closeCombo();
     updateComboPop();
     e.target.value = state.subject ?? "";
@@ -562,14 +606,21 @@ document.getElementById("toolbar").addEventListener("keydown", e => {
   }
 });
 
-document.getElementById("toolbar").addEventListener("focusin", e => {
-  if (e.target.id !== "comboInput") return;
+function openSubjectPicker(input) {
   state.combo.open = true;
   state.combo.q = "";
-  // Emptied rather than selected: select-all only survives until the first
-  // click lands, and typing after that would append to the current subject's
-  // name instead of starting a fresh query. The name is still in the header.
-  e.target.value = "";
+  state.combo.active = 0;
+  input.value = "";
+  updateComboPop();
+}
+
+subjectToolbar.addEventListener("focusin", e => {
+  if (e.target.id === "comboInput") openSubjectPicker(e.target);
+});
+subjectToolbar.addEventListener("focusout", e => {
+  if (e.target.id !== "comboInput") return;
+  closeCombo();
+  e.target.value = state.subject ?? "";
   updateComboPop();
 });
 
@@ -618,12 +669,13 @@ collapseBtn.addEventListener("click", () => {
   // when the rail would be a strip of icons floating over the page.
   if (document.body.classList.contains("nav-open")) return setNav(false);
   const c = document.body.classList.toggle("collapsed");
+  if (c) for (const group of document.querySelectorAll("#pages details")) group.open = true;
   localStorage.setItem("nh:collapsed", c ? "1" : "0");
   collapseBtn.title = c ? "Expand sidebar" : "Collapse sidebar";
 });
 
 /* Back and Forward. pushState fires no event of its own, so this only ever
    hears the browser's own navigation — go() has already rendered its own. */
-addEventListener("popstate", () => { readRoute(); render(); });
+addEventListener("popstate", () => { readRoute(); render(); restoreViewport(); });
 
 export { collapseBtn };

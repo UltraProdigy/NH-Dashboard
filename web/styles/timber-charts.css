@@ -1,0 +1,241 @@
+.chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 5px 12px;
+  margin-bottom: 8px;
+}
+
+.chart-toolbar .legend {
+  gap: 6px 14px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chart-grouping {
+  padding: 0;
+  margin: 0 0 0 auto;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.chart-grouping legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.chart-segments,
+.chart-step {
+  display: flex;
+  gap: 4px;
+}
+
+.chart-segments button,
+.chart-step button {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.chart-segments button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+.chart-segments button:hover,
+.chart-step button:not([aria-disabled="true"]):hover {
+  border-color: var(--accent);
+}
+
+.chart-frame {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.chart-axes {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 7px;
+  padding-right: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-yaxis,
+.chart-xaxis {
+  position: relative;
+}
+
+.chart-yaxis > span {
+  position: absolute;
+  inset-inline-end: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+
+.chart-xaxis {
+  grid-column: 2;
+  min-height: 28px;
+  margin-bottom: 4px;
+}
+
+.chart-xaxis.medium,
+.chart-xaxis.narrow {
+  display: none;
+}
+
+.chart-tick {
+  position: absolute;
+  left: clamp(1.35em, var(--at), calc(100% - 1.35em));
+  transform: translateX(-50%);
+  display: grid;
+  gap: 2px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.chart-tick small {
+  font-size: 10px;
+}
+
+.chart-frame svg.chart {
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.chart-grid line {
+  stroke: var(--border);
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-frame .hoverzone {
+  cursor: crosshair;
+}
+
+.chart-frame svg.chart .selected-zone,
+.chart-frame svg.chart .selected-zone:hover {
+  fill: color-mix(in srgb, var(--accent) 13%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 60%, transparent);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.legend :is(.legend-solid, .legend-dashed, .legend-dotted) {
+  width: 16px;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px solid var(--series-color);
+  vertical-align: middle;
+}
+
+.legend .legend-dashed { border-top-style: dashed; }
+.legend .legend-dotted { border-top-style: dotted; }
+
+.chart-readout {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 6px 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.chart-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+}
+
+.chart-value span {
+  color: var(--muted);
+}
+
+.chart-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.chart-step button {
+  display: grid;
+  place-items: center;
+  min-width: 27px;
+}
+
+.chart-step button::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+}
+
+.chart-step button:first-child::before {
+  transform: rotate(135deg);
+}
+
+.chart-step button[aria-disabled="true"] {
+  color: var(--muted);
+  opacity: .55;
+  cursor: default;
+}
+
+.chart-stage:focus-visible,
+.chart-segments button:focus-visible,
+.chart-step button:focus-visible,
+.chart-data > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chart-data {
+  margin-top: 10px;
+}
+
+.chart-data > summary {
+  width: fit-content;
+  padding: 6px 1px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+@container (max-width: 720px) {
+  .chart-xaxis.wide { display: none; }
+  .chart-xaxis.medium { display: block; }
+}
+
+@container (max-width: 400px) {
+  .chart-xaxis.medium { display: none; }
+  .chart-xaxis.narrow { display: block; }
+  .chart-value strong { flex-basis: 100%; }
+}
+
+@media (max-width: 720px) {
+  .chart-frame svg.chart { max-height: 210px; }
+  .chart-segments button,
+  .chart-step button { min-width: 44px; min-height: 44px; }
+}

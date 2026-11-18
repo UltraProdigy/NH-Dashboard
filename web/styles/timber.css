@@ -1,0 +1,549 @@
+/* Timber uses the native palette names so the charts, status colors, and
+   administrative tools share the same surfaces as the dashboard. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #d3cec4;
+  --panel: #e8e4db;
+  --panel-2: #dcd6cb;
+  --border: #bdb4a5;
+  --text: #28261f;
+  --muted: #60564b;
+  --accent: #305973;
+  --good: #3d5e39;
+  --warn: #765718;
+  --bad: #9d3f34;
+  --purple: #69577f;
+  --pink: #8a482e;
+  --sidebar-w: 218px;
+  --rail-w: 62px;
+
+  --timber-radius: 5px;
+  --timber-focus: #135f81;
+  --timber-control-border: #938675;
+  --timber-raised: linear-gradient(#f3ede0, #d7cbb9);
+  --timber-raised-shadow: inset 0 1px #ffffff72, inset 0 -1px #22140924, 0 1px 2px #22140926;
+  --timber-sunken: linear-gradient(#c0c8b2, #d3d9c8);
+  --timber-sunken-border: #6c8064;
+  --timber-sunken-shadow: inset 0 2px 3px #20180938, inset 0 -1px #fff6;
+  --timber-control-hover: 1.06;
+  --timber-surface-shadow: 0 1px 2px #34261c16;
+  --timber-pop-shadow: 0 8px 22px #34261c25;
+  --timber-backdrop: #251a13a6;
+  --timber-rail-ink: #fff3e0;
+  --timber-rail-muted: #e3cbb4;
+  --timber-rail-line: #efd0aa35;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #28241f;
+  --panel: #352e26;
+  --panel-2: #40362b;
+  --border: #5c4d3e;
+  --text: #fff3e1;
+  --muted: #d7c7b0;
+  --accent: #93c4e3;
+  --good: #b4c898;
+  --warn: #e9c484;
+  --bad: #f5a499;
+  --purple: #c2afd4;
+  --pink: #ecb18f;
+
+  --timber-focus: #87d7fa;
+  --timber-control-border: #927c65;
+  --timber-raised: linear-gradient(#5b4e41, #3c3127);
+  --timber-raised-shadow: inset 0 1px #d8c2a874, inset 0 -2px #18110cb3, 0 1px 2px #120c09aa;
+  --timber-sunken: linear-gradient(#2d352a, #424c3a);
+  --timber-sunken-border: #8e9d7c;
+  --timber-sunken-shadow: inset 0 2px 4px #100d0cc4, inset 0 -1px #c1ccaa45;
+  --timber-control-hover: 1.14;
+  --timber-surface-shadow: 0 1px 2px #0004;
+  --timber-pop-shadow: 0 8px 22px #0007;
+}
+
+body {
+  font-variant-numeric: lining-nums tabular-nums;
+  accent-color: var(--accent);
+  scrollbar-color: var(--timber-control-border) transparent;
+}
+
+::selection {
+  color: var(--text);
+  background-color: color-mix(in srgb, var(--accent) 30%, var(--panel));
+}
+
+a { text-underline-offset: 3px; }
+
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--timber-focus);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  inset: 10px auto auto 10px;
+  z-index: 50;
+  transform: translateY(calc(-100% - 15px));
+  padding: 7px 11px;
+  border: 1px solid var(--timber-control-border);
+  border-radius: var(--timber-radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.skip-link:focus { transform: none; }
+
+/* The rail has its own ink and grain in both modes. The menu scrolls inside
+   it so that the theme toggle and Sign out remain reachable. */
+#sidebar {
+  --timber-focus: #f3ce88;
+  height: 100dvh;
+  overflow: hidden;
+  border-color: #281e19;
+  background:
+    repeating-linear-gradient(0deg, #22150e15 0 1px, transparent 1px 5px),
+    linear-gradient(118deg, #634531, #38271d 92%);
+  color: var(--timber-rail-ink);
+  scrollbar-color: #efd0aa65 transparent;
+}
+
+#sidebar .brand {
+  min-height: 76px;
+  gap: 8px;
+  padding: 12px;
+  border-color: var(--timber-rail-line);
+}
+
+#sidebar .brand .name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.024em;
+}
+
+#sidebar .brand small {
+  display: block;
+  color: var(--timber-rail-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .015em;
+}
+
+#sidebar .pages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 10px;
+  gap: 2px;
+  scrollbar-width: thin;
+}
+
+#sidebar .pgroup {
+  margin: 10px 0 2px;
+  padding: 9px 7px 3px;
+  border-top: 1px solid var(--timber-rail-line);
+  color: var(--timber-rail-muted);
+  opacity: 1;
+  font-weight: 700;
+  letter-spacing: .11em;
+}
+
+#sidebar .pgroup:first-child {
+  margin-top: 0;
+  padding-top: 2px;
+  border-top: 0;
+}
+
+#sidebar .pages button {
+  min-height: 32px;
+  gap: 8px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--timber-rail-ink);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+#sidebar .pages button:hover {
+  background: #fff4d615;
+}
+
+#sidebar .pages button[aria-current="true"] {
+  border-color: #efe3bf37;
+  background: #19191066;
+  box-shadow: inset 2px 0 #b3bd86, inset 0 1px 3px #0004;
+}
+
+#sidebar .pages :focus-visible {
+  outline-offset: -3px;
+}
+
+#sidebar .side-foot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  padding: 10px;
+  border-color: var(--timber-rail-line);
+}
+
+#sidebar :is(.icon-btn, .side-foot button, .side-foot a) {
+  min-height: 34px;
+  border: 1px solid var(--timber-rail-line);
+  border-radius: 4px;
+  background: #130c0b24;
+  color: var(--timber-rail-ink);
+}
+
+#sidebar .side-foot :is(button, a) {
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  font-weight: 640;
+}
+
+#sidebar .side-foot svg { width: 14px; height: 14px; }
+
+#sidebar :is(.icon-btn, .side-foot button, .side-foot a):hover {
+  background: #f5e9ce1a;
+}
+
+#sidebar :is(.icon-btn, .side-foot button, .side-foot a):active {
+  box-shadow: inset 0 1px 3px #0008;
+}
+
+@media (min-width: 761px) {
+  body.collapsed #sidebar .pages button { padding-inline: 0; }
+  body.collapsed #sidebar .pgroup { padding: 0; margin: 8px 4px; }
+  body.collapsed #sidebar .pgroup:first-child { margin: 0; }
+  body.collapsed #sidebar .side-foot { grid-template-columns: 1fr; }
+}
+
+/* Tabs behave like ruled cells. Wrapped rows keep their edge alignment even
+   when the current page has an odd number of tabs. */
+main {
+  --timber-gutter: 24px;
+  container: timber-stage / inline-size;
+}
+
+.topbar {
+  background: color-mix(in srgb, var(--panel) 40%, var(--bg));
+}
+
+nav.tabs {
+  --tabs-per-row: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  overflow: clip;
+  margin: 0 var(--timber-gutter);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--timber-radius);
+  background: var(--border);
+}
+
+nav.tabs:empty { display: none; }
+
+nav.tabs button {
+  flex: 1 0 calc((100% - (var(--tabs-per-row) - 1) * 1px) / var(--tabs-per-row));
+  min-width: 0;
+  min-height: 37px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 670;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+nav.tabs button:hover { background: var(--panel); }
+
+nav.tabs button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+  box-shadow: inset 0 1px 2px #1f23251e, inset 0 -2px var(--accent);
+}
+
+nav.tabs button:focus-visible { outline-offset: -3px; }
+
+nav.tabs .count {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+nav.tabs .count:not(.none) { background: var(--panel); }
+
+@container timber-stage (max-width: 1120px) {
+  nav.tabs { --tabs-per-row: 5; }
+}
+
+@container timber-stage (max-width: 560px) {
+  nav.tabs { --tabs-per-row: 2; }
+}
+
+.content { padding-inline: var(--timber-gutter); }
+
+/* Raised controls share one material. Mini controls keep the existing tighter
+   padding in headers and administrative tables. */
+.seg {
+  max-width: 100%;
+  gap: 3px;
+  padding: 2px;
+  overflow: visible;
+  border-color: var(--border);
+  border-radius: var(--timber-radius);
+  background: color-mix(in srgb, var(--border) 46%, var(--bg));
+}
+
+.seg button {
+  min-width: 0;
+  min-height: 29px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.seg.mini button {
+  min-height: 24px;
+  padding-block: 3px;
+  padding-inline: 6px;
+}
+
+#windowSeg button {
+  min-width: 33px;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.seg button,
+:is(.ghost, .backbtn, .navbtn, .repochip, .perm-undo, .perm-x),
+.picker .chips button {
+  border: 1px solid var(--timber-control-border);
+  border-radius: var(--timber-radius);
+  background: var(--timber-raised);
+  box-shadow: var(--timber-raised-shadow);
+  color: var(--text);
+  font-weight: 640;
+}
+
+.seg button + button { border-left-color: var(--timber-control-border); }
+
+:is(.seg button, .ghost, .backbtn, .navbtn, .repochip, .perm-undo, .perm-x, .picker .chips button):hover:where(:not(:disabled)) {
+  filter: brightness(var(--timber-control-hover));
+  text-decoration: none;
+}
+
+.seg button:active:where(:not(:disabled)),
+.seg button[aria-pressed="true"],
+:is(.ghost, .backbtn, .navbtn, .repochip, .perm-undo, .perm-x):active:where(:not(:disabled)),
+:is(.ghost, .repochip)[aria-pressed="true"],
+.picker .chips button:active:where(:not(:disabled)),
+:is(.ghost, .navbtn)[aria-expanded="true"] {
+  border-color: var(--timber-sunken-border);
+  background: var(--timber-sunken);
+  box-shadow: var(--timber-sunken-shadow);
+  color: var(--text);
+}
+
+.ghost.perm-danger { color: var(--bad); }
+:is(.ghost, .seg button, .repochip):disabled { opacity: .5; cursor: default; }
+
+.daily-go {
+  --action-ink: #fff8e6;
+  --action-top: #55734b;
+  --action-bottom: #405939;
+  border-color: #354f32;
+  border-radius: var(--timber-radius);
+  background: linear-gradient(var(--action-top), var(--action-bottom));
+  box-shadow: var(--timber-raised-shadow);
+  color: var(--action-ink);
+}
+
+.daily-go.rl-danger {
+  --action-top: #a54237;
+  --action-bottom: #7d3028;
+  border-color: #762e29;
+  background: linear-gradient(var(--action-top), var(--action-bottom));
+}
+
+.daily-go:not(:disabled):active { box-shadow: var(--timber-sunken-shadow); }
+
+:is(input[type="search"], input[type="number"], select, textarea, .pf-input, .perm-input, .rl-input,
+    .perm-search input, .ra-pattern) {
+  border-color: var(--timber-control-border);
+  border-radius: var(--timber-radius);
+  caret-color: var(--accent);
+}
+
+:is(input[type="search"], input[type="number"], select, textarea, .pf-input, .perm-input,
+    .rl-input, .perm-search input, .ra-pattern):focus-visible {
+  outline: 2px solid var(--timber-focus);
+  outline-offset: 1px;
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* Ruled panels and tables use opaque backgrounds under sticky headers. */
+.grid, .stack { gap: 12px; }
+
+.card {
+  border-radius: var(--timber-radius);
+  box-shadow: var(--timber-surface-shadow);
+}
+
+.card[class*="fresh-"] {
+  border-color: var(--border);
+  box-shadow: var(--timber-surface-shadow);
+}
+
+.card > header { background: var(--panel-2); }
+.card.stub { background: var(--panel); }
+
+:is(.duo-box, .findbar, .perm-tray, .pf-group.nested, .ra-scroll, .perm-review-list) {
+  border-radius: var(--timber-radius);
+}
+
+:is(.combo-pop, .excl-pop, .perm-results, .log-tip, .daily-dialog, .perm-panel) {
+  border-radius: var(--timber-radius);
+  box-shadow: var(--timber-pop-shadow);
+}
+
+:root[data-theme="light"] :is(.combo-pop, .excl-pop, .daily-dialog) {
+  box-shadow: var(--timber-pop-shadow);
+}
+
+.daily-dialog::backdrop,
+:root[data-theme="light"] .daily-dialog::backdrop,
+:root[data-theme="light"] .perm-modal,
+.perm-modal, .scrim {
+  background: var(--timber-backdrop);
+}
+
+:is(.combo-opt, .perm-opt)[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+:is(.card, .perm-panel, .daily-dialog) table th {
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 670;
+  line-height: 1.3;
+}
+
+:is(.card, .perm-panel, .daily-dialog) table :is(th, td) {
+  border-bottom-color: var(--border);
+}
+
+:is(.card, .perm-panel, .daily-dialog) table :is(th, td).num { text-align: right; }
+
+.pill, .label {
+  background-color: color-mix(in srgb, currentColor 7%, var(--panel));
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.repochip { border-radius: 999px; }
+
+.pf-chip span {
+  background: var(--timber-raised);
+  border-color: var(--timber-control-border);
+  color: var(--text);
+}
+
+.pf-chip input:checked + span {
+  border-color: var(--timber-sunken-border);
+  background: var(--timber-sunken);
+  box-shadow: var(--timber-sunken-shadow);
+}
+
+/* Use gaps for straight, uninterrupted KPI rules. A short final row grows
+   to use the available space instead of exposing an empty ruled cell. */
+.kpis {
+  --kpi-columns: 2;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.kpi {
+  flex: 1 0 calc((100% - (var(--kpi-columns) - 1) * 1px) / var(--kpi-columns));
+  padding: 9px 11px;
+}
+
+.kpi .k {
+  font-size: 11.5px;
+  font-weight: 680;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+.kpi .v {
+  margin-block: 3px 2px;
+  font-weight: 720;
+  letter-spacing: -.028em;
+  overflow-wrap: anywhere;
+}
+
+.kpi .d { font-size: 11.5px; line-height: 1.35; }
+.kpis + .hint { border-top: 1px solid var(--border); margin-top: 0; padding-top: 9px; }
+
+@container (min-width: 390px) {
+  .kpis:has(> :nth-child(3)) { --kpi-columns: 3; }
+}
+
+@container (min-width: 452px) {
+  .kpis:has(> :nth-child(4):last-child),
+  .kpis:has(> :nth-child(8):last-child) { --kpi-columns: 4; }
+  .kpis:has(> :nth-child(10):last-child) { --kpi-columns: 5; }
+}
+
+@media (max-width: 760px) {
+  main { --timber-gutter: 12px; }
+
+  #sidebar {
+    visibility: hidden;
+    transition: transform .2s ease, visibility .2s step-end;
+  }
+
+  body.nav-open #sidebar {
+    visibility: visible;
+    transition: transform .2s ease, visibility 0s;
+  }
+
+  #sidebar .pages button { min-height: 44px; }
+  #sidebar :is(#collapse, .side-foot button, .side-foot a),
+  .navbtn { min-height: 44px; }
+  #sidebar #collapse, .navbtn { min-width: 44px; }
+
+  nav.tabs button { min-height: 44px; }
+
+  .findbar .combo-pop {
+    max-width: min(460px, calc(100vw - 52px));
+  }
+
+  .toolbar .seg button { padding-inline: 7px; }
+  #windowSeg button { min-width: clamp(29px, 8vw, 40px); min-height: 36px; }
+}
+
+@media (max-width: 400px) {
+  .toolbar .minlabel:has(#windowSeg) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body, #sidebar, body.nav-open #sidebar { transition: none; }
+}
