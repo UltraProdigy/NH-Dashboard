@@ -247,6 +247,9 @@ nav.tabs {
 nav.tabs:empty { display: none; }
 
 nav.tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1 0 calc((100% - (var(--tabs-per-row) - 1) * 1px) / var(--tabs-per-row));
   min-width: 0;
   min-height: 37px;
@@ -262,6 +265,8 @@ nav.tabs button {
   white-space: normal;
 }
 
+nav.tabs button > span:not(.count) { min-width: 0; text-wrap: balance; }
+
 nav.tabs button:hover { background: var(--panel); }
 
 nav.tabs button[aria-selected="true"] {
@@ -273,6 +278,7 @@ nav.tabs button:focus-visible { outline-offset: -3px; }
 
 nav.tabs .count {
   display: inline-block;
+  flex: none;
   margin-left: 4px;
   font-size: 10px;
   line-height: 1.35;

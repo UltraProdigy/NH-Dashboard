@@ -31,6 +31,13 @@ const pages = {
   webhook: ["newage", "Manage which GitHub deliveries reach Discord.", "wide"],
 };
 
+const analyticsSubjects = {
+  analytics: "Pull requests",
+  issues: "Issues",
+  people: "Contributors",
+  repos: "Repositories",
+};
+
 const landscape = typeof matchMedia === "function" ? matchMedia("(min-width: 851px)") : null;
 const reduceMotion = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
 
@@ -76,6 +83,12 @@ function renderArtwork(page) {
   const logo = document.getElementById("landingMark");
   logo.hidden = layout !== "landing";
   if (!logo.hidden) logo.src = href("assets/logo.png");
+  const context = document.getElementById("heroContext");
+  const subject = analyticsSubjects[page.id];
+  context.hidden = !subject;
+  context.innerHTML = subject
+    ? `<a data-pagelink href="${href("org-overview")}">Org Overview</a> <span aria-hidden="true">/</span> ${subject}`
+    : "";
   const caption = document.getElementById("pageDescription");
   caption.textContent = description;
   caption.hidden = !description;

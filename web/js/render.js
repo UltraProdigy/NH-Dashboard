@@ -178,7 +178,7 @@ function renderTabs() {
   // the word "Overview", which is a control offering to take you where you
   // already are. Hidden rather than rendered lonely.
   const bar = document.getElementById("tabs");
-  const tabs = tabsFor(page.id);
+  const tabs = isDrill(page.id) && !state.subject ? [] : tabsFor(page.id);
   bar.style.display = tabs.length ? "" : "none";
   if (!tabs.length) return void (bar.innerHTML = "");
 
@@ -191,9 +191,9 @@ function renderTabs() {
       const why = tabEmpty(page.id, t.id);
       if (why)
         return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}"
-          title="${esc(why)}">${esc(t.label)}<span class="count none">none</span></button>`;
+          title="${esc(why)}"><span>${esc(t.label)}</span><span class="count none">none</span></button>`;
       const c = tabCount(page.id, t.id);
-      return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}">${esc(t.label)}${
+      return `<button data-module="${esc(t.id)}" aria-selected="${state.tab === t.id}"><span>${esc(t.label)}</span>${
         c == null ? "" : `<span class="count">${typeof c === "number" ? fmt(c) : c}</span>`}</button>`;
     }).join("");
 }
@@ -407,6 +407,12 @@ function renderToolbar() {
     if (!findInputs.contains?.(document.activeElement)) findInputs.innerHTML = findInputsHtml();
     bits.push(findFiltersHtml());
   } else findInputs.innerHTML = "";
+  if (hasSubjectPicker && !state.subject) {
+    const toolbar = document.getElementById("toolbar");
+    toolbar.innerHTML = "";
+    toolbar.hidden = true;
+    return;
+  }
   if (page.id === "overview")
     bits.push('<div class="activity-intro"><h2>Organization activity</h2><p>Date range applies to windowed metrics. CI uses its own sample.</p></div>');
 
@@ -462,7 +468,7 @@ function renderToolbar() {
 
   const tb = document.getElementById("toolbar");
   tb.innerHTML = bits.join("");
-  tb.style.display = bits.length ? "" : "none";
+  tb.hidden = !bits.length;
 
 }
 
@@ -492,6 +498,30 @@ function bodyOf(m, id, expanded) {
   catch (err) { return `<div class="error">${esc(err.message)}</div>`; }
 }
 
+const moduleIcons = {
+  gPRs: "analytics", gIssues: "issues", gRepos: "repos", gPeople: "people", gCI: "ci",
+  backlog: "issues", actions: "ci", iTriage: "issues", iRepos: "repos",
+  iReporters: "people", iPeople: "people", oStale: "analytics",
+};
+const analyticsPages = new Set(["overview", "analytics", "issues", "people", "repos"]);
+
+function cardHeader(m, id, expanded, controls) {
+  const label = `<h2>${esc(m.label)}</h2>`;
+  const sub = cardSub(m, expanded);
+  const fresh = cardFreshness(m, id);
+  if (!analyticsPages.has(m.page)) return `<header>${label}${sub}${fresh}${controls}</header>`;
+
+  const category = moduleIcons[id] ?? m.page;
+  const icon = PAGES.find(page => page.id === category)?.icon ?? "";
+  return `<header class="analytics-card-header">
+    <div class="card-ident" data-icon="${category}">
+      <span class="card-icon" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor">${icon}</svg></span>
+      <div>${label}${sub}</div>
+    </div>
+    ${fresh}${controls}
+  </header>`;
+}
+
 function card(id) {
   const m = MODULES[id];
   const body = bodyOf(m, id, false);
@@ -506,12 +536,7 @@ function card(id) {
   // tab on the same page, and ↗ is the mark this dashboard uses for links that
   // leave it — "View on GitHub ↗" sits three lines above it on the drilldowns.
   return `<section class="card${freshClass(m, id)}" data-timber-module="${id}" style="--span:${m.span}">
-    <header>
-      <h2>${esc(m.label)}</h2>
-      ${cardSub(m, false)}
-      ${cardFreshness(m, id)}
-      ${id.startsWith("g") && m.page === "overview" ? "" : cardControls(m)}
-    </header>
+    ${cardHeader(m, id, false, m.page === "overview" ? "" : cardControls(m))}
     <div class="body${m.flush ? " flush" : ""}${m.fill ? " fill" : ""}${
       m.fillList ? " fill-list" : ""}">${body}</div>
     ${m.page === "overview" ? `<footer class="module-footer">${cardControls(m)}</footer>` :
@@ -544,7 +569,7 @@ function expandedCard(id, grouped) {
   const m = MODULES[id];
   const body = bodyOf(m, id, true);
   return `<section class="card${freshClass(m, id)}" data-timber-module="${id}" style="--span:12">
-    <header><h2>${esc(m.label)}</h2>${cardSub(m, true)}${cardFreshness(m, id)}${cardControls(m, grouped)}</header>
+    ${cardHeader(m, id, true, cardControls(m, grouped))}
     <div class="body${m.flush ? " flush" : ""}">${body}</div>
   </section>`;
 }
