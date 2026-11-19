@@ -25,10 +25,13 @@ const newFaces = (days) =>
 const goneQuiet = () =>
   contributorAll().filter(r => r.all.prs + r.all.approvals >= 20 && (daysSince(r.lastSeen) ?? 0) > 180);
 
-/** Filtered against the *selected* window, not all-time. */
+/** Filtered and ranked against the *selected* window, not all-time. */
 function contributorRows() {
   const w = state.window;
-  return contributorAll().filter(r => r[w] && r[w].prs + r[w].approvals >= state.minActivity);
+  const act = r => r[w].prs + r[w].approvals;
+  return contributorAll()
+    .filter(r => r[w] && act(r) >= state.minActivity)
+    .sort((a, b) => act(b) - act(a) || (a.login < b.login ? -1 : a.login > b.login ? 1 : 0));
 }
 
 /** Contributors ranked by one of the selected window's counts, zeros dropped. */

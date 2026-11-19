@@ -650,11 +650,16 @@ since*) include issues, so they can differ for a triager.
 On screen: *Leaderboard*
 
 ```
-rank by all.prs + all.approvals desc
-show if all.prs + all.approvals ≥ CONTRIBUTOR_MIN_ACTIVITY   # default 0
+w = selected window (1m, 6m, all, …)
+rank by w.prs + w.approvals desc, then login asc
+show if w.prs + w.approvals ≥ min activity slider
 ```
 
-An unweighted sum of acts. Further filtering is a browser slider.
+An unweighted sum of acts, over the window the toolbar is on. The panel still
+arrives in all-time order (`byActivityThenLogin`; the local build also drops
+anyone under `CONTRIBUTOR_MIN_ACTIVITY` all-time, default 0); `contributorRows()` in
+`web/js/contributor-data.js` re-ranks it for the selected window. Clicking a
+column in the expanded table overrides this order.
 
 ### Active days
 

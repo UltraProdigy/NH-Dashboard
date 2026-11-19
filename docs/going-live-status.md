@@ -566,7 +566,8 @@ Phase E is unblocked — see the private-repo decision above.
 
 Deliberately not fixed yet. Shipping first, then a QA pass.
 
-**The Leaderboard orders by the wrong period.** The card reads "by activity,
+**The Leaderboard orders by the wrong period.** *Fixed: `contributorRows()` now
+ranks by the selected window.* The card reads "by activity,
 last 6 months" and every column is windowed, but the rows arrive in all-time
 order and `contributorRows()` filters without re-sorting — `sortRows` only bites
 once the tab is expanded and a column is clicked. So Dream-Master, with 20 PRs
