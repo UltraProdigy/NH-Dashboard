@@ -27,6 +27,7 @@ aside {
   display: block;
   height: 32px; width: auto; flex: none;
   margin-block: -3px;
+  border-radius: 4px;
 }
 .brand .name { font-weight: 600; white-space: nowrap; }
 body.collapsed .brand .name,

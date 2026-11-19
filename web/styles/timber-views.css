@@ -133,7 +133,12 @@ body[data-dashboard-page="issues"] .timber-hero[data-layout="split"] { border-in
   background: radial-gradient(ellipse 44% 87% at center, #201614b8, #21171370 61%, transparent),
               linear-gradient(0deg, #1b1512e3, #1b15123d 58%, #1b151270);
 }
-.landing-mark { width: clamp(92px, 11vw, 135px); height: auto; filter: drop-shadow(0 3px 5px #160e0bb0); }
+.landing-mark {
+  width: clamp(92px, 11vw, 135px);
+  height: auto;
+  border-radius: 8px;
+  filter: drop-shadow(0 3px 5px #160e0bb0);
+}
 .hero-credit, .showcase-photo .photo-credit { position: absolute; inset: auto 8px 8px auto; z-index: 2; }
 .photo-info {
   display: grid;
