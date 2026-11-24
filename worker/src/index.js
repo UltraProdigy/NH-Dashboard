@@ -26,6 +26,7 @@ import { verifyDreamPanel } from "./verify.js";
 import { checkRepoSettings, EventLog, logDelivery } from "./event-log.js";
 import { checkPermissions, PERMISSION_EVENTS, Permissions, recordPermissionDelivery } from "./permissions.js";
 import { verifySignature } from "./signature.js";
+import { PROPERTY_EVENTS, propertyAttribution } from "./property-history.js";
 
 export { EventLog, Permissions };
 
@@ -81,6 +82,8 @@ async function handleWebhook(request, env, ctx) {
         by = await recordPermissionDelivery(env, event, payload, delivery)
           .then((r) => r?.attributed ?? null)
           .catch((err) => (console.error(JSON.stringify({ at: "permissions", delivery, error: String(err) })), null));
+      } else if (PROPERTY_EVENTS.has(event)) {
+        by = await propertyAttribution(env.DB, event, payload);
       }
       if (env.EVENT_LOG) {
         await logDelivery(env, event, payload, delivery, by ? { actor: `${by} via dashboard` } : {}).catch((err) =>

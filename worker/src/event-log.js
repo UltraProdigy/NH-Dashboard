@@ -471,7 +471,15 @@ export class EventLog {
       const pair = new WebSocketPair();
       const [client, server] = [pair[0], pair[1]];
       this.ctx.acceptWebSocket(server);
-      server.send(JSON.stringify({ type: "history", keep: KEEP_PER_BOX, events: this.history() }));
+      // A page that only wants a few events (the Custom Properties page) gets those
+      // and nothing else, and no history replay.
+      const only = (url.searchParams.get("only") ?? "").split(",").map((e) => e.trim()).filter(Boolean).slice(0, 10);
+      if (only.length) {
+        server.serializeAttachment({ only });
+        server.send(JSON.stringify({ type: "ready" }));
+      } else {
+        server.send(JSON.stringify({ type: "history", keep: KEEP_PER_BOX, events: this.history() }));
+      }
       return new Response(null, { status: 101, webSocket: client });
     }
     return new Response("not found", { status: 404 });
@@ -486,7 +494,10 @@ export class EventLog {
     );
     const message = JSON.stringify({ type: "event", event: entry });
     for (const ws of this.ctx.getWebSockets()) {
-      try { ws.send(message); } catch {}
+      try {
+        const only = ws.deserializeAttachment?.()?.only;
+        if (!only || only.includes(entry.event)) ws.send(message);
+      } catch {}
     }
   }
 

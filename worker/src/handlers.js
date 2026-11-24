@@ -18,6 +18,7 @@
 
 import { commitAuthor, headline, utcSeconds } from "../../src/shared/commit-rules.js";
 import { stateReason } from "../../src/shared/issue-rules.js";
+import { onCustomProperty, onCustomPropertyValues } from "./property-history.js";
 
 /** The store uses OPEN / MERGED / CLOSED; payloads say open / closed + merged. */
 function prState(pr) {
@@ -613,6 +614,8 @@ const HANDLERS = {
   workflow_run: onWorkflowRun,
   release: onRelease,
   label: onLabel,
+  custom_property_values: (db, p) => onCustomPropertyValues(db, p),
+  custom_property: (db, p) => onCustomProperty(db, p),
 };
 
 export async function handleEvent(db, event, payload) {
