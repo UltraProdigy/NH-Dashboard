@@ -26,6 +26,7 @@ Each entry names its source file. Entries use this shape where it applies:
 [Label metrics](#label-metrics) ·
 [Browser-side calculations](#browser-side-calculations) ·
 [Org Search](#org-search) ·
+[Custom Properties](#custom-properties) ·
 [Known biases and blind spots](#known-biases-and-blind-spots) ·
 [Change log](#change-log)
 
@@ -2072,6 +2073,78 @@ repo unticked → event off → action off → sender excluded → bot
 - **not the default branch** only applies to `push` to a `refs/heads/` ref, so a
   tag push never matches it.
 
+## Custom Properties
+
+On screen: every count on the Custom Properties page.
+
+`web/js/properties-calc.js`, shared by the page and the app Worker. The inputs
+are the schema and values `GET /api/properties` reads from GitHub.
+
+**Excluded everywhere:** archived repos. They're left out of the read, so they're
+in neither half of any figure. Excluded repos (`NH_INGEST_EXCLUDE`) are
+included, as on Permissions: managing them is the point.
+
+### Set on
+
+`distribution()`.
+
+| Field | Meaning |
+|---|---|
+| **Shows** | `set / total` beside each property on Overview, and "set on N of M repos" in its panel |
+| **Numerator** | Repos whose value isn't empty. An empty string and an empty list count as unset |
+| **Denominator** | Active repos |
+| **Empty case** | `0/0` and an empty bar |
+
+### Value counts
+
+`distribution()`. One count per value: how many repos have it. A multi-select
+repo counts once under each of its values, so the counts can add up to more
+than **Set on**. A value that isn't in the allowed list any more is counted and
+shown dashed in red. Allowed values no repo has count 0 and are hidden on
+Overview, listed in the panel. Text and URL properties show how many distinct
+values there are instead.
+
+### Gaps
+
+`gaps()`.
+
+- **Required but not set**: repos with no value for a required property.
+- **Repos with nothing set**: repos with no value for any property. The same
+  figure is **With nothing set** on Overview.
+- **\<property\> not set**: per non-required property, repos without a value.
+- **Values that aren't allowed any more**: repos holding a value missing from
+  the select's allowed list. Counted per repo per property.
+- **Properties no repo uses**: Set on is 0.
+- **Allowed values no repo uses**: per property, allowed values with a count of
+  0, only for properties some repo uses.
+
+### Cross-tab
+
+`crossTab()`. Rows are one property's values, columns another's, each with
+`unset` last. A cell counts repos having both. A multi-select repo is counted in
+every combination of its values, so a row's cells can add up to more than its
+repos. Values outside the allowed list get their own row or column. Staged
+changes are counted as if applied.
+
+### Bulk edit and CSV import
+
+A change is only staged where the result differs from what the repo has now:
+
+- **Bulk edit** compares against the value shown, staged changes included, and
+  says how many repos already have it.
+- **CSV import** compares against GitHub. An empty cell means unset. Columns and
+  repos missing from the file aren't touched. Values match the allowed list
+  ignoring case, and multi-select values are split on `;`. Repos match ignoring
+  case and an `org/` prefix. Unknown repos, unknown columns, values that aren't
+  allowed, and a repo listed twice (the first row wins) are listed and skipped.
+
+### History echoes
+
+A webhook delivery is the dashboard's echo when its sender is a bot and a
+dashboard row from the last ten minutes has the same property and either the
+same repo and new value, or no repo (a definition change to that property).
+Values are compared as JSON with multi-select lists sorted.
+
 ## Known biases and blind spots
 
 **Toward flattery**
@@ -2125,6 +2198,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-24 | Custom Properties counts | New, for the Custom Properties page. No existing figure moves. Archived repos are left out; a multi-select repo counts once under each of its values; staged changes count as applied in the cross-tab and filters. See **Custom Properties**. |
 | 2026-11-14 | Relay counts, delivery decision | New, for the GitHub Webhook page. No existing figure moves. Repos are a tick list rather than patterns, a repo can have its own event list that replaces the default one, and there's no private-repo rule. See **GitHub Webhook**. |
 | 2026-11-09 | Build updates | New, for the Updates card on the Dream Panel. No existing figure moves. Buildscript and Gradle are compared with the highest stable version in the org; dependencies with the dependency repo's latest tag, and only count when asked. See **Build updates**. |
 | 2026-11-04 | Release rebuild status | New: each row released from Releases & Tags follows the release workflow's rebuild, from release and workflow_run webhooks. See **Release rebuild status**. |

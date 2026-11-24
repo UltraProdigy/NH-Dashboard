@@ -2739,6 +2739,9 @@ bound into the app Worker by `script_name`. There is one instance, named
 - Sockets use the hibernation API, and the page's 30-second `ping` is answered
   by the runtime without waking the object. An open page that's just waiting
   isn't billed.
+- A socket opened with `?only=` and a comma-separated list of events is only sent
+  those events, and gets no history when it connects. The Custom Properties page
+  uses it to hear about property changes without receiving the whole log.
 
 The app Worker serves it at `/api/logs`. It refuses anyone not on the admin
 team, any request that isn't a WebSocket upgrade (426), and any upgrade whose
@@ -3131,7 +3134,7 @@ run before every deploy.
 
 ## GitHub Webhook
 
-Under Admin Resources, after Permissions. Decides which GitHub events reach the
+Under Admin Resources, after Custom Properties. Decides which GitHub events reach the
 Discord channel. The org-level webhook posts to a relay Worker instead of
 straight to Discord; the relay drops whatever the rules say to drop and passes
 the rest to Discord's `/github` endpoint byte for byte, so the messages look
@@ -3285,6 +3288,185 @@ To roll back, put the Discord URL back on the org webhook.
 (logging, trimming, the hook's event list, the 409), forwarding and the
 rate-limit retry, failing open, reading the hook from GitHub, and the API's
 refusals and preview, against a SQLite shim, a fake GitHub and a fake Discord.
+
+## Custom Properties
+
+Under Admin Resources, after Permissions. Every custom property in the org, how
+each repo has it set, and changing both. Admin-only: missing from the sidebar for
+members and refused by the server for them regardless. Archived repos are left
+out entirely, the same as on Releases & Tags.
+
+The plan it was built from is the "Custom Properties Plan" project doc.
+
+### The page
+
+A row of tabs, then the buttons that work from any of them: **New property**,
+**Import CSV** and **Refresh**.
+
+- **Overview**: counts, then one row per property with its type, how many repos
+  have it set, its values with a count each, its rules (required, default, who
+  can edit) and how many rulesets target repos by it. Below that, the newest
+  changes from History.
+- **Grid**: repos down, properties across. Click a cell to change it: a dropdown
+  for single select and true/false, a text box for text and URLs (Enter or
+  leaving the box stages it, Esc cancels), and a list of boxes for multi select.
+  A staged cell is outlined with an undo button beside it. A name search and the
+  same AND/OR property filter as Releases & Tags narrow the rows, and **Export**
+  downloads the rows shown as a CSV.
+- **Compare**: the property filter again, saved separately, with the repos it
+  matches. Below it, a **cross-tab**: pick two select or true/false properties and
+  every pair of values gets a count. Clicking a count lists those repos with a
+  **Tick these** button.
+- **Gaps**: required properties that aren't set, repos with nothing set, each
+  property's repos without a value, values that aren't allowed any more,
+  properties no repo uses, and allowed values no repo uses. Each list of repos
+  has **Tick these**, which ticks them and opens the Grid ready for Bulk edit.
+- **History**: the newest 300 changes, filterable by property, repo and where
+  the change came from.
+
+Ticks carry between Grid, Compare and Gaps. With repos ticked, **Bulk edit**
+sets, clears, adds or removes (multi select only) one property's value on all of
+them, and says how many would actually change before staging.
+
+Every property and repo name opens a **panel**, linked from the address as
+`?property=` or `?repo=` (and `?view=` for the tab).
+
+- A **property** panel has its definition (description, allowed values with
+  their counts, reorderable, default, required, require explicit values, who can
+  edit), the rulesets that use it, **Rename or merge values**, **Rename**,
+  **Delete**, every repo's value (editable, and narrowable to repos with or
+  without one), and its history. A type can't be changed once made.
+- A **repo** panel has every property with its value, editable, and the repo's
+  history.
+
+### Staging, review and apply
+
+Nothing is written on click. Every change, whether one cell, a bulk edit, a CSV
+import or a definition, goes into the tray at the bottom of the page. The tray is
+saved per browser, so it survives a reload.
+
+**Review & apply** lists the changes by kind, each removable, with warnings
+above them:
+- a delete or rename of a property a ruleset targets, or a value rename touching
+  values a ruleset names, linked to the ruleset
+- saved property filters in this browser (Releases & Tags, Labels, and this
+  page's two) that use a property being renamed or deleted
+- repos that use allowed values being removed by an edit, which points at Rename
+  value instead
+- a property becoming required, and how many repos get the default
+- a delete, with how many repos lose their value
+- changes staged against values GitHub has since changed
+- another admin applying right now
+
+**Apply** posts the batch to `POST /api/properties/apply`. The Worker:
+
+1. Takes a lock in `meta` (`properties_apply`). It's renewed after every write
+   and lapses three minutes after the last one, so a Worker that died can't hold
+   it. A second apply while it's held gets a 409 naming who holds it.
+2. Reads the schema and every repo's values from GitHub again.
+3. Skips any change whose starting value or definition no longer matches GitHub,
+   as **changed on GitHub**. Two admins can't overwrite each other: the later one
+   is told, not applied.
+4. Plans the writes with `planBatch` in `web/js/properties-calc.js`, the same
+   module the page uses, then makes them as Org-Manager, a second apart:
+   1. Creates, and definition edits widened to keep any allowed value still in
+      use, so nothing disappears yet.
+   2. Value writes. Repos getting exactly the same values share one
+      `PATCH /orgs/{org}/properties/values`, 30 repos at a time.
+   3. Definition edits again, now with their final allowed values.
+   4. Deletes.
+
+   Each write lists the ones it depends on, and is skipped if any of them
+   failed. A rename's delete waits for every copy, and a value rename's last
+   write waits for every repo it moves, so a failure never deletes a property or
+   a value that repos haven't been moved off.
+5. Streams a line per write back to the page (`application/x-ndjson`), which
+   fills the progress bar in the tray. The batch runs under `waitUntil`, so
+   closing the tab doesn't stop it halfway.
+
+`PUT /orgs/{org}/properties/schema/{name}` replaces the whole definition and
+resets anything left out, so a definition is always sent whole.
+
+A batch is capped at 150 GitHub writes and 5,000 changes. Under `wrangler dev`
+with `DEV_ROLE` it's a dry run: every check, nothing sent, no history written.
+
+The results dialog lists every change as done, failed, skipped, refused or
+changed on GitHub. Done and changed-on-GitHub ones leave the tray; failed and
+skipped ones stay so they can be tried again.
+
+### Rename and merge
+
+GitHub can't rename a property or a value, so the page does it in steps:
+
+- **Rename a property**: create the new one with the old definition, copy every
+  repo's value across, then delete the old one.
+- **Rename a value** (one ticked) or **merge values** (several ticked): add the
+  target to the allowed values if it isn't there, move every repo off the old
+  values (a multi select keeps its other values), then remove the old values. A
+  default on an old value follows it.
+
+Rulesets and saved filters don't follow either; the review says which.
+
+Values can be staged on a property that's being created in the same batch.
+Values can't be staged on one that's being renamed or deleted, and a property
+gets one definition change per batch (several value renames count as one).
+
+### History
+
+D1 table `property_history`, from migration 011:
+
+```
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/011-property-history.sql
+```
+
+Until it's applied, History says it's off and everything else works. The webhook
+handlers skip the write instead of failing the delivery.
+
+- **From the dashboard**: every write's rows go in as `pending` before any call to
+  GitHub, with the admin's Access email. Each write's rows become `done` when it
+  succeeds and are deleted when it fails. Only `done` rows are shown.
+- **From GitHub**: the webhook Worker writes a row for each `custom_property_values`
+  change and each `custom_property` created, updated or deleted, with the
+  sender's login.
+- **Echoes**: Org-Manager's own deliveries for a dashboard write aren't logged
+  twice. A delivery from a bot that matches a dashboard row from the last ten
+  minutes (same property, and the same repo and value, or a definition row for
+  that property) is skipped, and the GitHub Logs line names the admin with
+  "via dashboard". A person's change is never treated as an echo.
+
+### Reads and live updates
+
+`GET /api/properties` reads the repos, the schema and every repo's values from
+GitHub as NH-Dashbot (the same read as Releases & Tags, which now keeps every
+field of a definition), the org's rulesets and which properties their conditions
+name, the newest history and whether an apply is running. It's read when the
+page opens, after five minutes, on **Refresh**, and after an apply, which also
+refreshes the shared repo list Releases & Tags and Labels use.
+
+The page holds the GitHub Logs socket open with
+`?only=custom_property,custom_property_values`, and re-reads two seconds after a
+property event arrives. The socket hibernates, so an open page costs nothing
+while it waits. Excluded repos never reach the log, so a change to one shows up
+on the next re-read instead.
+
+A background re-read doesn't redraw over a cell or field being edited; it waits
+until focus leaves it. An open definition with unstaged edits keeps them.
+
+### Permissions it needs
+
+- **Org-Manager**: organization **Custom properties: Admin**. Admin covers the
+  definitions as well as the values.
+- **NH-Dashbot**: organization **Custom properties: Read**, which Releases & Tags
+  already uses, and **Administration: Read** to check rulesets. Without the
+  second, the page says rulesets weren't checked rather than claiming none
+  depend on anything.
+
+### Testing
+
+`npm run test:properties` (in the deploy gate) covers the planner, an apply
+against a stubbed GitHub, conflicts, the lock, dry runs, a failed copy stopping a
+rename's delete, the history and its echoes, the CSV import, the views'
+calculations and the log socket filter. The route guards are in `app.test.js`.
 
 ## Org Search
 
@@ -4299,11 +4481,11 @@ left, which is the cheaper of the two.
 
 ## Pages and sections
 
-Thirteen pages, in three sidebar sections:
+Seventeen pages, in three sidebar sections:
 
 | Section | Pages |
 |---|---|
-| **Admin Resources** | Dream Panel, Labels *(stub)*, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs |
+| **Admin Resources** | Dream Panel, Releases & Tags, Labels, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs, Permissions, Custom Properties, GitHub Webhook |
 | **Org Analytics** | Org Overview, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity |
 | **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
 

@@ -66,6 +66,11 @@ const PAGES = [
     modules: [],
   },
   {
+    id: "properties", label: "Custom Properties", section: ADMIN,
+    icon: `<path d="M2 2.5h3v3H2Zm0 4h3v3H2Zm0 4h3v3H2ZM7 3.25h7a.75.75 0 0 1 0 1.5H7a.75.75 0 0 1 0-1.5Zm0 4h7a.75.75 0 0 1 0 1.5H7a.75.75 0 0 1 0-1.5Zm0 4h7a.75.75 0 0 1 0 1.5H7a.75.75 0 0 1 0-1.5Z"/>`,
+    modules: [],
+  },
+  {
     id: "webhook", label: "GitHub Webhook", section: ADMIN,
     icon: `<path d="M3.5 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm9-4.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 9a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM5.47 7.59l5.6-2.6-.54-1.18-5.6 2.6Zm-.54 2 5.6 2.6.54-1.18-5.6-2.6Z"/>`,
     modules: [],

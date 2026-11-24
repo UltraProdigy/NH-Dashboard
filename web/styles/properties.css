@@ -1,0 +1,80 @@
+.cp-bar .seg button { padding: 5px 11px; font-size: 12px; }
+.cp-file { cursor: pointer; }
+.cp-note { color: var(--warn); font-size: 12px; max-width: 520px; }
+.cp-pad { padding: 10px 14px; }
+.cp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cp-search { width: 240px; }
+.cp-tickbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.daily-go.cp-mini { padding: 3px 10px; font-size: 11.5px; }
+.cp-card .pf-filter { margin-top: 10px; }
+
+.cp-card td { font-size: 12.5px; vertical-align: top; }
+.cp-prop { font-weight: 600; }
+.cp-desc { margin-top: 2px; font-size: 11.5px; max-width: 360px; }
+.cp-cov { white-space: nowrap; }
+.cp-cover { display: inline-block; width: 70px; height: 6px; margin-right: 8px; vertical-align: middle; border-radius: 3px; background: var(--border); overflow: hidden; }
+.cp-cover-fill { display: block; height: 100%; background: var(--accent); }
+.cp-vals { line-height: 1.9; }
+
+.cp-chip {
+  display: inline-block; margin: 1px 4px 1px 0; padding: 0 6px;
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 11.5px; line-height: 18px; white-space: nowrap;
+  background: var(--panel-2);
+}
+.cp-chip b { font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.cp-chip.is-bad { color: var(--bad); border-style: dashed; }
+.cp-unset { color: var(--muted); }
+
+.cp-gridscroll { max-height: min(72vh, 900px); }
+.cp-gridscroll th { position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.cp-gridscroll td.cp-repo, .cp-gridscroll td.cp-tick { position: sticky; background: var(--panel); z-index: 1; }
+.cp-gridscroll td.cp-tick { left: 0; width: 28px; }
+.cp-gridscroll td.cp-repo { left: 28px; white-space: nowrap; }
+.cp-tick input { margin: 0; }
+.cp-td { white-space: nowrap; min-width: 90px; }
+.cp-val {
+  min-width: 60px; min-height: 22px; padding: 1px 4px; text-align: left;
+  border: 1px solid transparent; border-radius: 5px; background: none;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.cp-val:hover:not(:disabled) { border-color: var(--border); }
+.cp-val:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cp-val:disabled { cursor: not-allowed; opacity: .55; }
+.cp-td.is-staged .cp-val { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.cp-undo { margin-left: 4px; }
+.cp-in { min-width: 120px; }
+.cp-td form { margin: 0; }
+
+.cp-xtab th[scope="row"] { text-align: left; }
+.cp-xcell { min-width: 34px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: none; color: inherit; font: inherit; cursor: pointer; font-variant-numeric: tabular-nums; }
+.cp-xcell:hover, .cp-xcell.is-on { border-color: var(--accent); color: var(--accent); }
+.cp-names { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0; font-size: 12.5px; }
+.cp-ticked { max-height: 110px; overflow-y: auto; }
+.cp-change { min-width: 220px; }
+.perm-problem-body h4 { margin: 8px 0 2px; font-size: 12.5px; }
+
+.cp-panel .perm-sec h3 .cp-chip { font-weight: 400; }
+.cp-defform { display: grid; gap: 12px; }
+.cp-field { display: grid; gap: 4px; font-size: 12.5px; }
+.cp-field > .perm-input, .cp-field > .perm-sel { justify-self: start; }
+.cp-wide { width: min(520px, 100%); }
+.cp-allowed { display: grid; gap: 4px; max-width: 520px; }
+.cp-arow { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.cp-arow:last-of-type { border-bottom: none; }
+.cp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cp-revalue { display: grid; gap: 8px; }
+.cp-bulk { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
+
+.cp-warn { margin: 8px 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; }
+.cp-warn li { padding: 6px 10px; border-left: 3px solid var(--border); background: var(--panel-2); border-radius: 0 6px 6px 0; }
+.cp-warn li.cp-bad { border-left-color: var(--bad); }
+.cp-warn li.cp-warn { border-left-color: var(--warn); }
+.cp-scrollist { max-height: 220px; overflow-y: auto; }
+.cp-dialog { width: min(560px, calc(100vw - 32px)); }
+.cp-dialog .pf-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+
+@media (max-width: 720px) {
+  .cp-search { width: 100%; }
+  .cp-gridscroll td.cp-repo { position: static; }
+}
