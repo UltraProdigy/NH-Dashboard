@@ -79,6 +79,10 @@ export async function repoList(env) {
       type: p.value_type,
       allowed: p.allowed_values ?? null,
       description: p.description ?? null,
+      required: Boolean(p.required),
+      default: p.default_value ?? null,
+      editableBy: p.values_editable_by ?? "org_actors",
+      explicit: Boolean(p.require_explicit_values),
     }));
     values = new Map(v.map((r) => [r.repository_name, Object.fromEntries(r.properties.map((p) => [p.property_name, p.value]))]));
   } catch (err) {

@@ -313,7 +313,7 @@ github = {
   const out = await repoList(env);
   check("answers 200 without archived repos", [out.status, out.body.repos.map((r) => r.name), out.body.archived], [200, ["GTNHLib"], 1]);
   check("with each repo's custom properties", out.body.repos[0].properties, { Type: "Mod" });
-  check("and the property schema", out.body.schema, [{ name: "Type", type: "single_select", allowed: ["Mod", "Tool"], description: null }]);
+  check("and the property schema", out.body.schema, [{ name: "Type", type: "single_select", allowed: ["Mod", "Tool"], description: null, required: false, default: null, editableBy: "org_actors", explicit: false }]);
   propsStatus = 403;
   const no = await repoList(env);
   check("says what permission is missing", [no.status, /Custom properties: Read/.test(no.body.propertiesError)], [200, true]);

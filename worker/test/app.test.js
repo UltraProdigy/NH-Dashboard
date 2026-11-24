@@ -291,6 +291,22 @@ console.log("\nPermissions\n");
   check("an object that fails is a 502, not its body", broken.status === 502, broken.status);
 }
 
+console.log("\nCustom Properties\n");
+{
+  const m = await call("/api/properties", { sub: "member-user" });
+  check("a member is refused the properties", m.status === 403, m.status);
+  const ma = await call("/api/properties/apply", { sub: "member-user", method: "POST", headers: { origin: "https://nh-dashboard-app.gtnh.workers.dev" }, body: "{}" });
+  check("and can't apply anything", ma.status === 403, ma.status);
+  const evil = await call("/api/properties/apply", { sub: "admin-user", method: "POST", headers: { origin: "https://evil.example" }, body: "{}" });
+  check("an apply from another origin is refused", evil.status === 403, evil.status);
+  const get = await call("/api/properties/apply", { sub: "admin-user" });
+  check("apply is POST only", get.status === 405, get.status);
+  const empty = await call("/api/properties/apply", { sub: "admin-user", method: "POST", headers: { origin: "https://nh-dashboard-app.gtnh.workers.dev" }, body: JSON.stringify({ changes: [] }) });
+  check("an empty batch is refused before anything is read", empty.status === 400, empty.status);
+  const nowhere = await call("/api/properties/other", { sub: "admin-user" });
+  check("other property routes are a 404", nowhere.status === 404, nowhere.status);
+}
+
 console.log("\nPermissions edits\n");
 {
   const SNAP = {
