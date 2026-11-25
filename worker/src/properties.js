@@ -2,7 +2,6 @@ import { rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
 import { repoList } from "./release-manager.js";
 import { readHistory, settleStep, writePending } from "./property-history.js";
-import { rulesetCoverage } from "./ruleset-coverage.js";
 import { MAX_WRITES, outcome, planBatch, stateFrom } from "../../web/js/properties-calc.js";
 
 const LOCK_KEY = "properties_apply";
@@ -38,25 +37,18 @@ const touch = (db, run, now) =>
 const unlock = (db, run) =>
   db.prepare("DELETE FROM meta WHERE key = ?1 AND json_extract(value, '$.run') = ?2").bind(LOCK_KEY, run).run().catch(() => {});
 
-export async function propertiesState(env, ctx, { now = Date.now(), force = false } = {}) {
+export async function propertiesState(env, { now = Date.now() } = {}) {
   const { status, body } = await repoList(env);
   if (status !== 200) return { status, body };
-  const [rulesets, history, lock] = await Promise.all([
-    rulesetCoverage(env, ctx, body.repos.map((r) => r.name), { force, now }),
-    readHistory(env.DB),
-    readLock(env.DB),
-  ]);
+  const [history, lock] = await Promise.all([readHistory(env.DB), readLock(env.DB)]);
   return {
     status: 200,
     body: {
       ...body,
-      rulesets: rulesets.coverage,
-      rulesetScan: rulesets.scan,
       history: history.rows,
       historyError: history.error,
       running: lock && lock.seen > now - LOCK_MS ? { by: lock.by, at: lock.at } : null,
     },
-    job: rulesets.job,
   };
 }
 

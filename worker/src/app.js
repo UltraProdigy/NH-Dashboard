@@ -218,16 +218,12 @@ async function route(request, env, ctx, url, who) {
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     if (path === "/api/properties") {
       if (request.method !== "GET") return json({ error: "GET only" }, 405);
-      const { status, body } = await propertiesState(env, ctx);
+      const { status, body } = await propertiesState(env);
       return json(status === 200 ? { ...body, viewer: { email: who.identity.email ?? null, canApply: orgManagerReady(env) || dryRun, dry: dryRun } } : body, status);
     }
-    if (path !== "/api/properties/apply" && path !== "/api/properties/rulesets") return json({ error: "not found" }, 404);
+    if (path !== "/api/properties/apply") return json({ error: "not found" }, 404);
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
-    if (path === "/api/properties/rulesets") {
-      const { status, body } = await propertiesState(env, ctx, { force: true });
-      return json(status === 200 ? { rulesetScan: body.rulesetScan } : body, status);
-    }
     const sent = await request.json().catch(() => null);
     const by = who.identity.email ?? who.identity.sub ?? "unknown";
     const out = await applyProperties(env, by, sent, { dryRun, ctx });

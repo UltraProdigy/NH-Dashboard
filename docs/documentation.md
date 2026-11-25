@@ -3305,9 +3305,7 @@ A row of tabs, then the buttons that work from any of them: **New property**,
 
 - **Overview**: counts, then one row per property with its type, how many repos
   have it set, its values with a count each, its rules (required, default, who
-  can edit) and how many org rulesets are known to target repos by it. Below
-  that, the newest
-  changes from History.
+  can edit). Below that, the newest changes from History.
 - **Grid**: repos down, properties across. Click a cell to change it: a dropdown
   for single select and true/false, a text box for text and URLs (Enter or
   leaving the box stages it, Esc cancels), and a list of boxes for multi select.
@@ -3334,7 +3332,7 @@ Every property and repo name opens a **panel**, linked from the address as
 
 - A **property** panel has its definition (description, allowed values with
   their counts, reorderable, default, required, require explicit values, who can
-  edit), the rulesets that use it, **Rename or merge values**, **Rename**,
+  edit), **Rename or merge values**, **Rename**,
   **Delete**, every repo's value (editable, and narrowable to repos with or
   without one), and its history. A type can't be changed once made.
 - A **repo** panel has every property with its value, editable, and the repo's
@@ -3348,10 +3346,6 @@ saved per browser, so it survives a reload.
 
 **Review & apply** lists the changes by kind, each removable, with warnings
 above them:
-- a delete or rename of a property an org ruleset targets or covers, or a value
-  rename touching values one names, linked to the ruleset (see **Org rulesets**)
-- rulesets that haven't been checked yet, or are being checked, when a delete,
-  rename or value rename is staged
 - saved property filters in this browser (Releases & Tags, Labels, and this
   page's two) that use a property being renamed or deleted
 - repos that use allowed values being removed by an edit, which points at Rename
@@ -3408,7 +3402,7 @@ GitHub can't rename a property or a value, so the page does it in steps:
   values (a multi select keeps its other values), then remove the old values. A
   default on an old value follows it.
 
-Rulesets and saved filters don't follow either; the review says which.
+Saved filters don't follow either; the review says which.
 
 Values can be staged on a property that's being created in the same batch.
 Values can't be staged on one that's being renamed or deleted, and a property
@@ -3441,8 +3435,7 @@ handlers skip the write instead of failing the delivery.
 
 `GET /api/properties` reads the repos, the schema and every repo's values from
 GitHub as NH-Dashbot (the same read as Releases & Tags, which now keeps every
-field of a definition), the cached org ruleset coverage (below), the newest
-history and whether an apply is running. It's read when the
+field of a definition), the newest history and whether an apply is running. It's read when the
 page opens, after five minutes, on **Refresh**, and after an apply, which also
 refreshes the shared repo list Releases & Tags and Labels use.
 
@@ -3455,62 +3448,31 @@ on the next re-read instead.
 A background re-read doesn't redraw over a cell or field being edited; it waits
 until focus leaves it. An open definition with unstaged edits keeps them.
 
-### Org rulesets
+### Rulesets aren't checked
 
-GitHub only lets an app read the org's rulesets (`GET /orgs/{org}/rulesets`)
-with organization **Administration: write**, even to look. That would let the
-key delete the org, so neither app has it. Instead NH-Dashbot reads each repo's
-rulesets with `?includes_parents=true`, which only needs Metadata, and keeps the
-org-level ones (`source_type: "Organization"`). That's one call per active repo,
-about 344, so it's cached and only re-read where something could have changed.
-`worker/src/ruleset-coverage.js` does it.
+Org rulesets can target repos by custom property, so a rename or delete could
+quietly change what one covers. GTNH is on GitHub's free plan, which has no org
+rulesets, and repo rulesets can't target by property, so nothing in the org can
+depend on a property and the page doesn't look. Reading org rulesets would
+also need organization Administration write on an app.
 
-- **The cache** is the `properties_rulesets` row in `meta`: which org rulesets
-  cover each repo, each ruleset's name, enforcement and, when GitHub shows them
-  from the repo side, the property conditions it targets with. It's shared by
-  every admin and browser.
-- **What marks it stale**, as `properties_rulesets_dirty:<repo>` rows in `meta`:
-  - a `custom_property_values` delivery marks that repo, from the dashboard or
-    from GitHub
-  - a `custom_property` delete, or an org-level `repository_ruleset` delivery,
-    marks everything (`*`)
-  - a repo the cache has never seen counts as stale
-- **When it's re-read**: `GET /api/properties` re-reads the stale repos in the
-  background (`waitUntil`), so the page answers at once with the last result and
-  says it's checking. The page re-reads itself every eight seconds until it's
-  done. **Re-check** on Overview (`POST /api/properties/rulesets`) re-reads
-  every repo. Nothing re-reads it on a timer. A stale mark is only cleared if
-  it's older than the scan that read the repo, so a change mid-scan isn't lost.
-- **The rate limit**: before scanning, it asks `GET /rate_limit` (free), and skips
-  the scan if fewer than 4,000 REST calls would be left this hour
-  (`RATE_FLOOR`). It also stops partway when a response says fewer than 4,000
-  remain. The budget is shared with the cron and every other page, so it goes
-  by GitHub's count rather than its own. NH-Dashbot's REST budget is 12,500 an
-  hour. A skipped scan keeps the last result and the page says why.
-- **Private repos** on the free plan can't have rulesets, and GitHub answers
-  "Upgrade to GitHub Pro". Those count as covered by none, not as failures.
-- Only one scan runs at a time (`properties_rulesets_scan` in `meta`, two
-  minutes).
-
-How a ruleset is matched to a change is in Calculations.md under **Ruleset
-coverage**. As of 2026-11-24, no org ruleset covers any GTNH repo, so whether
-GitHub shows an org ruleset's conditions from the repo side hasn't been seen.
-Both cases are handled.
+If the org ever moves to a plan with org rulesets, the warning would need
+adding: either an app with Administration write reading
+`GET /orgs/{org}/rulesets`, or each repo's `rulesets?includes_parents=true`
+(one call per repo, cached).
 
 ### Permissions it needs
 
 - **Org-Manager**: organization **Custom properties: Admin**. Admin covers the
   definitions as well as the values.
 - **NH-Dashbot**: organization **Custom properties: Read**, which Releases & Tags
-  already uses. Rulesets are read per repo, which Metadata covers; see **Org
-  rulesets** for why not organization Administration.
+  already uses.
 
 ### Testing
 
 `npm run test:properties` (in the deploy gate) covers the planner, an apply
 against a stubbed GitHub, conflicts, the lock, dry runs, a failed copy stopping a
-rename's delete, the history and its echoes, the ruleset coverage cache (what
-re-reads it, the rate floor, private repos), the CSV import, the views'
+rename's delete, the history and its echoes, the CSV import, the views'
 calculations and the log socket filter. The route guards are in `app.test.js`.
 
 ## Org Search

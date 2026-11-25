@@ -1,6 +1,6 @@
 import { API } from "./live.js";
 import { esc } from "./format.js";
-import { describe, keyOf, listOf, normValue, rulesetHits, sameDef, sameValue, showValue } from "./properties-calc.js";
+import { describe, keyOf, listOf, normValue, sameDef, sameValue, showValue } from "./properties-calc.js";
 
 const KEY = "nh:props-staged";
 const FILTER_KEYS = { "nh:rel-filter": "Releases & Tags", "nh:labels-filter": "Labels", "nh:props-grid": "this page's grid", "nh:props-compare": "this page's Compare tab" };
@@ -72,25 +72,10 @@ export function warningsFor(changes, data, st) {
   const out = [];
   const repos = [...(st?.values ?? [])];
   const using = (prop, values) => repos.filter(([, p]) => listOf(p[prop]).some((v) => !values || values.includes(v))).length;
-  const rulesetLine = (prop, what, values) => {
-    for (const r of rulesetHits(data?.rulesets, st?.values ?? new Map(), prop, values)) {
-      const how = r.conditions?.length
-        ? `${r.conditions.some((c) => c.side === "exclude") ? "excludes" : "targets"} repos by ${esc(prop)}${r.conditions.flatMap((c) => c.values).length ? ` = ${esc(r.conditions.flatMap((c) => c.values).join(", "))}` : ""}`
-        : `covers ${plural(r.covers, "repo")} with ${esc(prop)}${values ? ` = ${esc(values.join(", "))}` : ""}`;
-      out.push({ tone: "bad", html: `Ruleset <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a> (${esc(r.enforcement ?? "?")}) ${how}. ${what} Check it on GitHub.` });
-    }
-  };
   for (const c of changes) {
     if (c.kind === "delete") {
       const n = using(c.name);
       out.push({ tone: "bad", html: `Deleting ${esc(c.name)} removes it from ${plural(n, "repo")} for good. GitHub can't undo it.` });
-      rulesetLine(c.name, "After the delete it won't match anything.");
-    }
-    if (c.kind === "rename") {
-      rulesetLine(c.name, `It won't follow the rename to ${esc(c.to)}.`);
-    }
-    if (c.kind === "revalue") {
-      rulesetLine(c.name, `It won't follow ${esc(c.sources.join(", "))} becoming ${esc(c.target)}.`, c.sources);
     }
     if (c.kind === "delete" || c.kind === "rename") {
       const filters = savedFilterUses(c.name);
@@ -100,7 +85,6 @@ export function warningsFor(changes, data, st) {
       const gone = (c.from.allowed ?? []).filter((v) => !(c.to.allowed ?? []).includes(v));
       const n = gone.length ? using(c.name, gone) : 0;
       if (n) out.push({ tone: "bad", html: `${plural(n, "repo uses", "repos use")} ${esc(gone.join(", "))}, which ${gone.length === 1 ? "is" : "are"} being removed from ${esc(c.name)}. To move them to another value, use Rename value instead.` });
-      if (gone.length) rulesetLine(c.name, "Values it names are being removed.", gone);
       if (c.to.required && !c.from.required) {
         const unset = repos.length - using(c.name);
         if (unset) out.push({ tone: "warn", html: `${esc(c.name)} becomes required, so GitHub gives ${plural(unset, "repo")} without a value the default, ${esc(showValue(c.to.default))}.` });
@@ -109,13 +93,6 @@ export function warningsFor(changes, data, st) {
     if (c.kind === "create" && c.def.required) {
       out.push({ tone: "warn", html: `${esc(c.def.name)} is required, so every repo gets ${esc(showValue(c.def.default))} until it's changed.` });
     }
-  }
-  const risky = changes.some((c) => c.kind === "delete" || c.kind === "rename" || c.kind === "revalue");
-  const scan = data?.rulesetScan;
-  if (risky && scan?.state !== "ready") {
-    out.push({ tone: "warn", html: scan?.state === "scanning"
-      ? "Rulesets are still being checked, so any that use these properties may not be listed yet."
-      : `Rulesets ${scan?.at ? "weren't re-checked for the latest changes" : "haven't been checked yet"}, so check <a href="https://github.com/organizations/GTNewHorizons/settings/rules" target="_blank" rel="noopener">the org's rulesets</a> yourself.` });
   }
   const stale = staleKeys(data, st);
   if (stale.size) out.push({ tone: "warn", html: `${plural(stale.size, "change was", "changes were")} staged against values GitHub has since changed. ${stale.size === 1 ? "It" : "They"}'ll be skipped, not overwritten.` });

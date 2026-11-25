@@ -2138,21 +2138,6 @@ A change is only staged where the result differs from what the repo has now:
   case and an `org/` prefix. Unknown repos, unknown columns, values that aren't
   allowed, and a repo listed twice (the first row wins) are listed and skipped.
 
-### Ruleset coverage
-
-`rulesetHits()`. For a property, or some of its values, the org rulesets that
-cover at least one active repo having it, with how many such repos each covers.
-"Covers" is GitHub's answer to which rulesets apply to a repo
-(`includes_parents=true`, org-level only).
-
-When GitHub shows the ruleset's property conditions, it only counts if a
-condition names the property (and, for values, one of them or none in
-particular). When it doesn't, every covering ruleset counts, and the page says
-"covers N repos" rather than "targets".
-
-Overview's Rulesets column counts only rulesets known to target the property. A
-property panel and the review list both kinds.
-
 ### History echoes
 
 A webhook delivery is the dashboard's echo when its sender is a bot and a
@@ -2213,7 +2198,6 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
-| 2026-11-24 | Ruleset coverage | Rulesets are matched from each repo's own ruleset list instead of the org list, which needs Administration write. A ruleset whose targeting isn't visible counts by the repos it covers, and isn't in Overview's column. See **Ruleset coverage**. |
 | 2026-11-24 | Custom Properties counts | New, for the Custom Properties page. No existing figure moves. Archived repos are left out; a multi-select repo counts once under each of its values; staged changes count as applied in the cross-tab and filters. See **Custom Properties**. |
 | 2026-11-14 | Relay counts, delivery decision | New, for the GitHub Webhook page. No existing figure moves. Repos are a tick list rather than patterns, a repo can have its own event list that replaces the default one, and there's no private-repo rule. See **GitHub Webhook**. |
 | 2026-11-09 | Build updates | New, for the Updates card on the Dream Panel. No existing figure moves. Buildscript and Gradle are compared with the highest stable version in the org; dependencies with the dependency repo's latest tag, and only count when asked. See **Build updates**. |

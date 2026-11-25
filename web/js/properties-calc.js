@@ -496,27 +496,6 @@ export function gaps(state, repos) {
   return { required, untagged, unsetBy, stale, unusedProps, unusedValues };
 }
 
-/**
- * Org rulesets covering repos that have `prop` (or one of `only`'s values). When
- * a ruleset's targeting is visible, it only counts if it names the property.
- */
-export function rulesetHits(coverage, values, prop, only = null) {
-  const out = new Map();
-  if (!coverage) return [];
-  for (const [repo, props] of values) {
-    if (!listOf(props?.[prop]).some((v) => !only || only.includes(v))) continue;
-    for (const id of coverage.repos?.[repo] ?? []) {
-      const rs = coverage.rulesets?.[id];
-      if (!rs) continue;
-      const named = rs.properties?.filter((c) => c.name === prop && (!only || !c.values.length || c.values.some((v) => only.includes(v))));
-      if (rs.properties && !named.length) continue;
-      if (!out.has(id)) out.set(id, { ...rs, id, covers: 0, conditions: named ?? null });
-      out.get(id).covers++;
-    }
-  }
-  return [...out.values()].sort((a, b) => b.covers - a.covers);
-}
-
 /* ---- CSV ---- */
 
 const cell = (s) => (/[",\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);

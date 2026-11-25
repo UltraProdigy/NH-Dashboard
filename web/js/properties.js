@@ -5,7 +5,7 @@ import { propertyFilter } from "./property-filter.js";
 import { loadRepoList, repoList as sharedRepoList } from "./repo-list.js";
 import {
   crossTab, defDiff, defErrors, distribution, EDITORS, gaps, importCsv, keyOf, listOf, NAME, normDef, normValue,
-  rulesetHits, sameDef, sameValue, showValue, stateFrom, toCsv, TYPE_LABEL, TYPES, valueError,
+  sameDef, sameValue, showValue, stateFrom, toCsv, TYPE_LABEL, TYPES, valueError,
 } from "./properties-calc.js";
 import { configureApply, isRunning, paintTray, stage, stageMany, stagedFor, stagedList, trayClick, trayMarkup, unstage } from "./properties-apply.js";
 
@@ -43,9 +43,6 @@ let retries = 0;
 let pingTimer = null;
 let liveTimer = null;
 let wantLive = false;
-let scanTimer = null;
-let scanTries = 0;
-let rescanning = false;
 
 const gridFilter = propertyFilter("nh:props-grid", { onChange: () => paintBody() });
 const cmpFilter = propertyFilter("nh:props-compare", { onChange: () => paintBody() });
@@ -159,21 +156,9 @@ function notesHtml() {
   const out = [];
   if (data?.propertiesError) out.push(["daily-warn", data.propertiesError]);
   if (data?.viewer?.canApply === false) out.push(["hint", "Org-Manager's key isn't set on the app Worker, so changes can be staged but not applied."]);
-  const scan = data?.rulesetScan;
-  if (scan?.state === "skipped") out.push(["hint", `Rulesets weren't re-checked because NH-Dashbot had only ${scan.remaining?.toLocaleString() ?? "a few"} GitHub calls left this hour. ${scan.at ? `These are from ${ago(scan.at)}; ` : ""}it tries again on the next load.`]);
-  if (scan?.error) out.push(["hint", `Rulesets couldn't be checked: ${scan.error}`]);
-  else if (scan?.failed) out.push(["hint", `${plural(scan.failed, "repo")} couldn't be checked for rulesets; they're tried again on the next load.`]);
   if (data?.historyError) out.push(["hint", data.historyError]);
   if (data?.running) out.push(["daily-warn", `${data.running.by} is applying property changes right now.`]);
   return out.map(([cls, t]) => `<p class="${cls} perm-note">${esc(t)}</p>`).join("");
-}
-
-function rulesetStatus() {
-  const scan = data?.rulesetScan;
-  if (!scan) return "";
-  if (scan.state === "scanning") return "checking every repo…";
-  if (!scan.at) return "not checked yet";
-  return `covering repos, checked ${ago(scan.at)}`;
 }
 
 function overviewHtml() {
@@ -187,8 +172,6 @@ function overviewHtml() {
       ${fact("Properties", st.defs.size.toLocaleString())}
       ${fact("Active repos", total.toLocaleString(), data.archived ? `<span class="sub">${data.archived} archived left out</span>` : "")}
       ${fact("With nothing set", g.untagged.length.toLocaleString(), g.untagged.length ? `<button type="button" class="ghost mini" data-cp-tick="untagged">Tick them</button>` : "")}
-      ${fact("Org rulesets", Object.keys(data.rulesets?.rulesets ?? {}).length.toLocaleString(), `<span class="sub">${rulesetStatus()}</span>
-        <button type="button" class="ghost mini" data-cp-act="rescan"${rescanning || data.rulesetScan?.state === "scanning" ? " disabled" : ""}>Re-check</button>`)}
       ${fact("Staged", stagedList().length.toLocaleString())}
     </div>${notesHtml()}</div></section>`;
   const rows = defs.map((d) => {
@@ -196,18 +179,16 @@ function overviewHtml() {
     const pend = pendingDef(d.name);
     const rules = [d.required ? `<span class="pill neutral">required</span>` : "", d.default != null ? `<span class="sub">default ${esc(showValue(d.default))}</span>` : "",
       d.editableBy === "org_and_repo_actors" ? `<span class="sub">repo admins can edit</span>` : ""].filter(Boolean).join(" ");
-    const uses = rulesetHits(data.rulesets, st.values, d.name).filter((r) => r.conditions?.length).length;
     return `<tr>
       <td>${propRef(d.name)}${pend ? ` <span class="pill perm-risky" title="Staged: ${esc(pendingText(pend, d.name))}">${esc(PENDING_LABEL[pend.kind])}</span>` : ""}${d.description ? `<div class="sub cp-desc">${esc(d.description)}</div>` : ""}</td>
       <td>${typePill(d)}</td>
       <td class="cp-cov">${bar(dist, total)}</td>
       <td class="cp-vals">${valueBars(d, dist)}</td>
       <td>${rules || `<span class="sub">—</span>`}</td>
-      <td class="num">${uses ? `<span title="Org rulesets that target repos by this property">${uses}</span>` : `<span class="sub">–</span>`}</td>
     </tr>`;
   });
   const props = card("Properties", `${plural(defs.length, "property", "properties")} · click one to edit it`,
-    table(["Property", "Type", "Set on", "Values", "Rules", "Rulesets"], rows, "The org has no custom properties yet."),
+    table(["Property", "Type", "Set on", "Values", "Rules"], rows, "The org has no custom properties yet."),
     { extra: `<button type="button" class="ghost mini perm-ext" data-cp-act="new">New property</button>` });
   const recent = (data.history ?? []).slice(0, 12).map(historyRow);
   const changes = card("Recent changes", data.historyError ? esc(data.historyError) : "from the dashboard and from GitHub",
@@ -399,16 +380,11 @@ function propPanel(name) {
   const staged = stagedFor(`def:${name}`);
   const total = repos().length;
   const dist = distribution(def, repos());
-  const uses = rulesetHits(data.rulesets, st.values, name);
   const select = def.type === "single_select" || def.type === "multi_select";
   const head = `<div class="perm-phead"><h2 tabindex="-1">${esc(name)}</h2>${typePill(def)}${def.required ? `<span class="pill neutral">required</span>` : ""}</div>
     <div class="perm-plinks"><a href="${ORG_SETTINGS}" target="_blank" rel="noopener">Settings on GitHub</a><span class="sub">set on ${dist.set} of ${total} repos</span></div>
     ${pend ? `<p class="daily-warn perm-pnote">Staged: ${esc(pendingText(pend, name))} <button type="button" class="perm-undo" data-cp-unstage="${esc(keyOf(pend))}">Remove from batch</button></p>` : ""}
     ${panelNote ? `<p class="hint perm-pnote">${esc(panelNote)}</p>` : ""}`;
-  const rulesets = uses.length ? section("Org rulesets", "covering repos that have it", `<ul class="perm-plist">${uses.map((r) =>
-    `<li><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a> <span class="sub">${esc(r.enforcement ?? "")} · ${r.conditions?.length
-      ? `${r.conditions.some((c) => c.side === "exclude") ? "excludes" : "targets"} ${esc(name)}${r.conditions.flatMap((c) => c.values).length ? ` = ${esc(r.conditions.flatMap((c) => c.values).join(", "))}` : ""}`
-      : `covers ${plural(r.covers, "repo")} with it`}</span></li>`).join("")}</ul>`) : "";
   if (!cur) {
     return `${head}${section("Definition", "staged, not on GitHub yet", draft ? defForm(false) : "")}`;
   }
@@ -433,7 +409,7 @@ function propPanel(name) {
   const historyRows = (data.history ?? []).filter((h) => h.property === name).slice(0, 30).map(historyRow);
   return `${head}
     ${section("Definition", staged?.kind === "update" ? "with the staged edit" : "", lock ? `<p class="sub">Being ${lock.kind === "rename" ? `renamed to ${esc(lock.to)}` : "deleted"} in the staged batch.</p>` : pend?.kind === "revalue" ? `<p class="sub">Its values are being renamed in the staged batch; apply or remove that first.</p>` : draft ? defForm(false) : "")}
-    ${rulesets}${revalue}${rename}${del}
+    ${revalue}${rename}${del}
     ${section("Repos", `${valueBars(def, dist, 12)}`, `<div class="cp-tools">${filter}</div>${table(["Repo", "Value"], rows, "No repos.")}`)}
     ${section("History", "", table(["When", "Who", "Repo", "Property", "Change"], historyRows, "No changes recorded."))}`;
 }
@@ -602,7 +578,6 @@ async function load() {
       fetchedAt = Date.now();
       resolvePending();
       if (open?.kind === "prop" && draft && draftBase && sameDef(draft, draftBase)) draftFrom(open.key);
-      followScan();
     } catch (err) {
       failed = err instanceof TypeError ? "The dashboard couldn't be reached." : err.message;
     } finally {
@@ -611,32 +586,6 @@ async function load() {
     }
   })();
   return loading;
-}
-
-function followScan() {
-  clearTimeout(scanTimer);
-  if (data?.rulesetScan?.state !== "scanning") { scanTries = 0; return; }
-  if (scanTries++ >= 8) return;
-  scanTimer = setTimeout(() => { if (timer) load(); }, 8000);
-}
-
-async function rescan() {
-  rescanning = true;
-  paintBody();
-  try {
-    const res = await fetch(`${API}/api/properties/rulesets`, { method: "POST", cache: "no-store" });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error ?? `The re-check was refused (${res.status})`);
-    if (data) data.rulesetScan = body.rulesetScan;
-    if (body.rulesetScan?.state === "skipped") say("GitHub's rate limit for NH-Dashbot is low, so rulesets weren't re-checked.");
-    scanTries = 0;
-    followScan();
-  } catch (err) {
-    say(err instanceof TypeError ? "The dashboard couldn't be reached." : err.message);
-  } finally {
-    rescanning = false;
-    paintBody();
-  }
 }
 
 const socketUrl = () => `${API || location.origin}/api/logs?only=custom_property,custom_property_values`.replace(/^http/, "ws");
@@ -954,7 +903,6 @@ function onClick(e) {
   const act = t.closest("[data-cp-act]")?.dataset.cpAct;
   if (!act) return;
   if (act === "refresh") return load();
-  if (act === "rescan") return rescan();
   if (act === "new") return openPanel("new", "");
   if (act === "bulk") { bulk.value = null; return openPanel("bulk", ""); }
   if (act === "export") return exportCsv();
