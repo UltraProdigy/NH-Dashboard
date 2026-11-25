@@ -1,64 +1,18 @@
-import { installationToken, nextPage, rest } from "./github.js";
+import { rest } from "./github.js";
 import { orgManagerReady, orgManagerToken } from "./org-manager.js";
 import { repoList } from "./release-manager.js";
 import { readHistory, settleStep, writePending } from "./property-history.js";
+import { rulesetCoverage } from "./ruleset-coverage.js";
 import { MAX_WRITES, outcome, planBatch, stateFrom } from "../../web/js/properties-calc.js";
 
 const LOCK_KEY = "properties_apply";
 const LOCK_MS = 3 * 60_000;
 const PACE_MS = 1000;
 const MAX_CHANGES = 5000;
-const MAX_RULESETS = 50;
 
 const orgOf = (env) => env.GITHUB_ORG ?? "GTNewHorizons";
 const sleep = (ms) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
 const runId = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-
-async function pages(path, token, max = 5) {
-  const out = [];
-  let url = path;
-  for (let i = 0; url && i < max; i++) {
-    const res = await rest(url, token);
-    out.push(...(await res.json()));
-    url = nextPage(res.headers.get("link"));
-  }
-  return out;
-}
-
-export async function rulesetUses(env) {
-  const org = orgOf(env);
-  try {
-    const token = await installationToken(env);
-    const list = (await pages(`/orgs/${org}/rulesets?per_page=100`, token)).slice(0, MAX_RULESETS);
-    const details = await Promise.all(list.map((r) => rest(`/orgs/${org}/rulesets/${r.id}`, token).then((res) => res.json())));
-    const uses = {};
-    for (const d of details) {
-      const cond = d.conditions?.repository_property ?? {};
-      for (const side of ["include", "exclude"]) {
-        for (const c of cond[side] ?? []) {
-          if (!c?.name) continue;
-          (uses[c.name] ??= []).push({
-            id: d.id,
-            name: d.name,
-            enforcement: d.enforcement ?? null,
-            side,
-            values: c.property_values ?? [],
-            url: `https://github.com/organizations/${org}/settings/rules/${d.id}`,
-          });
-        }
-      }
-    }
-    return { uses, error: null };
-  } catch (err) {
-    const denied = /-> (403|404)/.test(String(err));
-    return {
-      uses: {},
-      error: denied
-        ? "NH-Dashbot can't read the org's rulesets, so they aren't checked before a rename or delete. Give it organization Administration: Read."
-        : "The org's rulesets couldn't be read, so they aren't checked before a rename or delete.",
-    };
-  }
-}
 
 async function readLock(db) {
   const row = await db.prepare("SELECT value FROM meta WHERE key = ?1").bind(LOCK_KEY).first().catch(() => null);
@@ -84,20 +38,25 @@ const touch = (db, run, now) =>
 const unlock = (db, run) =>
   db.prepare("DELETE FROM meta WHERE key = ?1 AND json_extract(value, '$.run') = ?2").bind(LOCK_KEY, run).run().catch(() => {});
 
-export async function propertiesState(env, now = Date.now()) {
+export async function propertiesState(env, ctx, { now = Date.now(), force = false } = {}) {
   const { status, body } = await repoList(env);
   if (status !== 200) return { status, body };
-  const [rulesets, history, lock] = await Promise.all([rulesetUses(env), readHistory(env.DB), readLock(env.DB)]);
+  const [rulesets, history, lock] = await Promise.all([
+    rulesetCoverage(env, ctx, body.repos.map((r) => r.name), { force, now }),
+    readHistory(env.DB),
+    readLock(env.DB),
+  ]);
   return {
     status: 200,
     body: {
       ...body,
-      rulesets: rulesets.uses,
-      rulesetsError: rulesets.error,
+      rulesets: rulesets.coverage,
+      rulesetScan: rulesets.scan,
       history: history.rows,
       historyError: history.error,
       running: lock && lock.seen > now - LOCK_MS ? { by: lock.by, at: lock.at } : null,
     },
+    job: rulesets.job,
   };
 }
 

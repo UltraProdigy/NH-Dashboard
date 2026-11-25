@@ -1,6 +1,6 @@
 import { API } from "./live.js";
 import { esc } from "./format.js";
-import { describe, keyOf, listOf, normValue, sameDef, sameValue, showValue } from "./properties-calc.js";
+import { describe, keyOf, listOf, normValue, rulesetHits, sameDef, sameValue, showValue } from "./properties-calc.js";
 
 const KEY = "nh:props-staged";
 const FILTER_KEYS = { "nh:rel-filter": "Releases & Tags", "nh:labels-filter": "Labels", "nh:props-grid": "this page's grid", "nh:props-compare": "this page's Compare tab" };
@@ -70,13 +70,14 @@ function savedFilterUses(prop) {
 
 export function warningsFor(changes, data, st) {
   const out = [];
-  const rulesets = data?.rulesets ?? {};
   const repos = [...(st?.values ?? [])];
   const using = (prop, values) => repos.filter(([, p]) => listOf(p[prop]).some((v) => !values || values.includes(v))).length;
   const rulesetLine = (prop, what, values) => {
-    for (const r of rulesets[prop] ?? []) {
-      if (values && !r.values.some((v) => values.includes(v))) continue;
-      out.push({ tone: "bad", html: `Ruleset <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a> (${esc(r.enforcement ?? "?")}) ${r.side === "exclude" ? "excludes" : "targets"} repos by ${esc(prop)}${r.values.length ? ` = ${esc(r.values.join(", "))}` : ""}. ${what} Update the ruleset on GitHub too.` });
+    for (const r of rulesetHits(data?.rulesets, st?.values ?? new Map(), prop, values)) {
+      const how = r.conditions?.length
+        ? `${r.conditions.some((c) => c.side === "exclude") ? "excludes" : "targets"} repos by ${esc(prop)}${r.conditions.flatMap((c) => c.values).length ? ` = ${esc(r.conditions.flatMap((c) => c.values).join(", "))}` : ""}`
+        : `covers ${plural(r.covers, "repo")} with ${esc(prop)}${values ? ` = ${esc(values.join(", "))}` : ""}`;
+      out.push({ tone: "bad", html: `Ruleset <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a> (${esc(r.enforcement ?? "?")}) ${how}. ${what} Check it on GitHub.` });
     }
   };
   for (const c of changes) {
@@ -108,6 +109,13 @@ export function warningsFor(changes, data, st) {
     if (c.kind === "create" && c.def.required) {
       out.push({ tone: "warn", html: `${esc(c.def.name)} is required, so every repo gets ${esc(showValue(c.def.default))} until it's changed.` });
     }
+  }
+  const risky = changes.some((c) => c.kind === "delete" || c.kind === "rename" || c.kind === "revalue");
+  const scan = data?.rulesetScan;
+  if (risky && scan?.state !== "ready") {
+    out.push({ tone: "warn", html: scan?.state === "scanning"
+      ? "Rulesets are still being checked, so any that use these properties may not be listed yet."
+      : `Rulesets ${scan?.at ? "weren't re-checked for the latest changes" : "haven't been checked yet"}, so check <a href="https://github.com/organizations/GTNewHorizons/settings/rules" target="_blank" rel="noopener">the org's rulesets</a> yourself.` });
   }
   const stale = staleKeys(data, st);
   if (stale.size) out.push({ tone: "warn", html: `${plural(stale.size, "change was", "changes were")} staged against values GitHub has since changed. ${stale.size === 1 ? "It" : "They"}'ll be skipped, not overwritten.` });

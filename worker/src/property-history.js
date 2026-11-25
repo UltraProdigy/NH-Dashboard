@@ -1,4 +1,5 @@
 import { githubDef, normDef, sameValue, storedValue } from "../../web/js/properties-calc.js";
+import { markRulesetsDirty } from "./ruleset-coverage.js";
 
 export const PROPERTY_EVENTS = new Set(["custom_property", "custom_property_values"]);
 
@@ -90,6 +91,7 @@ export async function onCustomPropertyValues(db, p, now = Date.now()) {
   if (!repo) return { skipped: "no repo" };
   const changed = changedValues(p);
   if (!changed.length) return { skipped: "no change" };
+  await markRulesetsDirty(db, repo, now);
   try {
     const rows = [];
     for (const c of changed) {
@@ -108,6 +110,7 @@ export async function onCustomPropertyValues(db, p, now = Date.now()) {
 export async function onCustomProperty(db, p, now = Date.now()) {
   const def = definitionOf(p);
   if (!def || !["created", "updated", "deleted"].includes(p.action)) return { skipped: "not a definition change" };
+  if (p.action === "deleted") await markRulesetsDirty(db, "*", now);
   try {
     if (isBot(p) && (await dashboardRow(db, def.property_name, null, null, now))) return { skipped: "dashboard echo" };
     await insertRows(db, [{

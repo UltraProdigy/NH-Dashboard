@@ -3305,7 +3305,8 @@ A row of tabs, then the buttons that work from any of them: **New property**,
 
 - **Overview**: counts, then one row per property with its type, how many repos
   have it set, its values with a count each, its rules (required, default, who
-  can edit) and how many rulesets target repos by it. Below that, the newest
+  can edit) and how many org rulesets are known to target repos by it. Below
+  that, the newest
   changes from History.
 - **Grid**: repos down, properties across. Click a cell to change it: a dropdown
   for single select and true/false, a text box for text and URLs (Enter or
@@ -3347,8 +3348,10 @@ saved per browser, so it survives a reload.
 
 **Review & apply** lists the changes by kind, each removable, with warnings
 above them:
-- a delete or rename of a property a ruleset targets, or a value rename touching
-  values a ruleset names, linked to the ruleset
+- a delete or rename of a property an org ruleset targets or covers, or a value
+  rename touching values one names, linked to the ruleset (see **Org rulesets**)
+- rulesets that haven't been checked yet, or are being checked, when a delete,
+  rename or value rename is staged
 - saved property filters in this browser (Releases & Tags, Labels, and this
   page's two) that use a property being renamed or deleted
 - repos that use allowed values being removed by an edit, which points at Rename
@@ -3438,8 +3441,8 @@ handlers skip the write instead of failing the delivery.
 
 `GET /api/properties` reads the repos, the schema and every repo's values from
 GitHub as NH-Dashbot (the same read as Releases & Tags, which now keeps every
-field of a definition), the org's rulesets and which properties their conditions
-name, the newest history and whether an apply is running. It's read when the
+field of a definition), the cached org ruleset coverage (below), the newest
+history and whether an apply is running. It's read when the
 page opens, after five minutes, on **Refresh**, and after an apply, which also
 refreshes the shared repo list Releases & Tags and Labels use.
 
@@ -3452,20 +3455,62 @@ on the next re-read instead.
 A background re-read doesn't redraw over a cell or field being edited; it waits
 until focus leaves it. An open definition with unstaged edits keeps them.
 
+### Org rulesets
+
+GitHub only lets an app read the org's rulesets (`GET /orgs/{org}/rulesets`)
+with organization **Administration: write**, even to look. That would let the
+key delete the org, so neither app has it. Instead NH-Dashbot reads each repo's
+rulesets with `?includes_parents=true`, which only needs Metadata, and keeps the
+org-level ones (`source_type: "Organization"`). That's one call per active repo,
+about 344, so it's cached and only re-read where something could have changed.
+`worker/src/ruleset-coverage.js` does it.
+
+- **The cache** is the `properties_rulesets` row in `meta`: which org rulesets
+  cover each repo, each ruleset's name, enforcement and, when GitHub shows them
+  from the repo side, the property conditions it targets with. It's shared by
+  every admin and browser.
+- **What marks it stale**, as `properties_rulesets_dirty:<repo>` rows in `meta`:
+  - a `custom_property_values` delivery marks that repo, from the dashboard or
+    from GitHub
+  - a `custom_property` delete, or an org-level `repository_ruleset` delivery,
+    marks everything (`*`)
+  - a repo the cache has never seen counts as stale
+- **When it's re-read**: `GET /api/properties` re-reads the stale repos in the
+  background (`waitUntil`), so the page answers at once with the last result and
+  says it's checking. The page re-reads itself every eight seconds until it's
+  done. **Re-check** on Overview (`POST /api/properties/rulesets`) re-reads
+  every repo. Nothing re-reads it on a timer. A stale mark is only cleared if
+  it's older than the scan that read the repo, so a change mid-scan isn't lost.
+- **The rate limit**: before scanning, it asks `GET /rate_limit` (free), and skips
+  the scan if fewer than 4,000 REST calls would be left this hour
+  (`RATE_FLOOR`). It also stops partway when a response says fewer than 4,000
+  remain. The budget is shared with the cron and every other page, so it goes
+  by GitHub's count rather than its own. NH-Dashbot's REST budget is 12,500 an
+  hour. A skipped scan keeps the last result and the page says why.
+- **Private repos** on the free plan can't have rulesets, and GitHub answers
+  "Upgrade to GitHub Pro". Those count as covered by none, not as failures.
+- Only one scan runs at a time (`properties_rulesets_scan` in `meta`, two
+  minutes).
+
+How a ruleset is matched to a change is in Calculations.md under **Ruleset
+coverage**. As of 2026-11-24, no org ruleset covers any GTNH repo, so whether
+GitHub shows an org ruleset's conditions from the repo side hasn't been seen.
+Both cases are handled.
+
 ### Permissions it needs
 
 - **Org-Manager**: organization **Custom properties: Admin**. Admin covers the
   definitions as well as the values.
 - **NH-Dashbot**: organization **Custom properties: Read**, which Releases & Tags
-  already uses, and **Administration: Read** to check rulesets. Without the
-  second, the page says rulesets weren't checked rather than claiming none
-  depend on anything.
+  already uses. Rulesets are read per repo, which Metadata covers; see **Org
+  rulesets** for why not organization Administration.
 
 ### Testing
 
 `npm run test:properties` (in the deploy gate) covers the planner, an apply
 against a stubbed GitHub, conflicts, the lock, dry runs, a failed copy stopping a
-rename's delete, the history and its echoes, the CSV import, the views'
+rename's delete, the history and its echoes, the ruleset coverage cache (what
+re-reads it, the rate floor, private repos), the CSV import, the views'
 calculations and the log socket filter. The route guards are in `app.test.js`.
 
 ## Org Search

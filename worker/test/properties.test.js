@@ -9,10 +9,11 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { applyProperties, propertiesState } from "../src/properties.js";
 import { onCustomProperty, onCustomPropertyValues, propertyAttribution } from "../src/property-history.js";
+import { handleEvent } from "../src/handlers.js";
 import { forgetToken } from "../src/github.js";
 import { forgetOrgManagerToken } from "../src/org-manager.js";
 import { EventLog } from "../src/event-log.js";
-import { crossTab, distribution, gaps, importCsv, normDef, parseCsv, planBatch, stateFrom, toCsv } from "../../web/js/properties-calc.js";
+import { crossTab, distribution, gaps, importCsv, normDef, parseCsv, planBatch, rulesetHits, stateFrom, toCsv } from "../../web/js/properties-calc.js";
 
 let passed = 0;
 let failed = 0;
@@ -51,7 +52,9 @@ const defs = () => new Map([
 let gh;
 let calls;
 let failOn = null;
-let rulesetsStatus = 200;
+let rateLeft = 12000;
+let conditions = true;
+let rulesetReads = [];
 function reset() {
   gh = {
     repos: ["Alpha", "Beta", "Gamma", "Delta", "Old-Thing"],
@@ -67,7 +70,9 @@ function reset() {
   };
   calls = [];
   failOn = null;
-  rulesetsStatus = 200;
+  rateLeft = 12000;
+  conditions = true;
+  rulesetReads = [];
 }
 reset();
 
@@ -114,12 +119,16 @@ globalThis.fetch = async (url, init = {}) => {
       return new Response(null, { status: 204 });
     }
   }
-  if (path.startsWith("/orgs/GTNewHorizons/rulesets")) {
-    if (rulesetsStatus !== 200) return new Response("Resource not accessible by integration", { status: rulesetsStatus });
-    if (path.includes("/rulesets/7")) {
-      return Response.json({ id: 7, name: "Protect mods", enforcement: "active", conditions: { repository_property: { include: [{ name: "Type", property_values: ["Mod"] }], exclude: [] } } });
-    }
-    return Response.json([{ id: 7 }]);
+  if (path === "/rate_limit") return Response.json({ resources: { core: { remaining: rateLeft } } });
+  const ruleset = path.match(/^\/repos\/GTNewHorizons\/([^/]+)\/rulesets(\/7)?\?includes_parents=true/);
+  if (ruleset) {
+    const repo = decodeURIComponent(ruleset[1]);
+    if (ruleset[2]) return Response.json({ id: 7, name: "Protect mods", enforcement: "active", source_type: "Organization", ...(conditions ? { conditions: { repository_property: { include: [{ name: "Type", property_values: ["Mod"] }], exclude: [] } } } : {}) });
+    rulesetReads.push(repo);
+    if (repo === "Delta") return new Response(JSON.stringify({ message: "Upgrade to GitHub Pro or make this repository public to enable this feature." }), { status: 403 });
+    const own = [{ id: 1, name: "Default Branch Protection", source_type: "Repository" }];
+    const org = gh.values.get(repo)?.Type === "Mod" ? [{ id: 7, name: "Protect mods", source_type: "Organization" }] : [];
+    return Response.json([...own, ...org], { headers: { "x-ratelimit-remaining": String(rateLeft) } });
   }
   return new Response(`unstubbed ${method} ${path}`, { status: 599 });
 };
@@ -208,15 +217,56 @@ console.log("\nreading");
 {
   reset();
   forgetToken();
-  const { status, body } = await propertiesState(env);
-  check("answers", status, 200);
-  check("leaves archived repos out", body.repos.map((r) => r.name), ["Alpha", "Beta", "Delta", "Gamma"]);
-  check("keeps the whole definition", body.schema[0], { name: "Type", type: "single_select", allowed: ["Mod", "Library", "Tool"], description: null, required: false, default: null, editableBy: "org_actors", explicit: false });
-  check("knows which rulesets use a property", body.rulesets.Type.map((r) => [r.name, r.side, r.values]), [["Protect mods", "include", ["Mod"]]]);
-  check("history is there, and empty", [body.history, body.historyError], [[], null]);
-  rulesetsStatus = 403;
-  const denied = await propertiesState(env);
-  check("a missing ruleset permission is said, not hidden", [denied.status, /Administration: Read/.test(denied.body.rulesetsError)], [200, true]);
+  raw.prepare("DELETE FROM meta WHERE key LIKE 'properties_rulesets%'").run();
+  const ctx = { waitUntil: () => {} };
+  const first = await propertiesState(env, ctx);
+  check("answers", first.status, 200);
+  check("leaves archived repos out", first.body.repos.map((r) => r.name), ["Alpha", "Beta", "Delta", "Gamma"]);
+  check("keeps the whole definition", first.body.schema[0], { name: "Type", type: "single_select", allowed: ["Mod", "Library", "Tool"], description: null, required: false, default: null, editableBy: "org_actors", explicit: false });
+  check("history is there, and empty", [first.body.history, first.body.historyError], [[], null]);
+  check("the first read starts a ruleset check in the background", first.body.rulesetScan.state, "scanning");
+  await first.job;
+  check("which reads every active repo once", rulesetReads.sort(), ["Alpha", "Beta", "Delta", "Gamma"]);
+
+  const second = await propertiesState(env, ctx);
+  check("the next read has the result", [second.body.rulesetScan.state, second.body.rulesets.repos], ["ready", { Alpha: [7], Gamma: [7] }]);
+  check("a private repo GitHub won't give rulesets counts as none", second.body.rulesetScan.failed, 0);
+  check("and reads nothing more", [second.job, rulesetReads.length], [null, 4]);
+  const st = stateFrom(second.body);
+  check("a ruleset naming the property is found", rulesetHits(second.body.rulesets, st.values, "Type").map((r) => [r.name, r.covers, r.conditions[0].values]), [["Protect mods", 2, ["Mod"]]]);
+  check("one naming a different property isn't", rulesetHits(second.body.rulesets, st.values, "Tags"), []);
+  check("nor one naming other values", rulesetHits(second.body.rulesets, st.values, "Type", ["Library"]), []);
+
+  rulesetReads = [];
+  await onCustomPropertyValues(db, { sender: { login: "x", type: "User" }, repository: { name: "Beta" }, old_property_values: [{ property_name: "Type", value: "Library" }], new_property_values: [{ property_name: "Type", value: "Mod" }] });
+  gh.values.get("Beta").Type = "Mod";
+  const third = await propertiesState(env, ctx);
+  await third.job;
+  check("a repo whose properties changed is the only one re-read", rulesetReads, ["Beta"]);
+  check("and its coverage follows", (await propertiesState(env, ctx)).body.rulesets.repos.Beta, [7]);
+
+  rulesetReads = [];
+  check("an org ruleset change is noted without stamping a table", await handleEvent(db, "repository_ruleset", { action: "edited", repository_ruleset: { id: 7 } }), { skipped: "org ruleset changed; coverage marked for a re-check" });
+  const fourth = await propertiesState(env, ctx);
+  await fourth.job;
+  check("and every repo is read again", rulesetReads.length, 4);
+
+  rulesetReads = [];
+  rateLeft = 4002;
+  const low = await propertiesState(env, ctx, { force: true });
+  await low.job;
+  const after = await propertiesState(env, ctx);
+  await after.job;
+  check("with too few calls left this hour, nothing is read", rulesetReads, []);
+  check("and the page is told why, keeping the last result", [after.body.rulesetScan.state, after.body.rulesetScan.remaining, after.body.rulesets.repos.Alpha], ["skipped", 4002, [7]]);
+
+  rateLeft = 12000;
+  conditions = false;
+  raw.prepare("DELETE FROM meta WHERE key LIKE 'properties_rulesets%'").run();
+  await (await propertiesState(env, ctx)).job;
+  const blind = (await propertiesState(env, ctx)).body;
+  check("when its targeting isn't visible, a ruleset counts by the repos it covers", rulesetHits(blind.rulesets, stateFrom(blind).values, "Tags").map((r) => [r.name, r.covers, r.conditions]), [["Protect mods", 2, null]]);
+  raw.prepare("DELETE FROM property_history").run();
 }
 
 console.log("\napplying");

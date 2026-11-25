@@ -19,6 +19,7 @@
 import { commitAuthor, headline, utcSeconds } from "../../src/shared/commit-rules.js";
 import { stateReason } from "../../src/shared/issue-rules.js";
 import { onCustomProperty, onCustomPropertyValues } from "./property-history.js";
+import { markRulesetsDirty } from "./ruleset-coverage.js";
 
 /** The store uses OPEN / MERGED / CLOSED; payloads say open / closed + merged. */
 function prState(pr) {
@@ -616,6 +617,11 @@ const HANDLERS = {
   label: onLabel,
   custom_property_values: (db, p) => onCustomPropertyValues(db, p),
   custom_property: (db, p) => onCustomProperty(db, p),
+  repository_ruleset: async (db, p) => {
+    if (p.repository) return { skipped: "repo ruleset" };
+    await markRulesetsDirty(db, "*");
+    return { skipped: "org ruleset changed; coverage marked for a re-check" };
+  },
 };
 
 export async function handleEvent(db, event, payload) {
