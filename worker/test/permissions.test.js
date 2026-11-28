@@ -218,7 +218,7 @@ console.log("\nthe Durable Object\n");
 
   const writes = [];
   const exec = obj.sql.exec.bind(obj.sql);
-  obj.sql = { exec: (q, ...b) => (/^\s*(INSERT|DELETE)/i.test(q) && !/meta|repo_invites|changes/.test(q) && writes.push(q), exec(q, ...b)) };
+  obj.sql = { exec: (q, ...b) => (/^\s*(INSERT|DELETE)/i.test(q) && !/meta|repo_invites|changes|team_history/.test(q) && writes.push(q), exec(q, ...b)) };
   const quiet = await (await post(obj, "/snapshot", { at: AT, snapshot: baseSnapshot() })).json();
   check("an unchanged snapshot writes nothing", quiet.baseline === false && quiet.changed === 0 && writes.length === 0, JSON.stringify(writes));
 
@@ -496,6 +496,49 @@ console.log("\nwebhooks and the read together\n");
   const empty = fakeObject().obj;
   const first = await (await post(empty, "/delivery", { event: "membership", payload: trimPayload(membership), delivery: "d-9", at: T2 })).json();
   check("before the first read a delivery is still logged, with nothing to patch", first.logged && first.patched.length === 0 && empty.rows().size === 0);
+}
+
+console.log("\nteam history\n");
+{
+  const { obj } = fakeObject();
+  await post(obj, "/snapshot", { at: AT, snapshot: richSnapshot() });
+  const membership = (action, login, delivery, at) => post(obj, "/delivery", { event: "membership", delivery, at,
+    payload: trimPayload({ action, member: { login }, team: { id: 10, slug: "developers", name: "Developers" }, sender: { login: "alice" } }) });
+  await membership("added", "zed", "h-1", T1);
+  await membership("removed", "zed", "h-2", T2);
+  await membership("added", "zed", "h-3", T3);
+  const moved = richSnapshot();
+  moved.teams[10].members.yan = "member";
+  moved.teams[10].members.zed = "member";
+  await post(obj, "/snapshot", { at: "2026-11-03T00:00:00.000Z", startedAt: "2026-11-03T00:00:00.000Z", snapshot: moved });
+  await post(obj, "/applied", { change: { kind: "team_member", team: { id: 10, slug: "developers", name: "Developers" }, login: "xia", from: null, to: "member" },
+    by: "UltraProdigy", at: "2026-11-04T00:00:00.000Z", result: {} });
+  await post(obj, "/delivery", { event: "repository", delivery: "h-4", at: T3, payload: trimPayload({ action: "archived", repository: { id: 1, name: "GT5-Unofficial" } }) });
+
+  const got = await (await obj.fetch(new Request("https://permissions/teams"))).json();
+  check("team lines are kept with what they did to a member",
+    got.history.map((h) => `${h.kind}:${h.login ?? ""}`).join() === "added:xia,added:yan,added:zed,removed:zed,added:zed", got.history.map((h) => `${h.kind}:${h.login}`).join());
+  check("repo lines aren't team history", !got.history.some((h) => h.repo === "GT5-Unofficial"));
+  check("member since is the latest time they were added", got.since[10].zed === T3 && got.since[10].yan === "2026-11-03T00:00:00.000Z" && got.since[10].xia === "2026-11-04T00:00:00.000Z");
+  check("a change from the dashboard is credited to the admin", got.history[0].actor === "UltraProdigy" && got.history[0].via === "dashboard");
+
+  await post(obj, "/delivery", { event: "organization", delivery: "h-5", at: "2026-11-05T00:00:00.000Z",
+    payload: trimPayload({ action: "member_removed", membership: { role: "member", user: { login: "bob" } }, sender: { login: "alice" } }) });
+  const left = (await (await obj.fetch(new Request("https://permissions/teams"))).json()).history.filter((h) => h.login === "bob");
+  check("leaving the org is a removal from every team they were on",
+    left.length === 1 && left[0].kind === "removed" && left[0].teamId === 10 && left[0].text.includes("leaving the org"), JSON.stringify(left));
+
+  for (let i = 0; i < 3; i++) obj.recordHistory({ id: `cap-${i}`, at: T3, teamId: 10, text: "x" });
+  check("history isn't trimmed with the 200-line changelog", obj.teamHistory({ limit: 10000 }).history.length > 5);
+
+  const { obj: fresh, db } = fakeObject();
+  await post(fresh, "/snapshot", { at: AT, snapshot: richSnapshot() });
+  fresh.record({ id: "old-1", at: "2026-11-02T21:00:00.000Z", action: "team_member_added", team: "developers", login: "early", text: "added early to team Developers" });
+  db.exec("DELETE FROM team_history; DELETE FROM meta WHERE key = 'history_since'");
+  const ctx = { storage: { sql: fresh.sql }, getWebSockets: () => [] };
+  const seeded = new Permissions(ctx, {}).teamHistory();
+  check("an object that predates the history seeds it from the changelog, matching teams by slug",
+    seeded.history.length === 1 && seeded.history[0].teamId === 10 && seeded.since[10].early === "2026-11-02T21:00:00.000Z" && seeded.historySince === "2026-11-02T21:00:00.000Z");
 }
 
 console.log("\nthe cron step logs what the read found\n");

@@ -24,6 +24,18 @@ export const permissionsStub = (env) => env.PERMISSIONS.get(env.PERMISSIONS.idFr
 
 const VIA = "10-min check";
 
+export const KEEP_HISTORY = 5000;
+
+// What a team line did to a member, if anything: added, removed, role, or team for the rest.
+export function historyKind(entry) {
+  if (entry.member) return entry.member;
+  const a = entry.action;
+  if (a === "team_member_added" || (entry.event === "membership" && a === "added")) return "added";
+  if (a === "team_member_removed" || (entry.event === "membership" && a === "removed")) return "removed";
+  if (a === "team_role") return "role";
+  return "team";
+}
+
 const lineMaker = ({ at, org }) => {
   let n = 0;
   return (fields) => ({
@@ -34,6 +46,7 @@ const lineMaker = ({ at, org }) => {
     action: fields.action,
     repo: fields.repo ?? null,
     team: fields.team ?? null,
+    teamId: fields.teamId ?? null,
     login: fields.login ?? null,
     actor: null,
     via: VIA,
@@ -80,8 +93,8 @@ export function diffPermissions(before, after, { at, org }) {
         const strong = ["admin", "maintain"].includes(cur.level ?? old.level) ? "warn" : null;
         const oldTeams = new Set((old.teams ?? []).map(String));
         const curTeams = new Set((cur.teams ?? []).map(String));
-        for (const t of curTeams) if (!oldTeams.has(t)) out.push(line({ action: "org_role_added", team: after.teams?.[t]?.slug ?? null, url, tone: strong, text: `gave team ${teamName(t)} the ${label} org role` }));
-        for (const t of oldTeams) if (!curTeams.has(t)) out.push(line({ action: "org_role_removed", team: before.teams?.[t]?.slug ?? null, url, text: `took the ${label} org role from team ${teamName(t)}` }));
+        for (const t of curTeams) if (!oldTeams.has(t)) out.push(line({ teamId: Number(t), action: "org_role_added", team: after.teams?.[t]?.slug ?? null, url, tone: strong, text: `gave team ${teamName(t)} the ${label} org role` }));
+        for (const t of oldTeams) if (!curTeams.has(t)) out.push(line({ teamId: Number(t), action: "org_role_removed", team: before.teams?.[t]?.slug ?? null, url, text: `took the ${label} org role from team ${teamName(t)}` }));
         const direct = (r) => new Set(Object.entries(r.users ?? {}).filter(([, u]) => u.direct).map(([l]) => l));
         const oldUsers = direct(old);
         const curUsers = direct(cur);
@@ -98,51 +111,51 @@ export function diffPermissions(before, after, { at, org }) {
     const url = teamUrl(team);
     const t = team.slug;
     if (!old) {
-      out.push(line({ action: "team_created", team: t, url, text: `created team ${team.name}` }));
+      out.push(line({ teamId: team.id, action: "team_created", team: t, url, text: `created team ${team.name}` }));
       continue;
     }
-    if (old.name !== team.name) out.push(line({ action: "team_renamed", team: t, url, text: `renamed team ${old.name} to ${team.name}` }));
+    if (old.name !== team.name) out.push(line({ teamId: team.id, action: "team_renamed", team: t, url, text: `renamed team ${old.name} to ${team.name}` }));
     if ((old.parent ?? null) !== (team.parent ?? null)) {
       const parent = team.parent != null ? after.teams[team.parent] : null;
-      out.push(line({ action: "team_parent", team: t, url,
+      out.push(line({ teamId: team.id, action: "team_parent", team: t, url,
         text: parent ? `moved team ${team.name} under ${parent.name}` : `moved team ${team.name} to the top level` }));
     }
     if (known(old.description, team.description) && old.description !== team.description) {
-      out.push(line({ action: "team_description", team: t, url, text: team.description ? `changed the description of team ${team.name}` : `cleared the description of team ${team.name}` }));
+      out.push(line({ teamId: team.id, action: "team_description", team: t, url, text: team.description ? `changed the description of team ${team.name}` : `cleared the description of team ${team.name}` }));
     }
     if (known(old.privacy, team.privacy) && old.privacy !== team.privacy) {
-      out.push(line({ action: "team_privacy", team: t, url, text: `made team ${team.name} ${PRIVACY_LABEL[team.privacy] ?? team.privacy}` }));
+      out.push(line({ teamId: team.id, action: "team_privacy", team: t, url, text: `made team ${team.name} ${PRIVACY_LABEL[team.privacy] ?? team.privacy}` }));
     }
     if (known(old.notifications, team.notifications) && old.notifications !== team.notifications) {
-      out.push(line({ action: "team_notifications", team: t, url, text: `turned ${NOTIFY_LABEL[team.notifications] ?? team.notifications} notifications for team ${team.name}` }));
+      out.push(line({ teamId: team.id, action: "team_notifications", team: t, url, text: `turned ${NOTIFY_LABEL[team.notifications] ?? team.notifications} notifications for team ${team.name}` }));
     }
     const was = old.members ?? {};
     const now = team.members ?? {};
     for (const [login, role] of Object.entries(now)) {
-      if (!(login in was)) out.push(line({ action: "team_member_added", team: t, login, url, text: `added ${login} to team ${team.name}` }));
+      if (!(login in was)) out.push(line({ teamId: team.id, action: "team_member_added", team: t, login, url, text: `added ${login} to team ${team.name}` }));
       else if (known(was[login], role) && was[login] !== role) {
-        out.push(line({ action: "team_role", team: t, login, url,
+        out.push(line({ teamId: team.id, action: "team_role", team: t, login, url,
           text: role === "maintainer" ? `made ${login} a maintainer of team ${team.name}` : `made ${login} a member of team ${team.name} instead of a maintainer` }));
       }
     }
     for (const login of Object.keys(was)) {
-      if (!(login in now)) out.push(line({ action: "team_member_removed", team: t, login, url, tone: "warn", text: `removed ${login} from team ${team.name}` }));
+      if (!(login in now)) out.push(line({ teamId: team.id, action: "team_member_removed", team: t, login, url, tone: "warn", text: `removed ${login} from team ${team.name}` }));
     }
     const gave = directBefore[id] ?? {};
     const has = directAfter[id] ?? {};
     for (const [repo, level] of Object.entries(has)) {
-      if (!(repo in gave)) out.push(line({ action: "team_repo_added", team: t, repo: repoName(repo), url, text: `gave team ${team.name} ${level ?? "access"}` }));
+      if (!(repo in gave)) out.push(line({ teamId: team.id, action: "team_repo_added", team: t, repo: repoName(repo), url, text: `gave team ${team.name} ${level ?? "access"}` }));
       else if (known(gave[repo], level) && gave[repo] !== level) {
-        out.push(line({ action: "team_repo_changed", team: t, repo: repoName(repo), url, tone: rank(level) > rank(gave[repo]) ? "warn" : null,
+        out.push(line({ teamId: team.id, action: "team_repo_changed", team: t, repo: repoName(repo), url, tone: rank(level) > rank(gave[repo]) ? "warn" : null,
           text: `changed team ${team.name}: ${gave[repo]} → ${level}` }));
       }
     }
     for (const repo of Object.keys(gave)) {
-      if (!(repo in has)) out.push(line({ action: "team_repo_removed", team: t, repo: repoName(repo), url, tone: "warn", text: `removed team ${team.name}` }));
+      if (!(repo in has)) out.push(line({ teamId: team.id, action: "team_repo_removed", team: t, repo: repoName(repo), url, tone: "warn", text: `removed team ${team.name}` }));
     }
   }
   for (const [id, team] of Object.entries(before.teams ?? {})) {
-    if (!after.teams?.[id]) out.push(line({ action: "team_deleted", team: team.slug, url: `https://github.com/orgs/${org}/teams`, tone: "warn", text: `deleted team ${team.name}` }));
+    if (!after.teams?.[id]) out.push(line({ teamId: team.id, action: "team_deleted", team: team.slug, url: `https://github.com/orgs/${org}/teams`, tone: "warn", text: `deleted team ${team.name}` }));
   }
 
   for (const [id, repo] of Object.entries(after.repos ?? {})) {
@@ -383,6 +396,8 @@ export function appliedLine(c, { by, at, org, result = {}, teamName }) {
   if (result.invited && c.kind === "team_member") text = `invited ${c.login} to the org to join team ${c.team.name} as ${c.to}`;
   if (result.invited && c.kind === "collaborator") text = `invited ${c.login} to ${c.repo.name} as ${c.to}`;
   const slug = c.team?.slug ?? result.team?.slug ?? null;
+  const member = c.kind !== "team_member" ? null
+    : c.to == null ? "removed" : c.from == null && !result.invited ? "added" : c.from == null ? "invited" : "role";
   const url = c.kind === "owner" ? `https://github.com/orgs/${org}/people`
     : c.repo ? `https://github.com/${org}/${encodeURIComponent(c.repo.name)}/settings/access`
       : slug ? `https://github.com/orgs/${org}/teams/${encodeURIComponent(slug)}` : `https://github.com/orgs/${org}/teams`;
@@ -394,6 +409,8 @@ export function appliedLine(c, { by, at, org, result = {}, teamName }) {
     action: c.kind,
     repo: c.repo?.name ?? null,
     team: slug,
+    teamId: c.team?.id ?? result.team?.id ?? null,
+    ...(member ? { member } : {}),
     login: c.login ?? null,
     actor: by,
     via: "dashboard",
@@ -483,6 +500,37 @@ export class Permissions {
     this.sql.exec("CREATE TABLE IF NOT EXISTS repo_invites (repo INTEGER PRIMARY KEY, json TEXT NOT NULL, checked_at TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS changes (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, entry TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS expected (key TEXT PRIMARY KEY, by TEXT NOT NULL, until TEXT NOT NULL)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS team_history (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+      at TEXT NOT NULL, team INTEGER NOT NULL, login TEXT, kind TEXT NOT NULL, entry TEXT NOT NULL)`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS idx_team_history_member ON team_history (kind, team, login)");
+    if (this.meta("history_since") == null) this.seedHistory();
+  }
+
+  // Starts the history from whatever team lines `changes` still holds, so it doesn't begin empty.
+  seedHistory(now = new Date().toISOString()) {
+    const bySlug = new Map(Object.values(this.snapshot().teams).map((t) => [t.slug, t.id]));
+    const old = this.sql.exec("SELECT entry FROM changes ORDER BY seq").toArray().map((row) => JSON.parse(row.entry));
+    for (const entry of old) {
+      const teamId = entry.teamId ?? bySlug.get(entry.team);
+      if (teamId != null) this.recordHistory({ ...entry, teamId });
+    }
+    this.setMeta("history_since", old[0]?.at ?? now);
+  }
+
+  recordHistory(entry) {
+    this.sql.exec("INSERT OR IGNORE INTO team_history (id, at, team, login, kind, entry) VALUES (?, ?, ?, ?, ?, ?)",
+      String(entry.id), entry.at, Number(entry.teamId), entry.login ?? null, historyKind(entry), JSON.stringify(entry));
+    this.sql.exec("DELETE FROM team_history WHERE seq <= (SELECT seq FROM team_history ORDER BY seq DESC LIMIT 1 OFFSET ?)", KEEP_HISTORY);
+  }
+
+  teamHistory({ limit = 1000 } = {}) {
+    const history = this.sql.exec("SELECT kind, entry FROM team_history ORDER BY seq DESC LIMIT ?", limit).toArray()
+      .map((row) => ({ ...JSON.parse(row.entry), kind: row.kind }));
+    const since = {};
+    for (const row of this.sql.exec("SELECT team, login, MAX(at) AS at FROM team_history WHERE kind = 'added' AND login IS NOT NULL GROUP BY team, lower(login)").toArray()) {
+      (since[row.team] ??= {})[row.login.toLowerCase()] = row.at;
+    }
+    return { historySince: this.meta("history_since"), history, since };
   }
 
   async fetch(request) {
@@ -513,6 +561,9 @@ export class Permissions {
     }
     if (url.pathname === "/snapshot" && request.method === "GET") {
       return Response.json(this.read());
+    }
+    if (url.pathname === "/teams" && request.method === "GET") {
+      return Response.json(this.teamHistory());
     }
     return new Response("not found", { status: 404 });
   }
@@ -598,6 +649,8 @@ export class Permissions {
   delivery({ event, payload, delivery, at }) {
     const rows = this.rows();
     const snap = rowsSnapshot([...rows].map(([key, row]) => [key, row.value]));
+    const leaving = event === "organization" && payload.action === "member_removed" ? payload.membership?.user?.login : null;
+    const leftTeams = leaving ? Object.values(snap.teams).filter((t) => leaving in (t.members ?? {})) : [];
     const touched = rows.size ? applyDelivery(snap, event, payload) : new Set();
     this.persist(snap, touched, at);
     const by = this.attributed(event, payload, at);
@@ -607,7 +660,12 @@ export class Permissions {
       if (entry) {
         entry.login = payload.member?.login ?? payload.membership?.user?.login ?? payload.invitation?.login ?? null;
         entry.team = payload.team?.slug ?? null;
+        entry.teamId = payload.team?.id ?? null;
         this.record(entry);
+        for (const t of leftTeams) {
+          this.recordHistory({ ...entry, id: `${entry.id}:team:${t.id}`, team: t.slug, teamId: t.id, member: "removed",
+            text: `removed ${leaving} from team ${t.name} by leaving the org` });
+        }
       }
     }
     return { patched: [...touched], logged: Boolean(entry), attributed: by };
@@ -633,6 +691,7 @@ export class Permissions {
   }
 
   record(entry) {
+    if (entry.teamId != null) this.recordHistory(entry);
     this.sql.exec("INSERT OR IGNORE INTO changes (id, entry) VALUES (?, ?)", String(entry.id), JSON.stringify(entry));
     this.sql.exec(
       "DELETE FROM changes WHERE seq <= (SELECT seq FROM changes ORDER BY seq DESC LIMIT 1 OFFSET ?)",
