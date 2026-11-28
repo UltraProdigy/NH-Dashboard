@@ -28,6 +28,7 @@ const pages = {
   rulesets: ["base", "Branch protections and required checks.", "wide"],
   logs: ["rockets", "Browse GitHub activity by delivery category.", "wide"],
   permissions: ["base", "Inspect how people and teams get repository access.", "wide"],
+  teams: ["mountain", "Run the org's teams and see who has stepped away.", "wide"],
   webhook: ["newage", "Manage which GitHub deliveries reach Discord.", "wide"],
 };
 

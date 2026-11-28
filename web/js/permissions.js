@@ -28,8 +28,18 @@ let searchFocus = null;
 let open = null;
 let pending = null;
 const trail = [];
+let mode = "permissions";
+let teamsPage = { body: () => "", status: () => "", memberHead: () => [], memberCells: () => "", sections: () => "" };
 
 try { showArchived = localStorage.getItem(ARCHIVED_KEY) === "1"; } catch {}
+
+// Team Management draws its own body inside this page's shell, so it shares the search, the panels and the tray.
+export function configureTeamsPage(next) {
+  teamsPage = { ...teamsPage, ...next };
+}
+export const permData = () => data;
+export const permIdx = () => idx;
+export const permArchived = () => showArchived;
 
 const github = (path) => `https://github.com/${path}`;
 
@@ -653,7 +663,7 @@ function teamPanel(id) {
   const below = descendantIds(team.id);
   const parentOptions = [["", "(top level)"], ...Object.values(data.teams).filter((t) => !below.has(String(t.id))).sort((a, b) => a.name.localeCompare(b.name)).map((t) => [t.id, t.name])];
   const deleting = pendingFor(keyOf({ kind: "team_delete", team: ref }));
-  const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(team.name)}</h2><span class="sub">Team · ${esc(team.slug)}${team.privacy ? ` · ${esc(team.privacy)}` : ""}</span></div></div>
+  const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(team.name)}</h2><span class="sub">Team · ${esc(team.slug)}${team.privacy ? ` · ${esc(PRIVACY_LABEL[team.privacy] ?? team.privacy)}` : ""}</span></div></div>
     <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a>
       <a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}/edit/review_assignment`)}" target="_blank" rel="noopener" title="GitHub has no API for these, so they're changed there">Code review settings</a></div>
     <div class="perm-pedit">
@@ -675,7 +685,7 @@ function teamPanel(id) {
   ].filter(Boolean).join("");
   const memberRows = members.map(([login, r]) => {
     const base = { kind: "team_member", team: ref, login };
-    return `<tr${removing(base)}><td>${personRef(login)}</td><td>${editSelect(base, r ?? "unknown", ROLE_OPTIONS, `${login}'s role on ${team.name}`)}</td></tr>`;
+    return `<tr${removing(base)}><td>${personRef(login)}</td><td>${editSelect(base, r ?? "unknown", ROLE_OPTIONS, `${login}'s role on ${team.name}`)}</td>${teamsPage.memberCells(team.id, login)}</tr>`;
   });
   const repoRows = repos.map((r) => {
     const base = { kind: "team_repo", team: ref, repo: repoRefOf(repoOf(r.repo)) };
@@ -686,13 +696,14 @@ function teamPanel(id) {
     stagedHere((c) => (c.team && String(c.team.id) === String(team.id)) || (c.kind === "team_create" && String(c.parent) === String(team.id))) +
     (family ? `<ul class="perm-plist perm-family">${family}</ul>` : "") +
     section("Members", `${members.length}${members.some(([, r]) => r === "maintainer") ? ` · ${plural(members.filter(([, r]) => r === "maintainer").length, "maintainer")}` : ""}`,
-      ptable(["Who", "Role"], memberRows, "Nobody is on this team.") +
+      ptable(["Who", "Role", ...teamsPage.memberHead()], memberRows, "Nobody is on this team.") +
       addForm("team_member", { team: ref }, `${loginInput()}${rolePicker()}`, "Add member", locked)) +
     section("Repos", `${repos.length} ${levelCounts(repos)}${inherited ? ` · ${inherited} inherited` : ""}`,
       (allRepos ? `<p class="hint perm-pnote">${levelPill(allRepos.level)} on every repo through the ${esc(allRepos.label)} org role, whatever's listed below. Org roles are changed on GitHub.</p>` : "") +
       ptable(["Repo", "Level", "From"], repoRows, allRepos ? "No repos of its own." : "This team has no repos" + (showArchived ? "." : " that aren't archived.")) +
       addForm("team_repo", { team: ref }, `${repoInput()}${levelPicker()}`, "Give this team a repo", locked) +
-      (inherited ? `<p class="sub perm-none">An inherited grant is changed on the parent team. Giving this team a higher level of its own works here.</p>` : ""));
+      (inherited ? `<p class="sub perm-none">An inherited grant is changed on the parent team. Giving this team a higher level of its own works here.</p>` : "")) +
+    teamsPage.sections(team);
 }
 
 function repoPanel(id) {
@@ -806,17 +817,20 @@ function bodyHtml() {
   }
   const people = idx.people.map((l) => `<option value="${esc(l)}">`).join("");
   const repos = Object.values(data.repos).filter(shownRepo).map((r) => r.name).sort((a, b) => a.localeCompare(b)).map((n) => `<option value="${esc(n)}">`).join("");
-  return `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}${bulkCard()}</div>
-    <datalist id="perm-people">${people}</datalist><datalist id="perm-repos">${repos}</datalist>`;
+  const body = mode === "teams" ? teamsPage.body()
+    : `<div class="grid perm-grid">${orgCard()}${adminsCard()}${directCard()}${teamsCard()}${problemsCard()}${changesCard()}${bulkCard()}</div>`;
+  return `${body}<datalist id="perm-people">${people}</datalist><datalist id="perm-repos">${repos}</datalist>`;
 }
 
 function statusHtml() {
   if (!data?.readAt) return "";
-  return `Read ${esc(ago(data.readAt))} by the 10-minute check${failed ? ` · <span class="lb-warn">${esc(failed)}</span>` : ""}`;
+  const extra = mode === "teams" ? teamsPage.status() : "";
+  return `Read ${esc(ago(data.readAt))} by the 10-minute check${failed ? ` · <span class="lb-warn">${esc(failed)}</span>` : ""}${extra ? ` · ${extra}` : ""}`;
 }
 
-export function permissionsBody() {
-  return `<div class="perm${open ? " has-panel" : ""}" data-perm>
+export function permissionsBody(page = "permissions") {
+  mode = page === "teams" ? "teams" : "permissions";
+  return `<div class="perm${open ? " has-panel" : ""}${mode === "teams" ? " tm" : ""}" data-perm>
     <div class="perm-bar">
       <div class="perm-search">
         <input type="search" data-perm-search value="${esc(query)}" placeholder="Search people, teams and repos" aria-label="Search people, teams and repos"
@@ -830,6 +844,10 @@ export function permissionsBody() {
     <div data-perm-panel>${panelHtml()}</div>
     ${trayMarkup()}
   </div>`;
+}
+
+export function redrawPermissions() {
+  if (document.querySelector("[data-perm]")) redraw();
 }
 
 function redraw() {

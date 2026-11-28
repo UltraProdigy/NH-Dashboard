@@ -40,6 +40,7 @@ import { teamsOf } from "./teams.js";
 import { isAdmin } from "./roles.js";
 import { logsBody, logsTally, syncLogs } from "./logs.js";
 import { permissionsBody, syncPermissions } from "./permissions.js";
+import { syncTeams } from "./team-management.js";
 import { propertiesBody, syncProperties } from "./properties.js";
 import { releasesBody, syncReleases } from "./releases.js";
 import { syncWebhook, webhookBody } from "./webhook.js";
@@ -957,7 +958,7 @@ function render() {
   const paint = () => {
     if (isDrill(state.page)) renderDrill(view);
     else if (state.page === "logs") view.innerHTML = logsBody();
-    else if (state.page === "permissions") view.innerHTML = permissionsBody();
+    else if (state.page === "permissions" || state.page === "teams") view.innerHTML = permissionsBody(state.page);
     else if (state.page === "properties") view.innerHTML = propertiesBody();
     else if (state.page === "releases") view.innerHTML = releasesBody();
     else if (state.page === "webhook") view.innerHTML = webhookBody();
@@ -968,7 +969,8 @@ function render() {
   shown = where;
   bindChartInspection(view);
   syncLogs(state.page === "logs", renderMeta);
-  syncPermissions(state.page === "permissions");
+  syncPermissions(state.page === "permissions" || state.page === "teams");
+  syncTeams(state.page === "teams");
   syncProperties(state.page === "properties");
   syncReleases(state.page === "releases");
   syncWebhook(state.page === "webhook");

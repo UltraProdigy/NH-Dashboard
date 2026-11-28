@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-a9GSMCX3ebavwtEHzmzSjsRFsmot1Rn+sZaenQ2q0es='; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-jes0CQ1FDpOFbc62wYWswryVMbhnjEvj2TYhjJF5gUs='; base-uri 'none'; form-action 'none'">
 <title>NH Dashboard</title>
 <script>
 /*
@@ -25,11 +25,11 @@
   // quietly. Only a user or org site needs it: served from /, the first segment
   // of a deep link is a page rather than the repo, and nothing else can tell.
   var PAGES = [
-    "dream-panel", "releases-tags", "labels", "ci-health", "rulesets", "github-logs", "permissions", "custom-properties", "github-webhook",
+    "dream-panel", "releases-tags", "labels", "ci-health", "rulesets", "github-logs", "permissions", "team-management", "custom-properties", "github-webhook",
     "org-overview", "issue-analytics", "pr-analytics", "contributor-activity",
     "repo-activity", "org-search", "contributor-drilldown", "repo-drilldown",
     "dream", "releases", "ci", "overview", "issues", "analytics", "people", "repos",
-    "find", "contributor", "repo", "logs", "webhook", "properties",
+    "find", "contributor", "repo", "logs", "webhook", "properties", "teams",
   ];
   var seg = location.pathname.split("/").filter(Boolean);
   var base = seg.length && PAGES.indexOf(seg[0]) === -1 ? "/" + seg.shift() + "/" : "/";

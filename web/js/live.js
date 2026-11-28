@@ -145,12 +145,17 @@ const filterListeners = [];
 
 export const onFiltersStamp = (fn) => filterListeners.push(fn);
 
+const exclusionListeners = [];
+
+export const onTeamExclusionsStamp = (fn) => exclusionListeners.push(fn);
+
 async function getVersion() {
-  const { version, checkedAt, behind, updatesAt, filtersAt } = await getJSON("/api/version");
+  const { version, checkedAt, behind, updatesAt, filtersAt, teamExclusionsAt } = await getJSON("/api/version");
   state.checkedAt = checkedAt ?? null;
   state.behind = Array.isArray(behind) ? behind : [];
   for (const fn of stampListeners) fn(updatesAt ?? null);
   for (const fn of filterListeners) fn(filtersAt ?? null);
+  for (const fn of exclusionListeners) fn(teamExclusionsAt ?? null);
   return version;
 }
 

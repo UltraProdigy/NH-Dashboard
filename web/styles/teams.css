@@ -1,0 +1,47 @@
+.tm-card header { flex-wrap: wrap; gap: 6px 10px; }
+.tm-filters { margin-left: auto; display: inline-flex; gap: 6px; }
+.tm-card header > .perm-sel { margin-left: auto; }
+.tm-history { max-height: 380px; }
+.tm-more { margin: 8px 14px 12px; }
+
+.tm-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; }
+.tm-toolbar .daily-go { margin-left: auto; }
+.tm-notice { font-size: 12px; }
+.tm-mover .tm-mover-scroll { max-height: 360px; }
+.tm-mover td { vertical-align: top; }
+.tm-tick { width: 1%; }
+.tm-tick input { margin: 2px 0 0; }
+.tm-row-act { text-align: right; white-space: nowrap; }
+.tm-hint { margin: 10px 0 0; font-size: 12px; }
+.tm-pad { padding: 0 14px 14px; margin: 0; }
+
+.tm-chip {
+  display: inline-block; padding: 1px 7px; margin: 1px 0;
+  border: 1px solid var(--border); border-radius: 10px;
+  font-size: 11px; white-space: nowrap; color: var(--muted);
+}
+.tm-chip.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.pill.tm-back { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+.tm-note { font-size: 12px; font-style: italic; }
+.tm-desc { margin-top: 2px; font-size: 11.5px; white-space: normal; }
+
+.tm-excluded { border-top: 1px solid var(--border); padding: 8px 14px 12px; font-size: 12.5px; }
+.tm-excluded summary { cursor: pointer; }
+.tm-excluded ul { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.tm-excluded li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tm-excluded li .ghost { margin-left: auto; }
+.tm-exclude-form { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tm-excluded .tm-exclude-form { display: flex; margin-top: 8px; }
+.tm-exclude-form .perm-input { width: 150px; }
+
+.tm-sub { margin: 12px 14px 6px; font-size: 12.5px; font-weight: 600; }
+.tm-picks { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 14px 0; font-size: 12.5px; }
+.tm-pick { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.tm-pick input { margin: 0; }
+.tm-matrix { width: auto; margin: 0 14px; }
+.tm-matrix th { font-size: 11.5px; white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .tm-filters { margin-left: 0; flex-basis: 100%; }
+  .tm-toolbar .daily-go { margin-left: 0; }
+}

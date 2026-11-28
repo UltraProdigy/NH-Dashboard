@@ -71,7 +71,7 @@ function urlFor(page, tab, subject) {
     else if (tab) seg.push(NO_SUBJECT);
   }
   if (tab) seg.push(tabSlug(page, tab));
-  return BASE + seg.join("/") + (page === "find" ? findQuery() : page === "permissions" ? permQuery() : page === "properties" ? propsQuery() : "");
+  return BASE + seg.join("/") + (page === "find" ? findQuery() : page === "permissions" || page === "teams" ? permQuery() : page === "properties" ? propsQuery() : "");
 }
 
 /**
@@ -131,7 +131,7 @@ function readRoute() {
   // URL built from this state — so the query has to be in the state by then or
   // every load of a search link would rewrite it away.
   if (state.page === "find") readFindQuery(location.search);
-  if (state.page === "permissions") readPermQuery(location.search);
+  if (state.page === "permissions" || state.page === "teams") readPermQuery(location.search);
   if (state.page === "properties") readPropsQuery(location.search);
 
   // Canonicalised rather than left alone, which covers the bare root landing on
