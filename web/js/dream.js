@@ -1,6 +1,4 @@
 import {
-  DREAM_EXCL_DEFAULT,
-  DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,
   DREAM_LABELS_MAX,
   DREAM_LABELS_OVERVIEW,
@@ -9,6 +7,8 @@ import {
 import { age, bareRepo, esc, fmt, repoHref, safeUrl } from "./format.js";
 import { panel } from "./data.js";
 import { applyFilter } from "./table.js";
+import { API, onFiltersStamp } from "./live.js";
+import { applyFilterOp, DREAM_EXCL_KINDS, normaliseFilters } from "./dream-filter-rules.js";
 
 /* ==========================================================================
    Dream Panel filtering
@@ -18,7 +18,8 @@ import { applyFilter } from "./table.js";
    merges this", a repo you don't own — is noise, so it can be switched off
    once rather than skipped over every morning.
 
-   Each card keeps its own list. The cards ask different questions and the
+   The lists are shared by every admin and live in D1, so hiding a repo hides
+   it for everyone. Each card keeps its own list. The cards ask different questions and the
    same repo can be noise in one and the point of another: nobody here cuts
    DreamAssemblerXXL's releases, but a PR sitting approved in it still wants
    looking at. One page-wide list forced those two answers to be the same.
@@ -216,23 +217,15 @@ function removeLabelColumn(i) {
   saveLabels();
 }
 
-/**
- * Whether the card is untouched, which is what greys its Reset out. Covers the
- * columns and both exclusion lists — the button puts the whole card back, so
- * it has to be lit whenever any part of it has moved.
- */
+/** Whether the columns are the ones the card ships with, which greys Reset out. */
 function labelCardIsDefault() {
   const cur = state.dreamLabels;
   return cur.length === DREAM_LABELS_DEFAULT.length &&
-    cur.every((l, i) => l === DREAM_LABELS_DEFAULT[i]) &&
-    isDefault(exclKey("byLabel", "repos")) &&
-    isDefault(exclKey("byLabel", "labels"));
+    cur.every((l, i) => l === DREAM_LABELS_DEFAULT[i]);
 }
 
 function resetLabelCard() {
   state.dreamLabels = [...DREAM_LABELS_DEFAULT];
-  resetExclusions(exclKey("byLabel", "repos"));
-  resetExclusions(exclKey("byLabel", "labels"));
   saveLabels();
 }
 
@@ -250,7 +243,7 @@ function labelCardControlsHtml() {
   return `<button class="ghost excl-btn" data-labeladd
       ${atMax || noneLeft ? "disabled" : ""} title="${esc(why)}">+ Label</button>
     <button class="ghost excl-btn" data-labelreset
-      ${labelCardIsDefault() ? "disabled" : ""} title="Back to the labels and filters this card ships with">Reset</button>`;
+      ${labelCardIsDefault() ? "disabled" : ""} title="Back to the label columns this card ships with">Reset</button>`;
 }
 
 /* ---- the card ----------------------------------------------------------- */
@@ -390,11 +383,9 @@ function exclPopHtml(key) {
   const [panelId, kind] = splitKey(key);
   const n = exclOf(panelId)[kind].length;
   return `<div class="excl-head">
-      <span>${n ? `${n} hidden from this card` : "Hide from this card"}</span>
-      <button class="ghost" data-exclreset="${esc(key)}"${
-        isDefault(key) ? " disabled" : ""} title="Back to the list this card ships with">Reset</button>
+      <span title="Shared by every admin">${n ? `${n} hidden from this card for everyone` : "Hide from this card for everyone"}</span>
       <button class="ghost" data-exclclear="${esc(key)}"${n ? "" : " disabled"}>Clear</button>
-    </div>
+    </div>${filterError ? `<div class="excl-err">${esc(filterError)}</div>` : ""}
     <div class="excl-search">
       <input type="search" data-exclq="${esc(key)}" autocomplete="off"
              placeholder="Search ${esc(kind)}…" value="${esc(state.exclQ[key] ?? "")}">
@@ -408,72 +399,74 @@ function updateExclList(key) {
   if (el) el.innerHTML = exclListHtml(key);
 }
 
-/** Toggle one name in one card's list. */
+/* ---- shared persistence ------------------------------------------------ */
+
+let filterError = "";
+let filterStamp = null;
+let pending = 0;
+let onFilters = () => {};
+
+function onFiltersChange(fn) {
+  onFilters = fn;
+}
+
+async function readFilters(res) {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? `The dashboard answered ${res.status}.`);
+  return body;
+}
+
+async function loadExclusions() {
+  try {
+    const body = await readFilters(await fetch(`${API}/api/dream/filters`, { cache: "no-store" }));
+    state.dreamExcl = normaliseFilters(body.filters);
+    filterStamp = body.stamp ?? null;
+    filterError = "";
+  } catch (err) {
+    if (!Object.keys(state.dreamExcl ?? {}).length) state.dreamExcl = normaliseFilters(null);
+    filterError = `Couldn't load the shared filters: ${err instanceof TypeError ? "the dashboard couldn't be reached." : err.message}`;
+  }
+}
+
+onFiltersStamp(async (at) => {
+  if (!at || at === filterStamp || pending) return;
+  await loadExclusions();
+  onFilters();
+});
+
+async function sendFilterOp(op) {
+  state.dreamExcl = applyFilterOp(state.dreamExcl, op);
+  pending++;
+  try {
+    const body = await readFilters(await fetch(`${API}/api/dream/filters`, {
+      method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(op),
+    }));
+    filterStamp = body.stamp ?? filterStamp;
+    filterError = "";
+    if (pending === 1) {
+      const fresh = normaliseFilters(body.filters);
+      const changed = JSON.stringify(fresh) !== JSON.stringify(state.dreamExcl);
+      state.dreamExcl = fresh;
+      if (changed) onFilters();
+    }
+  } catch (err) {
+    filterError = `That change wasn't saved: ${err instanceof TypeError ? "the dashboard couldn't be reached." : err.message}`;
+    if (pending === 1) await loadExclusions();
+    onFilters();
+  } finally {
+    pending--;
+  }
+}
+
+/** Toggle one name in one card's list, for every admin. */
 function toggleExclusion(key, name, on) {
-  const [panelId, kind] = splitKey(key);
-  const list = exclOf(panelId)[kind];
-  const i = list.indexOf(name);
-  if (on) { if (i === -1) list.push(name); }
-  else if (i !== -1) list.splice(i, 1);
-  saveExclusions();
+  const [panel, kind] = splitKey(key);
+  sendFilterOp({ panel, kind, name, on });
 }
 
 function clearExclusions(key) {
-  const [panelId, kind] = splitKey(key);
-  exclOf(panelId)[kind] = [];
-  saveExclusions();
-}
-
-/** The list this card ships with. */
-const defaultFor = (panelId, kind) => DREAM_EXCL_DEFAULT[panelId]?.[kind] ?? [];
-
-/** Whether a list is already the default, which is what greys Reset out. */
-function isDefault(key) {
-  const [panelId, kind] = splitKey(key);
-  const cur = exclOf(panelId)[kind];
-  const def = defaultFor(panelId, kind);
-  if (cur.length !== def.length) return false;
-  const have = new Set(cur);
-  return def.every(o => have.has(o));
-}
-
-function resetExclusions(key) {
-  const [panelId, kind] = splitKey(key);
-  exclOf(panelId)[kind] = [...defaultFor(panelId, kind)];
-  saveExclusions();
-}
-
-/* ---- persistence --------------------------------------------------------
-   Its own key rather than the old one: the saved shape changed from one list
-   per page to one per card, and a half-read old value would have silently
-   applied Angelica to everything and nothing else to anything. */
-
-const STORE_KEY = "nh:dreamExcl:v2";
-
-function saveExclusions() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state.dreamExcl)); }
-  catch { /* private mode, or storage full — the filter still works this session */ }
-}
-
-/**
- * A card falls back to its defaults only when it has nothing saved at all.
- * An empty saved list is a decision — you unticked everything — and has to
- * survive a reload rather than being read as "never set".
- */
-function loadExclusions() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(STORE_KEY)); } catch { /* corrupt */ }
-  const arr = (v) => (Array.isArray(v) ? v.filter(x => typeof x === "string") : null);
-
-  state.dreamExcl = {};
-  for (const id of DREAM_PANELS) {
-    const def = DREAM_EXCL_DEFAULT[id] ?? { repos: [], labels: [] };
-    const got = saved?.[id];
-    state.dreamExcl[id] = {
-      repos: arr(got?.repos) ?? [...def.repos],
-      labels: arr(got?.labels) ?? [...def.labels],
-    };
-  }
+  const [panel, kind] = splitKey(key);
+  sendFilterOp({ panel, kind, clear: true });
 }
 
 /* By label's columns save under their own key for the same reason the
@@ -507,9 +500,9 @@ export {
   labelCardControlsHtml,
   loadExclusions,
   loadLabels,
+  onFiltersChange,
   panelRows,
   removeLabelColumn,
-  resetExclusions,
   resetLabelCard,
   setLabelColumn,
   toggleExclusion,

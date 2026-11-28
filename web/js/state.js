@@ -68,8 +68,8 @@ const state = {
   // the cards ask different questions: a repo whose releases somebody else
   // cuts is noise on Needs a release and perfectly relevant on Approved, and one
   // shared list forced those two answers to be the same.
-  // Filled in by loadExclusions(); shape is panel id -> { repos, labels }, held
-  // as arrays rather than Sets so they serialize to localStorage.
+  // Filled in by loadExclusions() from the shared list in D1; shape is panel
+  // id -> { repos, labels }.
   dreamExcl: {},
   // Which exclusion popup is open, if any: null, or "<panelId>:<kind>".
   exclOpen: null,
@@ -212,45 +212,6 @@ const GRANS = [
 ];
 
 /**
- * Which kinds of exclusion each Dream card offers, in the order the buttons
- * appear in its header. Needs a release is repo-level data with no labels on
- * it, and Changes requested is a list you want to read whole — the only thing
- * worth hiding there is a repo that isn't yours.
- */
-const DREAM_EXCL_KINDS = {
-  approvedUnmerged: ["repos", "labels"],
-  changesRequested: ["repos"],
-  needsRelease: ["repos"],
-  byLabel: ["repos", "labels"],
-  updates: ["repos"],
-};
-
-/**
- * Defaults, applied on a first visit and whenever a card has nothing saved.
- * Repo names are bare — the PR panels carry `owner/name` and the release panel
- * carries the name alone, and `bareRepo` is what reconciles them.
- */
-const DREAM_EXCL_DEFAULT = {
-  approvedUnmerged: {
-    repos: ["Angelica", "Galaxia", "UtilitiesInExcess", "Horizon-QA", "lwjgl3ify", "supernova"],
-    labels: ["⚠️ AUTHOR MERGE ONLY"],
-  },
-  changesRequested: { repos: [], labels: [] },
-  needsRelease: {
-    repos: [
-      "DreamAssemblerXXL", "TC4Tweaks", "GTNewHorizons.github.io", "StargateNH",
-      "UtilitiesInExcess", "MergeMasterXXL-TestRepo", "GTNH-Web-Map",
-      "Ic2ExpReactorPlanner", "Angelica", "TaskNH", "MergePreMaster",
-      "BugTorch", "TinkersGregworks", "GTNH-Translations", "GTNHIssueHelper",
-      "CubicChunks1710", "supernova",
-    ],
-    labels: [],
-  },
-  byLabel: { repos: [], labels: [] },
-  updates: { repos: [], labels: [] },
-};
-
-/**
  * The labels By label opens on, one column each.
  *
  * These three are the ones an admin is actually gating on: what's on Zeta,
@@ -286,8 +247,6 @@ export {
   PR_STATE_LABEL,
   REVIEW_KIND_LABEL,
   REVIEW_STATE_LABEL,
-  DREAM_EXCL_DEFAULT,
-  DREAM_EXCL_KINDS,
   DREAM_LABELS_DEFAULT,
   DREAM_LABELS_MAX,
   DREAM_LABELS_OVERVIEW,

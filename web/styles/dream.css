@@ -290,3 +290,4 @@ select.inline-sel:hover { color: var(--text); border-color: var(--accent); }
 .upd-plan { max-height: min(40vh, 360px); overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; margin-bottom: 10px; }
 .upd-plan ul { padding-left: 0; }
 .upd-dialog details { margin-bottom: 10px; }
+.excl-err { padding: 6px 12px; font-size: 11.5px; color: var(--bad); border-bottom: 1px solid var(--border); }

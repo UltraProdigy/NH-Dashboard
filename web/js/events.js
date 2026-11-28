@@ -6,7 +6,6 @@ import {
   addLabelColumn,
   clearExclusions,
   removeLabelColumn,
-  resetExclusions,
   resetLabelCard,
   setLabelColumn,
   toggleExclusion,
@@ -538,12 +537,6 @@ popLayer.addEventListener("click", e => {
   if (ec) {
     e.stopPropagation();
     clearExclusions(ec.dataset.exclclear);
-    return render();
-  }
-  const er = e.target.closest("button[data-exclreset]");
-  if (er) {
-    e.stopPropagation();
-    resetExclusions(er.dataset.exclreset);
     return render();
   }
 });

@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release, Releases & Tags, the Updates scan and update PRs, the GitHub Webhook rules, the Permissions page and the Custom Properties page are
+ * release, Releases & Tags, the Updates scan and update PRs, the Dream Panel filters, the GitHub Webhook rules, the Permissions page and the Custom Properties page are
  * refused to anyone who isn't on the admin team, whatever the page shows.
  */
 
@@ -22,6 +22,7 @@ import { deletePreview, deleteRun, releasePreview, releaseRun, releaseStatus, re
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
 import { readScan, runUpdatesScan, setPin, updatesStatus } from "./build-updates.js";
 import { buildRequest, updateJobsStub, UpdatePrJobs } from "./update-prs.js";
+import { changeDreamFilter, dreamFilters } from "./dream-filters.js";
 import { previewWebhookRules, saveWebhookRules, webhookState } from "./webhook-admin.js";
 import {
   handleDashboard,
@@ -196,6 +197,18 @@ async function route(request, env, ctx, url, who) {
     const by = who.identity.email ?? who.identity.sub ?? "unknown";
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     const { status, body } = await action(sent, by, dryRun);
+    return json(body, status);
+  }
+
+  if (path === "/api/dream/filters") {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (request.method === "GET") {
+      const { status, body } = await dreamFilters(env);
+      return json(body, status);
+    }
+    if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    const { status, body } = await changeDreamFilter(env, await request.json().catch(() => null));
     return json(body, status);
   }
 

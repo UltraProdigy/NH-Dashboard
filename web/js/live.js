@@ -141,11 +141,16 @@ const stampListeners = [];
 
 export const onUpdatesStamp = (fn) => stampListeners.push(fn);
 
+const filterListeners = [];
+
+export const onFiltersStamp = (fn) => filterListeners.push(fn);
+
 async function getVersion() {
-  const { version, checkedAt, behind, updatesAt } = await getJSON("/api/version");
+  const { version, checkedAt, behind, updatesAt, filtersAt } = await getJSON("/api/version");
   state.checkedAt = checkedAt ?? null;
   state.behind = Array.isArray(behind) ? behind : [];
   for (const fn of stampListeners) fn(updatesAt ?? null);
+  for (const fn of filterListeners) fn(filtersAt ?? null);
   return version;
 }
 

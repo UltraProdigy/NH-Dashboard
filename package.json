@@ -54,6 +54,7 @@
     "test:release-manager": "node --experimental-sqlite worker/test/release-manager.test.js",
     "test:build-updates": "node --experimental-sqlite worker/test/build-updates.test.js",
     "test:update-prs": "node --experimental-sqlite worker/test/update-prs.test.js",
+    "test:dream-filters": "node --experimental-sqlite worker/test/dream-filters.test.js",
     "test:rows-read": "node worker/test/rows-read.test.js"
   },
   "engines": {

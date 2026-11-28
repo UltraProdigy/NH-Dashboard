@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import { loadExclusions, loadLabels } from "./dream.js";
+import { loadExclusions, loadLabels, onFiltersChange } from "./dream.js";
 import { render, renderMeta } from "./render.js";
 import { PAGES, restrictToMembers } from "./pages.js";
 import { isAdmin } from "./roles.js";
@@ -54,10 +54,11 @@ try {
   state.data = await getJson("dashboard");
   await primeLive();
 
-  loadExclusions();
+  if (isAdmin(who.role)) await loadExclusions();
   loadLabels();
   readRoute();
   onUpdatesChange(render);
+  onFiltersChange(render);
   render();
 
   startPolling(render, renderMeta);

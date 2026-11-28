@@ -945,14 +945,35 @@ Approved-not-merged whichever label it was found under. Tab counts follow the
 exclusions, because a badge that disagrees with the list under it is worse than
 no badge.
 
-Defaults live in `DREAM_EXCL_DEFAULT` in `state.js`, one entry per card, and are
-applied to any card with nothing saved. Choices are written to `localStorage`
-under `nh:dreamExcl:v2` the moment a box is ticked — the same handful shouldn't
-have to be dismissed every morning. A card with an empty *saved* list keeps it:
-unticking everything is a decision, and only a card that has never been touched
-falls back to its defaults. The key is versioned because the saved shape changed
-from one list per page to one per card, and a half-read old value would have
-silently applied the old page-wide list to one card and nothing to the rest.
+**The lists are shared by every admin.** Hiding a repo or label hides it for
+everyone, not just in your browser. They're kept in D1's `meta` table under
+`dream_filters` as `{ <card>: { repos, labels } }`, read with `GET
+/api/dream/filters` when an admin loads the page and changed one tick at a time
+with `POST /api/dream/filters` (`{ panel, kind, name, on }`, or `{ panel, kind,
+clear: true }`). Both are admin-only and the POST is same-origin only.
+
+Each change is a single add, remove or clear rather than a whole list, so two
+admins ticking different boxes at once both land. The Worker applies it to the
+stored value and writes it back only if nobody else wrote in between, retrying
+up to five times. The page updates straight away and then takes the Worker's
+copy. If the save fails it reloads the shared list and says so at the top of the
+popup.
+
+Each change also stamps `dream_filters_at`, which `/api/version` returns as
+`filtersAt`. Open pages already poll that every minute, so another admin's
+change shows up within a minute without an extra request.
+
+There are no defaults in the code. `worker/migrations/012-dream-filters.sql`
+seeded the list once with what the page used to hardcode, using `INSERT OR
+IGNORE` so running it again never overwrites a list admins have changed. Run it
+before deploying, or the first admin to tick anything starts the list from
+empty. The old per-browser lists in `localStorage` (`nh:dreamExcl:v2`) are no
+longer read.
+
+`web/js/dream-filter-rules.js` has the cards and kinds each one offers
+(`DREAM_EXCL_KINDS`) and the add, remove and clear rules. The page and the
+Worker both use it. Tests are in `worker/test/dream-filters.test.js` and
+`app.test.js`.
 
 Repo names arrive in two spellings — the search-backed panels carry
 `GTNewHorizons/Angelica`, the release sweep carries a bare `Angelica` — so
@@ -978,12 +999,9 @@ right now" is the first question it has to answer, and it shouldn't require
 scrolling an alphabetical list to audit. The full name is on each row's `title`,
 since the visible one ellipsises.
 
-**Clear** empties the list; **Reset** puts back the one the card ships with, and
-greys itself out when that's already what you're looking at. Both are scoped to
-the button you opened, so clearing Approved's repos can't silently un-hide its
-labels or touch the card next to it. Reset is what makes the defaults worth
-having beyond the first visit — otherwise a list is only ever one stray tick
-away from being something you have to rebuild by hand.
+**Clear** empties the list, for everyone. It's scoped to the button you opened,
+so clearing Approved's repos can't silently un-hide its labels or touch the card
+next to it. There's no Reset, since there are no defaults to go back to.
 
 #### The popup is drawn outside the card
 
@@ -1031,9 +1049,8 @@ rights to move it — and nothing about those three is fixed:
   has stopped being something you take in at a glance — which is the only
   reason to put labels side by side at all. The tab has the whole page and
   nothing to be glanced past, so it goes wider.
-- **Reset** puts the whole card back: the three default labels *and* both
-  exclusion lists. The two popups keep their own narrower Resets for when only
-  one list has moved.
+- **Reset** puts the columns back to the three default labels. It doesn't touch
+  the card's repo and label filters, which are shared.
 
 A label already up doesn't appear in another column's options, so the same list
 can't be drawn twice. Excluded labels drop out of every option list and any
@@ -1047,9 +1064,10 @@ rest of the room is rather than looking broken. Which limit applies is read off
 `state.tab` in one place, so the button, the grid and the held-back count can't
 disagree about it.
 
-The columns save under `nh:dreamLabels:v1`, separately from the exclusions:
-different shape, different question, and an empty list is a decision — you
-removed every column — rather than "never set".
+The columns are per browser, saved under `nh:dreamLabels:v1`, unlike the
+filters: which labels you watch is a view choice, not a decision about what the
+team cares about. An empty list is a decision (you removed every column), not
+"never set".
 
 **Two lines per PR, not a table row.** A column is around 240px and six table
 columns don't fit in that. The title is what you're reading; the repo and the

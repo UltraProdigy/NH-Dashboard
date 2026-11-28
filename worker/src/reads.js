@@ -22,7 +22,7 @@ export function json(body, status = 200) {
 
 export async function handleVersion(env) {
   const { results } = await env.DB.prepare(
-    "SELECT key, value FROM meta WHERE key IN ('version', 'checked_at', 'behind', 'build_updates_at')",
+    "SELECT key, value FROM meta WHERE key IN ('version', 'checked_at', 'behind', 'build_updates_at', 'dream_filters_at')",
   ).all();
   const meta = Object.fromEntries(results.map((r) => [r.key, r.value]));
 
@@ -36,6 +36,7 @@ export async function handleVersion(env) {
     checkedAt: meta.checked_at ?? null,
     behind,
     updatesAt: meta.build_updates_at ?? null,
+    filtersAt: meta.dream_filters_at ?? null,
   });
 }
 

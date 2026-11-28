@@ -206,6 +206,41 @@ for (const name of ADMIN_PANELS) {
   const u7 = await call("/api/updates/nothing", { sub: "admin-user", method: "POST", headers: origin });
   check("an unknown updates path is a 404", u7.status === 404, u7.status);
   {
+    const filters = (opts = {}) => call("/api/dream/filters", { sub: "admin-user", ...opts });
+    const change = (op, opts = {}) => filters({ method: "POST", headers: origin, body: JSON.stringify(op), ...opts });
+    const f0 = await filters();
+    check("before anything is saved every card's filters are empty",
+      f0.status === 200 && f0.body.filters.approvedUnmerged.repos.length === 0 && f0.body.filters.updates.repos.length === 0, JSON.stringify(f0.body));
+    check("a member can't read the Dream Panel filters", (await filters({ sub: "member-user" })).status === 403);
+    check("or change them", (await change({ panel: "needsRelease", kind: "repos", name: "X", on: true }, { sub: "member-user" })).status === 403);
+    check("a change from another origin is refused",
+      (await change({ panel: "needsRelease", kind: "repos", name: "X", on: true }, { headers: { origin: "https://evil.example" } })).status === 403);
+    check("an unknown card or filter is refused", (await change({ panel: "nope", kind: "repos", name: "X", on: true })).status === 400 &&
+      (await change({ panel: "needsRelease", kind: "labels", name: "X", on: true })).status === 400);
+    const c1 = await change({ panel: "needsRelease", kind: "repos", name: "TaskNH", on: true });
+    const c2 = await change({ panel: "needsRelease", kind: "repos", name: "BugTorch", on: true });
+    check("each tick is added to the shared list", c2.status === 200 && c2.body.filters.needsRelease.repos.join() === "TaskNH,BugTorch", JSON.stringify(c2.body));
+    const seen = await filters({ sub: "admin-user" });
+    check("and every admin reads the same list", seen.body.filters.needsRelease.repos.join() === "TaskNH,BugTorch");
+    const v = await call("/api/version", { sub: "member-user" });
+    check("the version endpoint carries the filters' stamp so open pages reload", v.body.filtersAt === c2.body.stamp, JSON.stringify(v.body));
+    await change({ panel: "needsRelease", kind: "repos", name: "TaskNH", on: false });
+    check("unticking removes just that one", (await filters()).body.filters.needsRelease.repos.join() === "BugTorch");
+    await change({ panel: "needsRelease", kind: "repos", clear: true });
+    check("clear empties one list", (await filters()).body.filters.needsRelease.repos.length === 0);
+
+    db.prepare("DELETE FROM meta WHERE key IN ('dream_filters', 'dream_filters_at')").run();
+    db.exec(readFileSync(new URL("../migrations/012-dream-filters.sql", import.meta.url), "utf8"));
+    const seeded = (await filters()).body.filters;
+    check("the migration seeds the lists the page used to hardcode",
+      seeded.approvedUnmerged.labels[0] === "⚠️ AUTHOR MERGE ONLY" && seeded.needsRelease.repos.length === 17 && seeded.approvedUnmerged.repos.includes("lwjgl3ify"),
+      JSON.stringify(seeded));
+    await change({ panel: "approvedUnmerged", kind: "repos", name: "Galaxia", on: false });
+    db.exec(readFileSync(new URL("../migrations/012-dream-filters.sql", import.meta.url), "utf8"));
+    check("and running it again never overwrites what admins changed", !(await filters()).body.filters.approvedUnmerged.repos.includes("Galaxia"));
+    db.prepare("DELETE FROM meta WHERE key IN ('dream_filters', 'dream_filters_at')").run();
+  }
+  {
     const queued = [];
     const prEnv = {
       ...ENV,
