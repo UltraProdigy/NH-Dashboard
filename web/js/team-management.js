@@ -431,15 +431,15 @@ function memberCells(teamId, login) {
 
 function sections(team) {
   if (!tm) return "";
-  const { direct, viaMember } = requestsFor(team);
-  const reqRows = [...direct.map((p) => prRow(p, teamChip(team, true))), ...viaMember.map((p) => prRow(p, p.asked.map(esc).join(", ")))];
+  const { direct } = requestsFor(team);
+  const reqRows = direct.map((p) => prRow(p, teamChip(team, true)));
   const lines = (tm.history ?? []).filter((e) => String(e.teamId) === String(team.id)).slice(0, 25);
   const history = lines.length
     ? `<ol class="log-rows perm-changes tm-history">${lines.map((e) => `<li class="log-row${e.tone ? ` tone-${esc(e.tone)}` : ""}">
         <time datetime="${esc(e.at)}" title="${esc(new Date(e.at).toLocaleString())}">${esc(when(e.at))}</time>
         <span class="log-what">${actorHtml(e)}${esc(e.text)}</span></li>`).join("")}</ol>`
     : `<p class="sub perm-none">Nothing since ${esc(dateText(tm.historySince) || "tracking began")}.</p>`;
-  return `<section class="perm-sec"><h3>Review requests <span class="sub">${direct.length}${viaMember.length ? ` + ${viaMember.length} asked of a member` : ""}</span></h3>
+  return `<section class="perm-sec"><h3>Review requests <span class="sub">${direct.length}</span></h3>
       ${reqRows.length ? `<table class="perm-ptable"><thead><tr>${prHead.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${reqRows.join("")}</tbody></table>` : `<p class="sub perm-none">No open pull request is waiting on this team.</p>`}</section>
     <section class="perm-sec"><h3>History <span class="sub">${lines.length}</span></h3>${history}</section>`;
 }

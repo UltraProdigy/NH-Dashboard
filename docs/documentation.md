@@ -3248,7 +3248,8 @@ through `/api/version`. Excluded people drop out of their panel and its moves.
 Someone already staged shows **staged** instead of a tick box.
 
 The team panel (on both pages) gained two member columns, **Since** and **Last
-active**, and two sections, **Review requests** and **History**. It also edits
+active**, and two sections: **Review requests**, the open pull requests where the
+team itself was asked to review, and **History**. It also edits
 the team's description, visibility (visible or secret) and notifications. Secret
 teams can't be nested, so a batch that would nest one, or make a nested team
 secret, is refused. GitHub has no API for a team's code review settings, so the
@@ -3295,8 +3296,8 @@ says so.
 `team_review_requests` holds team ids, so a renamed team still matches. The
 webhook writes it in its own statement after the upsert, matched on
 `updated_at`, so a database without migration 013 still takes the rest of the
-pull request. The reconcile doesn't touch it, because reading a team needs org
-read and the build's PAT may not have it.
+pull request. It's only ever filled from webhooks: a request made before
+the column existed isn't there, and the reconcile doesn't touch it.
 
 ### Settings
 
@@ -3327,14 +3328,6 @@ Run both migrations before deploying:
 ```bash
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/013-team-review-requests.sql
 cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/014-activity-indexes.sql
-```
-
-Then fill the team review requests for what's open today. It reads teams, so run
-it locally with an org member's token:
-
-```bash
-npm run backfill:team-requests
-cd worker && npx wrangler d1 execute nh-dashboard --remote --file team-requests.sql
 ```
 
 The webhook Worker has to deploy too, since the `Permissions` and `EventLog`
