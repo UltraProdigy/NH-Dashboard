@@ -2010,6 +2010,66 @@ A team's grant is re-read from `GET /repos/{owner}/{repo}/teams`, which lists
 only direct grants, for the reason under Direct grants. A direct collaborator's
 level comes from `permissionSources` the same way the snapshot's does.
 
+## Team Management
+
+On screen: the mover panels, the Teams table and the team panel's member columns
+on the Team Management page.
+
+### Last active
+
+The newest timestamp among:
+
+| Source | Timestamp | Credited to |
+|---|---|---|
+| Opened a pull request | `pull_requests.created_at` | `author` |
+| Submitted a review, any verdict | `reviews.submitted_at` | `author` |
+| Filed an issue | `issues.created_at` | `author` |
+| First reply on an issue | `issues.first_response_at` | `first_responder` |
+| Closed an issue | `issues.closed_at` | `closed_by` |
+| Pushed a commit to a default branch | `commits.committed_at` | `author` |
+| Any webhook delivery they triggered | the delivery's time | its sender, from GitHub Logs' `last_seen` |
+
+Logins match exactly in D1 (both sides come from GitHub) and case-insensitively
+in `last_seen`. Bots, the 10-minute check and "via dashboard" lines are never
+anyone being seen. Excluded repos count; only their names are hidden. Nothing in
+either source shows as **nothing recorded**, which counts as inactive.
+
+Without migration 014 the reply, close and commit rows are skipped, so last
+active can read older than it is. The page says when.
+
+### Inactive and back
+
+- **Inactive**: on Developers or any team under it, and last active
+  `INACTIVE_DAYS` (365) or more days ago, or never. Days are whole days since,
+  as `daysSince` counts them.
+- **Back**: on Developers on Hiatus and last active fewer than `RETURN_DAYS`
+  (30) days ago.
+
+Excluded people are left out of both lists and their counts.
+
+### Member since
+
+The newest time the person was added to that team in `team_history`: a
+`team_member_added` line from the 10-minute check, a `membership` `added`
+delivery, or an add applied from the dashboard (an invite doesn't count until
+it's accepted). Anyone without one has been on the team since before the history
+starts, and reads as *before* that date. The Teams table's **newest member** is
+the member with the latest of these.
+
+### Review requests
+
+Open pull requests only (`state = 'OPEN'`), excluded repos left out. **Asked of
+the team** is a pull request whose `team_review_requests` holds the team's id.
+**Asked of a member** is one whose `review_requests` names a current member and
+which isn't already asked of the team. A pull request asked of two teams counts
+for both.
+
+### Cross reference
+
+Membership is immediate, as the snapshot reads it: a member of a child team isn't
+counted as a member of its parent. The grid's cell for teams A and B is how many
+logins are on both; the diagonal is the team's size.
+
 ## GitHub Webhook
 
 On screen: the Relay card and the Result column on the GitHub Webhook page.
@@ -2134,6 +2194,7 @@ Values are compared as JSON with multi-select lists sorted.
 
 **Toward pessimism**
 
+- Last active misses comments, discussions and other unstored activity from before GitHub Logs started keeping `last_seen`
 - CI excludes PR-triggered runs — a floor
 - `reviewsTruncated` PRs undercount approvals
 - Search panels cap at 1,000
@@ -2176,6 +2237,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-28 | Last active, inactive, back, member since, team review requests | New, for the Team Management page. No existing figure moves. Last active is the newest of six stored acts and the newest webhook delivery; inactive is 365 days or more, back is under 30; member since only reaches back to when team history started. See **Team Management**. |
 | 2026-11-24 | Custom Properties counts | New, for the Custom Properties page. No existing figure moves. Archived repos are left out; a multi-select repo counts once under each of its values; staged changes count as applied in the cross-tab and filters. See **Custom Properties**. |
 | 2026-11-14 | Relay counts, delivery decision | New, for the GitHub Webhook page. No existing figure moves. Repos are a tick list rather than patterns, a repo can have its own event list that replaces the default one, and there's no private-repo rule. See **GitHub Webhook**. |
 | 2026-11-09 | Build updates | New, for the Updates card on the Dream Panel. No existing figure moves. Buildscript and Gradle are compared with the highest stable version in the org; dependencies with the dependency repo's latest tag, and only count when asked. See **Build updates**. |

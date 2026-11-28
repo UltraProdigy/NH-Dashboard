@@ -3193,6 +3193,162 @@ refresh, renames mid-batch, cancel, the queue, dry runs and pacing. `npm run
 test:app` covers the routes' refusals and the owner check. Both permission suites
 run before every deploy.
 
+## Team Management
+
+Under Admin Resources, after Permissions. Running the org's teams: what changed
+lately, who on Developers has gone quiet, who on Developers on Hiatus is back,
+every team in its hierarchy, open review requests by team, and which teams share
+members. Admin-only, like Permissions.
+
+It's drawn inside the Permissions page's shell (`permissionsBody("teams")`), so
+it has the same search, the same team, person and repo panels, and the same tray.
+A change staged on one page is in the tray on the other, and everything goes to
+GitHub through the same review and `POST /api/permissions/apply`. There's no
+second write path and Org-Manager needs nothing new.
+
+The plan it was built from is the "Team Management Plan" project doc.
+
+### The page
+
+From the top:
+
+- **Recent team changes.** Newest first, with a team filter and a kind filter
+  (added, removed, role changed, invited, team changes). Lines come from
+  webhooks, the 10-minute check and the dashboard, credited the same way as on
+  Permissions.
+- **Inactive developers.** Everyone on Developers or a team under it with
+  nothing recorded in the last 365 days, oldest first. Each row says when they
+  were last active and what they did (linked), when they joined Developers, and
+  which teams they'd leave. Everyone listed starts ticked. **Move N to
+  Developers on Hiatus** stages adding each ticked person to Hiatus and taking
+  them off Developers and every team under it. The adds are staged before the
+  removals, so a batch cancelled halfway leaves people on both teams, never on
+  neither.
+- **Developers on Hiatus.** Everyone on Hiatus, most recently active first.
+  Anyone active in the last 30 days is marked **back** and starts ticked. **Move
+  N to Developers** stages adding them to Developers and taking them off Hiatus.
+  Sub-teams they left aren't restored.
+- **Teams.** Every team in its hierarchy, child teams under their parent, with
+  members, repos (inherited included), review requests, and the newest member
+  with when they were added. **New team** is the same as on Permissions.
+- **Review requests.** Open pull requests waiting on a team, oldest update
+  first. Picking one team splits it into requests to the team and requests to
+  one of its members by name. A team with auto-assignment has its request
+  swapped for people, so the second list is where those end up.
+- **Cross reference.** Tick two or more teams to see a grid of the members each
+  pair shares, and a list of the people in all of them, in any of them, or only
+  in the first one ticked.
+
+Both mover panels have an **Exclude** button per row, with an optional note, and
+an **Excluded** list underneath where anyone can be excluded ahead of time or
+included again. The lists are shared: one list per panel, stored in D1, and every
+admin sees the same one. A change reaches other open pages within a minute,
+through `/api/version`. Excluded people drop out of their panel and its moves.
+
+Someone already staged shows **staged** instead of a tick box.
+
+The team panel (on both pages) gained two member columns, **Since** and **Last
+active**, and two sections, **Review requests** and **History**. It also edits
+the team's description, visibility (visible or secret) and notifications. Secret
+teams can't be nested, so a batch that would nest one, or make a nested team
+secret, is refused. GitHub has no API for a team's code review settings, so the
+panel links to them on GitHub instead.
+
+### Member since
+
+GitHub doesn't record when someone joined a team, and the audit log API is
+Enterprise only. So "since" is the newest time the dashboard saw them added,
+from `team_history` (below). Anyone already on a team before that history starts
+reads as *before* its start date.
+
+### Last active
+
+The newest of:
+
+- what the store records: a pull request opened, a review submitted, an issue
+  filed, a first reply on an issue, an issue closed, or a commit pushed to a
+  default branch (`worker/src/team-activity.js`, defined in Calculations.md), and
+- the newest webhook delivery the person triggered, kept by the GitHub Logs
+  object in its `last_seen` table. That catches comments, discussions, wiki edits,
+  pushes to other branches and anything else the store doesn't keep. It only
+  knows about deliveries from the day it shipped.
+
+Neither costs a GitHub call. The store side is one query for every org and team
+member, an index step per person per kind, and it reads D1 directly rather than
+through `scopedDb`, so work in an excluded repo still counts. Those repos' names
+are left out of the answer.
+
+Without migration 014, replies, closes and commits are left out and the page
+says so.
+
+### Where the data comes from
+
+| What | Where |
+|---|---|
+| Teams, members, repos, settings | The permissions snapshot, which now also reads each team's description and notification setting |
+| Team history, member since | `team_history` in the `Permissions` object: every team line it logs, 5,000 kept, seeded from the 200-line changelog on first start. Leaving the org counts as being removed from each team |
+| Last active | D1, as above |
+| Last seen | `last_seen` in the `EventLog` object, upserted on every delivery whose sender is a person |
+| Review requests | `pull_requests.review_requests` (people) and `team_review_requests` (team ids) on open pull requests, through `scopedDb` |
+| Exclusions | `team_exclusions` in D1 `meta`, changed by compare-and-swap like the Dream Panel filters, stamped in `team_exclusions_at` |
+
+`team_review_requests` holds team ids, so a renamed team still matches. The
+webhook writes it in its own statement after the upsert, matched on
+`updated_at`, so a database without migration 013 still takes the rest of the
+pull request. The reconcile doesn't touch it, because reading a team needs org
+read and the build's PAT may not have it.
+
+### Settings
+
+In `wrangler.app.toml`:
+
+| Var | Default | What |
+|---|---|---|
+| `DEVELOPERS_TEAM` | `developers` | The team whose inactive members are listed, with every team under it |
+| `HIATUS_TEAM` | `developers-on-hiatus` | Where they move to |
+| `INACTIVE_DAYS` | `365` | Nothing recorded for this long counts as inactive |
+| `RETURN_DAYS` | `30` | Anything in this long counts as back |
+
+A slug that matches no team makes its panel say so.
+
+### The API
+
+| Route | |
+|---|---|
+| `GET /api/teams` | Config, team history and member-since dates, last active and last seen for every org and team member, review requests, exclusions. A part that fails is named in `problems` and the rest still answers |
+| `POST /api/teams/exclusions` | `{ panel, login, on, note }`. Credited to the admin's GitHub login |
+
+Both are admin only, and the POST is same-origin only.
+
+### Deploying
+
+Run both migrations before deploying:
+
+```bash
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/013-team-review-requests.sql
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file migrations/014-activity-indexes.sql
+```
+
+Then fill the team review requests for what's open today. It reads teams, so run
+it locally with an org member's token:
+
+```bash
+npm run backfill:team-requests
+cd worker && npx wrangler d1 execute nh-dashboard --remote --file team-requests.sql
+```
+
+The webhook Worker has to deploy too, since the `Permissions` and `EventLog`
+objects live there. `worker.yml` already deploys both.
+
+### Testing
+
+`npm run test:team-activity` covers last active against a real schema, with and
+without migration 014. `npm run test:team-management` covers the exclusions,
+review requests with and without migration 013, and the combined answer with a
+part failing. `test:permissions` covers the history and the team settings,
+`test:permission-jobs` the new change kinds, `test:event-log` last seen,
+`test:handlers` the team review requests, and `test:app` the routes.
+
 ## GitHub Webhook
 
 Under Admin Resources, after Custom Properties. Decides which GitHub events reach the
@@ -3352,7 +3508,7 @@ refusals and preview, against a SQLite shim, a fake GitHub and a fake Discord.
 
 ## Custom Properties
 
-Under Admin Resources, after Permissions. Every custom property in the org, how
+Under Admin Resources, after Team Management. Every custom property in the org, how
 each repo has it set, and changing both. Admin-only: missing from the sidebar for
 members and refused by the server for them regardless. Archived repos are left
 out entirely, the same as on Releases & Tags.
@@ -4549,11 +4705,11 @@ left, which is the cheaper of the two.
 
 ## Pages and sections
 
-Seventeen pages, in three sidebar sections:
+Eighteen pages, in three sidebar sections:
 
 | Section | Pages |
 |---|---|
-| **Admin Resources** | Dream Panel, Releases & Tags, Labels, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs, Permissions, Custom Properties, GitHub Webhook |
+| **Admin Resources** | Dream Panel, Releases & Tags, Labels, CI Health *(locked)*, Rulesets *(locked)*, GitHub Logs, Permissions, Team Management, Custom Properties, GitHub Webhook |
 | **Org Analytics** | Org Overview, Issue Analytics, PR Analytics, Contributor Activity, Repo Activity |
 | **Queries** | Org Search, Contributor Drilldown, Repo Drilldown |
 
