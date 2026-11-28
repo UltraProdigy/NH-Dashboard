@@ -1551,6 +1551,15 @@ Deps only make a repo out of sync when *count dependencies* is ticked. It is
 off by default, because nearly every repo is behind on something and the deps
 would drown out the buildscript and Gradle gaps.
 
+**Update PRs** (`planUpdates`, then the job re-checks the files):
+
+```
+buildscript bump  only when status = behind and the target is a plugin version
+gradle bump       only when status = behind
+dependency bump   only deps whose status = behind (not pinned, not unknown) → that dep's latest tag
+every edit        only when the file's current version < the target, so nothing is downgraded
+```
+
 **Counts:** the tab badge and the card's caption count out-of-sync repos after
 the card's repo exclusions and the toolbar filter. The *of N* in the caption is
 every repo with Gradle files in the scan.

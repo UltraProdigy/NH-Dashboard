@@ -93,8 +93,9 @@ NH-Dashbot only reads. Anything the dashboard does *to* the org goes through a
 second App, `Org-Manager` (App ID `5299242`), so the key that can start a
 release isn't the same key that serves every page load, and either one can be
 revoked without touching the other. Today that is releasing a daily, the
-Releases & Tags page and changes made on the Permissions page (see **Dream Panel
-→ Releasing a daily**, **Releases & Tags** and **Permissions**). Label-sync is
+Releases & Tags page, changes made on the Permissions page and the Updates
+card's update PRs (see **Dream Panel → Releasing a daily**, **Dream Panel →
+Update PRs**, **Releases & Tags** and **Permissions**). Label-sync is
 meant to move onto it later.
 
 It lives in `worker/src/org-manager.js`, beside NH-Dashbot's code in
@@ -110,7 +111,9 @@ Setup, once:
    all repositories. If any repo has a tag ruleset, Org-Manager needs to be on
    its bypass list, or releases there fail and its tags can't be deleted. The
    Permissions page also needs organization **Members: Read and write** and
-   repository **Administration: Read and write**.
+   repository **Administration: Read and write**. Update PRs need repository
+   **Contents: Read and write** (already there for releases) and **Pull
+   requests: Read and write**.
 2. Generate a private key on the App's General page and convert it to PKCS#8,
    as above: `openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in
    <downloaded>.pem -out org-manager-pk8.pem`.
@@ -1132,6 +1135,87 @@ plugin) is flagged **migrate** rather than **behind**: those need
 `worker/test/build-updates.test.js` (`npm run test:build-updates`, in the
 deploy gate) covers the parsers, the comparison, pins, the lock and the scan
 against a stubbed GitHub. The route guards are in `app.test.js`.
+
+### Update PRs
+
+The Updates tab can open the PRs that fix what it finds. Each repo row has a
+checkbox, and the bar under the toggles has:
+
+- **behind on**: *anything* (the usual view), or only repos behind on
+  buildscript, Gradle or dependencies. Picking one ignores *only out of sync*,
+  so repos that are only behind on dependencies can be listed without ticking
+  *count dependencies*.
+- **Select N shown** adds every row currently listed to the selection, and
+  **Clear** empties it. The header checkbox does the same for the rows shown.
+  The selection is kept while the filter changes, so "behind on Gradle → Select
+  shown → behind on buildscript → Select shown" picks both groups.
+- **buildscript, Gradle, dependencies**: which parts to update. All on by
+  default.
+- **Open PRs…** opens a review: the target versions, what each selected repo
+  will get, and which selected repos won't get a PR and why. It has a **dry
+  run** box, which reads every repo and reports what would change without
+  writing anything.
+
+Nothing is sent from the browser but the repo names, the ticked parts and the
+dry-run flag. `POST /api/updates/prs` re-plans from the stored scan and pins
+(`planUpdates` in `updates-calc.js`), so the page can't ask for a version the
+scan didn't find:
+
+- **Buildscript** only for repos on the settings plugin and behind. Legacy
+  repos are skipped with "legacy buildscript needs migrating by hand".
+- **Gradle** for repos behind on the wrapper.
+- **Dependencies**: every GTNH dependency marked *behind*, bumped to its repo's
+  latest tag. Pinned ones are left out.
+
+The job runs in `UpdatePrJobs`, a Durable Object in the app Worker, one repo at
+a time and one job at a time. Others queue behind it. For each repo it:
+
+1. Skips it if it's archived, or already has an open PR from a branch starting
+   `org-manager/build-updates`, linking that PR.
+2. Re-reads the files at the default branch's head, so anything updated since
+   the scan is left alone. Nothing is ever downgraded.
+3. Makes one commit per part, each on top of the last: *Update buildscript to
+   X* (the plugin version in `settings.gradle(.kts)`), *Update Gradle to X*, and
+   *Update dependencies* (each bump listed in the message).
+4. Creates `org-manager/build-updates-<id>`, one branch name per job, and opens
+   the PR against the default branch. The title names the parts. The body lists
+   each version change and the requester's GitHub login (not their email).
+
+The Gradle commit changes `distributionUrl` in the repo's own
+`gradle-wrapper.properties` and copies `gradle-wrapper.jar`, `gradlew` and
+`gradlew.bat` from a repo already on the newest Gradle (ExampleMod1.7.10 when
+it is, otherwise another non-fork repo already on the newest buildscript), only
+where they differ. That's what running `gradlew wrapper` would produce. A
+`distributionSha256Sum` line takes the source's checksum when the distribution
+matches and is dropped otherwise. `gradlew` keeps mode `100755`. The source repo
+is only read.
+
+Edits change only the version text. Commented-out lines are left alone, and
+dependency versions with `$`, `+` or no digit are never touched.
+
+Writes are spaced a second apart, and a repo doesn't start until its worst case
+(11 writes) fits under 70 a minute and 480 an hour. A rate limit waits and
+retries the repo up to five times. A retry reuses the job's branch, moving it
+with a forced update rather than failing. **Cancel** stops after the repo in
+progress; what's done stays done. The last five jobs are kept.
+
+The tab polls `GET /api/updates/prs` every three seconds while a job is queued
+or running, and shows its progress, each repo's result and a link to its PR.
+Locally (`DEV_ROLE` on localhost) every job is a dry run, and without
+Org-Manager's key it doesn't contact GitHub at all.
+
+| Route | |
+|---|---|
+| `GET /api/updates/prs` | The jobs and the current or last one's items |
+| `POST /api/updates/prs` | `{ repos, kinds: { buildscript, gradle, dependencies }, dry }`. 400 with `skipped` if nothing would change, 503 without Org-Manager's key, otherwise the job id, how many jobs are ahead and the skipped repos |
+| `POST /api/updates/prs/cancel` | `{ job }` |
+
+All three are admin-only, and the POSTs are same-origin only.
+
+`UpdatePrJobs` is created by the `v2` migration in `wrangler.app.toml`.
+`worker/test/update-prs.test.js` (`npm run test:update-prs`, in the deploy gate)
+covers the edits, the planning and whole jobs against an in-memory GitHub,
+including dry runs, retries and cancelling.
 
 ## Releases & Tags
 
