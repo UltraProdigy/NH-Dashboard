@@ -341,6 +341,16 @@ in, so removal from the org or from `admin` takes effect at their next login,
 up to a month later. To cut them off at once, revoke their session in Zero
 Trust → **Users**.
 
+**Who a change is credited to.** Everything the dashboard records about who did
+something (scans, pins, releases, snapshots, webhook rules, permission and
+property changes, update PRs and the *via dashboard* lines in the logs) stores
+the admin's GitHub login, from `actorOf` in `app.js`. The Access email is used
+only when Access gives no login, and for sign-in and the owner check
+(`ORG_OWNER_EMAILS`), which can only go by email. Records made before this
+stored the email. The page shows any email it still finds through `personName`
+in `format.js`: the login for a GitHub noreply address, otherwise only the part
+before the @.
+
 ### The reconcile
 
 `.github/workflows/reconcile.yml` runs `worker/backfill-prs.js` every six hours
@@ -852,7 +862,7 @@ running, the dialog says which one and who started it, and the button becomes
 
 The dispatch itself is made as Org-Manager, so GitHub shows the run as started
 by `org-manager[bot]`. Who actually pressed it is kept in `meta` under
-`daily_release_log`, as JSON holding the newest twenty presses (email, time,
+`daily_release_log`, as JSON holding the newest twenty presses (login, time,
 and the run it went alongside, if any), and written to Workers Logs as
 `{"at":"daily-release",…}`. Keeping it in `meta` means no migration.
 
@@ -2973,7 +2983,7 @@ The apply route (`normaliseBatch` in `worker/src/permission-jobs.js`):
   under one of its own children, reuses an existing team name, or is owner-only and
   the sender isn't an owner;
 - drops no-ops, keeps the last of any change staged twice, and caps a batch at 1,000;
-- stamps the batch with the sender's Access email.
+- stamps the batch with the sender's GitHub login.
 
 For each change, the object:
 
@@ -3030,13 +3040,13 @@ Changes made from the page show on GitHub as made by Org-Manager. So that Recent
 changes and GitHub Logs name the admin instead:
 
 - Before each change, the job tells the `Permissions` object which webhook it will
-  cause (`expectKeys` in `web/js/permission-changes.js`), with the admin's email,
+  cause (`expectKeys` in `web/js/permission-changes.js`), with the admin's login,
   for 30 minutes.
 - When that webhook arrives from a bot, the snapshot is patched as usual, its
-  GitHub Logs line reads ***email* via dashboard**, and it isn't logged in Recent
+  GitHub Logs line reads ***login* via dashboard**, and it isn't logged in Recent
   changes, because:
 - once the change is made, the object logs its own line in Recent changes with the
-  admin's email and *via dashboard*.
+  admin's login and *via dashboard*.
 - Owner changes and team role changes send no webhook at all, so for those the
   object also posts its line to GitHub Logs → Org & people.
 
@@ -3306,7 +3316,7 @@ dashboard's own `Origin`.
 | `GET /api/webhook` | Rules, who saved them and when, the hook's event list, and the log, newest first. Re-reads the hook from GitHub when the last read is over 10 minutes old |
 | `POST /api/webhook/hook` | Re-reads the hook from GitHub now, and returns the same as the GET |
 | `POST /api/webhook/preview` | `{ rules }` → what each logged delivery would get under them. Saves nothing |
-| `POST /api/webhook/rules` | `{ rules, base }` → saves, signed with the Access email. 409 if `base` is stale |
+| `POST /api/webhook/rules` | `{ rules, base }` → saves, signed with the admin's login. 409 if `base` is stale |
 
 Rules are normalised on the way in (`normalizeRules`): unknown fields, bad
 repo, event or action names and empty entries are dropped, so the stored shape
@@ -3471,7 +3481,7 @@ Until it's applied, History says it's off and everything else works. The webhook
 handlers skip the write instead of failing the delivery.
 
 - **From the dashboard**: every write's rows go in as `pending` before any call to
-  GitHub, with the admin's Access email. Each write's rows become `done` when it
+  GitHub, with the admin's login. Each write's rows become `done` when it
   succeeds and are deleted when it fails. Only `done` rows are shown.
 - **From GitHub**: the webhook Worker writes a row for each `custom_property_values`
   change and each `custom_property` created, updated or deleted, with the

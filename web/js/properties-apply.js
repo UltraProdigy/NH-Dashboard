@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { esc } from "./format.js";
+import { esc, personName } from "./format.js";
 import { describe, keyOf, listOf, normValue, sameDef, sameValue, showValue } from "./properties-calc.js";
 
 const KEY = "nh:props-staged";
@@ -96,7 +96,7 @@ export function warningsFor(changes, data, st) {
   }
   const stale = staleKeys(data, st);
   if (stale.size) out.push({ tone: "warn", html: `${plural(stale.size, "change was", "changes were")} staged against values GitHub has since changed. ${stale.size === 1 ? "It" : "They"}'ll be skipped, not overwritten.` });
-  if (data?.running) out.push({ tone: "warn", html: `${esc(data.running.by)} is applying property changes right now.` });
+  if (data?.running) out.push({ tone: "warn", html: `${esc(personName(data.running.by))} is applying property changes right now.` });
   return out;
 }
 

@@ -182,6 +182,11 @@ function bucketLabel(b) {
   return `${period} '${year.slice(2)}`;
 }
 
+// Older dashboard records stored the admin's Access email. Show any email as the
+// GitHub login when it's a noreply address, otherwise only the part before @.
+const personName = (v) => String(v ?? "").replace(/([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+  (m, local, domain) => (/^users\.noreply\.github\.com$/i.test(domain) ? local.replace(/^\d+\+/, "") : local));
+
 export {
   MONTHS,
   activeShare,
@@ -198,6 +203,7 @@ export {
   daysSince,
   diff,
   dur,
+  personName,
   esc,
   fmt,
   kfmt,

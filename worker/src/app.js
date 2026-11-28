@@ -44,6 +44,9 @@ export { PermissionJobs, UpdatePrJobs };
 
 const LOCAL = new Set(["localhost", "127.0.0.1"]);
 
+// What dashboard records credit a change to: the GitHub login, and the email only when Access gives no login.
+const actorOf = (who) => who.login ?? who.identity.email ?? who.identity.sub ?? "unknown";
+
 // Owners aren't a team, so the Access identity can't say who is one. ORG_OWNER_EMAILS
 // lists their Access emails; without it every owner-only edit is off, for owners too.
 export function orgOwnerCheck(who, snapshot, env) {
@@ -70,7 +73,7 @@ async function permissionWrites(request, env, url, who, path) {
   if (!env.PERMISSIONS || !env.PERMISSION_JOBS) return json({ error: "permissions not bound" }, 503);
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
   if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
-  const by = who.identity.email ?? who.identity.sub ?? "unknown";
+  const by = actorOf(who);
   const sent = await request.json().catch(() => null);
   if (path === "/api/permissions/cancel") {
     const res = await jobsStub(env).fetch("https://jobs/cancel", { method: "POST", body: JSON.stringify({ job: sent?.job ?? null, by }) });
@@ -101,7 +104,7 @@ async function updatePrs(request, env, url, who, path) {
   }
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
   if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
-  const by = who.identity.email ?? who.identity.sub ?? "unknown";
+  const by = actorOf(who);
   const sent = await request.json().catch(() => null);
   if (path === "/api/updates/prs/cancel") {
     const res = await updateJobsStub(env).fetch("https://jobs/cancel", { method: "POST", body: JSON.stringify({ job: sent?.job ?? null, by }) });
@@ -160,7 +163,7 @@ async function route(request, env, ctx, url, who) {
     if (request.method === "GET") return json(await dailyStatus(env));
     if (request.method !== "POST") return json({ error: "GET or POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
-    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const by = actorOf(who);
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     const { status, body } = await releaseDaily(env, by, { force: url.searchParams.get("force") === "1", dryRun });
     return json(body, status);
@@ -194,7 +197,7 @@ async function route(request, env, ctx, url, who) {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
     const sent = await request.json().catch(() => null);
-    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const by = actorOf(who);
     const dryRun = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
     const { status, body } = await action(sent, by, dryRun);
     return json(body, status);
@@ -223,7 +226,7 @@ async function route(request, env, ctx, url, who) {
     if (path !== "/api/updates/scan" && path !== "/api/updates/pin") return json({ error: "not found" }, 404);
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
-    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const by = actorOf(who);
     if (path === "/api/updates/pin") {
       const { status, body } = await setPin(env, by, await request.json().catch(() => null));
       return json(body, status);
@@ -252,7 +255,7 @@ async function route(request, env, ctx, url, who) {
     }
     const sent = await request.json().catch(() => null);
     const { status, body } = path === "/api/webhook/rules"
-      ? await saveWebhookRules(env, who.identity.email ?? who.identity.sub ?? "unknown", sent)
+      ? await saveWebhookRules(env, actorOf(who), sent)
       : await previewWebhookRules(env, sent);
     return json(body, status);
   }
@@ -269,7 +272,7 @@ async function route(request, env, ctx, url, who) {
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
     const sent = await request.json().catch(() => null);
-    const by = who.identity.email ?? who.identity.sub ?? "unknown";
+    const by = actorOf(who);
     const out = await applyProperties(env, by, sent, { dryRun, ctx });
     if (out.stream) {
       return new Response(out.stream, {

@@ -437,13 +437,13 @@ console.log("\nPermissions edits\n");
   const asOwnerApply = await apply([{ kind: "team_member", team: { id: 1 }, login: "bob", from: null, to: "member" }], { env: owners });
   check("an owner can", asOwnerApply.status === 200 && jobs.at(-1).path === "/submit");
   const ok = await apply([grant]);
-  check("a good batch goes to the one named job object, stamped with who sent it",
-    ok.status === 200 && ok.body.job === "job-1" && jobs.at(-1).id === "id:permission-jobs" && jobs.at(-1).body.by === "admin-user@example.com" &&
+  check("a good batch goes to the one named job object, stamped with their GitHub login, not their email",
+    ok.status === 200 && ok.body.job === "job-1" && jobs.at(-1).id === "id:permission-jobs" && jobs.at(-1).body.by === "UltraProdigy" &&
     jobs.at(-1).body.changes[0].team.slug === "developers" && jobs.at(-1).body.dry === false);
   const noKey = await apply([grant], { env: { ...env, ORG_MANAGER_PRIVATE_KEY: undefined } });
   check("without Org-Manager's key it says so", noKey.status === 503);
   const cancel = await call("/api/permissions/cancel", { sub: "admin-user", env, method: "POST", headers: origin, body: "{}" });
-  check("cancel goes to the job object with who asked", cancel.status === 200 && jobs.at(-1).path === "/cancel" && jobs.at(-1).body.by === "admin-user@example.com");
+  check("cancel goes to the job object with who asked", cancel.status === 200 && jobs.at(-1).path === "/cancel" && jobs.at(-1).body.by === "UltraProdigy");
   const st = await call("/api/permissions/jobs", { sub: "admin-user", env });
   check("the job state can be read without a socket", st.status === 200 && Array.isArray(st.body.jobs));
   const memberState = await call("/api/permissions/jobs", { sub: "member-user", env });

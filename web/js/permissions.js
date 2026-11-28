@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { avatar, contribHref, esc, repoHref } from "./format.js";
+import { avatar, contribHref, esc, personName, repoHref } from "./format.js";
 import { KEEP_PER_BOX } from "./log-boxes.js";
 import {
   adminRows, directRows, indexSnapshot, LEVELS, personAccess, problems, rank, repoAccess, repoRoles, repoTeams, teamAncestors, teamRoles, teamRows,
@@ -220,9 +220,9 @@ function changesCard() {
     return `<li class="log-row${e.tone ? ` tone-${esc(e.tone)}` : ""}">
       <time datetime="${esc(e.at)}" title="${esc(new Date(e.at).toLocaleString())}">${esc(when(e.at))}</time>
       <span class="log-what">${e.repo ? `<span class="log-repo">${repoByName(e.repo) ? opener("repo", repoByName(e.repo).id, esc(e.repo)) : esc(e.repo)}</span>` : ""}${
-        e.via === "dashboard" ? `<span class="log-actor">${esc(e.actor)}</span><span class="log-actor log-via" title="Made from this page, by Org-Manager">via dashboard</span>`
+        e.via === "dashboard" ? `<span class="log-actor">${esc(personName(e.actor))}</span><span class="log-actor log-via" title="Made from this page, by Org-Manager">via dashboard</span>`
           : e.via ? `<span class="log-actor log-via" title="Found by the 10-minute check, not a webhook">${esc(e.via)}</span>`
-            : e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
+            : e.actor ? `<span class="log-actor">${esc(personName(e.actor))}</span>` : ""}${text}</span>
     </li>`;
   };
   const count = rows.length >= KEEP_PER_BOX ? `latest ${KEEP_PER_BOX}` : plural(rows.length, "change");

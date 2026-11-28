@@ -1,6 +1,6 @@
 import { state } from "./state.js";
 import { API } from "./live.js";
-import { esc, safeUrl } from "./format.js";
+import { esc, personName, safeUrl } from "./format.js";
 import { render } from "./render.js";
 
 function ago(iso) {
@@ -33,7 +33,7 @@ function dialogHtml(s) {
 
   const log = s.log?.length
     ? `<div class="daily-log"><div class="minlabel">Released from here</div><ul>${s.log.map(e =>
-        `<li>${esc(e.by)} · ${ago(e.at)}${e.dryRun ? " · dry run" : ""}</li>`).join("")}</ul></div>`
+        `<li>${esc(personName(e.by))} · ${ago(e.at)}${e.dryRun ? " · dry run" : ""}</li>`).join("")}</ul></div>`
     : "";
 
   return `

@@ -1,4 +1,4 @@
-import { esc, safeUrl } from "./format.js";
+import { esc, personName, safeUrl } from "./format.js";
 import { seriesOf, validTagName } from "./release-tags.js";
 import { keepScroll } from "./scroll.js";
 
@@ -29,7 +29,7 @@ export function initSnapshots(c) {
 export const findSnapshot = (name) => (snaps ?? []).find((s) => s.name === name) ?? null;
 export const snapshotCount = () => snaps?.length ?? null;
 const current = () => findSnapshot(pick);
-const who = (by) => esc(String(by ?? "someone").split("@")[0]);
+const who = (by) => esc(by ? personName(by) : "someone");
 const repoUrl = (name) => `https://github.com/${ORG}/${encodeURIComponent(name)}`;
 
 function resetEdits() {

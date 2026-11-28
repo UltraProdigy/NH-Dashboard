@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { esc } from "./format.js";
+import { esc, personName } from "./format.js";
 import { describe, isInvite, isRisky, keyOf, needsOwner } from "./permission-changes.js";
 
 const DRAFT_KEY = "nh:perm-staged";
@@ -212,7 +212,7 @@ function resultsHtml(job, data) {
     `<li><span class="pill perm-st perm-st-${esc(it.status)}">${esc(STATUS_LABEL[it.status] ?? it.status)}</span>
       <span>${esc(describe(it.change, { teamName: teamName(data) }))}</span>${it.note ? ` <span class="sub">${esc(it.note)}</span>` : ""}</li>`).join("");
   return `<h3>${job.state === "running" ? "Applying" : job.state === "cancelled" ? "Cancelled" : "Finished"}: ${countsText(job)}</h3>
-    <p class="daily-last">Sent by ${esc(job.by)}${job.dry ? ", as a dry run" : ""}${job.cancelledBy ? `, cancelled by ${esc(job.cancelledBy)}` : ""}.
+    <p class="daily-last">Sent by ${esc(personName(job.by))}${job.dry ? ", as a dry run" : ""}${job.cancelledBy ? `, cancelled by ${esc(personName(job.cancelledBy))}` : ""}.
       Results stay here until the next batch starts.</p>
     <ul class="perm-results-list">${rows}</ul>
     <div class="daily-actions"><span class="ra-count"></span><button type="button" class="ghost" data-close autofocus>Close</button></div>`;

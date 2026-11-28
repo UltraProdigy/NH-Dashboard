@@ -1,6 +1,6 @@
 import { API, onUpdatesStamp } from "./live.js";
 import { state } from "./state.js";
-import { esc, fmt, repoLink, safeUrl } from "./format.js";
+import { esc, fmt, personName, repoLink, safeUrl } from "./format.js";
 import { applyFilter, renderTable, sortRows } from "./table.js";
 import { cardReposFrom, exclControlsHtml, isExcludedRepo } from "./dream.js";
 import { planUpdates, summarize, UPDATE_KINDS } from "./updates-calc.js";
@@ -273,7 +273,7 @@ function targetsLine(s) {
 function scanLine() {
   const sc = data.scan;
   const skipped = sc.skipped ?? {};
-  const bits = [`Scanned ${esc(ago(sc.scannedAt))}${sc.by ? ` by ${esc(sc.by)}` : ""}`];
+  const bits = [`Scanned ${esc(ago(sc.scannedAt))}${sc.by ? ` by ${esc(personName(sc.by))}` : ""}`];
   bits.push(`${fmt(sc.repos.length)} repos with Gradle files`);
   const left = [
     skipped.noGradle && `${fmt(skipped.noGradle)} without`,
@@ -362,10 +362,10 @@ export function updatesSubHtml() {
 export function updatesControlsHtml() {
   const other = othersScan();
   const title = other
-    ? `${other.by} started a scan ${ago(other.at)}. This card reloads when it lands.`
+    ? `${personName(other.by)} started a scan ${ago(other.at)}. This card reloads when it lands.`
     : "Read every repo's settings.gradle, gradle-wrapper.properties and dependencies.gradle from GitHub again";
   const refresh = `<button class="ghost" data-upd-scan${busy || other ? " disabled" : ""} title="${esc(title)}">${
-    busy ? "Scanning…" : other ? `Scanning… (${esc(String(other.by).split("@")[0])})` : "Refresh"}</button>${
+    busy ? "Scanning…" : other ? `Scanning… (${esc(personName(other.by))})` : "Refresh"}</button>${
     note ? `<span class="minlabel upd-note">${esc(note)}</span>` : ""}`;
   return exclControlsHtml("updates", refresh);
 }
@@ -474,14 +474,14 @@ function jobHtml() {
   const running = f.state === "running" || f.state === "queued";
   const queued = (jobs.jobs ?? []).filter((j) => j.state === "queued" && j.id !== f.id).length;
   const head = [
-    `${f.dry ? "Dry run" : "Update PRs"} by ${esc(String(f.by).split("@")[0])}`,
+    `${f.dry ? "Dry run" : "Update PRs"} by ${esc(personName(f.by))}`,
     running ? `${fmt(settled)} of ${fmt(f.total)}` : esc(f.state),
     c.done ? `${fmt(c.done)} ${f.dry ? "ready" : "opened"}` : "",
     c.skipped ? `${fmt(c.skipped)} skipped` : "",
     c.failed ? `${fmt(c.failed)} failed` : "",
     f.waitUntil && running ? `waiting until ${new Date(f.waitUntil).toLocaleTimeString()} (${esc(f.waitNote ?? "")})` : "",
     queued ? `${queued} more queued` : "",
-    f.state === "cancelled" && f.cancelledBy ? `cancelled by ${esc(String(f.cancelledBy).split("@")[0])}` : "",
+    f.state === "cancelled" && f.cancelledBy ? `cancelled by ${esc(personName(f.cancelledBy))}` : "",
   ].filter(Boolean).join(" · ");
   const cancel = running ? ` <button class="ghost mini" data-upd-cancel="${esc(f.id)}"${f.cancelling ? " disabled" : ""}>${f.cancelling ? "Cancelling…" : "Cancel"}</button>` : "";
   const rows = f.items.map((it) => {

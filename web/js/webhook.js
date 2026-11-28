@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { avatar, esc, safeUrl } from "./format.js";
+import { avatar, esc, personName, safeUrl } from "./format.js";
 import { keepScroll } from "./scroll.js";
 import { actionLabel, actionsOf, EVENT_ORDER, eventLabel, REASONS, WEBHOOK_EVENTS } from "./webhook-catalog.js";
 import { loadRepoList, onRepoList, repoList, repoListDue, repoListError, repoListLoading } from "./repo-list.js";
@@ -142,7 +142,7 @@ function statusCard() {
   const failures = day.filter(failedSend).length;
   const fact = (label, value, extra = "") => `<div class="wh-fact"><span class="sub">${esc(label)}</span><strong>${value}</strong>${extra}</div>`;
   const saved = data.updatedAt
-    ? `Rules saved ${esc(ago(data.updatedAt))}${data.updatedBy ? ` by ${esc(data.updatedBy)}` : ""}`
+    ? `Rules saved ${esc(ago(data.updatedAt))}${data.updatedBy ? ` by ${esc(personName(data.updatedBy))}` : ""}`
     : "No rules saved yet, so everything is sent";
   const empty = list.length
     ? ""

@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { esc } from "./format.js";
+import { esc, personName } from "./format.js";
 import { keepScroll } from "./scroll.js";
 import { propertyFilter } from "./property-filter.js";
 import { loadRepoList, repoList as sharedRepoList } from "./repo-list.js";
@@ -157,7 +157,7 @@ function notesHtml() {
   if (data?.propertiesError) out.push(["daily-warn", data.propertiesError]);
   if (data?.viewer?.canApply === false) out.push(["hint", "Org-Manager's key isn't set on the app Worker, so changes can be staged but not applied."]);
   if (data?.historyError) out.push(["hint", data.historyError]);
-  if (data?.running) out.push(["daily-warn", `${data.running.by} is applying property changes right now.`]);
+  if (data?.running) out.push(["daily-warn", `${esc(personName(data.running.by))} is applying property changes right now.`]);
   return out.map(([cls, t]) => `<p class="${cls} perm-note">${esc(t)}</p>`).join("");
 }
 
@@ -295,7 +295,7 @@ function changeText(h) {
 }
 
 function historyRow(h) {
-  const who = h.source === "dashboard" ? esc(h.by) : `${esc(h.by)} <span class="sub">on GitHub</span>`;
+  const who = h.source === "dashboard" ? esc(personName(h.by)) : `${esc(personName(h.by))} <span class="sub">on GitHub</span>`;
   return `<tr>
     <td class="sub" title="${esc(h.at)}">${esc(when(h.at))}</td>
     <td>${who}</td>

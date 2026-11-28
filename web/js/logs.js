@@ -1,5 +1,5 @@
 import { API } from "./live.js";
-import { esc } from "./format.js";
+import { esc, personName } from "./format.js";
 import { BOXES, FALLBACK_BOX, KEEP_PER_BOX, monitors } from "./log-boxes.js";
 import { keepScroll } from "./scroll.js";
 
@@ -50,7 +50,7 @@ function rowHtml(e, fresh = false) {
     <time datetime="${esc(e.at)}" title="${esc(new Date(e.at).toLocaleString())}">${esc(when(e.at))}</time>
     <span class="log-what">${e.repo ? `<span class="log-repo">${esc(e.repo)}</span>` : ""}${
       e.via ? `<span class="log-actor log-via" title="Found by the 10-minute check, not a webhook">${esc(e.via)}</span>`
-        : e.actor ? `<span class="log-actor">${esc(e.actor)}</span>` : ""}${text}</span>
+        : e.actor ? `<span class="log-actor">${esc(personName(e.actor))}</span>` : ""}${text}</span>
   </li>`;
 }
 
