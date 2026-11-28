@@ -3231,10 +3231,10 @@ From the top:
 - **Teams.** Every team in its hierarchy, child teams under their parent, with
   members, repos (inherited included), review requests, and the newest member
   with when they were added. **New team** is the same as on Permissions.
-- **Review requests.** Open pull requests waiting on a team, oldest update
-  first. Picking one team splits it into requests to the team and requests to
-  one of its members by name. A team with auto-assignment has its request
-  swapped for people, so the second list is where those end up.
+- **Review requests.** Open pull requests where a team itself was asked to
+  review, oldest update first, for every team or one picked from the list.
+  Requests to a member by name don't count, here, in the Teams table or in the
+  team panel.
 - **Cross reference.** Tick two or more teams to see a grid of the members each
   pair shares, and a list of the people in all of them, in any of them, or only
   in the first one ticked.

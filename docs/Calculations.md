@@ -2058,11 +2058,10 @@ the member with the latest of these.
 
 ### Review requests
 
-Open pull requests only (`state = 'OPEN'`), excluded repos left out. **Asked of
-the team** is a pull request whose `team_review_requests` holds the team's id.
-**Asked of a member** is one whose `review_requests` names a current member and
-which isn't already asked of the team. A pull request asked of two teams counts
-for both.
+Open pull requests only (`state = 'OPEN'`), excluded repos left out. A team's
+review requests are the pull requests whose `team_review_requests` holds its id.
+A request to one of its members by name doesn't count. A pull request asked of
+two teams counts for both.
 
 ### Cross reference
 

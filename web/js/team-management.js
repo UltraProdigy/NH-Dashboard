@@ -101,16 +101,7 @@ function sinceText(teamId, login) {
 
 /* ---- review requests ---- */
 
-function requestsFor(team) {
-  const prs = tm?.requests?.prs ?? [];
-  const members = new Set(Object.keys(team.members ?? {}).map(low));
-  const direct = prs.filter((p) => p.teams.some((id) => String(id) === String(team.id)));
-  const directSet = new Set(direct);
-  const viaMember = prs
-    .filter((p) => !directSet.has(p) && p.people.some((l) => members.has(low(l))))
-    .map((p) => ({ ...p, asked: p.people.filter((l) => members.has(low(l))) }));
-  return { direct, viaMember };
-}
+const requestsFor = (team) => (tm?.requests?.prs ?? []).filter((p) => p.teams.some((id) => String(id) === String(team.id)));
 
 const prUrl = (p) => github(`${org()}/${encodeURIComponent(p.repo)}/pull/${p.number}`);
 
@@ -325,7 +316,7 @@ function teamsCard() {
   const rows = teamRows(data(), { archived: permArchived() });
   const html = rows.map((row) => {
     const t = teamOf(row.team);
-    const req = requestsFor(t);
+    const asked = requestsFor(t).length;
     const newest = Object.keys(t.members ?? {})
       .map((login) => ({ login, at: tm?.since?.[t.id]?.[low(login)] ?? null }))
       .filter((m) => m.at).sort((a, b) => b.at.localeCompare(a.at))[0];
@@ -338,7 +329,7 @@ function teamsCard() {
         ${t.description ? `<div class="sub tm-desc">${esc(t.description)}</div>` : ""}</td>
       <td class="num">${row.members}${row.maintainers ? ` <span class="sub">· ${row.maintainers} maint.</span>` : ""}</td>
       <td class="num">${row.repos}</td>
-      <td class="num">${tm ? `${req.direct.length}${req.viaMember.length ? ` <span class="sub" title="Asked of a member directly">+${req.viaMember.length}</span>` : ""}` : "…"}</td>
+      <td class="num">${tm ? asked : "…"}</td>
       <td>${newest ? `${personRef(newest.login)} <span class="sub">${esc(agoText(daysSince(newest.at)))}</span>` : `<span class="sub">—</span>`}</td>
     </tr>`;
   });
@@ -352,24 +343,19 @@ function teamsCard() {
 function requestsCard() {
   const r = tm?.requests;
   if (!r) return card("Review requests", "", `<div class="empty">${failed ? esc(failed) : "Loading…"}</div>`);
-  const counts = teams().map((t) => ({ t, ...requestsFor(t) }));
-  const opts = [["", "Every team"], ...counts.sort((a, b) => b.direct.length - a.direct.length || a.t.name.localeCompare(b.t.name))
-    .map((c) => [c.t.id, `${c.t.name} (${c.direct.length}${c.viaMember.length ? ` + ${c.viaMember.length}` : ""})`])];
+  const counts = teams().map((t) => ({ t, n: requestsFor(t).length }));
+  const opts = [["", "Every team"], ...counts.sort((a, b) => b.n - a.n || a.t.name.localeCompare(b.t.name)).map((c) => [c.t.id, `${c.t.name} (${c.n})`])];
   const picked = ui.requests && teamOf(ui.requests);
   let body;
   if (picked) {
-    const { direct, viaMember } = requestsFor(picked);
-    body = `<h3 class="tm-sub">Asked of ${esc(picked.name)} <span class="sub">${direct.length}</span></h3>` +
-      table(prHead, direct.map((p) => prRow(p, teamChip(picked, true))), `No open pull request is waiting on ${picked.name}.`) +
-      `<h3 class="tm-sub">Asked of a member directly <span class="sub">${viaMember.length}</span></h3>` +
-      table(prHead, viaMember.map((p) => prRow(p, p.asked.map(esc).join(", "))), "None.");
+    body = table(prHead, requestsFor(picked).map((p) => prRow(p, teamChip(picked, true))), `No open pull request is waiting on ${picked.name}.`);
   } else {
     const prs = r.prs.filter((p) => p.teams.length).sort((a, b) => a.updated.localeCompare(b.updated));
     body = table(prHead, prs.map((p) => prRow(p, p.teams.map((id) => (teamOf(id) ? teamChip(teamOf(id), true) : `<span class="tm-chip">team ${esc(id)}</span>`)).join(" "))),
       r.teams ? "No open pull request is waiting on a team." : "Team review requests show up once migration 013 has run.");
   }
-  const note = r.teams ? "" : `<p class="hint tm-hint">Only people asked directly are shown until migration 013 has run and the team requests are backfilled.</p>`;
-  return card("Review requests", "open pull requests, the longest waiting first · teams with auto-assignment hand requests to members, which is what the + counts",
+  const note = r.teams ? "" : `<p class="hint tm-hint">Team review requests are only recorded once migration 013 has run.</p>`;
+  return card("Review requests", "open pull requests where a team itself was asked to review, the longest waiting first",
     `${note}${body}`, { extra: `<select class="perm-sel" data-tm-requests aria-label="Team">${options(opts, ui.requests)}</select>` });
 }
 
@@ -431,7 +417,7 @@ function memberCells(teamId, login) {
 
 function sections(team) {
   if (!tm) return "";
-  const { direct } = requestsFor(team);
+  const direct = requestsFor(team);
   const reqRows = direct.map((p) => prRow(p, teamChip(team, true)));
   const lines = (tm.history ?? []).filter((e) => String(e.teamId) === String(team.id)).slice(0, 25);
   const history = lines.length
