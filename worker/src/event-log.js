@@ -10,6 +10,12 @@ import { diffSnapshots, fetchRepoSettings } from "./repo-settings.js";
 
 export const LOG_NAME = "github-logs";
 
+const PERSON = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+
+// Someone GitHub sent a delivery for, as opposed to a bot, the 10-minute check or "x via dashboard".
+export const seenActor = (entry) =>
+  !entry.via && typeof entry.actor === "string" && PERSON.test(entry.actor) ? entry.actor : null;
+
 const MAX_TEXT = 160;
 
 const clip = (value, max = MAX_TEXT) => {
@@ -451,6 +457,7 @@ export class EventLog {
     this.sql.exec("CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, box TEXT NOT NULL, entry TEXT NOT NULL)");
     this.sql.exec("CREATE INDEX IF NOT EXISTS idx_events_box ON events (box, seq)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS repo_settings (name TEXT PRIMARY KEY, json TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS last_seen (key TEXT PRIMARY KEY, login TEXT NOT NULL, at TEXT NOT NULL, event TEXT, repo TEXT, text TEXT, url TEXT)");
     if (typeof WebSocketRequestResponsePair === "function" && ctx.setWebSocketAutoResponse) {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     }
@@ -462,6 +469,10 @@ export class EventLog {
       const sent = await request.json();
       for (const entry of [].concat(sent)) this.record(entry);
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/seen" && request.method === "POST") {
+      const { logins } = await request.json();
+      return Response.json(this.seen(logins ?? []));
     }
     if (url.pathname === "/settings" && request.method === "POST") {
       const { at, org, repos } = await request.json();
@@ -488,6 +499,15 @@ export class EventLog {
   record(entry) {
     if (!entry || typeof entry.box !== "string") return;
     this.sql.exec("INSERT INTO events (box, entry) VALUES (?, ?)", entry.box, JSON.stringify(entry));
+    const who = seenActor(entry);
+    if (who && entry.at) {
+      this.sql.exec(
+        `INSERT INTO last_seen (key, login, at, event, repo, text, url) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (key) DO UPDATE SET login = excluded.login, at = excluded.at, event = excluded.event, repo = excluded.repo, text = excluded.text, url = excluded.url
+         WHERE excluded.at > last_seen.at`,
+        who.toLowerCase(), who, entry.at, entry.event ?? null, entry.repo ?? null, entry.text ?? null, entry.url ?? null,
+      );
+    }
     this.sql.exec(
       "DELETE FROM events WHERE box = ? AND seq <= (SELECT seq FROM events WHERE box = ? ORDER BY seq DESC LIMIT 1 OFFSET ?)",
       entry.box, entry.box, KEEP_PER_BOX,
@@ -520,6 +540,19 @@ export class EventLog {
     }
     for (const entry of entries) this.record(entry);
     return { repos: Object.keys(repos).length, changed: entries.length, baseline };
+  }
+
+  seen(logins) {
+    const keys = [...new Set(logins.filter((l) => typeof l === "string").map((l) => l.toLowerCase()))].slice(0, 2000);
+    if (!keys.length) return {};
+    const out = {};
+    for (let i = 0; i < keys.length; i += 90) {
+      const part = keys.slice(i, i + 90);
+      for (const row of this.sql.exec(`SELECT * FROM last_seen WHERE key IN (${part.map(() => "?").join(", ")})`, ...part).toArray()) {
+        out[row.key] = { login: row.login, at: row.at, event: row.event, repo: row.repo, text: row.text, url: row.url };
+      }
+    }
+    return out;
   }
 
   history() {

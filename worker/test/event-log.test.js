@@ -341,5 +341,22 @@ console.log("\nthe webhook\n");
   check("a log that is down doesn't fail the delivery", res2.status === 200, res2.status);
 }
 
+console.log("\nlast seen\n");
+{
+  const { obj } = fakeObject();
+  obj.record({ id: "a", box: "pulls", event: "pull_request", at: "2026-11-01T00:00:00Z", actor: "Dream-Master", repo: "GT5-Unofficial", text: "merged #1" });
+  obj.record({ id: "b", box: "issues", event: "issue_comment", at: "2026-11-02T00:00:00Z", actor: "dream-master", repo: "NewHorizons", text: "commented on #2" });
+  obj.record({ id: "c", box: "pulls", event: "pull_request", at: "2026-10-01T00:00:00Z", actor: "Dream-Master", repo: "Old", text: "late copy" });
+  obj.record({ id: "d", box: "org", event: "permissions", at: "2026-11-03T00:00:00Z", actor: "boubou via dashboard", via: null, text: "x" });
+  obj.record({ id: "e", box: "org", event: "permissions", at: "2026-11-03T00:00:00Z", actor: null, via: "10-min check", text: "x" });
+  obj.record({ id: "f", box: "ci", event: "push", at: "2026-11-03T00:00:00Z", actor: "github-actions[bot]", text: "x" });
+  const res = await obj.fetch(new Request("https://event-log/seen", { method: "POST", body: JSON.stringify({ logins: ["DREAM-MASTER", "boubou", "github-actions[bot]", "nobody"] }) }));
+  const seen = await res.json();
+  check("a person's newest delivery is kept, whatever the case of their login",
+    seen["dream-master"]?.at === "2026-11-02T00:00:00Z" && seen["dream-master"].event === "issue_comment" && seen["dream-master"].repo === "NewHorizons", JSON.stringify(seen));
+  check("an older delivery arriving late doesn't replace it", seen["dream-master"].text === "commented on #2");
+  check("dashboard lines, the 10-minute check and bots aren't anyone being seen", Object.keys(seen).join() === "dream-master");
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

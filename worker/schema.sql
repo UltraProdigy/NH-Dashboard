@@ -182,6 +182,8 @@ CREATE INDEX IF NOT EXISTS idx_issues_author  ON issues (author, created_at);
 CREATE INDEX IF NOT EXISTS idx_issues_created ON issues (created_at);
 CREATE INDEX IF NOT EXISTS idx_issues_open    ON issues (repo, updated_at) WHERE state = 'OPEN';
 CREATE INDEX IF NOT EXISTS idx_issues_closer  ON issues (closed_by) WHERE closed_by IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_issues_responder ON issues (first_responder, first_response_at) WHERE first_responder IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_issues_closed_by ON issues (closed_by, closed_at) WHERE closed_by IS NOT NULL;
 
 -- -------------------------------------------------------------------- commits
 
@@ -215,6 +217,7 @@ CREATE TABLE IF NOT EXISTS commits (
 -- committer's UTC offset and are normalised on the way in, because `+02:00`
 -- sorts below `Z` and would quietly break MAX().
 CREATE INDEX IF NOT EXISTS idx_commits_repo_time ON commits (repo, committed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_commits_author ON commits (author, committed_at) WHERE author IS NOT NULL;
 
 -- ------------------------------------------------------------------- releases
 
