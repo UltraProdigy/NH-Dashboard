@@ -10,7 +10,6 @@ export const LIVE_PANELS = [
   "approvedUnmerged",
   "changesRequested",
   "needsRelease",
-  "depUpdates",
   "byLabel",
   "ciHealth",
   "issues",
@@ -19,7 +18,7 @@ export const LIVE_PANELS = [
   "labelUsage",
 ];
 
-export const ADMIN_PANELS = ["approvedUnmerged", "changesRequested", "depUpdates", "labelSync", "labelUsage"];
+export const ADMIN_PANELS = ["approvedUnmerged", "changesRequested", "labelSync", "labelUsage"];
 
 export const isAdmin = (role) => role === "admin";
 

@@ -221,7 +221,6 @@ const DREAM_EXCL_KINDS = {
   approvedUnmerged: ["repos", "labels"],
   changesRequested: ["repos"],
   needsRelease: ["repos"],
-  depUpdates: ["repos"],
   byLabel: ["repos", "labels"],
   updates: ["repos"],
 };
@@ -247,7 +246,6 @@ const DREAM_EXCL_DEFAULT = {
     ],
     labels: [],
   },
-  depUpdates: { repos: [], labels: [] },
   byLabel: { repos: [], labels: [] },
   updates: { repos: [], labels: [] },
 };

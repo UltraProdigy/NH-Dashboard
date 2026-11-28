@@ -1,11 +1,9 @@
 /**
  * What a commit means to the release cards, in both languages.
  *
- * `needsRelease` and `depUpdates` rest on one question — did this commit arrive
- * through a pull request — and they read the answer in opposite directions.
- * `needsRelease` wants at least one commit that did; `depUpdates` wants the
- * newest one that did not. A rule that disagrees with itself across the two
- * implementations moves both cards, in opposite directions, from one cause.
+ * `needsRelease` rests on one question — did this commit arrive through a pull
+ * request — and wants at least one commit that did. A rule that disagrees with
+ * itself across the two implementations moves the card from one cause.
  *
  * The GraphQL build reads `associatedPullRequests.totalCount`, which is
  * GitHub's own answer. **The webhook cannot.** A `push` payload's commits carry
@@ -23,15 +21,12 @@
  *
  * The residual error is one-directional and worth stating plainly, because it
  * is the failure the reader will meet: a PR commit that the fallback misses
- * looks *direct*. On `depUpdates` that makes a repo read younger than it is —
- * staleness hidden, not invented. On `needsRelease` it can only add a repo that
- * should not be there, never drop one that should. The daily build overwrites
+ * looks *direct*. On `needsRelease` it can only add a repo that should not be
+ * there, never drop one that should. The daily build overwrites
  * NULL with the real answer on its next pass, so the error is also temporary.
  *
  * Dependency-free, because a Worker bundles it.
  */
-
-import { isBot, isBotSql } from "./contributor-rules.js";
 
 /**
  * Timestamps, normalised to the form every comparison in this store assumes.
@@ -74,26 +69,6 @@ export const viaPullRequest = (commit) =>
  */
 export const viaPullRequestSql = (commit = "c", pr = "p") =>
   `COALESCE(${commit}.via_pr, CASE WHEN ${pr}.number IS NOT NULL THEN 1 ELSE 0 END)`;
-
-/**
- * A commit that did not come through a pull request and was not a bot pushing
- * generated files — `depUpdates`' definition of a dependency bump.
- *
- * The bot half is `isBot`'s, not a second copy: a login is a login whether it
- * authored a commit or a pull request, and the contributor parity test already
- * runs both readings of it over every author in the seed.
- */
-export const isDirectCommit = (commit, { ignoreBots = true } = {}) => {
-  if (viaPullRequest(commit)) return false;
-  return ignoreBots ? !isBot(commitAuthor(commit)) : true;
-};
-
-export const isDirectCommitSql = (
-  { commit = "c", pr = "p", ignoreBots = true } = {},
-) => {
-  const direct = `${viaPullRequestSql(commit, pr)} = 0`;
-  return ignoreBots ? `(${direct} AND NOT ${isBotSql(`${commit}.author`)})` : `(${direct})`;
-};
 
 /**
  * The login to credit a commit to.

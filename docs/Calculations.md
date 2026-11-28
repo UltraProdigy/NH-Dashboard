@@ -52,7 +52,6 @@ the seed.
 | First review timestamp (a bot comment is not a review) | Comment and reaction counts (GitHub totals) |
 | First response timestamp (a bot reply is not an answer) | Repo activity `opened` and concentration |
 | PR-creation heatmap | Org Search |
-| Dep updates' last direct commit (`DEP_UPDATE_IGNORE_BOTS`, on) | |
 
 "How many PRs were opened" counts bots; "how many people opened PRs" does not.
 
@@ -1495,34 +1494,6 @@ neiaddons), which is what a single ticked correction fixes. A rule taken from
 the repo's own release history instead gained nothing on the same data, so
 nothing is inferred without a correction.
 
-### Dep updates
-
-On screen: *Time since last update*
-
-`src/panels/depUpdates.js`. **A proxy, and the card says so.**
-
-Measures: the newest default-branch commit with **no PR** and (with
-`DEP_UPDATE_IGNORE_BOTS`) a non-bot author. Claims: time since dependencies were
-touched. It holds because nearly everything here arrives by PR and direct
-commits are usually maintainer dependency bumps; a direct typo fix makes a repo
-read fresher. GitHub cannot cheaply say what a commit changed.
-
-```
-daysSinceDirect = floor((now − commit.committedDate) / 86,400,000)
-```
-
-The walk stops at `DEP_UPDATE_LOOKBACK_DAYS` (365) or `DEP_UPDATE_MAX_PAGES`
-(10 × 100 commits). If nothing is found, `approx: true` with a floor:
-
-- reached the lookback horizon (`exhausted`) → 365 (shown "≥ 1 yr")
-- ran out of pages first → age of the oldest commit seen
-
-Sort: `daysSinceDirect` desc, exact before approximate, then repo name.
-
-**SQL floor** = `min(365, age of the oldest stored commit for that repo)`: D1
-only knows how far its own capture goes, so it under-claims instead of asserting
-a horizon it never reached.
-
 ### Build updates
 
 On screen: *Updates* (Dream Panel)
@@ -1589,8 +1560,7 @@ With every repo in sync it says so.
 
 ### Pull-request association
 
-Both panels ask whether a commit came through a PR (`needsRelease` wants ≥ 1
-that did; `depUpdates` the newest that did not).
+`needsRelease` asks whether a commit came through a PR, and wants ≥ 1 that did.
 
 | Source | Method | Exact? |
 |---|---|---|
@@ -1601,8 +1571,7 @@ that did; `depUpdates` the newest that did not).
 So `commits.via_pr` is nullable: 0/1 = resolved by the build, NULL = written by
 a delivery, read through the join. The join is exact for squash and merge
 commits but misses **rebase merges** (new SHAs). The error is one-directional:
-`depUpdates` can read a repo as fresher (never staler); `needsRelease` can add a
-repo wrongly, never drop one. The next backfill overwrites `via_pr` with
+`needsRelease` can add a repo wrongly, never drop one. The next backfill overwrites `via_pr` with
 GitHub's answer.
 
 ### Timestamp normalisation

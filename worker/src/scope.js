@@ -50,7 +50,7 @@ const TABLES = {
   // untouched by the entry above it.
   repo_labels: "repo",
   // Webhooks and the commit backfill write a row for every repo, excluded or
-  // not. Unscoped, depUpdates LEFT JOINed it and published excluded repos.
+  // not, so it has to be scoped like the rest.
   repos: "name",
 };
 

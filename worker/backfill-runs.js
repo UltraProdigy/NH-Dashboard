@@ -99,9 +99,9 @@ const repoNodes = new Map();
  * **`commits_since` is deliberately not in the update list.** That column is
  * the release panels' record of how far back their own sweep walked, and this
  * sweep walks no commits at all. Including it would write NULL over a real
- * horizon, and the visible effect would be `depUpdates` floors quietly
- * shallowing — the exact bug that card already had once, arriving from a script
- * that has nothing to do with it.
+ * horizon, and the visible effect would be `needsRelease` counts quietly
+ * losing their approximate flag, arriving from a script that has nothing to do
+ * with it.
  */
 function repoRow(node) {
   if (!node.name) return null;

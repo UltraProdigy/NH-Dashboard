@@ -4,9 +4,9 @@
  *   node --env-file-if-exists=.env worker/backfill-commits.js --out worker/backfill.sql
  *   cd worker && npx wrangler d1 execute nh-dashboard --remote --file backfill.sql
  *
- * The webhook captures forward only. `depUpdates` looks back a year and
- * `needsRelease` needs each repo's *current* latest release, which for nearly
- * every repo already happened — so on webhook capture alone both cards would be
+ * The webhook captures forward only. `needsRelease` needs each repo's
+ * *current* latest release, which for nearly every repo already happened — so
+ * on webhook capture alone the card would be
  * wrong for months, and wrong in the quiet direction: a repo whose last release
  * predates the capture window has no row and reads as up to date.
  *
@@ -27,7 +27,7 @@
 import { createWriteStream } from "node:fs";
 
 import { graphql } from "../src/github/client.js";
-import { DEP_UPDATE_LOOKBACK_DAYS, ORG, STALE_REPO_CUTOFF_DAYS } from "../src/config.js";
+import { COMMIT_LOOKBACK_DAYS, ORG, STALE_REPO_CUTOFF_DAYS } from "../src/config.js";
 import { commitAuthor, headline, utcSeconds, viaPullRequest } from "../src/shared/commit-rules.js";
 
 const DAY = 86_400_000;
@@ -38,8 +38,8 @@ const ROWS_PER_STATEMENT = 200;
  *
  * Each node drags a page of commits and their pull-request connections behind
  * it, and a query asking too much at once is timed out by the API rather than
- * rate-limited — which no amount of backing off fixes. `depUpdates` learned
- * this and the number is copied from it deliberately.
+ * rate-limited — which no amount of backing off fixes. The old Node "Time since
+ * last update" panel learned this and the number is copied from it deliberately.
  */
 const REPOS_PER_SWEEP = 10;
 const PAGE = 100;
@@ -53,7 +53,7 @@ const PAGE = 100;
  * means the query timed out server-side, and no amount of the client's
  * exponential backoff fixes a request that is simply too expensive.
  *
- * The two Node panels each proved a shape that works: `depUpdates` reads ten
+ * The two Node panels each proved a shape that works: the old dep-update panel read ten
  * repos of hundred-commit history with their pull-request connections, and
  * `needsRelease` reads fifty repos of releases. Combining them produced
  * something heavier than either, which is the whole lesson — these limits are
@@ -74,7 +74,7 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 
 const OUT = args.get("out") ?? "worker/backfill.sql";
-const LOOKBACK = Number(args.get("days") ?? DEP_UPDATE_LOOKBACK_DAYS);
+const LOOKBACK = Number(args.get("days") ?? COMMIT_LOOKBACK_DAYS);
 
 function q(value) {
   if (value === null || value === undefined) return "NULL";
@@ -117,7 +117,7 @@ const RELEASES = `
   }
 `;
 
-/** Sweep two — commit history. Ten at a time, the shape `depUpdates` proved. */
+/** Sweep two — commit history. Ten at a time. */
 const SWEEP = `
   query($org: String!, $cursor: String, $since: GitTimestamp!) {
     organization(login: $org) {

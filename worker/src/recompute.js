@@ -24,7 +24,7 @@ import {
 } from "./panels/review-state.js";
 import { byLabel } from "./panels/by-label.js";
 import { labelSync } from "./panels/label-sync.js";
-import { depUpdates, needsRelease } from "./panels/releases.js";
+import { needsRelease } from "./panels/releases.js";
 import { ciHealth, pruneWorkflowRuns } from "./panels/ci-health.js";
 import { issues } from "./panels/issues.js";
 import { drilldown } from "./panels/drilldown.js";
@@ -42,11 +42,11 @@ import { scopedDb } from "./scope.js";
  * search API answers `review:approved` in one query, which was convenient for a
  * build-time panel. Every fact they need is in `pull_requests` and `reviews`.
  *
- * `needsRelease` and `depUpdates` joined once `push` and `release` stopped
- * being discarded. They carry a caveat the others do not: the webhook only
- * captures forward, so both are only as good as how far back `commits` and
- * `releases` have been filled. Until the daily build has backfilled them, these
- * answer from a partial history — a repo whose release predates the capture
+ * `needsRelease` joined once `push` and `release` stopped
+ * being discarded. It carries a caveat the others do not: the webhook only
+ * captures forward, so it is only as good as how far back `commits` and
+ * `releases` have been filled. Until the daily build has backfilled them, it
+ * answers from a partial history — a repo whose release predates the capture
  * window has no row and simply does not appear, which reads as "up to date".
  *
  * `byLabel` joined once the `labels` table gave the managed label set somewhere
@@ -96,7 +96,6 @@ const PANELS = {
   approvedUnmerged: { fn: approvedUnmerged, reads: ["pull_requests", "reviews", "labels"] },
   changesRequested: { fn: changesRequested, reads: ["pull_requests", "reviews", "labels"] },
   needsRelease: { fn: needsRelease, reads: ["repos", "commits", "releases", "pull_requests"] },
-  depUpdates: { fn: depUpdates, reads: ["repos", "commits", "releases", "pull_requests"] },
   byLabel: { fn: byLabel, reads: ["labels", "pull_requests"] },
   labelSync: { fn: labelSync, reads: ["labels", "repo_labels"] },
   ciHealth: { fn: ciHealth, reads: ["repos", "workflow_runs"] },

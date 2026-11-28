@@ -302,13 +302,12 @@ async function checkScopedPanels() {
 
 /**
  * The repos table is written for every repo a webhook mentions, excluded or
- * not, and depUpdates LEFT JOINs it. Seeded here rather than read from
+ * not, and the release panels read it. Seeded here rather than read from
  * worker/seed.sql so it runs everywhere: an excluded repo with a repos row and
  * no commits is exactly the shape that reached the public card.
  */
 async function checkReposScope() {
   const { scopeSql, scopedDb } = await import("../worker/src/scope.js");
-  const { depUpdates } = await import("../worker/src/panels/releases.js");
 
   const rewritten = scopeSql("SELECT name FROM repos JOIN commits c ON c.repo = name", ["hidden-repo"]);
   check(
@@ -342,14 +341,15 @@ async function checkReposScope() {
     },
   });
 
+  const list = async (db) => (await db.prepare("SELECT name AS repo FROM repos WHERE archived = 0").all()).results;
   const named = (rows) => rows.filter((r) => r.repo === "hidden-repo").length;
-  const open = await depUpdates(d1(db), now);
-  const scoped = await depUpdates(scopedDb(d1(db), { NH_INGEST_EXCLUDE: "hidden-repo" }), now);
+  const open = await list(d1(db));
+  const scoped = await list(scopedDb(d1(db), { NH_INGEST_EXCLUDE: "hidden-repo" }));
 
-  check("depUpdates lists a repo with no commits when nothing is excluded", named(open) === 1);
-  check("depUpdates drops an excluded repo that only has a repos row", named(scoped) === 0,
+  check("a repo with no commits is listed when nothing is excluded", named(open) === 1);
+  check("an excluded repo that only has a repos row is dropped", named(scoped) === 0,
     `${named(scoped)} rows`);
-  check("depUpdates keeps the repos that are not excluded", scoped.some((r) => r.repo === "open-repo"));
+  check("the repos that are not excluded are kept", scoped.some((r) => r.repo === "open-repo"));
   db.close();
 }
 

@@ -1,9 +1,8 @@
 /**
- * "Needs a release" and "Time since last update", served from D1.
+ * "Needs a release", served from D1.
  *
- * The Node versions spend a GraphQL sweep of the whole org plus a REST compare
- * per candidate, and `depUpdates` walks up to ten pages of history per repo on
- * top of that. Neither needed to. They read commits and release tags, which are
+ * The Node version spends a GraphQL sweep of the whole org plus a REST compare
+ * per candidate. It didn't need to. It reads commits and release tags, which are
  * facts, and the webhook has been receiving both all along — `onRepoTouch` took
  * `push` and `release`, upserted the repo row, and dropped the payload.
  *
@@ -19,13 +18,13 @@
  * The commit count follows from it. The Node panel spends a `compare` call for
  * `ahead_by`; here it is the COUNT of the same rows the filter already scanned.
  *
- * Neither panel carries the Node versions' stale-repo cutoff. That predicate
+ * It doesn't carry the Node version's stale-repo cutoff. That predicate
  * bounds API cost, which is not a cost D1 has, and in production it was
  * removing repos that had commits inside the window. The `live` CTE below says
  * why at length.
  *
- * **Measured, on 295 repos and 80k commits: ~5ms and ~36ms locally, so roughly
- * 12ms and 79ms on D1** at the 2.2× ratio this repo has measured twice. That is
+ * **Measured, on 295 repos and 80k commits: ~5ms locally, so roughly
+ * 12ms on D1** at the 2.2× ratio this repo has measured twice. That is
  * the same order as the two review cards at ~68ms and ~55ms, and nowhere near
  * `analytics` at ~2.6s.
  *
@@ -36,19 +35,10 @@
  * overlay. `refreshInstant` now bumps only when the rebuilt blob differs, and a
  * push that moves no repo across `RELEASE_COMMIT_THRESHOLD` produces a
  * byte-identical one, so the frequency of `push` stopped being the price.
- *
- * `depUpdates` stays on the cron, and not for cost either: it reports whole-day
- * ages against a lookback window, so nothing it says can change faster than
- * once a day. There is nothing for a delivery to make fresher.
  */
 
-import {
-  DEP_UPDATE_LOOKBACK_DAYS,
-  DEP_UPDATE_MIN_DAYS,
-  RELEASE_COMMIT_THRESHOLD,
-} from "../../../src/config.js";
-import { isDirectCommitSql, viaPullRequestSql } from "../../../src/shared/commit-rules.js";
-import { isoBound } from "../../../src/shared/analytics-rules.js";
+import { RELEASE_COMMIT_THRESHOLD } from "../../../src/config.js";
+import { viaPullRequestSql } from "../../../src/shared/commit-rules.js";
 import { DEFAULT_ORG } from "../../../src/shared/analytics-rules.js";
 
 const DAY = 86_400_000;
@@ -102,9 +92,8 @@ const DAY = 86_400_000;
  * themselves, the commits are the better authority.
  *
  * The commit data also *is* the bound, which is what makes dropping the
- * predicate safe: `needsRelease` needs a commit newer than the release and
- * `depUpdates` needs one inside the lookback, so a genuinely dormant repo
- * still produces nothing. Filtering on `pushed_at` was never doing work the
+ * predicate safe: `needsRelease` needs a commit newer than the release, so a
+ * genuinely dormant repo still produces nothing. Filtering on `pushed_at` was never doing work the
  * data was not already doing correctly.
  */
 const LIVE = `
@@ -222,129 +211,4 @@ function shapeNeedsRelease(results, now) {
   });
 }
 
-/**
- * How long since somebody pushed to a repo without going through review.
- *
- * The proxy the Node panel explains at length holds unchanged: there is no
- * cheap way to ask GitHub what a commit changed, and in this org practically
- * everything arrives as a pull request, so the newest commit with no pull
- * request attached is a decent stand-in for the newest dependency bump. It is
- * an estimate and the card says so.
- *
- * What changes is the confidence, and it moves in one direction. GraphQL
- * answers the PR question itself; the store answers it by matching
- * `merge_commit_sha`, which misses a rebase merge's replayed commits. A missed
- * PR commit reads as direct, which dates the repo *younger* than it is — the
- * failure hides staleness rather than inventing it, and the daily build
- * overwrites `via_pr` with GitHub's own answer on its next pass.
- *
- * A repo whose entire window is pull requests gets a floor row rather than a
- * date, matching the Node panel's `approx: true` — the card renders those
- * differently, as "more than N days" rather than a link to a commit.
- *
- * **A repo with no commits at all gets a floor too**, which is why `seen` is a
- * LEFT JOIN. Requiring a commit row dropped six repos the build listed, and
- * they were the worst ones on the card: no commits inside the lookback is the
- * strongest possible version of "nothing has touched this", and the panel was
- * answering by omitting them. That is the same flattering direction as the
- * shallow floors above, and it is the one this card exists to catch.
- *
- * The cost is a handful of repos that hold no code at all — issue-only trackers
- * — reporting a 365-day floor. That is noise in the right direction: a true
- * statement about a repo nobody needed to look at, rather than silence about
- * one they did.
- *
- * **The floor is how far back the store can see, not how far back this repo's
- * rows happen to go.** The first version used `MIN(committed_at)` per repo and
- * was wrong in the flattering direction: DummyCore's oldest stored commit is
- * 102 days old, so it reported a 102-day floor, while the build — which walked
- * the full horizon and found nothing — reported 365. Both are looking at the
- * same fact, that the repo has no direct commit in a year, and only one of them
- * says so. A repo with a gap in its history is not a repo we cannot see into.
- *
- * So the horizon comes from `meta.commits_since`, written by the backfill to
- * record the date it actually swept from. Falling back to the per-repo oldest
- * only makes sense when no backfill has run, which is the one case where the
- * store really can only see as far as the webhook has been running.
- */
-export async function depUpdates(db, now = Date.now()) {
-  const since = isoBound(now - DEP_UPDATE_LOOKBACK_DAYS * DAY);
-
-  const { results } = await db
-    .prepare(
-      `WITH ${LIVE},
-       direct AS (
-         SELECT c.repo, c.sha, c.committed_at, c.author, c.message,
-                ROW_NUMBER() OVER (PARTITION BY c.repo
-                                   ORDER BY c.committed_at DESC) AS rn
-           FROM commits c
-           LEFT JOIN pull_requests p
-                  ON p.repo = c.repo AND p.merge_commit_sha = c.sha
-          WHERE c.committed_at >= ?1 AND ${isDirectCommitSql()}
-       ),
-       seen AS (
-         SELECT repo, MIN(committed_at) AS oldest
-           FROM commits
-          WHERE committed_at >= ?1
-          GROUP BY repo
-       )
-       SELECT l.name           AS repo,
-              l.default_branch AS default_branch,
-              l.commits_since  AS commits_since,
-              d.sha            AS sha,
-              d.committed_at   AS committed_at,
-              d.author         AS author,
-              d.message        AS message,
-              s.oldest         AS oldest
-         FROM live l
-         LEFT JOIN seen s ON s.repo = l.name
-         LEFT JOIN direct d ON d.repo = l.name AND d.rn = 1`,
-    )
-    .bind(since)
-    .all();
-
-  const rows = results.map((r) =>
-    r.sha
-      ? {
-          repo: r.repo,
-          repoUrl: repoUrl(r.repo),
-          defaultBranch: r.default_branch,
-          sha: r.sha.slice(0, 7),
-          commitUrl: `${repoUrl(r.repo)}/commit/${r.sha}`,
-          committedAt: r.committed_at,
-          author: r.author,
-          message: r.message,
-          approx: false,
-          daysSinceDirect: days(now, r.committed_at),
-        }
-      : {
-          repo: r.repo,
-          repoUrl: repoUrl(r.repo),
-          defaultBranch: r.default_branch,
-          sha: null,
-          commitUrl: null,
-          committedAt: null,
-          author: null,
-          message: null,
-          approx: true,
-          daysSinceDirect: Math.min(
-            DEP_UPDATE_LOOKBACK_DAYS,
-            days(now, r.commits_since ?? r.oldest) ?? DEP_UPDATE_LOOKBACK_DAYS,
-          ),
-        },
-  );
-
-  // Oldest first, which is the only order this card is read in. Repos sitting
-  // on the same floor tie, so an exact date beats an estimate and the name
-  // breaks what is left — the Node panel's ordering exactly.
-  return rows
-    .filter((r) => r.daysSinceDirect >= DEP_UPDATE_MIN_DAYS)
-    .sort(
-      (a, b) =>
-        b.daysSinceDirect - a.daysSinceDirect ||
-        Number(b.approx) - Number(a.approx) ||
-        a.repo.localeCompare(b.repo),
-    );
-}
-
-export const RELEASE_PANELS = { needsRelease, depUpdates };
+export const RELEASE_PANELS = { needsRelease };

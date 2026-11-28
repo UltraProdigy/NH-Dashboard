@@ -239,7 +239,6 @@ const EMPTY = {
   approvedUnmerged: [],
   changesRequested: [],
   needsRelease: [],
-  depUpdates: [],
   byLabel: {},
   labelSync: { managed: [], checks: {}, repos: [], unmanaged: [] },
   labelUsage: {},

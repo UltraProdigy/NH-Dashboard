@@ -21,29 +21,22 @@
  * pushes, a draft that must not count as the latest release, a commit whose
  * timestamp arrives with an offset instead of a Z. Real data would validate a
  * wrong implementation happily on all four.
- *
- * What *is* asserted against the real seed is the pair in commit-rules.js:
- * `isDirectCommit` and `isDirectCommitSql` must agree row for row, because two
- * readings of one rule are exactly what drifts invisibly.
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import {
   commitAuthor,
   headline,
-  isDirectCommit,
-  isDirectCommitSql,
   utcSeconds,
   viaPullRequest,
 } from "../../src/shared/commit-rules.js";
-import { depUpdates, needsRelease } from "../src/panels/releases.js";
+import { needsRelease } from "../src/panels/releases.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SEED = path.join(HERE, "..", "seed.sql");
 const SCHEMA = path.join(HERE, "..", "schema.sql");
 
 const DAY = 86_400_000;
@@ -355,76 +348,6 @@ console.log("\nneedsRelease");
   db.close();
 }
 
-// ---------------------------------------------------------------- depUpdates
-
-console.log("\ndepUpdates");
-
-{
-  const db = blank();
-
-  // The newest *direct* commit is the answer, not the newest commit.
-  addRepo(db, "MixedHistory");
-  const viaPr = addCommit(db, "MixedHistory", 2);
-  addMergedPr(db, "MixedHistory", 1, viaPr);
-  addCommit(db, "MixedHistory", 40, { message: "bump deps" });
-  addCommit(db, "MixedHistory", 200, { message: "older direct" });
-
-  // A bot pushing generated files is not a maintainer bumping a dependency.
-  addRepo(db, "BotPushed");
-  addCommit(db, "BotPushed", 3, { author: "dependabot[bot]" });
-  addCommit(db, "BotPushed", 90, { author: "a-human" });
-
-  // Nothing but pull requests inside the lookback. The Node panel calls this a
-  // floor rather than a date, and the card renders it differently.
-  addRepo(db, "AllPrs");
-  const only = addCommit(db, "AllPrs", 15);
-  addMergedPr(db, "AllPrs", 2, only);
-
-  addRepo(db, "Archived2", { archived: true });
-  addCommit(db, "Archived2", 5);
-
-  // No commits at all. Requiring a commit row dropped six repos the build
-  // listed, and they were the worst ones on the card — "nothing inside the
-  // lookback" is the strongest form of the thing this panel looks for, and it
-  // was being answered by omission.
-  addRepo(db, "NoCommitsAtAll", { commitsSince: ago(365) });
-
-  const rows = await depUpdates(d1(db), NOW);
-  const got = byRepo(rows);
-
-  check(
-    "the newest direct commit wins, not the newest commit",
-    got.MixedHistory?.daysSinceDirect === 40,
-    String(got.MixedHistory?.daysSinceDirect),
-  );
-  check("a merged PR's commit is not direct", got.MixedHistory?.approx === false);
-  check(
-    "the message and author come from that commit",
-    got.MixedHistory?.message === "bump deps" && got.MixedHistory?.author === "someone",
-  );
-  check(
-    "a bot's direct push is skipped",
-    got.BotPushed?.daysSinceDirect === 90,
-    String(got.BotPushed?.daysSinceDirect),
-  );
-  check("a repo with only PR commits is a floor", got.AllPrs?.approx === true);
-  check("a floor row has no commit to link", got.AllPrs?.commitUrl === null);
-  check("an archived repo is dropped", !got.Archived2);
-  check(
-    "a repo with no commits at all is a floor, not an omission",
-    got.NoCommitsAtAll?.approx === true && got.NoCommitsAtAll?.daysSinceDirect === 365,
-    JSON.stringify(got.NoCommitsAtAll),
-  );
-
-  check(
-    "sorted oldest first",
-    rows.every((r, i) => i === 0 || rows[i - 1].daysSinceDirect >= r.daysSinceDirect),
-    rows.map((r) => `${r.repo}:${r.daysSinceDirect}`).join(" "),
-  );
-
-  db.close();
-}
-
 // ------------------------------------------------------- snapshot lines
 
 console.log("\na snapshot's line");
@@ -515,90 +438,6 @@ console.log("\nhow far back the store can see");
   check(
     "the count itself is still reported either way",
     got.OldRelease?.commitsAhead === 2 && got.Deepened?.commitsAhead === 1,
-  );
-
-  db.close();
-}
-
-{
-  const db = blank();
-
-  // The bug this replaced. Every commit in the window came through a pull
-  // request, so this is a floor row — and the repo's oldest stored commit is
-  // 102 days old only because nothing happened before it, not because the
-  // sweep could not see further. Reading MIN(committed_at) reported 102 where
-  // the build, having walked the whole horizon, reported 365.
-  addRepo(db, "GapInHistory", { commitsSince: ago(365) });
-  const only = addCommit(db, "GapInHistory", 102);
-  addMergedPr(db, "GapInHistory", 1, only);
-
-  // No backfill has touched this one, so the webhook capture window really is
-  // all there is and the oldest row is the honest answer.
-  addRepo(db, "NeverBackfilled", { commitsSince: null });
-  const only2 = addCommit(db, "NeverBackfilled", 30);
-  addMergedPr(db, "NeverBackfilled", 2, only2);
-
-  const got = byRepo(await depUpdates(d1(db), NOW));
-
-  check(
-    "a floor reads from the swept horizon, not the oldest row",
-    got.GapInHistory?.daysSinceDirect === 365,
-    String(got.GapInHistory?.daysSinceDirect),
-  );
-  check("that row is still marked approximate", got.GapInHistory?.approx === true);
-  check(
-    "with no backfill, the floor falls back to the oldest row",
-    got.NeverBackfilled?.daysSinceDirect === 30,
-    String(got.NeverBackfilled?.daysSinceDirect),
-  );
-
-  db.close();
-}
-
-// --------------------------------------------- the two readings of one rule
-
-console.log("\nisDirectCommit against isDirectCommitSql");
-
-if (!existsSync(SEED)) {
-  console.log("  skip  no seed.sql — run node worker/seed.js --out worker/seed.sql");
-} else {
-  const db = blank();
-  db.exec(readFileSync(SEED, "utf8"));
-
-  // The seed predates the commits table, so the authors it can disagree about
-  // are PR authors — which is the point: the bot half of this rule is
-  // `isBot`'s, and a login is a login whoever wrote it.
-  const authors = db
-    .prepare("SELECT DISTINCT author FROM pull_requests WHERE author IS NOT NULL")
-    .all()
-    .map((r) => r.author);
-
-  db.exec("DELETE FROM commits");
-  const insert = db.prepare(
-    `INSERT INTO commits (repo, sha, committed_at, author, message, via_pr)
-     VALUES ('Parity', ?, '2026-01-01T00:00:00Z', ?, 'x', NULL)`,
-  );
-  authors.forEach((a, i) => insert.run(`p${String(i).padStart(38, "0")}`, a));
-
-  const sqlSaid = new Set(
-    db
-      .prepare(
-        `SELECT c.author FROM commits c
-           LEFT JOIN pull_requests p ON p.repo = c.repo AND p.merge_commit_sha = c.sha
-          WHERE c.repo = 'Parity' AND ${isDirectCommitSql()}`,
-      )
-      .all()
-      .map((r) => r.author),
-  );
-
-  const disagreed = authors.filter(
-    (a) => sqlSaid.has(a) !== isDirectCommit({ author: { username: a } }),
-  );
-
-  check(
-    `both readings agree on all ${authors.length} authors`,
-    disagreed.length === 0,
-    disagreed.slice(0, 5).join(", "),
   );
 
   db.close();

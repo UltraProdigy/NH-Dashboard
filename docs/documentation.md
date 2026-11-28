@@ -146,8 +146,7 @@ D1 holds excluded repos and the exclusion is applied on the way out instead.
 Every panel, search and drilldown query runs through `scopedDb` in
 `worker/src/scope.js`, which rewrites each `FROM`/`JOIN` on a repo-bearing
 table into a filtered subquery. That covers `repos` too, filtered on its `name`
-column. Before it did, depUpdates published excluded repos: they had a `repos`
-row, no commits, and survived the LEFT JOIN. A new table that names repos
+column, since webhooks write a `repos` row for excluded repos too. A new table that names repos
 needs an entry in that map, and a CTE must never be named after one of those
 tables, because it would be rewritten as well.
 
@@ -305,8 +304,8 @@ What each role gets:
 
 `ADMIN_PANELS` in `web/js/roles.js` is the one list both sides read: the
 Worker refuses those panels to members, and the page leaves them out of the
-poll. They're the three only the Dream Panel uses (`approvedUnmerged`,
-`changesRequested`, `depUpdates`) and the Labels page's two (`labelSync`,
+poll. They're the two only the Dream Panel uses (`approvedUnmerged`,
+`changesRequested`) and the Labels page's two (`labelSync`,
 `labelUsage`). `needsRelease` and `byLabel` also feed
 member pages, so they stay open to everyone. Hiding a page in the sidebar is
 only for display. What actually protects a panel is the Worker refusing it.
@@ -401,7 +400,6 @@ the answer more often than the code is.
 | Changes requested | 1 search | Same — already excludes anything since approved |
 | PRs by label | 1 search per label | Label list is read from Label-Sync-GTNH on every build, so it tracks the org's managed set automatically |
 | Needs release | ~30 GraphQL + 1 REST and ≥1 GraphQL per candidate | Sweeps every repo's HEAD vs its last release tag; only compares where they differ, then keeps the ones whose new commits came from a PR |
-| Time since last update | ~1 GraphQL per 10 active repos, plus 1 per repo that needs a deeper walk | Finds each repo's newest default-branch commit with no pull request attached, as a stand-in for the last dependency bump |
 | Contributors | 0 (reads local store) | Aggregated from ingested PR/review data — see below |
 | Drilldowns | 0 (reads local store) | Same data pivoted onto one contributor or one repo — see below |
 | Most grossing | 0 (reads local store) | Most commented / 👍 / 👎 PRs, per repo and org-wide |
@@ -420,7 +418,7 @@ topbar counts the rings on the page you're looking at.
 |---|---|---|
 | Green | `direct` | Read from the database on every request, with nothing cached in between — Org Search, and only Org Search |
 | Green | `instant` | Rebuilt the moment GitHub delivers the webhook — Approved-not-merged, Changes requested and Needs a release |
-| Blue | `cron` | Recomputed by the Worker every 10 minutes — Time since last update, By label, Label mix and Actions load on PR Analytics, and every card on the contributor and repo drilldowns |
+| Blue | `cron` | Recomputed by the Worker every 10 minutes — By label, Label mix and Actions load on PR Analytics, and every card on the contributor and repo drilldowns |
 | Purple | `hourly` | Recomputed by the Worker at most once an hour — the rest of PR Analytics, Issue Analytics, Repo Activity and Contributor Activity |
 | Amber | `build` | From the last Actions build, because nothing serves it live yet — nothing, now that all ten panels are ported |
 | Grey | `manual` | Read from GitHub when an admin presses Refresh, shown as "on refresh" — the Dream Panel's Updates card |
@@ -476,7 +474,7 @@ rebuilds a panel only when one of those was stamped after the panel's own
 | contributors, drilldown, repos | pull_requests, reviews, issues |
 | issues | issues |
 | approvedUnmerged, changesRequested | pull_requests, reviews, labels |
-| needsRelease, depUpdates | repos, commits, releases, pull_requests |
+| needsRelease | repos, commits, releases, pull_requests |
 | ciHealth | repos, workflow_runs |
 | byLabel | labels, pull_requests |
 | labelSync | labels, repo_labels |
@@ -789,13 +787,15 @@ No migration is needed.
 
 ## Dream Panel
 
-Six cards, ordered by how close each one is to "somebody press the button":
-Approved-not-merged, Needs a release, Changes requested, Time since last
-update, then By label and Updates across the full width.
+Five cards, ordered by how close each one is to "somebody press the button":
+Approved-not-merged and Needs a release side by side, then Changes requested,
+By label and Updates across the full width.
 
-The first four are half-width and tile two to a row. By label is the odd one
-out because it isn't one list — it draws a column per label — and three columns
-squeezed into half a row is three columns of nothing.
+By label is full width because it isn't one list — it draws a column per label
+— and three columns squeezed into half a row is three columns of nothing.
+Changes requested took the full row when Time since last update was removed,
+rather than sit beside a hole. The Updates card covers what that card was
+estimating, from the build files themselves.
 
 **Where a card opens is `DEFAULT_SORT` in `table.js`, and it is almost always
 nothing.** A card with no entry keeps whatever order its panel's SQL produced,
@@ -811,9 +811,9 @@ click on Opened reverses it instead of re-applying it.
 
 **A list that reaches the bottom of its card.** On the overview a card is
 stretched to its row's height, and the row is as tall as whichever card in it
-has the most to say. A table just ends where its rows end, so Time since last
-update — whose rows are one line each — sat beside Changes requested, whose
-titles wrap to two, and left a slab of empty card below it. A module can set
+has the most to say. A table just ends where its rows end, so a card of
+one-line rows beside one whose titles wrap to two leaves a slab of empty card
+below it. A module can set
 `fillList` to hand its scroller the leftover height instead, and raises
 `previewLimit` alongside it, because filling the space is only an improvement
 if there are rows to fill it with. The flex basis is `0` rather than `auto`
@@ -911,56 +911,6 @@ shouldn't be filtered out on a guess, and a range longer than 250 commits is
 only checked over the 250 the compare endpoint returns — a repo that far ahead
 has a PR in it somewhere regardless.
 
-### Estimating the last dependency update
-
-There is no cheap way to ask GitHub what a commit changed. GraphQL returns a
-changed-file *count* and no names, so actually checking whether a commit touched
-`dependencies.gradle` costs one REST call per commit — thousands of requests
-across an org this size. The card takes a proxy instead.
-
-Practically everything in this org arrives as a pull request. The things that
-don't are almost always a maintainer bumping a dependency or a buildscript
-straight on the default branch. So **the newest commit with no pull request
-attached** stands in for the newest dep update. It is an estimate and the card's
-caption says so: a repo where somebody pushed a typo fix directly reads younger
-than it is.
-
-Three things keep it honest.
-
-**A year, and only a year.** Each repo's history is read back one year
-(`DEP_UPDATE_LOOKBACK_DAYS`). Past that the number stops being one anybody acts
-on, and a uniform horizon means every repo that ran out of history reads the
-same `≥ 1 yr` rather than a floor that quietly means something different per
-repo. Those rows carry no commit link, because a floor isn't a date.
-
-**Bots don't count.** Some repos have a workflow pushing generated files —
-translation syncs, regenerated assets — directly to the default branch every
-night. Counting those makes the repo read as freshly updated forever, which is
-the one answer the card exists to avoid, so commits whose author matches
-`BOT_PATTERN` are skipped and the walk continues. Set
-`DEP_UPDATE_IGNORE_BOTS` to `false` to count them.
-
-**The commit is on the row.** The message headline and the author are shown, and
-the age links to the commit. Every estimate is one click from the thing it was
-estimated from, which is the difference between a soft number you can check and
-a soft number you have to trust.
-
-Cost is one sweep request per ten repos — ten rather than the fifty the release
-sweep uses, because each node here drags a hundred commits and their pull
-request connections behind it, and a query that asks too much at once gets
-timed out rather than rate-limited, which backing off doesn't fix. A repo whose
-whole first page came from PRs pays for its own deeper walk, capped at
-`DEP_UPDATE_MAX_PAGES`. Most repos never need one.
-
-The panel is `optional` in the build for the same reason CI health is: it's a
-deep walk over a lot of repos, and one timed-out query shouldn't take the whole
-build red. The card explains its own absence.
-
-Repos dormant longer than `STALE_REPO_CUTOFF_DAYS` never enter the sweep, which
-means the most overdue repos in the org are the ones this card can't see. That's
-deliberate — "nobody has updated this in two years" is not news about a repo
-nobody has touched in two years.
-
 ### Exclusions
 
 Each card carries its own filters, as buttons in its own header:
@@ -971,7 +921,6 @@ Each card carries its own filters, as buttons in its own header:
 | By label | Repos, Labels |
 | Needs a release | Repos |
 | Changes requested | Repos |
-| Time since last update | Repos |
 | Updates | Repos |
 
 Each opens a searchable checklist of things to hide **from that card only**.
@@ -4992,10 +4941,7 @@ Everything worth adjusting lives in `src/config.js`:
 - `RELEASE_COMMIT_THRESHOLD` — raise it if repos that auto-release on merge are noisy
 - `RELEASE_EXCLUDED_REPOS` — repos that never want a release, hidden from that panel
 - `STALE_REPO_CUTOFF_DAYS` — skips dormant repos in org-wide sweeps; the main cost lever
-- `DEP_UPDATE_LOOKBACK_DAYS` — how far back Time since last update reads before reporting a floor
-- `DEP_UPDATE_IGNORE_BOTS` — whether a bot pushing generated files counts as a dep update
-- `DEP_UPDATE_MAX_PAGES` — commits-per-repo ceiling on the deeper walk, in pages of 100
-- `DEP_UPDATE_MIN_DAYS` — drops repos updated more recently than this; 0 keeps everything
+- `COMMIT_LOOKBACK_DAYS` — how far back the commit backfill sweeps each repo's history
 - `ISSUE_STALE_DAYS` — how long an open issue sits untouched before Triage state calls it stale
 - `ISSUE_LABEL_REPO` — the only tracker with per-label trends; Label mix itself opens on every repo
 - `CACHE_TTL_MINUTES` — local API response cache

@@ -180,7 +180,6 @@ state.data.panels.approvedUnmerged = {
 state.data.panels.changesRequested = {
   ok: true, data: [], live: true, refresh: "instant",
 };
-state.data.panels.depUpdates = { ok: true, data: [], live: true, refresh: "cron" };
 state.data.panels.byLabel = { ok: true, data: {}, live: true, refresh: "cron" };
 // Deliberately *not* production, which is the point. In production `ciHealth`
 // is live and so is `analytics`, so the mis-tinted card was blue over blue data
@@ -206,7 +205,6 @@ check(
 );
 
 state.checkedAt = "2026-09-22T11:40:00.000Z";
-state.data.panels.depUpdates.computedAt = "2026-09-22T11:30:00.000Z";
 state.data.panels.byLabel.computedAt = "2026-09-22T11:20:00.000Z";
 state.behind = ["byLabel"];
 const dreamAt = tierRefreshed(modulesOf("dream"));
@@ -217,7 +215,7 @@ state.checkedAt = null;
 
 const dream = tierCounts(modulesOf("dream"));
 check("a mixed page reports every tier it holds",
-  dream.instant === 2 && dream.cron === 2 && dream.build === 1, JSON.stringify(dream));
+  dream.instant === 2 && dream.cron === 1 && dream.build === 1, JSON.stringify(dream));
 
 check("a page with no live panel is all build",
   tierCounts(modulesOf("issues")).build === modulesOf("issues").length);

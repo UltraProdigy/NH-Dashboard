@@ -211,9 +211,9 @@ async function main() {
 
   console.log("\na quiet panel is still rebuilt once it is an hour old");
   const old = new Date(Date.now() - 2 * 3_600_000).toISOString();
-  db.prepare("UPDATE panel_cache SET computed_at = ? WHERE name = 'depUpdates'").run(old);
+  db.prepare("UPDATE panel_cache SET computed_at = ? WHERE name = 'byLabel'").run(old);
   const aged = await recompute(env);
-  check("only the old panel rebuilt", sameSet(Object.keys(aged.built), ["depUpdates"]),
+  check("only the old panel rebuilt", sameSet(Object.keys(aged.built), ["byLabel"]),
         Object.keys(aged.built).join());
 
   console.log("\na moved blob bumps on its own");
@@ -266,7 +266,7 @@ async function main() {
   check("needsRelease rebuilt", "needsRelease" in built);
   check("analytics not rebuilt", !("analytics" in built));
   check("contributors not rebuilt", !("contributors" in built));
-  check("depUpdates not rebuilt", !("depUpdates" in built));
+  check("ciHealth not rebuilt", !("ciHealth" in built));
 
   const after = new Map(
     db.prepare("SELECT name, computed_at FROM panel_cache").all()
@@ -351,7 +351,7 @@ async function main() {
         HEAVY.every((name) => refreshTier(name) === "hourly"),
         HEAVY.map(refreshTier).join());
   check("the rest are cron",
-        ["depUpdates", "byLabel", "ciHealth", "labelSync"].every((name) => refreshTier(name) === "cron"));
+        ["byLabel", "ciHealth", "labelSync"].every((name) => refreshTier(name) === "cron"));
   check("an unknown panel is build", refreshTier("nosuch") === "build");
 
   db.close();
