@@ -6,9 +6,16 @@ import { LEVELS } from "./permissions-calc.js";
 export const KINDS = [
   "team_member", "team_repo", "collaborator", "visibility", "archived",
   "team_create", "team_rename", "team_parent", "team_delete", "owner",
+  "team_description", "team_privacy", "team_notifications",
 ];
 
 export const TEAM_ROLES = ["member", "maintainer"];
+
+// GitHub's "closed" is what its own pages call visible.
+export const PRIVACY_LABEL = { closed: "visible", secret: "secret" };
+export const NOTIFY_LABEL = { enabled: "on", disabled: "off" };
+export const NOTIFY_API = { enabled: "notifications_enabled", disabled: "notifications_disabled" };
+export const MAX_DESCRIPTION = 1024;
 
 export const API_LEVEL = { read: "pull", triage: "triage", write: "push", maintain: "maintain", admin: "admin" };
 
@@ -32,6 +39,9 @@ export function keyOf(c) {
     case "team_parent": return `tp:${c.team.id}`;
     case "team_delete": return `td:${c.team.id}`;
     case "owner": return `ow:${low(c.login)}`;
+    case "team_description": return `tds:${c.team.id}`;
+    case "team_privacy": return `tpv:${c.team.id}`;
+    case "team_notifications": return `tnt:${c.team.id}`;
     default: return null;
   }
 }
@@ -68,6 +78,9 @@ export function validValue(kind, v) {
     case "visibility": return v === "public" || v === "private";
     case "archived": return typeof v === "boolean";
     case "owner": return v === "owner" || v === "member";
+    case "team_privacy": return v in PRIVACY_LABEL;
+    case "team_notifications": return v in NOTIFY_LABEL;
+    case "team_description": return typeof v === "string" && v.length <= MAX_DESCRIPTION;
     default: return true;
   }
 }
@@ -105,6 +118,12 @@ export function describe(c, { teamName = (id) => `team ${id}`, past = false } = 
       return `${v("delete", "deleted")} team ${team}`;
     case "owner":
       return c.to === "owner" ? `${v("make", "made")} ${c.login} an owner` : `${v("make", "made")} ${c.login} a member instead of an owner`;
+    case "team_description":
+      return c.to ? `${v("change", "changed")} the description of team ${team}` : `${v("clear", "cleared")} the description of team ${team}`;
+    case "team_privacy":
+      return `${v("make", "made")} team ${team} ${PRIVACY_LABEL[c.to] ?? c.to}`;
+    case "team_notifications":
+      return `${v("turn", "turned")} ${NOTIFY_LABEL[c.to] ?? c.to} notifications for team ${team}`;
     default:
       return c.kind;
   }
@@ -121,7 +140,10 @@ export function expectKeys(c, { member = true } = {}) {
     case "team_create": return [`tc:${low(c.name).trim()}`];
     case "team_rename":
     case "team_parent":
-    case "team_delete": return [`team:${c.team.id}`];
+    case "team_delete":
+    case "team_description":
+    case "team_privacy":
+    case "team_notifications": return [`team:${c.team.id}`];
     case "owner": return [`org:${low(c.login)}`];
     default: return [];
   }

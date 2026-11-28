@@ -22,7 +22,7 @@ const MEMBERS = `query($org: String!, $after: String) {
 
 const TEAMS = `query($org: String!, $after: String, $members: String, $repos: String) {
   organization(login: $org) { teams(first: 25, after: $after) { ${PAGE}
-    nodes { databaseId slug name privacy parentTeam { databaseId } ${MEMBER_EDGES} ${REPO_EDGES} } } }
+    nodes { databaseId slug name description privacy notificationSetting parentTeam { databaseId } ${MEMBER_EDGES} ${REPO_EDGES} } } }
 }`;
 
 const TEAM_MORE = `query($org: String!, $slug: String!, $members: String, $repos: String, $withMembers: Boolean!, $withRepos: Boolean!) {
@@ -73,6 +73,11 @@ export function directLevel(edge) {
 
 const teamRole = (role) => (role === "MAINTAINER" ? "maintainer" : "member");
 
+export const notifications = (setting) => {
+  const s = String(setting ?? "").toLowerCase();
+  return s.endsWith("disabled") ? "disabled" : s.endsWith("enabled") ? "enabled" : null;
+};
+
 function takeMembers(team, conn) {
   for (const e of conn.edges) team.members[e.node.login] = teamRole(e.role);
 }
@@ -102,6 +107,7 @@ export async function fetchPermissions(token, org, { query = graphql, request = 
     (conn) => {
       for (const n of conn.nodes) {
         const team = { id: n.databaseId, slug: n.slug, name: n.name, privacy: String(n.privacy ?? "").toLowerCase() || null,
+          description: n.description ?? "", notifications: notifications(n.notificationSetting),
           parent: n.parentTeam?.databaseId ?? null, members: {}, repos: {} };
         takeMembers(team, n.members);
         takeRepos(team, n.repositories);

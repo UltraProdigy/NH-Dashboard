@@ -1,5 +1,5 @@
 import {
-  API_LEVEL, expectKeys, KINDS, keyOf, MAX_CHANGES, needsOwner, validLogin, validTeamName, validValue,
+  API_LEVEL, expectKeys, KINDS, keyOf, MAX_CHANGES, needsOwner, NOTIFY_API, validLogin, validTeamName, validValue,
 } from "../../web/js/permission-changes.js";
 import { levelOf } from "../../web/js/permissions-calc.js";
 import { forgetOrgManagerToken, orgManagerToken } from "./org-manager.js";
@@ -46,7 +46,7 @@ export function normaliseBatch(sent, snapshot, { adminTeam = "admin", owner = fa
     const bad = (why) => problems.push({ n, kind: raw?.kind ?? null, error: why });
     if (!raw || !KINDS.includes(raw.kind)) return bad("unknown kind");
     const c = { kind: raw.kind };
-    const needTeam = ["team_member", "team_repo", "team_rename", "team_parent", "team_delete"].includes(c.kind);
+    const needTeam = ["team_member", "team_repo", "team_rename", "team_parent", "team_delete", "team_description", "team_privacy", "team_notifications"].includes(c.kind);
     const needRepo = ["team_repo", "collaborator", "visibility", "archived"].includes(c.kind);
     const needLogin = ["team_member", "collaborator", "owner"].includes(c.kind);
 
@@ -82,6 +82,19 @@ export function normaliseBatch(sent, snapshot, { adminTeam = "admin", owner = fa
       c.to = raw.to == null ? null : intId(raw.to);
       if (raw.to != null && !teams[c.to]) return bad("the new parent isn't in the snapshot");
       if (c.to != null && descends(teams, c.to, c.team.id)) return bad("a team can't go under itself or one of its own children");
+      if (c.to != null && (teams[c.team.id].privacy === "secret" || teams[c.to].privacy === "secret")) return bad("secret teams can't be nested");
+    } else if (c.kind === "team_description") {
+      c.from = String(raw.from ?? "");
+      c.to = typeof raw.to === "string" ? raw.to.trim() : "";
+      if (!validValue(c.kind, c.to)) return bad("that description is too long");
+    } else if (c.kind === "team_privacy" || c.kind === "team_notifications") {
+      if (!validValue(c.kind, raw.to)) return bad("bad new value");
+      c.from = raw.from ?? null;
+      c.to = raw.to;
+      const t = teams[c.team.id];
+      if (c.to === "secret" && (t.parent != null || Object.values(teams).some((k) => String(k.parent) === String(t.id)))) {
+        return bad("a team with a parent or child teams can't be secret");
+      }
     } else if (c.kind === "team_delete") {
       c.from = "exists";
       c.to = null;
@@ -205,6 +218,15 @@ export async function currentValue(c, { org, call }) {
       if (r.json?.state === "pending") return "pending";
       return r.json?.role === "admin" ? "owner" : "member";
     }
+    case "team_description":
+    case "team_privacy":
+    case "team_notifications": {
+      const r = await call(team, { allow: [404] });
+      if (r.status === 404) throw new Error("the team is gone");
+      if (c.kind === "team_description") return r.json?.description ?? "";
+      if (c.kind === "team_privacy") return r.json?.privacy ?? null;
+      return r.json?.notification_setting === NOTIFY_API.disabled ? "disabled" : "enabled";
+    }
     default: throw new Error(`unknown kind ${c.kind}`);
   }
 }
@@ -241,6 +263,9 @@ export async function makeChange(c, { org, call }) {
     case "team_parent": await w(team, "PATCH", { parent_team_id: c.to }); return {};
     case "team_delete": await w(team, "DELETE"); return {};
     case "owner": await w(`/orgs/${seg(org)}/memberships/${seg(c.login)}`, "PUT", { role: c.to === "owner" ? "admin" : "member" }); return {};
+    case "team_description": await w(team, "PATCH", { description: c.to }); return {};
+    case "team_privacy": await w(team, "PATCH", { privacy: c.to }); return {};
+    case "team_notifications": await w(team, "PATCH", { notification_setting: NOTIFY_API[c.to] }); return {};
     default: throw new Error(`unknown kind ${c.kind}`);
   }
 }

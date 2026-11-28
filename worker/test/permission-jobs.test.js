@@ -52,7 +52,12 @@ console.log("\nthe shared change helpers\n");
     expectKeys({ kind: "team_repo", team: { id: 2 }, repo: { id: 10 } })[0] === deliveryKey("team_add", { team: { id: 2 }, repository: { id: 10 } }) &&
     expectKeys(add, { member: false }).includes(deliveryKey("organization", { action: "member_invited", invitation: { login: "dave" } })) &&
     expectKeys({ kind: "team_rename", team: { id: 3 } })[0] === deliveryKey("team", { action: "edited", team: { id: 3 }, changes: { name: {} } }) &&
-    expectKeys({ kind: "archived", repo: { id: 11 } })[0] === deliveryKey("repository", { action: "archived", repository: { id: 11 } }));
+    expectKeys({ kind: "archived", repo: { id: 11 } })[0] === deliveryKey("repository", { action: "archived", repository: { id: 11 } }) &&
+    expectKeys({ kind: "team_privacy", team: { id: 3 } })[0] === deliveryKey("team", { action: "edited", team: { id: 3 }, changes: { privacy: {} } }));
+  check("team settings describe themselves in GitHub's words",
+    describe({ kind: "team_privacy", team: { name: "Scala" }, to: "closed" }) === "make team Scala visible" &&
+    describe({ kind: "team_notifications", team: { name: "Scala" }, to: "disabled" }, { past: true }) === "turned off notifications for team Scala" &&
+    describe({ kind: "team_description", team: { name: "Scala" }, to: "" }) === "clear the description of team Scala");
 }
 
 console.log("\nnormaliseBatch\n");
@@ -88,6 +93,22 @@ console.log("\nnormaliseBatch\n");
   const made = normaliseBatch([{ kind: "team_create", name: " Ports ", parent: 2 }], snap).changes?.[0];
   check("a new team keeps its trimmed name and parent", made?.name === "Ports" && made.parent === 2 && made.to === "created");
   check("too many changes at once are refused", normaliseBatch(Array.from({ length: 1001 }, () => ({})), snap).error.includes("at most"));
+  const settings = normaliseBatch([
+    { kind: "team_description", team: team(3), from: null, to: "  Scala folks  " },
+    { kind: "team_notifications", team: team(3), from: "enabled", to: "disabled" },
+  ], snap).changes;
+  check("a description is trimmed and starts from empty", settings?.[0].to === "Scala folks" && settings[0].from === "");
+  check("notifications take on or off", settings?.[1].to === "disabled" &&
+    normaliseBatch([{ kind: "team_notifications", team: team(3), from: "enabled", to: "loud" }], snap).error);
+  check("a nested team can't be made secret",
+    normaliseBatch([{ kind: "team_privacy", team: team(3), from: "closed", to: "secret" }], snap).problems?.[0].error.includes("secret") &&
+    normaliseBatch([{ kind: "team_privacy", team: team(2), from: "closed", to: "secret" }], snap).problems?.[0].error.includes("secret") &&
+    normaliseBatch([{ kind: "team_privacy", team: team(1), from: "closed", to: "secret" }], snap, { owner: true }).changes?.length === 1);
+  const secret = snapshot();
+  secret.teams[1].privacy = "secret";
+  check("and a secret team can't be nested", normaliseBatch([{ kind: "team_parent", team: team(1), from: null, to: 2 }], secret, { owner: true }).error);
+  check("a description past GitHub's length is refused",
+    normaliseBatch([{ kind: "team_description", team: team(3), from: "", to: "x".repeat(1025) }], snap).error);
 }
 
 console.log("\nrateWait\n");
@@ -138,6 +159,7 @@ function fakeGitHub(state) {
       if (method === "PATCH") {
         if (body.name) { delete state.teams[m[1]]; const slug = slugOf(body.name); state.teams[slug] = { ...t, name: body.name, slug }; state.teamIds[slug] = t.id; return respond(200, state.teams[slug]); }
         if ("parent_team_id" in body) t.parent = body.parent_team_id == null ? null : { id: body.parent_team_id };
+        for (const k of ["description", "privacy", "notification_setting"]) if (k in body) t[k] = body[k];
         return respond(200, t);
       }
       if (method === "DELETE") { delete state.teams[m[1]]; return respond(204, null); }
@@ -195,6 +217,20 @@ console.log("\nreading and making each kind of change\n");
   check("a team grant is sent with GitHub's name for the level", st.repoTeams["GT5-Unofficial"].find((t) => t.slug === "developers").permission === "maintain");
   await makeChange({ kind: "collaborator", repo: R, login: "carol", to: "write" }, env);
   check("write goes to GitHub as push", gh.calls.at(-1).body.permission === "push");
+  st.teams.developers.description = null;
+  st.teams.developers.privacy = "closed";
+  st.teams.developers.notification_setting = "notifications_enabled";
+  check("a team's settings read as the page shows them",
+    await currentValue({ kind: "team_description", team: T }, env) === "" && await currentValue({ kind: "team_privacy", team: T }, env) === "closed" &&
+    await currentValue({ kind: "team_notifications", team: T }, env) === "enabled");
+  await makeChange({ kind: "team_description", team: T, to: "Everyone who merges" }, env);
+  await makeChange({ kind: "team_privacy", team: T, to: "secret" }, env);
+  await makeChange({ kind: "team_notifications", team: T, to: "disabled" }, env);
+  check("team settings are patched with GitHub's names for them",
+    st.teams.developers.description === "Everyone who merges" && st.teams.developers.privacy === "secret" &&
+    st.teams.developers.notification_setting === "notifications_disabled" &&
+    await currentValue({ kind: "team_notifications", team: T }, env) === "disabled");
+
   const made = await makeChange({ kind: "team_create", name: "New Folks", parent: 2 }, env);
   check("a new team comes back with its id and slug, closed so it can have a parent",
     made.team.id === 77 && made.team.slug === "new-folks" && gh.calls.at(-1).body.privacy === "closed" && gh.calls.at(-1).body.parent_team_id === 2);

@@ -8,10 +8,10 @@
 import { matchesAny } from "../../src/shared/repo-rules.js";
 import { KEEP_PER_BOX } from "../../web/js/log-boxes.js";
 import { directTeamRepos, levelOf, rank } from "../../web/js/permissions-calc.js";
-import { deliveryKey, describe, isRemoval, keyOf } from "../../web/js/permission-changes.js";
+import { deliveryKey, describe, isRemoval, keyOf, NOTIFY_LABEL, PRIVACY_LABEL } from "../../web/js/permission-changes.js";
 import { excludeRules, LOG_NAME, summarise } from "./event-log.js";
 import { appReady, installationToken } from "./github.js";
-import { fetchPermissions, fetchRepoInvites } from "./permissions-read.js";
+import { fetchPermissions, fetchRepoInvites, notifications } from "./permissions-read.js";
 
 export const PERMISSIONS_NAME = "permissions";
 
@@ -107,6 +107,15 @@ export function diffPermissions(before, after, { at, org }) {
       out.push(line({ action: "team_parent", team: t, url,
         text: parent ? `moved team ${team.name} under ${parent.name}` : `moved team ${team.name} to the top level` }));
     }
+    if (known(old.description, team.description) && old.description !== team.description) {
+      out.push(line({ action: "team_description", team: t, url, text: team.description ? `changed the description of team ${team.name}` : `cleared the description of team ${team.name}` }));
+    }
+    if (known(old.privacy, team.privacy) && old.privacy !== team.privacy) {
+      out.push(line({ action: "team_privacy", team: t, url, text: `made team ${team.name} ${PRIVACY_LABEL[team.privacy] ?? team.privacy}` }));
+    }
+    if (known(old.notifications, team.notifications) && old.notifications !== team.notifications) {
+      out.push(line({ action: "team_notifications", team: t, url, text: `turned ${NOTIFY_LABEL[team.notifications] ?? team.notifications} notifications for team ${team.name}` }));
+    }
     const was = old.members ?? {};
     const now = team.members ?? {};
     for (const [login, role] of Object.entries(now)) {
@@ -183,7 +192,9 @@ function trimRepo(r) {
 
 function trimTeam(t) {
   if (!t) return null;
-  return { id: t.id, slug: t.slug, name: t.name, privacy: t.privacy, html_url: t.html_url, parent: t.parent ? { id: t.parent.id } : null };
+  return { id: t.id, slug: t.slug, name: t.name, privacy: t.privacy, html_url: t.html_url, parent: t.parent ? { id: t.parent.id } : null,
+    ...("description" in t ? { description: t.description ?? "" } : {}),
+    ...("notification_setting" in t ? { notification_setting: t.notification_setting } : {}) };
 }
 
 const who = (u) => (u ? { login: u.login } : null);
@@ -240,6 +251,7 @@ export function applyDelivery(snap, event, p) {
     const a = event === "team_add" ? "added_to_repository" : p.action;
     if (a === "created" && p.team && !team) {
       snap.teams[p.team.id] = { id: p.team.id, slug: p.team.slug, name: p.team.name, privacy: p.team.privacy ?? null,
+        description: p.team.description ?? "", notifications: notifications(p.team.notification_setting),
         parent: p.team.parent?.id ?? null, members: {}, repos: {} };
       touched.add(`team:${p.team.id}`);
     } else if (a === "deleted" && team) {
@@ -248,6 +260,8 @@ export function applyDelivery(snap, event, p) {
     } else if (team) {
       if (a === "edited") {
         Object.assign(team, { slug: p.team.slug ?? team.slug, name: p.team.name ?? team.name, privacy: p.team.privacy ?? team.privacy, parent: p.team.parent?.id ?? null });
+        if ("description" in p.team) team.description = p.team.description ?? "";
+        if (p.team.notification_setting) team.notifications = notifications(p.team.notification_setting) ?? team.notifications;
         touchTeam(team);
       }
       const repoId = p.repository?.id;
@@ -331,6 +345,13 @@ export function applyChange(snap, c, result = {}) {
     case "team_parent":
       if (!team) break;
       team.parent = c.to;
+      touchTeam(team);
+      break;
+    case "team_description":
+    case "team_privacy":
+    case "team_notifications":
+      if (!team) break;
+      team[c.kind.slice(5)] = c.to;
       touchTeam(team);
       break;
     case "team_delete": {

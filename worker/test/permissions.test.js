@@ -48,7 +48,7 @@ function fakeGitHub({ failOn = null, noRoles = false } = {}) {
     }
     if (text.includes("teams(")) {
       return { organization: { teams: { pageInfo: page(false), nodes: [
-        { databaseId: 10, slug: "developers", name: "Developers", privacy: "CLOSED", parentTeam: null,
+        { databaseId: 10, slug: "developers", name: "Developers", privacy: "CLOSED", parentTeam: null, description: "Write access everywhere", notificationSetting: "NOTIFICATIONS_DISABLED",
           members: { pageInfo: page(true, "x"), edges: [member("bob", "MAINTAINER")] },
           repositories: { pageInfo: page(true, "r1"), edges: [repoEdge(1, "WRITE")] } },
         { databaseId: 11, slug: "scala-developers", name: "Scala Developers", privacy: "CLOSED", parentTeam: { databaseId: 10 },
@@ -132,6 +132,8 @@ console.log("\nthe reader\n");
     snap.org.invites.length === 2 && snap.org.invites[0].login === "newbie" && snap.org.invites[0].by === "alice" && snap.org.invites[1].email === "x@example.com");
   const dev = snap.teams[10];
   check("a team keeps its slug, name and parent", dev.slug === "developers" && dev.name === "Developers" && dev.parent === null && snap.teams[11].parent === 10 && dev.privacy === "closed");
+  check("a team keeps its description and notification setting",
+    dev.description === "Write access everywhere" && dev.notifications === "disabled" && snap.teams[11].description === "" && snap.teams[11].notifications === null);
   check("team members are read past the first page with their role",
     JSON.stringify(dev.members) === JSON.stringify({ bob: "maintainer", carol: "member" }), JSON.stringify(dev.members));
   check("team repos are read past the first page, keyed by repo id",
@@ -359,6 +361,14 @@ console.log("\nthe diff\n");
   check("a grant on a repo the snapshot hasn't read yet is named by its id", grant.repo === "repo 3", JSON.stringify(grant));
   check("a team grant line links to the team", grant.team === "developers" && grant.url === "https://github.com/orgs/GTNewHorizons/teams/developers");
 
+  const sb = richSnapshot(), sa = richSnapshot();
+  Object.assign(sb.teams[10], { description: "", privacy: "closed", notifications: "enabled" });
+  Object.assign(sa.teams[10], { description: "Writers", privacy: "secret", notifications: "disabled" });
+  const set = diffPermissions(sb, sa, opts).map((l) => l.text);
+  check("team settings changes are logged",
+    set.includes("changed the description of team Developers") && set.includes("made team Developers secret") && set.includes("turned off notifications for team Developers"), set.join(" | "));
+  check("settings the old snapshot never had aren't changes", diffPermissions(richSnapshot(), sa, opts).length === 0);
+
   const rb = richSnapshot(), ra = richSnapshot();
   ra.repos[2].visibility = "public";
   ra.repos[1].archived = true;
@@ -409,6 +419,11 @@ console.log("\nwebhook patches\n");
   check("a deleted team is removed", !r.s.teams[11] && r.touched.has("team:11"));
   r = p("team", { action: "edited", team: { id: 10, slug: "devs", name: "Devs", parent: null }, changes: { name: { from: "Developers" } } });
   check("a rename updates name and slug", r.s.teams[10].name === "Devs" && r.s.teams[10].slug === "devs");
+  r = p("team", { action: "edited", team: { id: 10, slug: "developers", name: "Developers", privacy: "secret", description: null, notification_setting: "notifications_disabled" }, changes: { privacy: { from: "closed" } } });
+  check("an edit updates privacy, description and notifications",
+    r.s.teams[10].privacy === "secret" && r.s.teams[10].description === "" && r.s.teams[10].notifications === "disabled");
+  r = p("team", { action: "edited", team: { id: 10, slug: "developers", name: "Developers" }, changes: { name: { from: "Devs" } } });
+  check("a payload without them leaves them alone", !("description" in r.s.teams[10]) || r.s.teams[10].description === richSnapshot().teams[10].description);
   r = p("team", { action: "edited", team: { id: 10, slug: "developers", name: "Developers" }, repository: { id: 2, name: "Secret-Repo", permissions: { admin: true, push: true, pull: true } }, changes: { repository: { permissions: { from: { admin: false } } } } });
   check("a team's level on a repo changes", r.s.teams[10].repos[2] === "admin");
   r = p("team", { action: "added_to_repository", team: { id: 10 }, repository: { id: 5, permissions: { pull: true, triage: true } } });
@@ -666,6 +681,11 @@ console.log("\nchanges made from the dashboard\n");
   check("deleting a team takes its child teams with it, as GitHub does", !snap.teams[10] && !snap.teams[20] && gone.has("team:20"));
   applyChange(snap, { kind: "owner", login: "bob", from: "member", to: "owner" });
   check("an owner change patches the org", snap.org.members.bob === "owner");
+  const settings = baseSnapshot();
+  applyChange(settings, { kind: "team_description", team: T, from: "", to: "Writers" });
+  applyChange(settings, { kind: "team_privacy", team: T, from: "closed", to: "secret" });
+  applyChange(settings, { kind: "team_notifications", team: T, from: "enabled", to: "disabled" });
+  check("team settings patch the team", settings.teams[10].description === "Writers" && settings.teams[10].privacy === "secret" && settings.teams[10].notifications === "disabled");
 
   const line = appliedLine({ kind: "collaborator", repo: R, login: "zed", from: null, to: "read" }, { by: "admin@example.com", at: AT, org: ORG, result: { invited: true } });
   check("the line names the admin and says it came from the dashboard", line.actor === "admin@example.com" && line.via === "dashboard" && line.box === "org");

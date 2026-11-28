@@ -4,7 +4,7 @@ import { KEEP_PER_BOX } from "./log-boxes.js";
 import {
   adminRows, directRows, indexSnapshot, LEVELS, personAccess, problems, rank, repoAccess, repoRoles, repoTeams, teamAncestors, teamRoles, teamRows,
 } from "./permissions-calc.js";
-import { describe, keyOf, TEAM_ROLES, validLogin, validTeamName } from "./permission-changes.js";
+import { describe, keyOf, MAX_DESCRIPTION, NOTIFY_LABEL, PRIVACY_LABEL, TEAM_ROLES, validLogin, validTeamName } from "./permission-changes.js";
 import {
   configureApply, flagsOf, ownerOnly, paintTray, stage, stagedFor, stagedList, stageMany, syncApply, trayClick, trayMarkup, unstage,
 } from "./permission-apply.js";
@@ -561,6 +561,11 @@ function changeFromForm(form) {
     if (Object.values(data.teams).some((t) => t.id !== c.team.id && t.name.toLowerCase() === name.toLowerCase())) return { error: "There's already a team with that name." };
     c.from = teamOf(c.team.id).name;
     c.to = name;
+  } else if (kind === "team_description") {
+    const text = String(f.get("description") ?? "").trim();
+    if (text.length > MAX_DESCRIPTION) return { error: `Keep it under ${MAX_DESCRIPTION} characters.` };
+    c.from = teamOf(c.team.id).description ?? "";
+    c.to = text;
   } else if (kind === "team_create") {
     const name = String(f.get("name")).trim();
     if (!validTeamName(name)) return { error: "A team needs a name." };
@@ -649,10 +654,14 @@ function teamPanel(id) {
   const parentOptions = [["", "(top level)"], ...Object.values(data.teams).filter((t) => !below.has(String(t.id))).sort((a, b) => a.name.localeCompare(b.name)).map((t) => [t.id, t.name])];
   const deleting = pendingFor(keyOf({ kind: "team_delete", team: ref }));
   const head = `<div class="perm-phead"><div><h2 tabindex="-1">${esc(team.name)}</h2><span class="sub">Team · ${esc(team.slug)}${team.privacy ? ` · ${esc(team.privacy)}` : ""}</span></div></div>
-    <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a></div>
+    <div class="perm-plinks"><a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}`)}" target="_blank" rel="noopener">Team on GitHub</a>
+      <a href="${github(`orgs/${encodeURIComponent(data.org.login)}/teams/${encodeURIComponent(team.slug)}/edit/review_assignment`)}" target="_blank" rel="noopener" title="GitHub has no API for these, so they're changed there">Code review settings</a></div>
     <div class="perm-pedit">
       ${addForm("team_rename", { team: ref }, `<input name="name" class="perm-input" value="${esc(team.name)}" aria-label="Team name" spellcheck="false">`, "Rename", locked)}
+      ${addForm("team_description", { team: ref }, `<input name="description" class="perm-input perm-desc" value="${esc(pendingFor(keyOf({ kind: "team_description", team: ref }))?.to ?? team.description ?? "")}" maxlength="${MAX_DESCRIPTION}" placeholder="No description" aria-label="Team description">`, "Save description", locked)}
       <label class="sub">Parent ${editSelect({ kind: "team_parent", team: ref }, team.parent ?? null, parentOptions.map(([v, t]) => [v === "" ? null : v, t]), `${team.name}'s parent team`)}</label>
+      <label class="sub">Visibility ${editSelect({ kind: "team_privacy", team: ref }, team.privacy ?? "unknown", Object.entries(PRIVACY_LABEL), `${team.name}'s visibility`)}</label>
+      <label class="sub">Notifications ${editSelect({ kind: "team_notifications", team: ref }, team.notifications ?? "unknown", Object.entries(NOTIFY_LABEL), `${team.name}'s notifications`)}</label>
       ${deleting
         ? `<button type="button" class="ghost mini" ${drafts.has(keyOf({ kind: "team_delete", team: ref })) ? "data-undraft" : "data-unstage"}="${esc(keyOf({ kind: "team_delete", team: ref }))}">Don't delete</button>`
         : `<button type="button" class="ghost mini perm-danger" data-stage="${esc(JSON.stringify({ kind: "team_delete", team: ref, from: "exists", to: null }))}"${locked ? ` disabled title="Only an org owner can change this"` : ""}>Delete team</button>`}

@@ -144,6 +144,7 @@ html.perm-modal-open { overflow: hidden; }
 .perm-sel:focus, .perm-input:focus { outline: none; border-color: var(--accent); }
 .perm-sel[disabled] { opacity: .55; cursor: not-allowed; }
 .perm-input { min-width: 0; width: 170px; }
+.perm-input.perm-desc { width: 280px; }
 .perm-edit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .perm-edit.is-staged .perm-sel { border-color: var(--warn); background-color: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
 .perm-undo, .perm-x {
