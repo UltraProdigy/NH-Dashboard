@@ -1,7 +1,7 @@
 .tm-card header { flex-wrap: wrap; gap: 6px 10px; }
 .tm-filters { margin-left: auto; display: inline-flex; gap: 6px; }
 .tm-card header > .perm-sel { margin-left: auto; }
-.tm-history { max-height: 380px; }
+.tm-card .tm-history { max-height: 186px; }
 .tm-more { margin: 8px 14px 12px; }
 
 .tm-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; }
