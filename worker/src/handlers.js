@@ -30,6 +30,10 @@ function names(list) {
   return JSON.stringify((list ?? []).map((x) => x?.name ?? x?.login ?? x).filter(Boolean));
 }
 
+function teamIds(list) {
+  return JSON.stringify((list ?? []).map((t) => t?.id).filter(Number.isSafeInteger));
+}
+
 function login(user) {
   return user?.login ?? null;
 }
@@ -161,6 +165,17 @@ async function onPullRequest(db, payload) {
       pr.merge_commit_sha ?? null,
     )
     .run();
+
+  // Separate so a database without migration 013 still takes the rest of the row.
+  // Matching updated_at keeps it from undoing a newer delivery the upsert refused to overwrite.
+  try {
+    await db
+      .prepare("UPDATE pull_requests SET team_review_requests = ?1 WHERE repo = ?2 AND number = ?3 AND updated_at = ?4")
+      .bind(teamIds(pr.requested_teams), repo, pr.number, pr.updated_at ?? pr.created_at)
+      .run();
+  } catch (err) {
+    if (!/team_review_requests/.test(String(err))) throw err;
+  }
 
   return { table: "pull_requests", repo, number: pr.number, state: prState(pr) };
 }

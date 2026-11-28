@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS pull_requests (
   assignees         TEXT NOT NULL DEFAULT '[]',
   review_requests   TEXT NOT NULL DEFAULT '[]',
   merge_commit_sha  TEXT,
+  team_review_requests TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY (repo, number)
 );
 

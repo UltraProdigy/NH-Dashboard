@@ -193,6 +193,35 @@ check("a real reopen still reopens it",
   row("SELECT state FROM pull_requests WHERE number=4900").state, "OPEN");
 raw.prepare("DELETE FROM pull_requests WHERE number=4900").run();
 
+console.log("\n  teams asked to review are kept by id");
+const teamPr = (over = {}) => ({
+  action: "review_requested",
+  repository: { name: "GT5-Unofficial" },
+  pull_request: {
+    number: 4950, title: "Rendering tweak", state: "open", merged: false, merged_at: null, closed_at: null,
+    created_at: "2026-09-02T00:00:00Z", updated_at: "2026-09-02T10:00:00Z", user: { login: "someone" },
+    labels: [], assignees: [], requested_reviewers: [{ login: "reviewer" }],
+    requested_teams: [{ id: 501, slug: "rendering" }, { id: 502, slug: "performance" }], ...over,
+  },
+});
+await handleEvent(db, "pull_request", teamPr());
+check("team ids written", row("SELECT team_review_requests t FROM pull_requests WHERE number=4950").t, "[501,502]");
+check("people still in review_requests", row("SELECT review_requests r FROM pull_requests WHERE number=4950").r, '["reviewer"]');
+await handleEvent(db, "pull_request", teamPr({ updated_at: "2026-09-02T12:00:00Z", requested_teams: [{ id: 502, slug: "performance" }] }));
+check("a newer payload replaces them", row("SELECT team_review_requests t FROM pull_requests WHERE number=4950").t, "[502]");
+await handleEvent(db, "pull_request", teamPr({ action: "closed", state: "closed", merged: true, merged_at: "2026-09-03T00:00:00Z",
+  closed_at: "2026-09-03T00:00:00Z", updated_at: "2026-09-03T00:00:00Z", requested_teams: [] }));
+await handleEvent(db, "pull_request", teamPr({ updated_at: "2026-09-02T13:00:00Z" }));
+check("a late open payload doesn't bring them back onto a merged PR", row("SELECT team_review_requests t FROM pull_requests WHERE number=4950").t, "[]");
+
+{
+  const old = new DatabaseSync(":memory:");
+  old.exec(readFileSync("worker/schema.sql", "utf8").replace("  team_review_requests TEXT NOT NULL DEFAULT '[]',\n", ""));
+  const res = await handleEvent(new Shim(old), "pull_request", teamPr());
+  check("a database without migration 013 still takes the pull request",
+    old.prepare("SELECT title FROM pull_requests WHERE number=4950").get()?.title ?? res, "Rendering tweak");
+}
+
 console.log("\npull_request_review: an approval arrives");
 await handleEvent(db, "pull_request_review", {
   action: "submitted",
