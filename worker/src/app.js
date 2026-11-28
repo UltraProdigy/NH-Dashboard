@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release, Releases & Tags, the Updates scan and update PRs, the Dream Panel filters, the GitHub Webhook rules, the Permissions page and the Custom Properties page are
+ * release, Releases & Tags, the Updates scan and update PRs, the Dream Panel filters, the GitHub Webhook rules, the Permissions page, Team Management and the Custom Properties page are
  * refused to anyone who isn't on the admin team, whatever the page shows.
  */
 
@@ -39,6 +39,7 @@ import { PERMISSIONS_NAME } from "./permissions.js";
 import { jobsStub, normaliseBatch, PermissionJobs } from "./permission-jobs.js";
 import { orgManagerReady } from "./org-manager.js";
 import { applyProperties, propertiesState } from "./properties.js";
+import { changeExclusion, teamsState } from "./team-management.js";
 
 export { PermissionJobs, UpdatePrJobs };
 
@@ -280,6 +281,20 @@ async function route(request, env, ctx, url, who) {
       });
     }
     return json(out.body, out.status);
+  }
+
+  if (path === "/api/teams" || path.startsWith("/api/teams/")) {
+    if (!admin) return json({ error: "admin only" }, 403);
+    if (path === "/api/teams") {
+      if (request.method !== "GET") return json({ error: "GET only" }, 405);
+      const { status, body } = await teamsState(env);
+      return json(body, status);
+    }
+    if (path !== "/api/teams/exclusions") return json({ error: "not found" }, 404);
+    if (request.method !== "POST") return json({ error: "POST only" }, 405);
+    if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+    const { status, body } = await changeExclusion(env, actorOf(who), await request.json().catch(() => null));
+    return json(body, status);
   }
 
   if (path === "/api/permissions/apply" || path === "/api/permissions/cancel") {

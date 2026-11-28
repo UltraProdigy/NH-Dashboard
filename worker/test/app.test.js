@@ -371,6 +371,29 @@ console.log("\nPermissions\n");
   check("an object that fails is a 502, not its body", broken.status === 502, broken.status);
 }
 
+console.log("\nTeam Management\n");
+{
+  const origin = { origin: "https://nh-dashboard-app.gtnh.workers.dev", "content-type": "application/json" };
+  const env = {
+    ...ENV,
+    PERMISSIONS: { idFromName: (n) => n, get: () => ({ fetch: async (url) => Response.json(new URL(url).pathname === "/snapshot"
+      ? { org: { login: "GTNewHorizons", members: { alice: "member" } }, teams: {}, repos: {} }
+      : { historySince: null, history: [], since: {} }) }) },
+  };
+  check("a member is refused Team Management", (await call("/api/teams", { sub: "member-user", env })).status === 403);
+  const a = await call("/api/teams", { sub: "admin-user", env });
+  check("an admin gets it", a.status === 200 && a.body.config?.developers === "developers" && Array.isArray(a.body.requests?.prs), JSON.stringify(a.body).slice(0, 300));
+  const ex = (body, opts = {}) => call("/api/teams/exclusions", { sub: "admin-user", env, method: "POST", headers: origin, body: JSON.stringify(body), ...opts });
+  check("a member can't change the exclusions", (await ex({ panel: "inactive", login: "alice", on: true }, { sub: "member-user" })).status === 403);
+  check("an exclusion from another origin is refused", (await ex({ panel: "inactive", login: "alice", on: true }, { headers: { origin: "https://evil.example" } })).status === 403);
+  const added = await ex({ panel: "inactive", login: "alice", on: true, note: "on leave" });
+  check("an exclusion is credited to the admin's GitHub login", added.status === 200 && added.body.exclusions.inactive.alice.by === "UltraProdigy", JSON.stringify(added.body));
+  const v = await call("/api/version", { sub: "member-user" });
+  check("the version endpoint carries the exclusions' stamp", v.body.teamExclusionsAt === added.body.stamp);
+  check("other team routes are a 404", (await call("/api/teams/other", { sub: "admin-user", env })).status === 404);
+  check("the exclusions are POST only", (await call("/api/teams/exclusions", { sub: "admin-user", env })).status === 405);
+}
+
 console.log("\nCustom Properties\n");
 {
   const m = await call("/api/properties", { sub: "member-user" });

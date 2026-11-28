@@ -73,4 +73,7 @@ GH_APP_ID = "4745300"
 # Org-Manager. Public, like GH_APP_ID.
 ORG_MANAGER_APP_ID = "5299242"
 ADMIN_TEAM = "admin"
+# Team Management's Developers ⇄ Hiatus panels, by team slug.
+DEVELOPERS_TEAM = "developers"
+HIATUS_TEAM = "developers-on-hiatus"
 ACCESS_TEAM_DOMAIN = "nh-dashboard.cloudflareaccess.com"

@@ -80,6 +80,8 @@ jobs:
           npm run test:build-updates
           npm run test:update-prs
           npm run test:dream-filters
+          npm run test:team-activity
+          npm run test:team-management
           npm run test:freshness
 
       # Secrets are not touched. `wrangler deploy` uploads code and bindings;

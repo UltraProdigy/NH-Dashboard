@@ -57,6 +57,7 @@
     "test:update-prs": "node --experimental-sqlite worker/test/update-prs.test.js",
     "test:dream-filters": "node --experimental-sqlite worker/test/dream-filters.test.js",
     "test:team-activity": "node --experimental-sqlite worker/test/team-activity.test.js",
+    "test:team-management": "node --experimental-sqlite worker/test/team-management.test.js",
     "test:rows-read": "node worker/test/rows-read.test.js"
   },
   "engines": {
