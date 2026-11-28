@@ -205,6 +205,51 @@ for (const name of ADMIN_PANELS) {
   check("a pin with a bad repo name is refused", u6.status === 400, u6.status);
   const u7 = await call("/api/updates/nothing", { sub: "admin-user", method: "POST", headers: origin });
   check("an unknown updates path is a 404", u7.status === 404, u7.status);
+  {
+    const queued = [];
+    const prEnv = {
+      ...ENV,
+      ORG_MANAGER_APP_ID: "1",
+      ORG_MANAGER_PRIVATE_KEY: "k",
+      UPDATE_PR_JOBS: {
+        idFromName: (n) => n,
+        get: () => ({ fetch: async (url, init) => {
+          const path = new URL(typeof url === "string" ? url : url.url).pathname;
+          queued.push({ path, body: init?.body ? JSON.parse(init.body) : null });
+          if (path === "/state") return Response.json({ jobs: [], focus: null });
+          return Response.json({ job: "upd-1", ahead: 0, total: JSON.parse(init.body).items?.length ?? 0 });
+        } }),
+      },
+    };
+    const prs = (body, opts = {}) => call("/api/updates/prs", { sub: "admin-user", env: prEnv, method: "POST", headers: origin, body: JSON.stringify(body), ...opts });
+    const scan = { org: "GTNewHorizons", scannedAt: "2026-11-27T00:00:00Z", tags: {}, repos: [
+      { name: "A", buildscript: { kind: "plugin", version: "2.0.34" }, gradle: "8.14.3", deps: [] },
+      { name: "B", buildscript: { kind: "plugin", version: "2.0.30" }, gradle: "8.10", deps: [] },
+    ] };
+    db.prepare("INSERT INTO meta (key, value) VALUES ('build_updates', ?)").run(JSON.stringify(scan));
+    const p1 = await prs({ repos: ["B"], kinds: { gradle: true } }, { sub: "member-user" });
+    check("a member can't open update PRs", p1.status === 403 && queued.length === 0, p1.status);
+    const p2 = await prs({ repos: ["B"], kinds: { gradle: true } }, { headers: { origin: "https://evil.example" } });
+    check("update PRs from another origin are refused", p2.status === 403 && queued.length === 0, p2.status);
+    const p3 = await prs({ repos: ["B"], kinds: { gradle: true } }, { env: { ...prEnv, ORG_MANAGER_PRIVATE_KEY: undefined } });
+    check("without Org-Manager's key update PRs say so", p3.status === 503 && queued.length === 0, p3.status);
+    const p4 = await prs({ repos: ["A"], kinds: { gradle: true, buildscript: true } });
+    check("a request with nothing to update is refused", p4.status === 400 && p4.body.skipped?.[0]?.repo === "A" && queued.length === 0, JSON.stringify(p4.body));
+    const p5 = await prs({ repos: ["A", "B"], kinds: { gradle: true }, dry: true });
+    const sent = queued.at(-1)?.body;
+    check("a good request is planned from the stored scan and queued",
+      p5.status === 200 && sent?.items?.length === 1 && sent.items[0].repo === "B" && sent.items[0].gradle?.to === "8.14.3" && sent.source === "A" && sent.dry === true && sent.offline === false,
+      JSON.stringify(sent));
+    check("and the skipped ones come back", p5.body.skipped?.length === 1 && p5.body.skipped[0].repo === "A");
+    const p6 = await call("/api/updates/prs", { sub: "admin-user", env: prEnv });
+    check("an admin can read the PR jobs", p6.status === 200 && queued.at(-1).path === "/state");
+    const p7 = await call("/api/updates/prs/cancel", { sub: "admin-user", env: prEnv, method: "POST", headers: origin, body: JSON.stringify({ job: "upd-1" }) });
+    check("and cancel one, stamped with who did", p7.status === 200 && queued.at(-1).path === "/cancel" && queued.at(-1).body.job === "upd-1" && queued.at(-1).body.by);
+    const local = await call("/api/updates/prs", { env: { ...prEnv, DEV_ROLE: "admin", ORG_MANAGER_PRIVATE_KEY: undefined }, host: "localhost", method: "POST",
+      headers: { origin: "https://localhost", "content-type": "application/json" }, body: JSON.stringify({ repos: ["B"], kinds: { gradle: true } }) });
+    check("locally without keys it queues an offline dry run", local.status === 200 && queued.at(-1).body.dry === true && queued.at(-1).body.offline === true, JSON.stringify(local.body));
+    db.prepare("DELETE FROM meta WHERE key = 'build_updates'").run();
+  }
   const repos = JSON.stringify({ repos: ["GTNHLib"] });
   const item = JSON.stringify({ run: "run-12345678", last: true, items: [{ repo: "GTNHLib", tag: "0.11.55", sha: "a".repeat(40) }] });
   const gone = JSON.stringify({ run: "run-12345678", last: true, pattern: "x*", items: [{ repo: "GTNHLib", tag: "x1", release: true, deleteTag: true }] });

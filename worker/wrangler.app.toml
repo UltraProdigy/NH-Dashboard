@@ -38,6 +38,15 @@ class_name = "PermissionJobs"
 tag = "v1"
 new_sqlite_classes = ["PermissionJobs"]
 
+# Opens the Updates card's buildscript, Gradle and dependency PRs as Org-Manager.
+[[durable_objects.bindings]]
+name = "UPDATE_PR_JOBS"
+class_name = "UpdatePrJobs"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["UpdatePrJobs"]
+
 # Lives in nh-discord-relay, so that one has to deploy first too.
 [[durable_objects.bindings]]
 name = "DISCORD_RELAY"

@@ -9,7 +9,7 @@
  *
  * Members see every page except Admin Resources. The data only those pages use
  * (ADMIN_PANELS), the manual recompute, the Dream Panel verify, the daily
- * release, Releases & Tags, the Updates scan, the GitHub Webhook rules, the Permissions page and the Custom Properties page are
+ * release, Releases & Tags, the Updates scan and update PRs, the GitHub Webhook rules, the Permissions page and the Custom Properties page are
  * refused to anyone who isn't on the admin team, whatever the page shows.
  */
 
@@ -20,7 +20,8 @@ import { verifyDreamPanel } from "./verify.js";
 import { dailyStatus, releaseDaily } from "./daily-release.js";
 import { deletePreview, deleteRun, releasePreview, releaseRun, releaseStatus, repoList } from "./release-manager.js";
 import { deleteSnapshot, editSnapshot, listSnapshots, revertChange, saveSnapshot } from "./release-snapshots.js";
-import { runUpdatesScan, setPin, updatesStatus } from "./build-updates.js";
+import { readScan, runUpdatesScan, setPin, updatesStatus } from "./build-updates.js";
+import { buildRequest, updateJobsStub, UpdatePrJobs } from "./update-prs.js";
 import { previewWebhookRules, saveWebhookRules, webhookState } from "./webhook-admin.js";
 import {
   handleDashboard,
@@ -38,7 +39,7 @@ import { jobsStub, normaliseBatch, PermissionJobs } from "./permission-jobs.js";
 import { orgManagerReady } from "./org-manager.js";
 import { applyProperties, propertiesState } from "./properties.js";
 
-export { PermissionJobs };
+export { PermissionJobs, UpdatePrJobs };
 
 const LOCAL = new Set(["localhost", "127.0.0.1"]);
 
@@ -89,6 +90,35 @@ async function permissionWrites(request, env, url, who, path) {
   const res = await jobsStub(env).fetch("https://jobs/submit", { method: "POST", body: JSON.stringify({ by, changes: batch.changes, dry }) });
   if (!res.ok) return json({ error: "the job couldn't be queued" }, 502);
   return json({ ...(await res.json()), dry });
+}
+
+async function updatePrs(request, env, url, who, path) {
+  if (!env.UPDATE_PR_JOBS) return json({ error: "update PR jobs not bound" }, 503);
+  if (path === "/api/updates/prs" && request.method === "GET") {
+    const res = await updateJobsStub(env).fetch("https://jobs/state");
+    return res.ok ? json(await res.json()) : json({ error: "update PR jobs unavailable" }, 502);
+  }
+  if (request.method !== "POST") return json({ error: "POST only" }, 405);
+  if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);
+  const by = who.identity.email ?? who.identity.sub ?? "unknown";
+  const sent = await request.json().catch(() => null);
+  if (path === "/api/updates/prs/cancel") {
+    const res = await updateJobsStub(env).fetch("https://jobs/cancel", { method: "POST", body: JSON.stringify({ job: sent?.job ?? null, by }) });
+    return json(await res.json(), res.ok ? 200 : 502);
+  }
+  const local = Boolean(env.DEV_ROLE && LOCAL.has(url.hostname));
+  const ready = orgManagerReady(env);
+  if (!local && !ready) return json({ error: "ORG_MANAGER_APP_ID or ORG_MANAGER_PRIVATE_KEY not set" }, 503);
+  const { scan, pins } = await readScan(env);
+  const plan = buildRequest(sent, scan, pins);
+  if (plan.error) return json(plan, 400);
+  const dry = plan.dry || local;
+  const res = await updateJobsStub(env).fetch("https://jobs/submit", {
+    method: "POST",
+    body: JSON.stringify({ by, login: who.login ?? null, items: plan.items, dry, offline: local && !ready, source: plan.source, scanAt: scan.scannedAt ?? null }),
+  });
+  if (!res.ok) return json({ error: "the job couldn't be queued" }, 502);
+  return json({ ...(await res.json()), dry, skipped: plan.skipped });
 }
 
 async function authenticate(request, env, ctx, url, opts) {
@@ -176,6 +206,7 @@ async function route(request, env, ctx, url, who) {
       const { status, body } = await updatesStatus(env);
       return json(body, status);
     }
+    if (path === "/api/updates/prs" || path === "/api/updates/prs/cancel") return updatePrs(request, env, url, who, path);
     if (path !== "/api/updates/scan" && path !== "/api/updates/pin") return json({ error: "not found" }, 404);
     if (request.method !== "POST") return json({ error: "POST only" }, 405);
     if (request.headers.get("origin") !== url.origin) return json({ error: "bad origin" }, 403);

@@ -168,6 +168,11 @@ export async function scanOrg(env, { now = Date.now() } = {}) {
   return { org, scannedAt: new Date(now).toISOString(), repos, tags, skipped, errors };
 }
 
+export async function readScan(env) {
+  const [scan, pins] = await Promise.all([readJson(env.DB, SCAN_KEY, null), readPins(env.DB)]);
+  return { scan, pins };
+}
+
 export async function updatesStatus(env, { now = Date.now() } = {}) {
   const [scan, pins, lock, at] = await Promise.all([
     readJson(env.DB, SCAN_KEY, null),
