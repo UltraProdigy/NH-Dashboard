@@ -187,7 +187,7 @@ export async function fetchPermissions(token, org, { query = graphql, request = 
   };
 }
 
-const ROLE_LEVEL = /^all[\s_-]*repo(?:sitory)?[\s_-]*(read|triage|write|maintain|admin)$/i;
+const ROLE_LEVEL = /^all[\s_-]*repo(?:sitory)?[\s_-]*(read|triage|moderate|write|maintain|admin)$/i;
 
 export const roleLevel = (role) => levelOf(role.base_role) ?? levelOf(String(role.name ?? "").match(ROLE_LEVEL)?.[1]);
 

@@ -2932,7 +2932,7 @@ the server refuses them regardless. How the dashboard knows who's an owner is un
 #### Bulk change
 
 A card at the bottom of the page. Pick a **subject** (one team, or one person by
-login) and an **action** (set read, triage, write, maintain or admin, or remove
+login) and an **action** (set read, triage, moderate, write, maintain or admin, or remove
 access). Every non-archived repo is listed with what would happen to it, and the
 list narrows by repo name, visibility, the subject's current level and, after
 **Filter by custom property** loads them from `/api/releases/repos`, custom

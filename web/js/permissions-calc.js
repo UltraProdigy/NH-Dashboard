@@ -4,13 +4,13 @@
  * what. How effective access is worked out is in docs/Calculations.md.
  */
 
-export const LEVELS = ["read", "triage", "write", "maintain", "admin"];
+export const LEVELS = ["read", "triage", "moderate", "write", "maintain", "admin"];
 
 const RANK = new Map(LEVELS.map((level, i) => [level, i + 1]));
 
 export const rank = (level) => RANK.get(level) ?? 0;
 
-const REST_KEYS = [["admin", "admin"], ["maintain", "maintain"], ["push", "write"], ["triage", "triage"], ["pull", "read"]];
+const REST_KEYS = [["admin", "admin"], ["maintain", "maintain"], ["push", "write"], ["moderate", "moderate"], ["triage", "triage"], ["pull", "read"]];
 
 export function levelOf(value) {
   if (value == null) return null;

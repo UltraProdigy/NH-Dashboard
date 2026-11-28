@@ -112,12 +112,12 @@ function fakeGitHub({ failOn = null, noRoles = false } = {}) {
 console.log("\nlevels\n");
 {
   check("GraphQL, REST and role names all map to one scale",
-    levelOf("MAINTAIN") === "maintain" && levelOf("push") === "write" && levelOf("pull") === "read" && levelOf("triage") === "triage" && levelOf("ADMIN") === "admin");
+    levelOf("MAINTAIN") === "maintain" && levelOf("push") === "write" && levelOf("pull") === "read" && levelOf("triage") === "triage" && levelOf("ADMIN") === "admin" && levelOf("MODERATE") === "moderate");
   check("a REST permissions object reads as its highest flag",
     levelOf({ admin: false, maintain: false, push: true, triage: true, pull: true }) === "write" && levelOf({ pull: true }) === "read");
   check("anything else is unknown", levelOf("content-writer") === null && levelOf(null) === null && levelOf({}) === null);
   check("levels are ordered read < triage < write < maintain < admin",
-    rank("read") < rank("triage") && rank("triage") < rank("write") && rank("write") < rank("maintain") && rank("maintain") < rank("admin") && rank(null) === 0);
+    rank("read") < rank("triage") && rank("triage") < rank("moderate") && rank("moderate") < rank("write") && rank("write") < rank("maintain") && rank("maintain") < rank("admin") && rank(null) === 0);
   check("higher picks the higher level", higher("write", "admin") === "admin" && higher("admin", "read") === "admin" && higher(null, "read") === "read");
 }
 

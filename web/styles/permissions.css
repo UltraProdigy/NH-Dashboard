@@ -26,6 +26,7 @@
 .pill.lv-admin { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
 .pill.lv-maintain { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 45%, var(--border)); }
 .pill.lv-write { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.pill.lv-moderate { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 30%, var(--border)); border-style: dashed; }
 .pill.lv-triage { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
 .pill.lv-read { color: var(--muted); }
 .pill.lv-unknown { color: var(--muted); border-style: dashed; }

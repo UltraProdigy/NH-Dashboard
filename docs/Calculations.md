@@ -1899,10 +1899,11 @@ between reads by webhooks.
 
 ### Levels
 
-From lowest to highest: **read**, **triage**, **write**, **maintain**, **admin**.
-GraphQL's `READ`…`ADMIN`, REST's `pull`/`push` and a REST `permissions` object
-(the highest flag that's true) all map onto it. A custom role name that isn't one
-of the five falls back to the base permission GitHub reports beside it.
+From lowest to highest: **read**, **triage**, **moderate**, **write**,
+**maintain**, **admin**. Moderate is GitHub's issue-moderation role, between triage
+and write. GraphQL's `READ`…`ADMIN`, REST's `pull`/`push` and a REST `permissions`
+object (the highest flag that's true) all map onto it. A custom role name that
+isn't one of the six falls back to the base permission GitHub reports beside it.
 
 A team on a repo shows the higher of its listed grant and any org role it holds,
 with its own grant beside it, since that's the part that can be changed here.
@@ -2236,6 +2237,7 @@ Add an entry when a definition changes, not when data moves. Newest first.
 
 | Date | Metric | Change |
 |---|---|---|
+| 2026-11-28 | Permission levels | Moderate added between triage and write. Grants at moderate used to read as unknown (`?`) and rank below read; they now rank above triage. See **Levels**. |
 | 2026-11-28 | Last active, inactive, back, member since, team review requests | New, for the Team Management page. No existing figure moves. Last active is the newest of six stored acts and the newest webhook delivery; inactive is 365 days or more, back is under 30; member since only reaches back to when team history started. See **Team Management**. |
 | 2026-11-24 | Custom Properties counts | New, for the Custom Properties page. No existing figure moves. Archived repos are left out; a multi-select repo counts once under each of its values; staged changes count as applied in the cross-tab and filters. See **Custom Properties**. |
 | 2026-11-14 | Relay counts, delivery decision | New, for the GitHub Webhook page. No existing figure moves. Repos are a tick list rather than patterns, a repo can have its own event list that replaces the default one, and there's no private-repo rule. See **GitHub Webhook**. |

@@ -182,7 +182,7 @@ export async function currentValue(c, { org, call }) {
       for (let page = 1; page <= 20; page++) {
         const r = await call(`${repo}/teams?per_page=100&page=${page}`);
         const hit = (r.json ?? []).find((t) => String(t.id) === String(c.team.id));
-        if (hit) return levelOf(hit.permission) ?? levelOf(hit.permissions);
+        if (hit) return levelOf(hit.role_name) ?? levelOf(hit.permission) ?? levelOf(hit.permissions);
         if ((r.json ?? []).length < 100) return null;
       }
       return null;

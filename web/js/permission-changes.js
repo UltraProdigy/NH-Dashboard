@@ -17,7 +17,7 @@ export const NOTIFY_LABEL = { enabled: "on", disabled: "off" };
 export const NOTIFY_API = { enabled: "notifications_enabled", disabled: "notifications_disabled" };
 export const MAX_DESCRIPTION = 1024;
 
-export const API_LEVEL = { read: "pull", triage: "triage", write: "push", maintain: "maintain", admin: "admin" };
+export const API_LEVEL = { read: "pull", triage: "triage", moderate: "moderate", write: "push", maintain: "maintain", admin: "admin" };
 
 export const MAX_CHANGES = 1000;
 
